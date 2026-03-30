@@ -1,0 +1,121 @@
+<svg viewBox="-50 -30 1200 700" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="dep" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#757575"/></marker>
+  </defs>
+
+  <text x="600" y="18" text-anchor="middle" font-size="24" fill="#1e1e1e" font-weight="bold">What We Need to Build — Component Map</text>
+  <text x="600" y="44" text-anchor="middle" font-size="15" fill="#757575">Green = exists · Blue = templates to create · Purple = infra · Amber = orchestrator · Red = later</text>
+
+  <!-- EXISTS zone -->
+  <rect x="15" y="65" width="500" height="330" rx="12" fill="#d3f9d8" fill-opacity="0.3" stroke="#22c55e" stroke-width="1"/>
+  <text x="30" y="86" font-size="17" fill="#15803d" font-weight="bold">PHASE 0 — EXISTS (Working)</text>
+
+  <rect x="30" y="98" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="140" y="120" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">GuardKit CLI</text>
+  <text x="140" y="136" text-anchor="middle" font-size="11" fill="#757575">Slash Commands + AutoBuild</text>
+
+  <rect x="270" y="98" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="380" y="120" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Graphiti + FalkorDB</text>
+  <text x="380" y="136" text-anchor="middle" font-size="11" fill="#757575">Knowledge Graph + MCP</text>
+
+  <rect x="30" y="160" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="140" y="182" text-anchor="middle" font-size="13" fill="#1e1e1e" font-weight="bold">langchain-deepagents</text>
+  <text x="140" y="198" text-anchor="middle" font-size="11" fill="#757575">Base template (TRF fixes)</text>
+
+  <rect x="270" y="160" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="380" y="182" text-anchor="middle" font-size="13" fill="#1e1e1e" font-weight="bold">weighted-evaluation</text>
+  <text x="380" y="198" text-anchor="middle" font-size="11" fill="#757575">Adversarial patterns (HITL etc)</text>
+
+  <rect x="30" y="222" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="140" y="244" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Dataset Factory</text>
+  <text x="140" y="260" text-anchor="middle" font-size="11" fill="#757575">11 runs, 31 fixes (working)</text>
+
+  <rect x="270" y="222" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="380" y="244" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">vLLM on GB10</text>
+  <text x="380" y="260" text-anchor="middle" font-size="11" fill="#757575">Qwen3-Coder + Embedding</text>
+
+  <rect x="30" y="284" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="140" y="306" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Player-Coach Exemplar</text>
+  <text x="140" y="322" text-anchor="middle" font-size="11" fill="#757575">deep_research + content-builder</text>
+
+  <rect x="270" y="284" width="220" height="50" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="380" y="306" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">DeepAgents SDK 0.5</text>
+  <text x="380" y="322" text-anchor="middle" font-size="11" fill="#757575">AsyncSubAgent + nvidia_deep_agent</text>
+
+  <!-- TEMPLATES zone (Phase 1) -->
+  <rect x="540" y="65" width="490" height="115" rx="12" fill="#dbe4ff" fill-opacity="0.3" stroke="#4a9eed" stroke-width="1"/>
+  <text x="555" y="86" font-size="17" fill="#2563eb" font-weight="bold">PHASE 1 — Templates (2 only)</text>
+
+  <rect x="555" y="98" width="220" height="50" rx="8" fill="#a5d8ff" stroke="#4a9eed" stroke-width="1.5"/>
+  <text x="665" y="120" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">python-library</text>
+  <text x="665" y="136" text-anchor="middle" font-size="11" fill="#757575">Pydantic + NATS Client</text>
+
+  <rect x="795" y="98" width="220" height="50" rx="8" fill="#a5d8ff" stroke="#4a9eed" stroke-width="1.5"/>
+  <text x="905" y="120" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">nats-asyncio-service</text>
+  <text x="905" y="136" text-anchor="middle" font-size="11" fill="#757575">Daemon template</text>
+
+  <!-- INFRA zone (Phase 2) -->
+  <rect x="540" y="200" width="490" height="115" rx="12" fill="#e5dbff" fill-opacity="0.3" stroke="#8b5cf6" stroke-width="1"/>
+  <text x="555" y="221" font-size="17" fill="#6d28d9" font-weight="bold">PHASE 2 — NATS Infrastructure</text>
+
+  <rect x="555" y="233" width="220" height="50" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="665" y="255" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">nats-core package</text>
+  <text x="665" y="271" text-anchor="middle" font-size="11" fill="#757575">Schemas + Topic Registry</text>
+
+  <rect x="795" y="233" width="220" height="50" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="905" y="255" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">NATS Server</text>
+  <text x="905" y="271" text-anchor="middle" font-size="11" fill="#757575">JetStream on GB10 (Docker)</text>
+
+  <!-- ORCHESTRATOR zone (Phase 3) -->
+  <rect x="200" y="415" width="620" height="155" rx="12" fill="#fff3bf" fill-opacity="0.3" stroke="#f59e0b" stroke-width="1"/>
+  <text x="215" y="436" font-size="17" fill="#b45309" font-weight="bold">PHASE 3 — Pipeline Orchestrator (new repo)</text>
+  <text x="215" y="453" font-size="12" fill="#757575">Exemplar-first: nvidia_deep_agent + Player-Coach + AsyncSubAgent → validate → build</text>
+
+  <rect x="220" y="465" width="270" height="50" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="355" y="487" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Orchestrator Agent</text>
+  <text x="355" y="503" text-anchor="middle" font-size="11" fill="#757575">Gemini/Claude + 3 modes + AsyncSubAgent</text>
+
+  <rect x="520" y="465" width="270" height="50" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="655" y="487" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Tool Runner</text>
+  <text x="655" y="503" text-anchor="middle" font-size="11" fill="#757575">Slash Commands as DeepAgents tools</text>
+
+  <rect x="220" y="525" width="270" height="30" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="355" y="545" text-anchor="middle" font-size="13" fill="#1e1e1e">NATS Adapter + Checkpoints</text>
+
+  <rect x="520" y="525" width="270" height="30" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="655" y="545" text-anchor="middle" font-size="13" fill="#1e1e1e">Project Registry (multi-tenant)</text>
+
+  <!-- LATER zone (Phase 4) -->
+  <rect x="15" y="415" width="165" height="155" rx="12" fill="#ffc9c9" fill-opacity="0.3" stroke="#ef4444" stroke-width="1"/>
+  <text x="30" y="436" font-size="15" fill="#dc2626" font-weight="bold">PHASE 4</text>
+  <rect x="25" y="450" width="145" height="28" rx="8" fill="#ffc9c9" stroke="#ef4444" stroke-width="1"/>
+  <text x="97" y="469" text-anchor="middle" font-size="12" fill="#1e1e1e">DevContainers</text>
+  <rect x="25" y="484" width="145" height="28" rx="8" fill="#ffc9c9" stroke="#ef4444" stroke-width="1"/>
+  <text x="97" y="503" text-anchor="middle" font-size="12" fill="#1e1e1e">Input Adapters</text>
+  <rect x="25" y="518" width="145" height="28" rx="8" fill="#ffc9c9" stroke="#ef4444" stroke-width="1"/>
+  <text x="97" y="537" text-anchor="middle" font-size="12" fill="#1e1e1e">PM / Dashboard</text>
+
+  <!-- HARVEST zone (Phase 5) -->
+  <rect x="850" y="415" width="180" height="155" rx="12" fill="#eebefa" fill-opacity="0.3" stroke="#ec4899" stroke-width="1"/>
+  <text x="865" y="436" font-size="15" fill="#ec4899" font-weight="bold">PHASE 5</text>
+  <rect x="860" y="455" width="160" height="55" rx="8" fill="#eebefa" stroke="#ec4899" stroke-width="1.5"/>
+  <text x="940" y="478" text-anchor="middle" font-size="13" fill="#1e1e1e" font-weight="bold">adversarial</text>
+  <text x="940" y="494" text-anchor="middle" font-size="13" fill="#1e1e1e" font-weight="bold">template</text>
+  <text x="940" y="530" text-anchor="middle" font-size="11" fill="#757575">Harvested from</text>
+  <text x="940" y="545" text-anchor="middle" font-size="11" fill="#757575">working orchestrator</text>
+
+  <!-- Dependency arrows -->
+  <line x1="515" y1="185" x2="553" y2="123" stroke="#757575" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+  <line x1="515" y1="247" x2="553" y2="258" stroke="#757575" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+  <line x1="665" y1="150" x2="665" y2="231" stroke="#757575" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+  <line x1="665" y1="285" x2="500" y2="463" stroke="#757575" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+  <line x1="250" y1="148" x2="350" y2="463" stroke="#757575" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+  <line x1="380" y1="210" x2="400" y2="463" stroke="#757575" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+
+  <!-- Phase 3 → Phase 5 arrow -->
+  <line x1="792" y1="490" x2="858" y2="482" stroke="#ec4899" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#dep)"/>
+
+  <!-- Legend -->
+  <text x="30" y="600" font-size="12" fill="#757575">Dashed arrows show dependencies. Phase 3 can start immediately using only Phase 0 components.</text>
+  <text x="30" y="616" font-size="12" fill="#757575">Phase 5 (adversarial template) is harvested from the working orchestrator — not built speculatively.</text>
+</svg>

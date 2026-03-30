@@ -1,0 +1,110 @@
+<svg viewBox="-50 -30 1250 680" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="d-b" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4a9eed"/></marker>
+    <marker id="d-p" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#8b5cf6"/></marker>
+    <marker id="d-o" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#f59e0b"/></marker>
+    <marker id="d-k" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#ec4899"/></marker>
+  </defs>
+
+  <text x="600" y="18" text-anchor="middle" font-size="24" fill="#1e1e1e" font-weight="bold">Build Order — Dependency Sequence</text>
+  <text x="600" y="44" text-anchor="middle" font-size="15" fill="#757575">Left to right: what depends on what · Exemplar-first approach</text>
+
+  <!-- Phase 0 -->
+  <text x="20" y="78" font-size="17" fill="#15803d" font-weight="bold">Phase 0: Done</text>
+  <rect x="15" y="90" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="116" text-anchor="middle" font-size="14" fill="#1e1e1e">GuardKit + AutoBuild</text>
+  <rect x="15" y="142" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="168" text-anchor="middle" font-size="14" fill="#1e1e1e">Graphiti + FalkorDB</text>
+  <rect x="15" y="194" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="220" text-anchor="middle" font-size="14" fill="#1e1e1e">Base template</text>
+  <rect x="15" y="246" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="272" text-anchor="middle" font-size="14" fill="#1e1e1e">Weighted-eval tmpl</text>
+  <rect x="15" y="298" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="324" text-anchor="middle" font-size="14" fill="#1e1e1e">Player-Coach exemplar</text>
+  <rect x="15" y="350" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="376" text-anchor="middle" font-size="14" fill="#1e1e1e">vLLM on GB10</text>
+  <rect x="15" y="402" width="175" height="42" rx="8" fill="#b2f2bb" stroke="#22c55e" stroke-width="1.5"/>
+  <text x="102" y="428" text-anchor="middle" font-size="14" fill="#1e1e1e">DeepAgents SDK 0.5</text>
+
+  <!-- Phase 1 -->
+  <text x="230" y="78" font-size="17" fill="#2563eb" font-weight="bold">Phase 1: Templates</text>
+  <rect x="225" y="90" width="185" height="42" rx="8" fill="#a5d8ff" stroke="#4a9eed" stroke-width="1.5"/>
+  <text x="317" y="116" text-anchor="middle" font-size="14" fill="#1e1e1e">python-library tmpl</text>
+  <rect x="225" y="142" width="185" height="42" rx="8" fill="#a5d8ff" stroke="#4a9eed" stroke-width="1.5"/>
+  <text x="317" y="168" text-anchor="middle" font-size="14" fill="#1e1e1e">nats-asyncio-svc tmpl</text>
+
+  <!-- Phase 2 -->
+  <text x="450" y="78" font-size="17" fill="#6d28d9" font-weight="bold">Phase 2: NATS</text>
+  <rect x="445" y="90" width="185" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="537" y="116" text-anchor="middle" font-size="14" fill="#1e1e1e">nats-core package</text>
+  <rect x="445" y="142" width="185" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="537" y="168" text-anchor="middle" font-size="14" fill="#1e1e1e">NATS Server (Docker)</text>
+
+  <!-- Phase 1 → Phase 2 arrows -->
+  <line x1="410" y1="111" x2="443" y2="111" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#d-p)"/>
+  <line x1="410" y1="163" x2="443" y2="163" stroke="#8b5cf6" stroke-width="1.5" marker-end="url(#d-p)"/>
+
+  <!-- Phase 3 -->
+  <text x="670" y="78" font-size="17" fill="#b45309" font-weight="bold">Phase 3: Orchestrator</text>
+
+  <!-- Step 1: Exemplar -->
+  <rect x="665" y="90" width="220" height="50" rx="8" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="775" y="110" text-anchor="middle" font-size="13" fill="#1e1e1e" font-weight="bold">Orchestrator Exemplar</text>
+  <text x="775" y="128" text-anchor="middle" font-size="11" fill="#757575">nvidia + P-C + AsyncSubAgent</text>
+
+  <!-- Step 2: TASK-REV -->
+  <rect x="665" y="152" width="220" height="35" rx="8" fill="#fff3bf" stroke="#f59e0b" stroke-width="1.5"/>
+  <text x="775" y="174" text-anchor="middle" font-size="13" fill="#1e1e1e">TASK-REV validation (×3)</text>
+
+  <!-- Step 3: Build orchestrator -->
+  <rect x="665" y="200" width="220" height="50" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="2"/>
+  <text x="775" y="220" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Orchestrator Agent</text>
+  <text x="775" y="238" text-anchor="middle" font-size="11" fill="#757575">Gemini/Claude + AsyncSubAgent</text>
+
+  <rect x="665" y="262" width="220" height="50" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="2"/>
+  <text x="775" y="282" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">Tool Runner</text>
+  <text x="775" y="300" text-anchor="middle" font-size="11" fill="#757575">Slash Cmds as Tools</text>
+
+  <rect x="665" y="324" width="220" height="50" rx="8" fill="#ffd8a8" stroke="#f59e0b" stroke-width="2"/>
+  <text x="775" y="344" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">NATS Adapter</text>
+  <text x="775" y="362" text-anchor="middle" font-size="11" fill="#757575">Checkpoints + Progress</text>
+
+  <!-- Phase 0 → Phase 3 dashed arrows -->
+  <line x1="190" y1="111" x2="663" y2="111" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="8,4" marker-end="url(#d-o)"/>
+  <line x1="190" y1="163" x2="663" y2="115" stroke="#f59e0b" stroke-width="1" stroke-dasharray="8,4" marker-end="url(#d-o)"/>
+  <line x1="190" y1="319" x2="663" y2="115" stroke="#f59e0b" stroke-width="1" stroke-dasharray="8,4" marker-end="url(#d-o)"/>
+  <line x1="190" y1="423" x2="663" y2="115" stroke="#f59e0b" stroke-width="1" stroke-dasharray="8,4" marker-end="url(#d-o)"/>
+
+  <!-- Phase 2 → Phase 3 NATS Adapter -->
+  <line x1="630" y1="111" x2="663" y2="349" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="6,4" marker-end="url(#d-o)"/>
+
+  <!-- Internal Phase 3 flow arrows -->
+  <line x1="775" y1="140" x2="775" y2="150" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#d-o)"/>
+  <line x1="775" y1="187" x2="775" y2="198" stroke="#f59e0b" stroke-width="1.5" marker-end="url(#d-o)"/>
+
+  <!-- Phase 4 -->
+  <text x="670" y="405" font-size="17" fill="#dc2626" font-weight="bold">Phase 4: Later</text>
+  <rect x="665" y="418" width="220" height="32" rx="8" fill="#ffc9c9" stroke="#ef4444" stroke-width="1"/>
+  <text x="775" y="439" text-anchor="middle" font-size="13" fill="#1e1e1e">Input Adapters (Reachy etc)</text>
+  <rect x="665" y="456" width="220" height="32" rx="8" fill="#ffc9c9" stroke="#ef4444" stroke-width="1"/>
+  <text x="775" y="477" text-anchor="middle" font-size="13" fill="#1e1e1e">PM Adapters (Linear)</text>
+  <rect x="665" y="494" width="220" height="32" rx="8" fill="#ffc9c9" stroke="#ef4444" stroke-width="1"/>
+  <text x="775" y="515" text-anchor="middle" font-size="13" fill="#1e1e1e">DevContainers / Dashboard</text>
+
+  <!-- Phase 5 -->
+  <text x="930" y="78" font-size="17" fill="#ec4899" font-weight="bold">Phase 5: Harvest</text>
+  <rect x="925" y="200" width="210" height="60" rx="8" fill="#eebefa" stroke="#ec4899" stroke-width="2"/>
+  <text x="1030" y="225" text-anchor="middle" font-size="14" fill="#1e1e1e" font-weight="bold">adversarial template</text>
+  <text x="1030" y="245" text-anchor="middle" font-size="11" fill="#757575">Harvested from working orch.</text>
+
+  <!-- Phase 3 → Phase 5 -->
+  <line x1="887" y1="225" x2="923" y2="228" stroke="#ec4899" stroke-width="2" marker-end="url(#d-k)"/>
+
+  <!-- Key insight -->
+  <rect x="15" y="490" width="380" height="95" rx="8" fill="#fff3bf" fill-opacity="0.5" stroke="#f59e0b" stroke-width="1"/>
+  <text x="30" y="512" font-size="14" fill="#1e1e1e" font-weight="bold">KEY INSIGHT</text>
+  <text x="30" y="532" font-size="13" fill="#757575">Phase 3 can start immediately using</text>
+  <text x="30" y="548" font-size="13" fill="#757575">only Phase 0 components. NATS (Phase 2)</text>
+  <text x="30" y="564" font-size="13" fill="#757575">enables multi-modal input but is not</text>
+  <text x="30" y="580" font-size="13" fill="#757575">blocking for the core pipeline.</text>
+</svg>

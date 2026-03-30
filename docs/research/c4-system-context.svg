@@ -1,0 +1,81 @@
+<svg viewBox="-50 -30 1200 740" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, sans-serif">
+  <defs>
+    <marker id="arr-b" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#4a9eed"/></marker>
+    <marker id="arr-a" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#f59e0b"/></marker>
+    <marker id="arr-g" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22c55e"/></marker>
+    <marker id="arr-t" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#06b6d4"/></marker>
+  </defs>
+
+  <text x="600" y="18" text-anchor="middle" font-size="24" fill="#1e1e1e" font-weight="bold">Pipeline Orchestrator — System Context (C4 L1)</text>
+  <text x="600" y="44" text-anchor="middle" font-size="15" fill="#757575">How the orchestrator fits in the Ship's Computer fleet</text>
+
+  <!-- Human -->
+  <ellipse cx="510" cy="95" rx="90" ry="30" fill="#a5d8ff" stroke="#4a9eed" stroke-width="2"/>
+  <text x="510" y="100" text-anchor="middle" font-size="16" fill="#1e1e1e">Developer (Rich)</text>
+
+  <!-- Input Adapters -->
+  <rect x="30" y="155" width="980" height="85" rx="12" fill="#dbe4ff" fill-opacity="0.3" stroke="#4a9eed" stroke-width="1"/>
+  <text x="40" y="174" font-size="14" fill="#2563eb" font-weight="bold">Input Adapters (Phase 4 — later)</text>
+  <rect x="50" y="186" width="110" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="105" y="211" text-anchor="middle" font-size="12" fill="#1e1e1e">Reachy Voice</text>
+  <rect x="175" y="186" width="120" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="235" y="211" text-anchor="middle" font-size="12" fill="#1e1e1e">Telegram/Slack</text>
+  <rect x="310" y="186" width="110" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="365" y="211" text-anchor="middle" font-size="12" fill="#1e1e1e">Dashboard</text>
+  <rect x="435" y="186" width="70" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="470" y="211" text-anchor="middle" font-size="12" fill="#1e1e1e">CLI</text>
+  <rect x="520" y="186" width="120" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="580" y="211" text-anchor="middle" font-size="12" fill="#1e1e1e">Linear/GitHub</text>
+  <rect x="655" y="186" width="110" height="42" rx="8" fill="#d0bfff" stroke="#8b5cf6" stroke-width="1.5"/>
+  <text x="710" y="211" text-anchor="middle" font-size="12" fill="#1e1e1e">CI/CD Hook</text>
+
+  <line x1="510" y1="125" x2="510" y2="155" stroke="#4a9eed" stroke-width="2" marker-end="url(#arr-b)"/>
+
+  <!-- NATS -->
+  <rect x="200" y="275" width="640" height="55" rx="12" fill="#ffd8a8" stroke="#f59e0b" stroke-width="2.5"/>
+  <text x="520" y="308" text-anchor="middle" font-size="20" fill="#1e1e1e" font-weight="bold">NATS JetStream Event Bus</text>
+  <line x1="510" y1="240" x2="510" y2="275" stroke="#f59e0b" stroke-width="2" marker-end="url(#arr-a)"/>
+
+  <!-- Orchestrator -->
+  <rect x="210" y="375" width="620" height="95" rx="12" fill="#b2f2bb" stroke="#22c55e" stroke-width="3"/>
+  <text x="520" y="400" text-anchor="middle" font-size="18" fill="#1e1e1e" font-weight="bold">Pipeline Orchestrator Agent</text>
+  <text x="520" y="420" text-anchor="middle" font-size="14" fill="#1e1e1e">DeepAgents SDK 0.5 · Gemini/Claude reasoning model</text>
+  <text x="520" y="440" text-anchor="middle" font-size="13" fill="#757575">SubAgent (sync: Graphiti, context) + AsyncSubAgent (non-blocking: AutoBuild)</text>
+  <text x="520" y="458" text-anchor="middle" font-size="13" fill="#757575">Modes: Greenfield | Feature Addition | Review-Fix</text>
+  <line x1="520" y1="330" x2="520" y2="375" stroke="#22c55e" stroke-width="2" marker-end="url(#arr-g)"/>
+
+  <!-- Tools row -->
+  <rect x="30" y="520" width="170" height="65" rx="8" fill="#c3fae8" stroke="#06b6d4" stroke-width="1.5"/>
+  <text x="115" y="548" text-anchor="middle" font-size="15" fill="#1e1e1e" font-weight="bold">GuardKit CLI</text>
+  <text x="115" y="566" text-anchor="middle" font-size="12" fill="#757575">Slash Commands</text>
+
+  <rect x="230" y="520" width="160" height="65" rx="8" fill="#c3fae8" stroke="#06b6d4" stroke-width="1.5"/>
+  <text x="310" y="548" text-anchor="middle" font-size="15" fill="#1e1e1e" font-weight="bold">Graphiti</text>
+  <text x="310" y="566" text-anchor="middle" font-size="12" fill="#757575">Knowledge Graph</text>
+
+  <rect x="420" y="520" width="160" height="65" rx="8" fill="#c3fae8" stroke="#06b6d4" stroke-width="1.5"/>
+  <text x="500" y="548" text-anchor="middle" font-size="15" fill="#1e1e1e" font-weight="bold">Impl Model</text>
+  <text x="500" y="566" text-anchor="middle" font-size="12" fill="#757575">Claude / vLLM GB10</text>
+
+  <rect x="610" y="520" width="150" height="65" rx="8" fill="#c3fae8" stroke="#06b6d4" stroke-width="1.5"/>
+  <text x="685" y="548" text-anchor="middle" font-size="15" fill="#1e1e1e" font-weight="bold">Git + CI/CD</text>
+  <text x="685" y="566" text-anchor="middle" font-size="12" fill="#757575">GitHub Actions</text>
+
+  <rect x="790" y="520" width="140" height="65" rx="8" fill="#c3fae8" stroke="#06b6d4" stroke-width="1.5"/>
+  <text x="860" y="548" text-anchor="middle" font-size="15" fill="#1e1e1e" font-weight="bold">Linear</text>
+  <text x="860" y="566" text-anchor="middle" font-size="12" fill="#757575">PM Tool</text>
+
+  <line x1="350" y1="470" x2="140" y2="520" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#arr-t)"/>
+  <line x1="420" y1="470" x2="330" y2="520" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#arr-t)"/>
+  <line x1="520" y1="470" x2="500" y2="520" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#arr-t)"/>
+  <line x1="620" y1="470" x2="700" y2="520" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#arr-t)"/>
+  <line x1="700" y1="470" x2="870" y2="520" stroke="#06b6d4" stroke-width="1.5" marker-end="url(#arr-t)"/>
+
+  <!-- Hardware -->
+  <rect x="20" y="630" width="500" height="45" rx="8" fill="#fff3bf" fill-opacity="0.5" stroke="#f59e0b" stroke-width="1"/>
+  <text x="270" y="657" text-anchor="middle" font-size="14" fill="#1e1e1e">Dell DGX Spark GB10 — NATS, vLLM, Graphiti, Docker</text>
+  <rect x="550" y="630" width="400" height="45" rx="8" fill="#fff3bf" fill-opacity="0.5" stroke="#f59e0b" stroke-width="1"/>
+  <text x="750" y="657" text-anchor="middle" font-size="14" fill="#1e1e1e">MacBook Pro M2 Max — Planning, Dashboard</text>
+
+  <text x="30" y="710" font-size="12" fill="#757575">Green = exists · Blue/purple = Phase 4 (later) · Amber = NATS (Phase 2) · Teal = tools the orchestrator invokes</text>
+</svg>
