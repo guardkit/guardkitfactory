@@ -50,7 +50,7 @@ guardkit/
 ├── nats-core                 ← Shared contract layer (pip-installable library)
 │   └── docs/design/
 │       ├── contracts/
-│       │   └── agent-manifest-contract.md        ← AgentManifest, ToolCapability, IntentCapability schemas
+│       │   └── agent-manifest-contract.md        ← AgentManifest + AgentConfig schemas
 │       ├── specs/
 │       │   └── nats-core-system-spec.md          ← 6 features (was 5), BDD acceptance criteria
 │       └── decisions/
@@ -226,6 +226,7 @@ These apply across all repos. Do NOT reopen.
 | D19 | Trust tiers | core (infrastructure), specialist (fleet), extension (future plugins) |
 | D20 | Direct tool topics | `agents.{agent_id}.tools.{tool_name}` for agent-to-agent calls bypassing Jarvis |
 | D21 | Graphiti for architectural memory | Working MCP setup and proven Python client retained for Architect Agent |
+| D22 | AgentConfig standardisation | Shared Pydantic model in nats-core for runtime config (model endpoints, Graphiti connection, NATS URL, API keys, timeouts). Companion to AgentManifest — manifest is public (what), config is private (how). All agents import from nats-core. Uses pydantic-settings with AGENT_ env prefix. |
 
 ---
 

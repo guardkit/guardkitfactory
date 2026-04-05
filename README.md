@@ -1,50 +1,56 @@
-# GuardKit Factory
+# GuardKit Factory — Autonomous Software Development Pipeline
 
-Software factory using GuardKit's primitives and AutoBuild.
+The primary deliverable in the Ship's Computer agent fleet. An autonomous pipeline agent
+that drives the full GuardKit slash command lifecycle — from architecture through to
+verified, deployable code — using a two-model architecture where a reasoning model
+orchestrates and validates while an implementation model executes.
 
-## What This Is
+## Status: Pre-Architecture (Ready to Build)
 
-An autonomous Pipeline Orchestrator agent that drives the GuardKit slash command lifecycle — from architecture through to verified, deployable code. Uses a two-model architecture where a reasoning model (Gemini/Claude) orchestrates and validates, while an implementation model (Claude Code SDK or local vLLM) executes.
+Conversation starters and consolidated build plan ready. Templates proven. Next step:
+run `/system-arch` using the conversation starter.
 
-Built using the LangChain DeepAgents SDK with `AsyncSubAgent` for non-blocking long-running builds.
+**Domain:** guardkitfactory.ai
 
-## Architecture
+## What It Does
 
-See `docs/research/` for full architecture documents:
+Replaces the human operator in the GuardKit pipeline. The human moves from operator to
+approver at defined checkpoints.
 
-- **[Consolidated Build Plan](docs/research/pipeline-orchestrator-consolidated-build-plan.md)** — What exists, what needs building, and the dependency sequence (Phase 0-5)
-- **[Motivation](docs/research/pipeline-orchestrator-motivation.md)** — The observation that started this: 3 decisions across 43 tasks, 93% defaults accepted
-- **[Conversation Starter](docs/research/pipeline-orchestrator-conversation-starter.md)** — Context brief for `/system-arch` + `/system-design` session
+Pipeline: `/system-arch` → `/system-design` → `/feature-spec` → `/feature-plan` → `autobuild` → `/task-review`
 
-### C4 Diagrams
+**Evidence this works:** 43 tasks across 6 features built with only 3 high-impact human
+decisions. 93% of outputs accepted as defaults (TASK-REV-F5F5).
 
-- [System Context (L1)](docs/research/c4-system-context.svg) — How the orchestrator fits in the Ship's Computer fleet
-- [Component Map](docs/research/c4-component-map.svg) — What exists vs what needs building
-- [Build Order](docs/research/c4-build-order.svg) — Dependency sequence across phases
+## Docs
 
-## Approach
+### Architecture & Build Plan
+- `docs/research/pipeline-orchestrator-conversation-starter.md` — For `/system-arch` session
+- `docs/research/pipeline-orchestrator-consolidated-build-plan.md` — Full build plan
+- `docs/research/pipeline-orchestrator-motivation.md` — Why we're building this
+- `docs/research/c4-*.svg` — C4 architecture diagrams
 
-This project follows the **exemplar-first methodology** proven in the original template creation:
+### Fleet Context
+- `docs/research/ideas/fleet-master-index.md` — Master index across all repos
 
-1. **Exemplar** (`guardkit/deepagents-orchestrator-exemplar`) — Combine `nvidia_deep_agent` + `deepagents-player-coach-exemplar` + `AsyncSubAgent` patterns
-2. **Validate** — TASK-REV on the exemplar (3 reviews)
-3. **Build** — `/system-arch` → `/system-design` → AutoBuild from validated exemplar
-4. **Prove** — Run in production
-5. **Harvest** — Extract `langchain-deepagents-adversarial` template back into GuardKit
+## Part of the Jarvis Fleet
 
-## Related Repos
+The heaviest agent in the fleet. Dispatched by the Jarvis intent router for software
+engineering tasks. Uses `langchain-deepagents-weighted-evaluation` template as base,
+with reasoning model layer, slash commands as tools, and NATS integration on top.
 
-| Repo | Purpose |
-|------|---------|
-| [guardkit/guardkit](https://github.com/guardkit/guardkit) | CLI tool with slash commands and AutoBuild |
-| [guardkit/deepagents-orchestrator-exemplar](https://github.com/guardkit/deepagents-orchestrator-exemplar) | Exemplar that feeds this project |
-| [guardkit/agentic-dataset-factory](https://github.com/guardkit/agentic-dataset-factory) | Working Player-Coach pipeline (first project built with templates) |
-| [guardkit/deepagents-player-coach-exemplar](https://github.com/guardkit/deepagents-player-coach-exemplar) | Original exemplar that produced the base template |
+### Related Repos
+- `guardkit/jarvis` — Intent router + General Purpose Agent
+- `guardkit/youtube-planner` — Content planning pipeline
+- `guardkit/ideation-agent` — Structured brainstorming
+- `guardkit/guardkit` — CLI (slash commands, templates, AutoBuild)
+- `guardkit/deepagents-player-coach-exemplar` — Proven adversarial pattern exemplar
 
-## Domain
+## Build Command
 
-**guardkitfactory.ai** (available)
-
-## License
-
-MIT
+```bash
+# Start architecture:
+# 1. Paste pipeline-orchestrator-conversation-starter.md into Claude Desktop
+# 2. Run: /system-arch "GuardKit Factory Pipeline Orchestrator"
+# 3. Then: /system-design, /system-plan, /feature-spec, /feature-plan, autobuild
+```

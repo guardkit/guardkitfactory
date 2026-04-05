@@ -133,7 +133,7 @@ Add to the Related Documents table at the bottom:
 - [x] Phase 8 content replaced with updated version (brought forward)
 - [x] Priority change note added at top of Build Sequence section
 - [x] Two new entries added to Related Documents table
-- [ ] Committed with message: "Update fleet master index: add architect-agent-mcp, new decisions D14-D21, bring forward Phase 8 for FinProxy"
+- [x] Committed with message: "Update fleet master index: add architect-agent-mcp, new decisions D14-D21, bring forward Phase 8 for FinProxy"
 
 ## Test Requirements
 
