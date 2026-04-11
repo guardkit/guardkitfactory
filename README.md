@@ -1,6 +1,6 @@
-# GuardKit Factory — Autonomous Software Development Pipeline
+# GuardKit Forge — Autonomous Software Development Pipeline
 
-The primary deliverable in the Ship's Computer agent fleet. An autonomous pipeline agent
+The primary deliverable in the Jarvis agent fleet. An autonomous pipeline agent
 that drives the full GuardKit slash command lifecycle — from architecture through to
 verified, deployable code — using a two-model architecture where a reasoning model
 orchestrates and validates while an implementation model executes.
@@ -9,8 +9,6 @@ orchestrates and validates while an implementation model executes.
 
 Conversation starters and consolidated build plan ready. Templates proven. Next step:
 run `/system-arch` using the conversation starter.
-
-**Domain:** guardkitfactory.ai
 
 ## What It Does
 
