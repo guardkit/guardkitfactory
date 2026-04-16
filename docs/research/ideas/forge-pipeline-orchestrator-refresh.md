@@ -1,7 +1,8 @@
 # GuardKit Factory — Pipeline Orchestrator Agent Refresh
 ## Conversation Starter for Strategic Re-Alignment
 ## Date: 11 April 2026 (updated: 11 April 2026 — v3)
-## Status: Exploration — captures how the ecosystem has evolved since March 2026
+## Status: Exploration — captures how the ecosystem has evolved since March 2026. Aligned with anchor v2.2.
+## Canonical architecture: [forge-pipeline-architecture.md](../forge-pipeline-architecture.md) v2.2 — this document is a supporting design artefact for the checkpoint protocol and specialist-agent delegation model.
 ## Repo: `guardkit/forge`
 ## Related: `specialist-agent` unified harness (Phase 1B), `nats-core` (97% coverage, implemented), `nats-infrastructure` (configured, ready to run), fleet master index
 
@@ -205,13 +206,13 @@ The final PR review remains a hard human checkpoint — this is the one gate tha
 
 ---
 
-## Revised Architecture: Forge as Checkpoint Manager
+## Revised Architecture: Forge as NATS-Native Pipeline Orchestrator
 
-### Core Reframe
+### Core Framing
 
-The Forge is not primarily an autonomous pipeline runner. Looking at the greenfield flow, three of the first four stages involve potential human review (product docs → James, architecture → Rich, feature specs → propose-review). Only `/system-design` and the downstream build stages are reliably autonomous.
+The Forge is the NATS-native pipeline orchestrator (see [anchor v2.2 §2](../forge-pipeline-architecture.md)). Confidence-gated checkpoints are how it decides when to involve Rich — they are the mechanism by which the orchestrator manages human engagement, not the Forge's identity.
 
-**The Forge is a checkpoint manager** that does autonomous work between human decision points. Its core competency is: managing the state machine between checkpoints, knowing which agent to call, what context to pass, evaluating Coach scores against thresholds, routing to humans when confidence is low, and recovering from failures. Autonomous execution is what happens *between* checkpoints — it's important but it's not the main event.
+Its core competency is: orchestrating the pipeline from feature spec through to PR, managing the state machine between stages, knowing which agent to call, what context to pass, evaluating Coach scores against configurable thresholds, routing to humans when confidence is low, and recovering from failures. The checkpoint protocol (described in detail in this document) is the Forge's *quality gate mechanism*, not its *purpose*.
 
 With confidence-gated checkpoints, the distinction between "autonomous stage" and "human stage" dissolves. Every stage is evaluated by the Coach. The Coach score determines whether a human needs to engage. The Forge manages this flow.
 
@@ -278,7 +279,7 @@ Forge Agent
 
 2. **The Forge doesn't need product management judgment.** It delegates to the product-owner-agent. James's review is confidence-gated — he only reviews when the Coach flags concerns, not every pipeline run.
 
-3. **The Forge IS the checkpoint manager.** Its core competency is: evaluating Coach scores, applying threshold logic, routing to humans when confidence is low, and managing the state machine between decision points. This is orchestration reasoning, not domain reasoning.
+3. **The Forge's checkpoint protocol is its quality gate mechanism.** Its core competency is: orchestrating the pipeline end-to-end, evaluating Coach scores, applying threshold logic, routing to humans when confidence is low, and managing the state machine between stages. This is orchestration reasoning, not domain reasoning.
 
 4. **The Forge discovers agents dynamically.** Via `NATSKVManifestRegistry.find_by_intent()` and `find_by_tool()`, the Forge finds which agents are available and routes work accordingly. The `AgentManifest` generated from each role's `agent-role.yaml` means new specialist roles are automatically discoverable.
 
@@ -353,6 +354,22 @@ Forge triggers CI/CD (git push, PR, GitHub Actions)
 🔴 HARD CHECKPOINT: Human reviews PR (always human, never auto-approved)
 ```
 
+### Mapping to Anchor v2.2 Pipeline Stages
+
+The greenfield flow above uses finer-grained steps than anchor v2.2 §4's five stages. This mapping shows the correspondence:
+
+| This doc's flow block | Anchor v2.2 §4 Stage | Notes |
+|-----------------------|-----------------------|-------|
+| product-owner-agent delegation | Stage 1 — Specification Review | Anchor verifies spec completeness; this doc generates product docs from raw input |
+| architect-agent delegation | Stage 2 — Architecture Review | Specialist evaluates feasibility, produces ADRs |
+| /system-arch + /system-design | (between Stage 2 and Stage 3) | Tactical resolution of architect's strategic output — not a separate anchor stage |
+| /feature-spec × N | Stage 3 — Feature Planning (first half) | Per-spec confidence gating |
+| /feature-plan × N | Stage 3 — Feature Planning (second half) | Task decomposition from approved specs |
+| autobuild × N | Stage 4 — AutoBuild Execution | Per-task Coach validation |
+| verify + git/PR | Stage 5 — PR Creation | Quality gates + PR creation |
+
+The anchor's Stage 1 ("Specification Review") is broader than just product-owner delegation — it also verifies that `/feature-spec` outputs exist and assumptions are resolved. The mapping is approximate; the anchor is authoritative for stage definitions.
+
 ### Key Differences from Previous Versions
 
 1. **Confidence-gated checkpoints replace hard checkpoints.** The Coach score determines whether a human needs to engage, not a fixed pipeline stage. Most stages auto-approve.
@@ -390,6 +407,42 @@ Forge triggers CI/CD (git push, PR, GitHub Actions)
 | `autobuild` | Feature ID | Build result |
 | `task_review` | Subject path | Review report |
 
+### Context Manifest Convention
+
+The Forge reads `.guardkit/context-manifest.yaml` from each target repo to discover
+cross-repo dependencies and assemble `--context` flags automatically. This eliminates
+the manual context flag selection that previously required a Claude Desktop conversation
+to identify the right docs for each command invocation.
+
+Manifest format:
+```yaml
+repo: forge
+dependencies:
+  nats-core:
+    path: ../nats-core
+    relationship: "Why this repo depends on nats-core"
+    key_docs:
+      - path: docs/design/specs/nats-core-system-spec.md
+        category: specs          # specs | contracts | decisions | source | product | architecture
+        description: "What this doc provides"
+internal_docs:
+  always_include:               # Included in every GuardKit command for this repo
+    - docs/architecture/ARCHITECTURE.md
+    - docs/design/DESIGN.md
+```
+
+Category filtering by command type:
+- `/system-arch` → architecture + decisions
+- `/system-design` → specs + decisions + contracts
+- `/feature-spec` → specs + contracts + source
+- `autobuild` → contracts + source
+- `internal_docs.always_include` → every command
+
+This convention replaces the manual `--context` flag assembly that was previously done
+in Claude Desktop sessions and captured in build plans. The build plans remain as
+the authoritative record of what was actually run, but the Forge uses manifests for
+automated invocations.
+
 ### Checkpoint Tools (using nats-core event payloads)
 
 | Tool | NATS Payload | Topic Pattern | Purpose |
@@ -415,14 +468,15 @@ The Forge publishes pipeline lifecycle events using the nats-core payloads that 
 
 | Pipeline Stage | Event Published | Payload |
 |---------------|----------------|---------|
-| Feature planned | `pipeline.feature-planned.{feature_id}` | `FeaturePlannedPayload` (wave_count, task_count, waves) |
-| Ready for build | `pipeline.feature-ready-for-build.{feature_id}` | `FeatureReadyForBuildPayload` (spec_path, plan_path, pipeline_type) |
+| Build queued | `pipeline.build-queued.{feature_id}` | `BuildQueuedPayload` (feature_id, repo, triggered_by, correlation_id — see anchor v2.2 §7) |
 | Build starts | `pipeline.build-started.{feature_id}` | `BuildStartedPayload` (build_id, wave_total) |
 | Build progress | `pipeline.build-progress.{feature_id}` | `BuildProgressPayload` (wave, overall_progress_pct, elapsed_seconds) |
+| Stage complete | `pipeline.stage-complete.{feature_id}` | `StageCompletePayload` (stage, status, coach_score) |
+| Build paused | `pipeline.build-paused.{feature_id}` | `BuildPausedPayload` (stage, coach_score, gate_mode) |
 | Build completes | `pipeline.build-complete.{feature_id}` | `BuildCompletePayload` (tasks_completed, tasks_failed, pr_url, summary) |
 | Build fails | `pipeline.build-failed.{feature_id}` | `BuildFailedPayload` (failure_reason, recoverable, failed_task_id) |
 
-These are not new designs — they're already implemented and tested in nats-core. The Forge just calls `client.publish()` with the appropriate payload at each stage.
+> **Decision (TASK-FVD3, correction 12):** `FeaturePlannedPayload` and `FeatureReadyForBuildPayload` are **retired** from this document. Anchor v2.2 §7 does not include them, and their function is covered by `StageCompletePayload` (for Stage 3 completion) and `BuildQueuedPayload` (for build readiness). The payloads still exist in `nats-core` and should be marked `@deprecated` there — coordinated via TASK-NCFA-001 in the nats-core repo.
 
 ### Degraded Mode
 
@@ -472,7 +526,7 @@ tools:
     risk_level: read_only
     async_mode: false
 
-max_concurrent: 3  # one pipeline per project, up to 3 projects
+max_concurrent: 1  # sequential builds per ADR-SP-012
 trust_tier: core    # infrastructure-level agent, not specialist
 nats_topic: agents.command.forge
 ```
@@ -500,6 +554,25 @@ langsmith_project: "forge"
 heartbeat_interval_seconds: 30
 max_task_timeout_seconds: 3600  # 60 min — full pipeline runs are long
 ```
+
+---
+
+## Pipeline State Machine
+
+The Forge's state machine is formally defined in [anchor v2.2 §6](../forge-pipeline-architecture.md). The states are:
+
+- **IDLE** — no pending JetStream messages; waiting for next `pipeline.build-queued`
+- **PREPARING** — git clone/pull, validate feature YAML, create branch, write SQLite
+- **RUNNING** — pipeline stages 1-5 executing with confidence gating and NATS commands to specialists
+- **PAUSED** — awaiting human review after a 🟡 flag-for-review gate; JetStream message remains unacknowledged
+- **FINALISING** — push branch, create PR, publish `pipeline.build-complete`, ACK JetStream message
+- **COMPLETE** — PR created, SQLite updated, JetStream message acknowledged
+- **FAILED** — hard stop or rejection; SQLite updated, JetStream message acknowledged
+- **INTERRUPTED** — crash recovery state; JetStream redelivers, Forge restarts from PREPARING
+
+The PAUSED state is the runtime manifestation of the confidence-gated checkpoint protocol described in this document. When a stage scores 🟡 (between `min_threshold` and `auto_threshold`), the Forge publishes `pipeline.build-paused` and enters PAUSED until the human responds.
+
+See anchor v2.2 §6 for the full state transition diagram and crash recovery logic.
 
 ---
 
@@ -533,7 +606,7 @@ These aspects of the original conversation starter are unchanged and should be c
 | Fine-tuned models | Not applicable (Forge uses API models) | Specialist agents use fine-tuned models; Forge uses reasoning API |
 | Degraded mode | Not addressed | Automatic fallback if specialist agents unavailable (with forced FLAG FOR REVIEW) |
 | Agent name | "Pipeline Orchestrator" | **Forge** |
-| Core identity | Pipeline orchestrator | **Checkpoint manager** that does autonomous work between human decision points |
+| Core identity | Pipeline orchestrator | **NATS-native pipeline orchestrator** with confidence-gated checkpoints (see anchor v2.2 §2) |
 | NATS messaging layer | "Needed" | **Implemented** — nats-core at 97% coverage, nats-infrastructure configured |
 | `/feature-spec` interaction | Simple tool invocation | Confidence-gated — auto-approves high-scoring specs, flags low-scoring ones |
 | Specialist agent repo | Separate repos (architect-agent, product-owner-agent) | Single repo (`specialist-agent`) with role configs that generate `AgentManifest` |
@@ -587,6 +660,16 @@ The Forge is the capstone. It's the last major agent to build because it coordin
 
 ---
 
+## Jarvis as Upstream Build Trigger
+
+This document describes the Forge's *runtime behaviour* once a build is in flight — the checkpoint protocol, specialist delegation, and state machine. The *trigger path* that puts builds into JetStream is defined in [anchor v2.2 §5.0 "Build Request Sources"](../forge-pipeline-architecture.md) and ADR-SP-014.
+
+In summary: builds enter JetStream as `pipeline.build-queued.{feature_id}` messages from three possible sources — CLI (`forge queue`), Jarvis (voice/Telegram/dashboard/CLI-wrapper), or future notification adapters. The Forge consumes from JetStream without distinguishing sources at the consumer level; the `BuildQueuedPayload` carries `triggered_by`, `originating_adapter`, and `correlation_id` for history and progress routing. Forge also registers on `fleet.register` for Jarvis CAN-bus discovery.
+
+The checkpoint protocol described in this document applies identically regardless of trigger source. A Jarvis-triggered build goes through the same confidence gates as a CLI-triggered one.
+
+---
+
 ## Do-Not-Reopen Decisions
 
 1. **Forge is a coordinator, not a specialist.** No Player-Coach loop for Forge itself.
@@ -596,7 +679,7 @@ The Forge is the capstone. It's the last major agent to build because it coordin
 5. **NATS-native from day one.** No subprocess fallback — nats-core and nats-infrastructure are implemented and ready to run. Skip v0.
 6. **Degraded mode forces FLAG FOR REVIEW.** No Coach score → no auto-approve.
 7. **nats-core event payloads for checkpoint wire format.** `ApprovalRequestPayload`, `ApprovalResponsePayload`, `NotificationPayload` — no new types needed.
-8. **Pipeline event publishing uses existing nats-core payloads.** `FeaturePlannedPayload` through `BuildCompletePayload` — already implemented and tested.
+8. **Pipeline event publishing uses existing nats-core payloads.** `BuildQueuedPayload` through `BuildCompletePayload` per anchor v2.2 §7. `FeaturePlannedPayload` and `FeatureReadyForBuildPayload` retired (see correction 12 decision above).
 
 ---
 

@@ -1,6 +1,6 @@
 # Forge Build Plan — Pipeline Orchestrator & Checkpoint Manager
 
-## Status: Ready for `/system-arch` (after specialist-agent Phase 3 + NATS infrastructure tested)
+## Status: Ready for `/system-arch` (after specialist-agent Phase 3 + NATS infrastructure tested) — aligned with anchor v2.2
 ## Repo: `guardkit/forge`
 ## Agent ID: `forge`
 ## Target: Post specialist-agent Phase 3 completion
@@ -30,8 +30,7 @@ All prerequisites must be met before starting Step 1 (`/system-arch`).
 
 ### Hard Prerequisites (blocking)
 
-- [x] **nats-core library implemented** — 97% test coverage, all event payloads,
-      NATSClient, NATSKVManifestRegistry, Topics, AgentConfig, AgentManifest
+- [~] **nats-core library implemented** — shipping at 98% coverage, but v2.2-critical payloads (`BuildQueuedPayload`, `BuildPausedPayload`, `BuildResumedPayload`, `StageCompletePayload`, `StageGatedPayload`) and their topics must be added in Phase 2 (see anchor v2.2 §7 and alignment review Appendix C)
 - [ ] **nats-infrastructure running on GB10** — NATS server up, JetStream enabled,
       accounts configured, `docker compose up -d` executed and verified
 - [ ] **nats-core integration tests passing** — tests against live NATS server on GB10,
@@ -44,6 +43,8 @@ All prerequisites must be met before starting Step 1 (`/system-arch`).
       call `call_agent_tool()` on architect-agent, receive `ResultPayload` with
       `coach_score`, `criterion_breakdown`, `detection_findings` in the result dict
 
+- [ ] **Specialist-agent dual-role deployment** — `--role` flag wired to manifest builder; `get_product_owner_manifest()` exists; `agent_id` derived from role or overridable via `SPECIALIST_AGENT_ID`; PO + Architect can run concurrently on the same NATS without fleet registration collision. See ADR-SP-015 in anchor v2.2 §9.
+
 ### Soft Prerequisites (valuable but not blocking)
 
 - [ ] **specialist-agent Phase 1B complete** — unified harness with `--role` flag. If
@@ -53,20 +54,45 @@ All prerequisites must be met before starting Step 1 (`/system-arch`).
 - [ ] **specialist-agent Phase F complete** — fine-tuned models on Bedrock. If not
       ready, specialist agents use base models (lower quality but pipeline still works)
 
+### Context Manifests (Cross-Repo Dependency Maps)
+
+The Forge reads `.guardkit/context-manifest.yaml` from each target repo to discover
+cross-repo dependencies and their key docs. These manifests are the data source for
+`src/forge/commands/context.py` — the module that constructs `--context` flags for
+GuardKit command invocations.
+
+Manifests must exist in target repos before the Forge can assemble context-aware
+command invocations:
+
+- [x] **forge** — `.guardkit/context-manifest.yaml` (4 dependencies: nats-core,
+      specialist-agent, nats-infrastructure, guardkit)
+- [ ] **lpa-platform** — `.guardkit/context-manifest.yaml` (3 dependencies: nats-core,
+      finproxy-docs, dotnet-functional-fastendpoints-exemplar)
+- [ ] **specialist-agent** — `.guardkit/context-manifest.yaml` (3 dependencies:
+      nats-core, nats-infrastructure, agentic-dataset-factory — phase-tagged)
+
+Manifests are YAML files listing each dependency's path, relationship, and key docs
+with categories (specs, contracts, decisions, source, product, architecture). The Forge
+uses categories to filter context by command type: `/feature-spec` pulls specs +
+contracts; `/system-arch` pulls architecture + decisions.
+
+See `forge-context-manifest.yaml`, `lpa-platform-context-manifest.yaml`, and
+`specialist-agent-context-manifest.yaml` for the current manifests.
+
 ### Context Documents Available
 
 These documents will be used as `--context` inputs during the build:
 
 | Document | Path | Used In |
 |----------|------|---------|
-| Pipeline orchestrator refresh v3 | `forge/docs/research/ideas/forge-pipeline-orchestrator-refresh.md` | /system-arch |
+| **Forge pipeline architecture v2.2** | `forge/docs/research/forge-pipeline-architecture.md` | **Primary context for /system-arch** |
+| Forge build-plan alignment review | `forge/docs/research/forge-build-plan-alignment-review.md` | /system-arch (drift history, supporting context) |
+| Pipeline orchestrator refresh v3 | `forge/docs/research/ideas/forge-pipeline-orchestrator-refresh.md` | /system-arch (supporting — see TASK-FVD3 for corrections) |
 | Original pipeline motivation | `forge/docs/research/pipeline-orchestrator-motivation.md` | /system-arch |
 | Original conversation starter | `forge/docs/research/pipeline-orchestrator-conversation-starter.md` | /system-arch |
-| Fleet master index v2 | `forge/docs/research/ideas/fleet-master-index.md` | /system-arch |
+| Fleet master index v2 | `forge/docs/research/ideas/fleet-master-index.md` | /system-arch (see TASK-FVD4 for corrections) |
 | Specialist agent vision | `specialist-agent/docs/research/ideas/architect-agent-vision.md` | /system-arch |
 | nats-core system spec | `nats-core/docs/design/specs/nats-core-system-spec.md` | /system-arch, /system-design |
-| Dev pipeline architecture | Project knowledge: `dev-pipeline-architecture.md` | /system-arch |
-| Dev pipeline system spec | Project knowledge: `dev-pipeline-system-spec.md` | /system-arch |
 | Agent manifest contract | `nats-core/docs/design/contracts/agent-manifest-contract.md` | /system-design |
 | Forge pipeline config example | (to be produced by /system-arch) | /system-design, /feature-spec |
 
@@ -74,16 +100,20 @@ These documents will be used as `--context` inputs during the build:
 
 ## Feature Summary
 
-| # | Feature | Depends On | Est. Duration | Description |
-|---|---------|-----------|---------------|-------------|
-| FEAT-FORGE-001 | Pipeline State Machine & Configuration | — | 2-3 days | Core state machine (IDLE→PLANNING→DELEGATING→BUILDING→VERIFYING→COMPLETE), project config loading (`forge-pipeline-config.yaml`), session persistence via NATS KV, crash recovery, three mode dispatch (greenfield/feature/review-fix) |
-| FEAT-FORGE-002 | NATS Fleet Integration | 001 | 2-3 days | Fleet registration (`AgentManifest` for Forge), heartbeat publishing, agent discovery via `NATSKVManifestRegistry`, degraded mode detection (specialist unavailable → forced FLAG FOR REVIEW), pipeline event publishing using nats-core payloads |
-| FEAT-FORGE-003 | Specialist Agent Delegation | 002 | 2-3 days | `call_agent_tool()` for product-owner and architect roles, result parsing (Coach score + criterion breakdown + detection findings from `ResultPayload.result` dict), timeout handling, retry with additional context on failure |
-| FEAT-FORGE-004 | Confidence-Gated Checkpoint Protocol | 003 | 2-3 days | Score evaluation against per-stage thresholds, critical detection pattern override, 🟢 auto-approve (`NotificationPayload`), 🟡 flag for review (`ApprovalRequestPayload`), 🔴 hard stop, await human response (`ApprovalResponsePayload`), per-stage + per-project threshold configuration |
-| FEAT-FORGE-005 | GuardKit Command Invocation Engine | 001 | 2-3 days | Subprocess calls to `/system-arch`, `/system-design`, `/feature-spec`, `/feature-plan`, `autobuild`, `/task-review`. Context flag construction from pipeline state. Output capture and artifact path tracking. Error handling and retry. |
-| FEAT-FORGE-006 | Infrastructure Coordination | 001, 002 | 2-3 days | Graphiti seeding after each pipeline stage (`graphiti_seed`), Graphiti querying for cross-project context, test verification (`verify`), git operations (branch creation, commit, push, PR via `gh`), CI trigger |
-| FEAT-FORGE-007 | Mode A Greenfield End-to-End | 003, 004, 005, 006 | 3-5 days | Full integration: raw input → delegate to PO agent → checkpoint → delegate to architect → checkpoint → /system-arch → /system-design → /feature-spec × N → /feature-plan × N → autobuild × N → verify → git/PR → hard checkpoint (PR review). The primary pipeline mode. |
-| FEAT-FORGE-008 | Mode B Feature & Mode C Review-Fix | 007 | 2-3 days | Mode B: add feature to existing project (skip PO/architect delegation, start from /feature-spec). Mode C: review and fix issues (/task-review → /task-work cycle). Both use checkpoint protocol. |
+| # | Feature | Depends On | Est. Duration | Description | Anchor §10 Phase 4 Coverage |
+|---|---------|-----------|---------------|-------------|----------------------------|
+| FEAT-FORGE-001 | Pipeline State Machine & Configuration | — | 2-3 days | Core state machine (IDLE→PREPARING→RUNNING→FINALISING→COMPLETE/FAILED per anchor §6), project config loading (`forge.yaml`), crash recovery, sequential build queue | JetStream pull consumer, state machine, `forge.yaml` config, crash recovery |
+| FEAT-FORGE-002 | NATS Fleet Integration | 001 | 2-3 days | Fleet registration (`AgentManifest` for Forge), heartbeat publishing, agent discovery via `NATSKVManifestRegistry`, degraded mode detection (specialist unavailable → forced FLAG FOR REVIEW), pipeline event publishing using nats-core payloads | Publish pipeline events, `fleet.register` (ADR-SP-014) |
+| FEAT-FORGE-003 | Specialist Agent Delegation | 002 | 2-3 days | `call_agent_tool()` for product-owner and architect roles (ADR-SP-015), result parsing (Coach score + criterion breakdown + detection findings from `ResultPayload.result` dict), timeout handling, retry with additional context on failure | NATS command invocation of specialist agents (Stage 2) |
+| FEAT-FORGE-004 | Confidence-Gated Checkpoint Protocol | 003 | 2-3 days | Score evaluation against per-stage thresholds, critical detection pattern override, 🟢 auto-approve, 🟡 flag for review (PAUSED state), 🔴 hard stop. Configurable thresholds per anchor §4 | Confidence-gated checkpoints with configurable thresholds |
+| FEAT-FORGE-005 | GuardKit Command Invocation Engine | 001 | 2-3 days | Subprocess calls to `/system-arch`, `/system-design`, `/feature-spec`, `/feature-plan`, `autobuild`, `/task-review`. Context flag construction from pipeline state + `.guardkit/context-manifest.yaml`. Output capture and artifact path tracking. Error handling and retry. | Subprocess invocation of GuardKit AutoBuild with `--nats` flag (Stage 4) |
+| FEAT-FORGE-006 | Infrastructure Coordination | 001, 002 | 2-3 days | Graphiti seeding after each pipeline stage, Graphiti querying for cross-project context, test verification, git operations (clone/pull/branch/push/PR via `gh`) | Git operations, SQLite build history and stage log |
+| FEAT-FORGE-007 | Mode A Greenfield End-to-End | 003, 004, 005, 006 | 3-5 days | Full integration: raw input → delegate to PO agent → checkpoint → delegate to architect → checkpoint → /system-arch → /system-design → /feature-spec × N → /feature-plan × N → autobuild × N → verify → git/PR → hard checkpoint (PR review). The primary pipeline mode. | Full end-to-end pipeline validation |
+| FEAT-FORGE-008 | Mode B Feature & Mode C Review-Fix | 007 | 2-3 days | Mode B: add feature to existing project (skip PO/architect delegation, start from /feature-spec). Mode C: review and fix issues (/task-review → /task-work cycle). Both use checkpoint protocol. | *(optional modes — not in anchor §10 Phase 4)* |
+
+**Anchor §10 Phase 4 bullets not yet covered by a feature:**
+- CLI commands: `forge queue`, `forge status`, `forge history`, `forge cancel`, `forge skip` — folded into FEAT-FORGE-001 (CLI entrypoint)
+- SQLite build history schema — folded into FEAT-FORGE-006 (infrastructure coordination)
 
 **Estimated total: 4-6 weeks** (includes iteration time, integration testing, and the
 inevitable debugging of subprocess orchestration + async NATS patterns)
@@ -101,6 +131,8 @@ component boundaries.
 cd ~/Projects/appmilla_github/forge
 
 guardkit system-arch \
+  --context forge/docs/research/forge-pipeline-architecture.md \
+  --context forge/docs/research/forge-build-plan-alignment-review.md \
   --context forge/docs/research/ideas/forge-pipeline-orchestrator-refresh.md \
   --context forge/docs/research/pipeline-orchestrator-conversation-starter.md \
   --context forge/docs/research/pipeline-orchestrator-motivation.md \
@@ -282,33 +314,32 @@ After all features are built:
 cd ~/Projects/appmilla_github/forge
 pytest
 
-# Integration test: Mode A greenfield on a test project
-# (use a small test corpus, not FinProxy — save FinProxy for the real run)
-python -m forge.cli greenfield \
-  --project test-project \
-  --docs ./test-docs \
-  --config ./forge-pipeline-config.yaml
+# Integration test: queue a test feature (canonical CLI surface per anchor §5)
+forge queue FEAT-TEST-001 --repo guardkit/test-project --branch main
+forge status
+forge history --feature FEAT-TEST-001
 
 # Verify pipeline events published to NATS
 # (subscribe to pipeline.> on GB10 and observe)
 
 # Verify checkpoint protocol
-# (set low auto_threshold to force FLAG FOR REVIEW, verify ApprovalRequestPayload arrives)
+# (set low auto_approve threshold in forge.yaml to force FLAG FOR REVIEW,
+#  verify pipeline.build-paused arrives)
 
 # Verify degraded mode
 # (stop specialist agents, run pipeline, verify forced FLAG FOR REVIEW)
 ```
+
+> **Note:** Mode-based wrappers (`forge greenfield`, `forge feature`, `forge review-fix`) are optional higher-level wrappers around `forge queue` and may be added later if they earn their place. The canonical CLI surface is `forge queue`.
 
 ### Step 7: First Real Run — FinProxy
 
 Once validation passes, run the Forge on FinProxy as the first real pipeline:
 
 ```bash
-python -m forge.cli greenfield \
-  --project finproxy \
-  --docs ~/Projects/appmilla_github/finproxy-docs \
-  --config ./configs/finproxy-pipeline-config.yaml \
-  --scope "Phase 1 — MoneyHub Open Banking integration"
+forge queue FEAT-FINPROXY-001 --repo guardkit/finproxy --branch main
+forge status
+forge history --feature FEAT-FINPROXY-001
 ```
 
 **Expected outcome:** The pipeline delegates to specialist agents, evaluates Coach
@@ -334,7 +365,8 @@ scores, auto-approves or flags as appropriate, invokes GuardKit commands, produc
 | `src/forge/checkpoints/protocol.py` | 004 | Create — approval request/response, notification |
 | `src/forge/checkpoints/config.py` | 004 | Create — per-stage threshold configuration |
 | `src/forge/commands/invoker.py` | 005 | Create — subprocess GuardKit command execution |
-| `src/forge/commands/context.py` | 005 | Create — --context flag construction from pipeline state |
+| `src/forge/commands/context.py` | 005 | Create — --context flag construction from pipeline state + context manifests (reads `.guardkit/context-manifest.yaml` from target repo, resolves cross-repo paths, filters by command category) |
+| `.guardkit/context-manifest.yaml` | 005 | Create — Forge's own cross-repo dependency manifest (nats-core, specialist-agent, nats-infrastructure, guardkit) |
 | `src/forge/commands/artifacts.py` | 005 | Create — output file discovery and tracking |
 | `src/forge/coordination/graphiti.py` | 006 | Create — seed outputs into knowledge graph |
 | `src/forge/coordination/git.py` | 006 | Create — branch, commit, push, PR |
@@ -387,7 +419,7 @@ description: "Pipeline orchestrator and checkpoint manager — coordinates speci
   code from raw ideas"
 trust_tier: core
 nats_topic: agents.command.forge
-max_concurrent: 3
+max_concurrent: 1       # ADR-SP-012 — sequential builds only
 
 intents:
   - pattern: "build.*"
@@ -422,6 +454,8 @@ tools:
 ---
 
 ## Pipeline Configuration Schema
+
+> **Note:** The schema below is richer than anchor v2.2 §4's `forge.yaml` example (which uses `confidence_thresholds` + `build_config` + `degraded_mode`). The additional fields below (`reviewer`, `critical_detections`, `escalation_channel`) are operationally useful and are pending promotion to the anchor as a v2.3 amendment (TASK-FVD5). Both schemas are shown here; the anchor's shape is the current contract.
 
 For the `forge-pipeline-config.yaml` that FEAT-FORGE-001 loads:
 
@@ -463,6 +497,16 @@ checkpoints:
     min_threshold: 0.0
     reviewer: rich
 ```
+
+---
+
+## Jarvis Integration
+
+The Forge supports multiple build trigger sources via ADR-SP-014 (Pattern A — accepted in anchor v2.2 §9). Jarvis publishes `BuildQueuedPayload` to `pipeline.build-queued.{feature_id}` — the same JetStream topic that `forge queue` CLI publishes to. Forge consumes without distinguishing sources at the consumer level; the payload's `triggered_by`, `originating_adapter`, and `correlation_id` fields carry source metadata for history, diagnostics, and routing progress events back to the originator.
+
+The build plan does **not** require Jarvis to function. The CLI (`forge queue`) is the default and simplest path. Jarvis adds the voice (Reachy Mini), Telegram, dashboard, and CLI-wrapper entry points. For the full `BuildQueuedPayload` design including Jarvis-aware fields, correlation flow, and example payloads, see [forge-build-plan-alignment-review.md Appendix C](../forge-build-plan-alignment-review.md#appendix-c--buildqueuedpayload-full-design-jarvis-aware).
+
+Forge also registers on `fleet.register` as an agent (`agent_id=forge`, intents: `build.*`, `pipeline.*`, `max_concurrent=1`) so that Jarvis's CAN-bus routing can discover it. Registration is for discovery; triggering remains a JetStream publish.
 
 ---
 
@@ -587,6 +631,8 @@ guardkit feature-spec FEAT-FORGE-004 \
 
 | Document | Path | What It Provides |
 |----------|------|-----------------|
+| **Forge pipeline architecture v2.2** | `forge/docs/research/forge-pipeline-architecture.md` | **Primary anchor** — pipeline stages, state machine, NATS topics, payloads, ADRs SP-010..017 |
+| Forge build-plan alignment review | `forge/docs/research/forge-build-plan-alignment-review.md` | Drift analysis, correction list, Appendix C (BuildQueuedPayload), Appendix D (specialist-agent refactor) |
 | Pipeline orchestrator refresh v3 | `forge/docs/research/ideas/forge-pipeline-orchestrator-refresh.md` | Scope: Forge identity, checkpoint protocol, tool inventory, NATS integration, degraded mode |
 | Original motivation | `forge/docs/research/pipeline-orchestrator-motivation.md` | Why: 93% defaults, 3 decisions, 4:1 leverage |
 | Original conversation starter | `forge/docs/research/pipeline-orchestrator-conversation-starter.md` | Three modes, multi-project, execution environments |
@@ -594,9 +640,10 @@ guardkit feature-spec FEAT-FORGE-004 \
 | Specialist agent vision | `specialist-agent/docs/research/ideas/architect-agent-vision.md` | Three roles, three-layer architecture, delegation targets |
 | nats-core system spec | `nats-core/docs/design/specs/nats-core-system-spec.md` | Payload schemas, topic registry, client API |
 | Agent manifest contract | `nats-core/docs/design/contracts/agent-manifest-contract.md` | AgentManifest, ToolCapability, IntentCapability |
-| Dev pipeline architecture | Project knowledge | Build Agent lifecycle, topic taxonomy, PM adapter |
-| Dev pipeline system spec | Project knowledge | Component specs, actor model, system boundary |
 | This build plan | `forge/docs/research/ideas/forge-build-plan.md` | Command sequence, feature summary, prerequisites |
+| Forge context manifest | `.guardkit/context-manifest.yaml` | Cross-repo dependency map (nats-core, specialist-agent, nats-infrastructure, guardkit) |
+| LPA platform context manifest | `lpa-platform/.guardkit/context-manifest.yaml` | Cross-repo dependency map (nats-core, finproxy-docs, exemplar) |
+| Specialist agent context manifest | `specialist-agent/.guardkit/context-manifest.yaml` | Cross-repo dependency map (nats-core, nats-infrastructure, dataset factory) |
 
 ---
 

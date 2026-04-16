@@ -1,15 +1,17 @@
 # Ship's Computer Fleet — Master Index
 
-## All Repos, All Docs, All Agents · April 2026 (Rewrite v2)
+## All Repos, All Docs, All Agents · April 2026 (Rewrite v2, aligned with anchor v2.2)
 
 ---
 
 ## Overview
 
 The Ship's Computer is a distributed multi-agent system orchestrated through NATS
-JetStream, with an intent router (Jarvis) dispatching requests to specialist agents.
-The system is accessible through multiple adapters: Reachy Mini (voice), Telegram,
-Slack, Dashboard, CLI.
+JetStream, with an intent router (Jarvis) dispatching requests to specialist agents
+**and to the Forge for build requests**. Jarvis discovers Forge via the `fleet.register`
++ `agent-registry` KV plumbing and publishes `pipeline.build-queued` per ADR-SP-014
+Pattern A (see [anchor v2.2 §5.0](../forge-pipeline-architecture.md)). The system is
+accessible through multiple adapters: Reachy Mini (voice), Telegram, Slack, Dashboard, CLI.
 
 The fleet forms a **Software Factory** — a complete pipeline from ideation through to
 deployed code. This is not a faster way to do what teams already do. It is a different
@@ -31,7 +33,7 @@ Product Owner Agent (structured product docs)
         ↓  ← calls Architect Agent via NATS: "Is this feasible?"
 Architect Agent (conversation starter with C4, ADRs)
         ↓
-Forge (checkpoint manager — confidence-gated quality gates)
+Forge (pipeline orchestrator — confidence-gated quality gates)
         ↓
 GuardKit Commands (/system-arch → /system-design → /feature-spec → build)
         ↓
@@ -143,9 +145,17 @@ interface. It subscribes to pipeline events and projects them into a PM tool vie
 it is not in the critical path. The pipeline runs with or without it. The adapter is a
 viewport, not a control surface.
 
-The `feature_ready_for_build` event is emitted by the Forge (Pipeline Orchestrator)
-when the GuardKit command sequence completes, not by a webhook from a kanban card state
-change. The `ticket_updated` event has been dropped entirely — there are no tickets.
+### Build Trigger Mechanism
+
+Builds enter the Forge pipeline via JetStream `pipeline.build-queued.{feature_id}` messages. The three supported trigger sources are:
+
+1. **CLI** — `forge queue FEAT-XXX` publishes directly
+2. **Jarvis** — per ADR-SP-014, after intent classification and CAN-bus discovery of Forge via `fleet.register` / `agent-registry` KV
+3. **Future notification adapters** — out of Phase 4 scope
+
+Forge consumes the same topic regardless of source. The `BuildQueuedPayload` carries `triggered_by`, `originating_adapter`, and `correlation_id` for history and progress routing. See [anchor v2.2 §5.0 "Build Request Sources"](../forge-pipeline-architecture.md).
+
+The `feature_ready_for_build` event from earlier designs has been retired — its function is covered by `StageCompletePayload` for Stage 3 completion. The `ticket_updated` event has been dropped entirely — there are no tickets.
 
 ---
 
@@ -256,7 +266,11 @@ guardkit/
 │
 │── INTENT ROUTER ───────────────────────────────────────────────────
 │
-├── jarvis                    ← Intent router + General Purpose Agent
+├── jarvis                    ← Intent router + General Purpose Agent + Forge trigger
+│   │                            Dispatches to specialist agents AND to Forge for builds
+│   │                            Adapters: voice (Reachy Mini), Telegram, Slack, Dashboard, CLI-wrapper
+│   │                            Discovery: CAN-bus via fleet.register + agent-registry KV
+│   │                            Build trigger: publishes BuildQueuedPayload with triggered_by="jarvis"
 │   └── docs/research/ideas/
 │       ├── jarvis-vision.md               ← Overall Jarvis vision & fleet architecture
 │       ├── general-purpose-agent.md       ← The "everything else" ReAct agent
@@ -352,7 +366,7 @@ specialist-agent metrics --role architect                    # Compounding repor
 
 | Agent | Repo | Model | Purpose |
 |-------|------|-------|---------|
-| **Forge** | `forge` | Claude Sonnet (orchestration reasoning) | Checkpoint manager — coordinates specialist agents, applies confidence-gated quality gates, manages pipeline state |
+| **Forge** | `forge` | Claude Sonnet (orchestration reasoning) | NATS-native pipeline orchestrator — coordinates specialist agents, applies confidence-gated quality gates, manages pipeline state (see [anchor v2.2](../forge-pipeline-architecture.md)) |
 
 The Forge is a coordinator, not a specialist. It does not have a Player-Coach loop. It
 does not need fine-tuning. It delegates domain judgment to specialist agents via NATS
@@ -525,13 +539,13 @@ Less confidence in the output → more human oversight.
 ```
 agent_id: forge
 trust_tier: core
-nats_topic: agents.command.forge
-max_concurrent: 3 (one pipeline per project, up to 3 projects)
+nats_topic: agents.command.forge     (fleet-discovery commands only)
+max_concurrent: 1                    (ADR-SP-012 — sequential builds)
 ```
 
-See `forge-pipeline-orchestrator-refresh.md` (v3, 11 April 2026) for full tool
-inventory, NATS integration details, pipeline event publishing, and configuration
-schemas.
+The `agents.command.forge` subject is for fleet-discovery-only commands (e.g. a future "pause all builds" broadcast). Build requests arrive via the JetStream pull consumer on `pipeline.build-queued.>` — this is how Forge actually receives work. See [anchor v2.2 §5.0](../forge-pipeline-architecture.md) for trigger sources and ADR-SP-014 for the Jarvis integration pattern.
+
+See `forge-pipeline-orchestrator-refresh.md` (v3, 11 April 2026) for checkpoint protocol details, and [anchor v2.2](../forge-pipeline-architecture.md) for the canonical architecture.
 
 ---
 
@@ -629,6 +643,7 @@ These apply across all repos. Do NOT reopen.
 | D36 | Forge is checkpoint manager, not specialist | Delegates domain judgment to specialist agents via NATS `call_agent_tool()`. No Player-Coach loop for Forge itself. Uses strong reasoning model (Claude Sonnet) for orchestration decisions, not fine-tuned domain judgment. Specialist agents return Coach scores — Forge reads them, does not re-evaluate. |
 | D37 | PR review always human | The final gate before merge never auto-approves regardless of Coach score. Every other stage is conditional on Coach confidence. |
 | D38 | `feature_ready_for_build` replaces kanban-triggered events | Emitted by the Forge when the GuardKit command sequence completes — not by a webhook from a PM tool card state change. `ticket_updated` event dropped entirely. PM tools (Linear, GitHub Projects) repositioned as optional visibility adapters that subscribe to pipeline events — they are viewports, not control surfaces. |
+| D39 | Context manifests for cross-repo dependency resolution | Each repo that depends on other repos places a `.guardkit/context-manifest.yaml` at its root. The manifest lists dependencies with relative paths, key docs, and per-doc categories (specs, contracts, decisions, source, product, architecture). The Forge reads these to assemble `--context` flags automatically — category filtering by command type (`/system-arch` gets architecture + decisions, `/feature-spec` gets specs + contracts + source). Replaces manual `--context` flag assembly from Claude Desktop sessions. Manifests created for forge (4 deps), lpa-platform (3 deps), specialist-agent (3 deps, phase-tagged). Foundational repos (guardkit, nats-core) don't need manifests — everything depends on them, not the other way round. |
 
 ---
 
@@ -866,6 +881,51 @@ This validates two things:
 | `system-plan-history.md` | specialist-agent | System plan session |
 | `system-arch-history.md` | nats-core | System architecture session |
 
+### Pattern 4: Context Manifests
+
+**What it is:** A `.guardkit/context-manifest.yaml` file at the root of each repo that
+depends on other repos. Lists cross-repo dependencies with relative paths, key docs,
+and per-doc categories (specs, contracts, decisions, source, product, architecture).
+
+**Why it matters:** The Forge needs to assemble `--context` flags when invoking GuardKit
+commands on target repos. Previously, this required a Claude Desktop conversation to
+identify the right docs — Rich would ask "what context do I need for this feature?"
+and Claude would scan the repo and suggest flags. The context manifest makes this
+machine-readable: the Forge reads the manifest, filters by command type (e.g.
+`/system-arch` gets architecture + decisions, `/feature-spec` gets specs + contracts +
+source), resolves relative paths, and assembles the `--context` flags automatically.
+
+Foundational repos (guardkit, nats-core) don't need manifests — everything depends on
+them, not the other way round. Only repos higher up the dependency tree benefit.
+
+**Where it is proven:**
+
+| File | Repo | Dependencies |
+|------|------|--------------|
+| `.guardkit/context-manifest.yaml` | forge | 4: nats-core, specialist-agent, nats-infrastructure, guardkit |
+| `.guardkit/context-manifest.yaml` | lpa-platform | 3: nats-core, finproxy-docs, dotnet-functional-fastendpoints-exemplar |
+| `.guardkit/context-manifest.yaml` | specialist-agent | 3: nats-core, nats-infrastructure, agentic-dataset-factory (phase-tagged) |
+
+**Standard structure:**
+
+```yaml
+repo: forge
+dependencies:
+  nats-core:
+    path: ../nats-core
+    relationship: "Why this dependency exists"
+    key_docs:
+      - path: docs/design/specs/nats-core-system-spec.md
+        category: specs
+        description: "What this doc provides"
+internal_docs:
+  always_include:
+    - docs/architecture/ARCHITECTURE.md
+    - docs/design/DESIGN.md
+```
+
+**Decision:** D39 (context manifests for cross-repo dependency resolution).
+
 ---
 
 ## Landscape Positioning
@@ -987,5 +1047,5 @@ documents:
 
 ---
 
-*Fleet master index v2: 12 April 2026*
+*Fleet master index v2: 12 April 2026 (updated 13 April: D39 context manifests, Pattern 4)*
 *"The factory doesn't mine the ore or design the blueprint — it does the making. And it knows when to ask for help."*

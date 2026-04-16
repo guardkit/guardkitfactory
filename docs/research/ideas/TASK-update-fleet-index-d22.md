@@ -1,4 +1,6 @@
-# Task: Add D22 (AgentConfig standardisation) to fleet master index
+# Task: Add D22 (AgentConfig standardisation) to fleet master index — COMPLETED
+
+> **Status:** COMPLETED — D22 already present in fleet-master-index.md (line 605). Executed inline as part of TASK-FVD4 (16 April 2026).
 
 ## File to edit
 `docs/research/ideas/fleet-master-index.md`
