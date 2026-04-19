@@ -34,7 +34,7 @@ See [system-context.md](system-context.md) for C4 Level 1 and [container.md](con
 
 ---
 
-## 3. Module Map (15 modules in 5 groups)
+## 3. Module Map (5 groups — 18 Python modules + 6 `@tool`-layer entries)
 
 ### A. DeepAgents Shell
 - `forge.agent` — wires `create_deep_agent()` → `CompiledStateGraph`; exported via `langgraph.json`
@@ -205,7 +205,7 @@ This architecture is a **refinement** of [forge-pipeline-architecture.md](../res
 
 ## 13. Decision Index
 
-30 ADRs captured across the 6 categories. See [decisions/](decisions/) for the full set:
+31 ADRs captured across the 6 categories. See [decisions/](decisions/) for the full set:
 
 | # | Title | Category |
 |---|---|---|
@@ -239,6 +239,7 @@ This architecture is a **refinement** of [forge-pipeline-architecture.md](../res
 | ADR-ARCH-028 | Ephemeral per-build working trees `/var/forge/builds/{build_id}/` | Security |
 | ADR-ARCH-029 | Best-effort availability — no SLA | Availability |
 | ADR-ARCH-030 | Budget ceiling ≈ £500/month LLM | Cost |
+| ADR-ARCH-031 | Async subagents for long-running work; sync `task()` for bounded delegation | Implementation substrate |
 
 ---
 

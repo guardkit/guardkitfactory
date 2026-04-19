@@ -53,3 +53,7 @@ Adopt the full set of DeepAgents 0.5.3 built-ins:
 - **+** Sandbox support via `execute`'s pluggable backends is free when Rich wants Phase-3 isolation from the conversation starter.
 - **−** Pinned to DeepAgents `>=0.5.3, <0.6`. Major-version upgrades require compatibility review.
 - **−** Built-in behaviour assumed (e.g. `interrupt()` semantics) — validated by this session's WebFetch but needs implementation-time verification.
+
+---
+
+**Amendment — 2026-04-19:** The sync-vs-async split for the two pre-declared sub-agents (`build_plan_composer` sync; `autobuild_runner` async via `AsyncSubAgent`) is refined in [ADR-ARCH-031](./ADR-ARCH-031-async-subagents-for-long-running-work.md). This is additive; the Context and Decision sections above are unchanged.

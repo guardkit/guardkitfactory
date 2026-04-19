@@ -1,6 +1,9 @@
 # ADR-ARCH-012: No MCP interface for Forge
 
-- **Status:** Accepted
+## Status
+
+Accepted
+
 - **Date:** 2026-04-18
 - **Session:** `/system-arch` Category 4
 
@@ -11,6 +14,8 @@ Fleet D16 documents that MCP adapters are used for *human-facing* specialist-age
 Forge has 11 GuardKit tools + `dispatch_by_capability` + approval + notification + graphiti + history tools (~17–20 tools). Exposing Forge over MCP would send all of these schemas into every tool call's context window. At Forge's build-length scale (200–500 turns), this is catastrophic.
 
 Forge also has no human-interactive use case that Claude Desktop MCP serves — Rich interacts via CLI (`forge queue`); Jarvis interacts via NATS publishes; specialists interact via NATS request/reply.
+
+**Reconfirmed post-ADR-031 (2026-04-19):** the five async-supervisor tools (`start_async_task`, `check_async_task`, `update_async_task`, `cancel_async_task`, `list_async_tasks`) are internal to the Forge supervisor graph; async-subagent observability is served via CLI (`forge status` / `forge history`) + NATS event stream + LangSmith (ADR-FLEET-001), not MCP. No new human-facing use case was created; the larger tool surface (~22–25 tools) strengthens, rather than weakens, the context-overhead argument above.
 
 ## Decision
 

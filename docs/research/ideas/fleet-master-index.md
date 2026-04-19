@@ -2,6 +2,8 @@
 
 ## All Repos, All Docs, All Agents · April 2026 (Rewrite v2, aligned with anchor v2.2)
 
+> **⚠️ UPDATE — 19 April 2026:** Fleet-level framing refined in `forge/docs/research/ideas/fleet-architecture-v3-coherence-via-flywheel.md`. This v2 remains valid as the **repo index + decision log**; the v3 doc is the **framing companion**. See §"Addendum — D40-D46 (Fleet v3)" at the bottom of this document for the new resolved decisions.
+
 ---
 
 ## Overview
@@ -1047,5 +1049,49 @@ documents:
 
 ---
 
-*Fleet master index v2: 12 April 2026 (updated 13 April: D39 context manifests, Pattern 4)*
+*Fleet master index v2: 12 April 2026 (updated 13 April: D39 context manifests, Pattern 4; updated 19 April: addendum below with D40-D46 from fleet v3 framing session)*
 *"The factory doesn't mine the ore or design the blueprint — it does the making. And it knows when to ask for help."*
+
+---
+
+## Addendum — D40-D46 (Fleet v3, 19 April 2026)
+
+The following decisions were made during the 19 April 2026 fleet-level framing session between Rich and Claude. They are captured in full detail in `forge/docs/research/ideas/fleet-architecture-v3-coherence-via-flywheel.md` (keystone doc) and `forge/docs/research/ideas/conversation-capture-2026-04-19-fleet-v3-framing.md` (full conversation capture).
+
+| # | Decision | Resolution |
+|---|----------|-----------|
+| **D40** | **Three DeepAgents surfaces, one substrate.** Jarvis (attended), Forge (batch), Study Tutor (conversational) are all DeepAgents on the same NATS/Graphiti/adapter substrate. Same SDK, same pattern, different leaning on SDK features. No separate "intent router" process — Jarvis IS the GPA with dispatch as tools. |
+| **D41** | **Flywheel-via-calibration-loop fleet-wide.** Every surface has a `*.learning` module and a `*_history` Graphiti group. The Forge calibration pattern (ADR-ARCH-005/006) is the template; Jarvis routing, Jarvis ambient, Tutor teaching each get their own track. Same pattern, parallel compounding. |
+| **D42** | **Trace-richness by default.** All `*_history` Graphiti writes capture full reasoning traces (tool-call sequences, subagent traces, cost/latency per call, human responses with text). See ADR-FLEET-001 (`forge/docs/research/ideas/ADR-FLEET-001-trace-richness.md`). |
+| **D43** | **Model routing is a reasoning decision, not a config decision.** Jarvis's async subagents expose different models, and the supervisor's reasoning model picks which to dispatch to based on capability descriptions + retrieved priors. Same pattern as capability-driven dispatch (ADR-ARCH-015). Defaults to cheapest-that-fits; escalates on need. |
+| **D44** | **Selectively ambient, Pattern A + B for v1.** Pattern C (volitional) is an opt-in skill only for v1 experimentation. |
+| **D45** | **Meta-agent split and harness auto-rewriting explicitly deferred.** Named as research directions with clear conditions for revisit. Not v1 scope. Not v2 scope unless conditions in fleet v3 §7 are met. |
+| **D46** | **NemoClaw integration hooks named but not built.** When/if NemoClaw matures, it integrates as DeepAgents sandbox backend and as NATS-registered fleet participant with `trust_tier: sandboxed`. Zero rework required. |
+
+### New Fleet-Wide ADR
+
+- **ADR-FLEET-001** (`forge/docs/research/ideas/ADR-FLEET-001-trace-richness.md`) — trace-richness schema commitment; fleet-wide from v1 start for every surface built after 19 April 2026.
+
+### New Forge ADR
+
+- **ADR-ARCH-031** (`forge/docs/architecture/decisions/ADR-ARCH-031-async-subagents-for-long-running-work.md`) — amendment to ADR-ARCH-020; `autobuild_runner` becomes `AsyncSubAgent`, `build_plan_composer` stays sync.
+
+### Key Documents Created 19 April 2026
+
+- `forge/docs/research/ideas/fleet-architecture-v3-coherence-via-flywheel.md` — keystone framing doc
+- `forge/docs/research/ideas/ADR-FLEET-001-trace-richness.md` — fleet-wide trace schema
+- `forge/docs/architecture/decisions/ADR-ARCH-031-async-subagents-for-long-running-work.md` — Forge async subagents
+- `forge/docs/research/ideas/conversation-capture-2026-04-19-fleet-v3-framing.md` — full conversation richness preserved
+- `jarvis/docs/research/ideas/jarvis-vision.md` v2.0 — rewrite with GPA-with-dispatch framing
+- `jarvis/docs/research/ideas/jarvis-architecture-conversation-starter.md` v2.0 — rewrite for `/system-arch`
+- `jarvis/.guardkit/context-manifest.yaml` — cross-repo dependency manifest
+- `study-tutor/docs/research/ideas/fleet-v3-future-work-notes.md` — tactical additions (async subagents, Memory Store)
+- `~/Projects/YouTube Channel/ddd-southwest-2026-software-factory-talk-outline.md` — talk spine aligned with fleet v3
+
+### The One-Sentence Thesis
+
+**One reasoning model that knows which reasoning model to use.**
+
+Applied fleet-wide: the Software Factory's superpower is knowing which agent to use, which model within that agent, and which specialist within the fleet — all emergent from reasoning over capability descriptions, not hardcoded anywhere.
+
+---

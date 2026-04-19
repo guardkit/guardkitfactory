@@ -1,6 +1,9 @@
 # ADR-ARCH-022: Dual agent memory — LangGraph Memory Store + Graphiti
 
-- **Status:** Accepted
+## Status
+
+Accepted
+
 - **Date:** 2026-04-18
 - **Session:** `/system-arch` Category 4 Revision 9
 
