@@ -1,7 +1,8 @@
 ---
 id: TASK-DOC-B2A4
 title: Add ADR-ARCH-031 to ARCHITECTURE.md Decision Index §13
-status: backlog
+status: superseded
+superseded_by: TASK-REV-A7D3
 created: 2026-04-19T00:00:00Z
 updated: 2026-04-19T00:00:00Z
 priority: low
@@ -98,4 +99,14 @@ markdown to confirm the table remains well-formed.
 
 ## Implementation Notes
 
-_(Populated at execution time.)_
+**Superseded by TASK-REV-A7D3 (2026-04-19).**
+
+This task's full Acceptance Criteria were folded into TASK-REV-A7D3 §1
+verbatim. The `ARCHITECTURE.md` §13 edits (prose count `30` → `31` ADRs,
+ADR-031 row appended with category *Implementation substrate*) were
+executed during TASK-REV-A7D3 and captured in its review report at
+`.claude/reviews/TASK-REV-A7D3-review-report.md` §§1.
+
+No additional work required here. Task archived as `status: superseded`.
+Commit message on the archival move should reference both `TASK-DOC-B2A4`
+and `TASK-REV-A7D3`.

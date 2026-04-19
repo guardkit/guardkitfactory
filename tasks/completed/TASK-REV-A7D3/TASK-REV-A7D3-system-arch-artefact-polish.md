@@ -1,7 +1,11 @@
 ---
 id: TASK-REV-A7D3
 title: /system-arch artefact polish before /system-design (supersedes TASK-DOC-B2A4)
-status: in_progress
+status: completed
+completed: 2026-04-19T00:00:00Z
+completed_location: tasks/completed/TASK-REV-A7D3/
+spawned_tasks:
+  - TASK-SPIKE-C1E9
 created: 2026-04-19T00:00:00Z
 updated: 2026-04-19T00:00:00Z
 priority: high
@@ -25,6 +29,19 @@ test_results:
   status: not_applicable
   coverage: null
   last_run: null
+review_results:
+  mode: architectural
+  depth: standard
+  workflow: hybrid-execute-and-scope
+  report_path: .claude/reviews/TASK-REV-A7D3-review-report.md
+  findings_count: 7
+  recommendations_count: 5
+  score_sections_1_to_4: 100
+  score_section_5: scoped-not-executed
+  decision: implement
+  spawned_tasks:
+    - TASK-SPIKE-C1E9
+  completed_at: 2026-04-19T00:00:00Z
 ---
 
 # Task: /system-arch artefact polish before /system-design
@@ -223,4 +240,107 @@ polish items that should land before `/system-design` runs.
 
 ## Implementation Notes
 
-_(Populated at execution time.)_
+**Executed 2026-04-19 via `/task-review` hybrid workflow** (scoped review
++ inline execution of §1–§4, spike scoping-only for §5).
+
+Full review report: `.claude/reviews/TASK-REV-A7D3-review-report.md`.
+
+### §1 — ARCHITECTURE.md §13 Decision Index
+
+- Prose count bumped `30 ADRs` → `31 ADRs`
+  (`docs/architecture/ARCHITECTURE.md` §13).
+- ADR-031 row appended after ADR-030 row, category
+  `Implementation substrate` (matches ADR-020 category).
+- Row title: *"Async subagents for long-running work; sync `task()` for
+  bounded delegation"* — verbatim from TASK-DOC-B2A4 suggested shape.
+
+### §2 — ADR-012 & ADR-022 Status section reformat
+
+- Both files' inline-bullet `- **Status:** Accepted` replaced with
+  `## Status\n\nAccepted` heading. Date and Session bullets preserved
+  as metadata after the Status heading.
+- `guardkit graphiti add-context --force` re-ingestion: both exit 0,
+  no "Missing required section: Status" warning (compare
+  `docs/history/command-history.md:91` which recorded the prior
+  warnings). Episode profiles:
+  - ADR-012: `adr_adr-arch-012-no-mcp-interface-for-forge`
+    (nodes=11, edges=14, invalidated=0).
+  - ADR-022: `adr_adr-arch-022-dual-agent-memory-langgraph-memory-store-graphiti`
+    (nodes=10, edges=11, invalidated=0) — one transient Gemini 503
+    retried cleanly on the second attempt.
+
+### §3 — ARCHITECTURE.md §3 module count
+
+- Authoritative recount: 3 (Shell) + 7 (Domain Core) + 6 (Tool Layer
+  `@tool` entries) + 5 (Adapters) + 3 (Cross-cutting) = 24 bulleted
+  entries. Of these, 18 are Python modules (A+B+D+E) and 6 are
+  `@tool`-layer entries (Section C, which the section header
+  explicitly describes as *functions*, not modules).
+- Header updated from *"15 modules in 5 groups"* to *"5 groups — 18
+  Python modules + 6 `@tool`-layer entries"*. Preserves the 5-group
+  promise while honestly separating Python modules from tool
+  functions.
+
+### §4 — ADR-012 post-ADR-031 content review
+
+- Analysis: the five async-supervisor tools added by ADR-031
+  (`start_async_task`, `check_async_task`, `update_async_task`,
+  `cancel_async_task`, `list_async_tasks`) are internal to the Forge
+  supervisor graph. Observability for async subagents is served via
+  CLI (`forge status` / `forge history`) + NATS event stream +
+  LangSmith traces (ADR-FLEET-001), none of which require MCP.
+- The growth from ~17–20 to ~22–25 tools **strengthens**, rather than
+  weakens, ADR-012's context-overhead argument.
+- Decision-tree branch: reasoning holds → one-line reconfirmation note
+  appended to ADR-012's Context section. Not a discussion flag.
+
+### §5 — DeepAgents 0.5.3 verification spike
+
+- **Scoped, not executed** (per agreed hybrid workflow). Full scoping
+  is in the review report's §5 section, including: objectives, repro
+  designs for both ASSUM-008 (permissions) and ASSUM-009 (`interrupt()`
+  round-trip), success/failure criteria, risk register, and an
+  execution checklist for the spawned spike task.
+- Recommendation: spawn a dedicated `TASK-SPIKE-*` task in backlog
+  using `.claude/reviews/TASK-REV-A7D3-review-report.md` §5 as its
+  scoping source. Block `/system-design` on that task's completion.
+- Rationale for spawning separately (not executing inline):
+  - Commit isolation — §1–§4 are mechanical doc polish; the spike may
+    produce executable Python spike directories and findings files.
+    Bundling would break the "separately revertable commits" property
+    called out in the task's Known Risks.
+  - Scope creep guardrail — the task's own Known Risks explicitly
+    warns against spike improvement work. Moving the spike out of
+    this task's acceptance reinforces that boundary.
+  - Failure handling — if either primitive fails, the spike task is
+    the place to spawn a further revision task for ADR-021 / ADR-023.
+    This task does not mutate those ADRs directly.
+
+### Superseding TASK-DOC-B2A4
+
+- `tasks/backlog/TASK-DOC-B2A4/` moved to `tasks/completed/` with
+  `status: superseded` and `superseded_by: TASK-REV-A7D3` in
+  frontmatter. Implementation Notes on that file now point at
+  TASK-REV-A7D3 and this review report.
+
+### Acceptance criteria status
+
+- [x] AC-1 — §13 lists 31 ADRs; ADR-031 row present, category
+      "Implementation substrate".
+- [x] AC-2 — ADR-012 and ADR-022 reformatted to `## Status\n\nAccepted`;
+      `guardkit graphiti add-context --force` re-run cleanly for both.
+- [x] AC-3 — §3 module count reconciled with the prose list
+      (header now matches the authoritative count).
+- [x] AC-4 — ADR-012 reviewed post-ADR-031; one-line confirmation note
+      appended (reasoning holds).
+- [ ] AC-5 — `deepagents-053-verification.md` committed. **Deferred to
+      spawned `TASK-SPIKE-*` task** per §5 scoping decision.
+- [x] AC-6 — No new ADRs created by this task. Spike-failure handling
+      (spawn separate revision task) is preserved in the scoping
+      plan; ADR-021 / ADR-023 untouched by this task.
+- [x] AC-7 — TASK-DOC-B2A4 closed/archived as superseded. Commit
+      message for the archival move will reference both IDs.
+
+**Overall disposition**: §1–§4 complete; §5 deferred to spawned spike
+task. `/system-design` should be blocked until the spike task lands
+verified findings in `docs/research/ideas/deepagents-053-verification.md`.

@@ -184,3 +184,75 @@ Yes — task created at tasks/backlog/TASK-REV-A7D3/TASK-REV-A7D3-system-arch-ar
 
 /task-review TASK-REV-A7D3
 
+Review task A7D3
+
+All §1–§4 edits are present in commit 7bcc7da. Working tree now only has the archival move for TASK-DOC-B2A4 + TASK-REV-A7D3 metadata update + the review report — ready for checkpoint.
+
+Phase 5: Decision Checkpoint — TASK-REV-A7D3
+Review Results (see full report: .claude/reviews/TASK-REV-A7D3-review-report.md)
+
+§1–§4 score: 100/100 (all acceptance criteria met verbatim)
+§5 status: scoped-not-executed per agreed hybrid workflow
+Findings: 7 · Recommendations: 5
+What landed (already in commit 7bcc7da):
+
+§1: ARCHITECTURE.md §13 — 30 ADRs→31 ADRs, ADR-031 row added
+§2: ADR-012 and ADR-022 Status reformatted; Graphiti re-ingestion clean (exit 0, no Status-warning)
+§3: ARCHITECTURE.md §3 header now reads "5 groups — 18 Python modules + 6 @tool-layer entries"
+§4: ADR-012 reconfirmation note appended (reasoning holds; larger tool surface strengthens the MCP-rejection argument)
+What's unstaged (waiting for commit at checkpoint close):
+
+.claude/reviews/TASK-REV-A7D3-review-report.md — full review + §5 scoping
+tasks/in_progress/TASK-REV-A7D3/ — frontmatter now status: in_progress + review_results block; Implementation Notes populated
+tasks/backlog/TASK-DOC-B2A4/ → tasks/completed/TASK-DOC-B2A4/ — archived as superseded
+Caveats:
+
+AC-7 commit message: the task's AC-7 requires a commit message referencing both TASK-DOC-B2A4 and TASK-REV-A7D3. Commit 7bcc7da ("review and refinements of architecture") bundled §1–§4 with other in-flight work and does not reference either ID. The upcoming archival-move commit is the natural place to satisfy AC-7 — suggest message along the lines of docs/tasks: close TASK-REV-A7D3 §1–§4; archive TASK-DOC-B2A4 as superseded.
+AC-5 deferred: docs/research/ideas/deepagents-053-verification.md is not yet committed. Per option 3, §5 is scoping-only here; the spike needs a spawned TASK-SPIKE-* task.
+Decision Options:
+
+[A] Accept — Close review as-is. §1–§4 stand; §5 left for you to schedule separately. /system-design would be unblocked on §5 only when you run the spike manually.
+[I] Implement — Accept §1–§4, archive TASK-DOC-B2A4, and create a TASK-SPIKE-* backlog task pre-populated from §5 of the review report. Also marks /system-design as blocked on that new task. Recommended.
+[R] Revise — Re-run review at comprehensive depth (e.g. execute the spike inline). Not recommended — the task's Known Risks explicitly warn against spike scope creep from within this task.
+[C] Cancel — Discard the review, revert §1–§4. Not recommended — the paperwork is a clean pass.
+Which do you want? ([A] / [I] / [R] / [C])
+
+TASK-REV-A7D3-review-report.md
+I
+[I]mplement chosen. Since only one follow-up task is needed, I'll skip Context B clarification and spawn TASK-SPIKE-* directly from §5 of the review report.
+
+[I]mplement — Execution Plan
+Spawned: TASK-SPIKE-C1E9 · complexity 5 · priority high · ~1–2 hours · blocks /system-design
+
+The new spike task references the review report's §5 as its canonical scoping source, so no information is duplicated or at risk of divergence.
+
+Task state transitions:
+
+TASK-REV-A7D3 → in_review/, status review_complete, decision implement, spawned TASK-SPIKE-C1E9
+TASK-DOC-B2A4 → completed/, status superseded, superseded_by: TASK-REV-A7D3
+TASK-SPIKE-C1E9 → backlog/, status backlog, parent_review: TASK-REV-A7D3, blocks: [/system-design]
+Working-tree changes awaiting commit:
+
+
+D  tasks/backlog/TASK-DOC-B2A4/*             (archive-move away from backlog)
+D  tasks/in_progress/TASK-REV-A7D3/*         (move into in_review)
+?? .claude/reviews/TASK-REV-A7D3-review-report.md
+?? tasks/backlog/TASK-SPIKE-C1E9/
+?? tasks/completed/TASK-DOC-B2A4/
+?? tasks/in_review/TASK-REV-A7D3/
+§1–§4 edits are already in commit 7bcc7da (landed mid-run).
+
+Next Steps
+Commit the review close-out (when you're ready). Suggested message to satisfy AC-7:
+
+docs/tasks: close TASK-REV-A7D3 §1–§4; spawn TASK-SPIKE-C1E9; archive TASK-DOC-B2A4
+
+- §1–§4 architecture polish already landed in 7bcc7da (Decision Index
+  §13, ADR-012/-022 Status heading reformat, §3 module count, ADR-012
+  post-ADR-031 reconfirmation).
+- §5 verification spike scoped in review report, spawned as
+  TASK-SPIKE-C1E9 in backlog; blocks /system-design.
+- TASK-DOC-B2A4 archived as superseded by TASK-REV-A7D3.
+Run TASK-SPIKE-C1E9 when you want to unblock /system-design. It's ~1–2 hours, fully scoped, and has a self-contained execution checklist in .claude/reviews/TASK-REV-A7D3-review-report.md §5.
+Do not run /system-design until TASK-SPIKE-C1E9 lands its findings file at docs/research/ideas/deepagents-053-verification.md.
+
