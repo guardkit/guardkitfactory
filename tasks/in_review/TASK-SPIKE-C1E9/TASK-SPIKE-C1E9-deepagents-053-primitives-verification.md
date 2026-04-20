@@ -1,9 +1,9 @@
 ---
 id: TASK-SPIKE-C1E9
 title: DeepAgents 0.5.3 primitives verification (ASSUM-008 permissions + ASSUM-009 interrupt round-trip)
-status: backlog
+status: in_review
 created: 2026-04-19T00:00:00Z
-updated: 2026-04-19T00:00:00Z
+updated: 2026-04-20T00:00:00Z
 priority: high
 tags: [spike, verification, deepagents, langgraph, adr-021, adr-023, pre-system-design]
 complexity: 5
@@ -14,6 +14,9 @@ scoping_source: .claude/reviews/TASK-REV-A7D3-review-report.md §5
 blocks:
   - /system-design
 estimated_effort: 1-2 hours
+spawned_tasks:
+  - TASK-SPIKE-D2F7   # ASSUM-009 server-mode coverage (user-approved deferral, option [A])
+  - TASK-CHORE-E4A1   # pyproject.toml pin alignment with ADR-ARCH-020
 source_feedback:
   origin: TASK-REV-A7D3 §5 scoping
   received: 2026-04-19
@@ -25,7 +28,7 @@ source_feedback:
 test_results:
   status: not_applicable
   coverage: null
-  last_run: null
+  last_run: 2026-04-20
 ---
 
 # Task: DeepAgents 0.5.3 primitives verification
@@ -160,4 +163,52 @@ is explicit.
 
 ## Implementation Notes
 
-_(Populated at execution time.)_
+Executed 2026-04-20. Versions: `deepagents==0.5.3`, `langgraph==1.1.8`,
+`langchain-core==1.3.0`, Python 3.14.2. Driving model: Gemini 2.5 Flash
+via `langchain-google-genai` (OpenAI key in `.env` was a `not_needed`
+placeholder).
+
+**Pre-flight:** ADR-ARCH-020 pin was **not** honoured by `pyproject.toml`
+at spike start (`deepagents>=0.4.11` vs the ADR's `>=0.5.3, <0.6`).
+Upgraded DeepAgents to 0.5.3 for the spike without mutating
+`pyproject.toml` (scope discipline). Drift captured as TASK-CHORE-E4A1.
+
+**ASSUM-008 (permissions runtime refusal):** PASS. Repro at
+`spikes/deepagents-053/permissions_repro.py`. The `_PermissionMiddleware`
+intercepts `write_file` in `wrap_tool_call` and returns
+`ToolMessage(status="error", content="Error: permission denied for write
+on <path>")` before the backend runs. The forbidden file never appeared
+on disk. ADR-ARCH-023 stands as written.
+
+**ASSUM-009 (typed `interrupt()` round-trip):**
+- PASS for direct `CompiledStateGraph.invoke` with SqliteSaver
+  checkpointer, cross-process (two separate Python invocations via the
+  shared `interrupt_state.sqlite`). All verdict rows green:
+  `isinstance(ApprovalDecision) == True`, nested `Requestor`/`datetime`/
+  `UUID` fields intact, graph reached `finalise`.
+- **NOT TESTED** for `langgraph dev` server mode. Per user choice at
+  close-out (option [A] of the triage), server-mode coverage was
+  deferred to TASK-SPIKE-D2F7 to preserve commit isolation rather than
+  expanding this spike's blast radius. `/system-design` remains blocked
+  on D2F7 for this reason.
+
+**Additional observations recorded in findings:**
+1. LangGraph emits a `Deserializing unregistered type` warning on the
+   checkpoint/restore path for locally-defined Pydantic payloads. Benign
+   in the current release; will require `allowed_msgpack_modules`
+   registration in a future release. Actionable by `/system-design`
+   when HITL payload types are defined.
+2. `pyproject.toml` pin drift captured as TASK-CHORE-E4A1.
+
+**Artefacts committed:**
+- `spikes/deepagents-053/permissions_repro.py`
+- `spikes/deepagents-053/interrupt_graph.py`
+- `spikes/deepagents-053/interrupt_resume.py`
+- `docs/research/ideas/deepagents-053-verification.md`
+- `docs/architecture/decisions/ADR-ARCH-021-*.md` — appended References.
+- `docs/architecture/decisions/ADR-ARCH-023-*.md` — appended References.
+
+**`/system-design` unblock conditions:** TASK-SPIKE-D2F7 resolved **and**
+TASK-CHORE-E4A1 merged. ADR revision tasks were **not** spawned because
+neither primitive failed its verification — ADR-021 awaits only
+server-mode closure (mode-coverage gap, not a failure).

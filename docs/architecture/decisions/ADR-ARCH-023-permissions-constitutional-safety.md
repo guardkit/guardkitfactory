@@ -41,3 +41,7 @@ The reasoning model can *request* a capability outside the allowlist; the DeepAg
 - **+** Adding a new binary/host (e.g. because a new GuardKit subcommand needs `jq`) is a conscious policy change, not an implicit agent capability.
 - **−** If Rich adds a new LLM provider or a new specialist agent on a new host, the allowlist must be updated and Forge restarted. Operational tax; acceptable for safety.
 - **−** Tension with ADR-ARCH-019's "agent decides" principle; deliberately drawn: *behaviour* is reasoned; *safety* is static. The distinction is load-bearing.
+
+## References
+
+- [deepagents 0.5.3 primitives verification](../../research/ideas/deepagents-053-verification.md) — ASSUM-008 runtime refusal confirmed via `_PermissionMiddleware` returning typed `ToolMessage(status="error")` (TASK-SPIKE-C1E9, 2026-04-20).

@@ -51,3 +51,7 @@ PAUSED survives process restart via the SQLite + JetStream path (ADR-SP-013 cras
 - **+** Resume with typed payload works natively — no custom resume RPC.
 - **−** Process crash during paused state loses the in-graph interrupt but preserves the external protocol (ApprovalRequest was already published, SQLite marks PAUSED). Restart re-emits → potential double-emit of ApprovalRequestPayload if Rich hasn't responded yet. Handled: responders are idempotent by `correlation_id`; first response wins.
 - **−** DeepAgents `interrupt()` semantics must match expectations (fresh `response` passed back on resume). Verified in documentation; implementation-time check required.
+
+## References
+
+- [deepagents 0.5.3 primitives verification](../../research/ideas/deepagents-053-verification.md) — ASSUM-009 typed `interrupt()` round-trip confirmed for direct `CompiledStateGraph.invoke`; `langgraph dev` server-mode coverage deferred (TASK-SPIKE-C1E9, 2026-04-20).
