@@ -35,9 +35,9 @@ assumptions:
 
   - id: ASSUM-004
     category: fleet
-    description: "nats-core library (v0.1+) published and pip-installable from sibling repo with AgentManifest, NATSKVManifestRegistry, typed payloads, Topics registry"
+    description: "nats-core library (v0.2.0) published and pip-installable from sibling repo with AgentManifest, NATSKVManifestRegistry, typed payloads (incl. reconciled StageComplete/BuildPaused/BuildResumed + BuildCancelledPayload, all with ISO-8601 str timestamps), Topics registry"
     confidence: high
-    source: nats-core repo at 98% test coverage
+    source: nats-core repo — TASK-NCFA-003 shipped 2026-04-23, 761/761 tests passing, 98% coverage
     related_adr: ADR-ARCH-015
 
   - id: ASSUM-005
