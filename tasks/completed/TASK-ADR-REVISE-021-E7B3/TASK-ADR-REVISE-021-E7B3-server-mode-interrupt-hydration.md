@@ -1,9 +1,12 @@
 ---
 id: TASK-ADR-REVISE-021-E7B3
 title: Revise ADR-ARCH-021 — server-mode `interrupt()` returns dict, not typed payload
-status: in_review
+status: completed
 created: 2026-04-20T00:00:00Z
-updated: 2026-04-20T00:00:00Z
+updated: 2026-04-23T00:00:00Z
+completed: 2026-04-23T00:00:00Z
+completed_location: tasks/completed/TASK-ADR-REVISE-021-E7B3/
+implementation_commit: 0a40b25
 priority: high
 tags: [adr-revision, architecture, langgraph, interrupt, pre-system-design]
 complexity: 3
