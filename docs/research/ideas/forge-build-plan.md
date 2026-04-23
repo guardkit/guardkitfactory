@@ -1,10 +1,22 @@
 # Forge Build Plan — Pipeline Orchestrator & Checkpoint Manager
 
-## Status: Ready for `/system-arch` (after specialist-agent Phase 3 + NATS infrastructure tested) — aligned with anchor v2.2
+## Status: `/system-arch` ✅ done · `/system-design` ✅ done · **Ready for `/feature-spec` × 8** (blocked on specialist-agent Phase 3 + NATS infra running)
 ## Repo: `guardkit/forge`
 ## Agent ID: `forge`
 ## Target: Post specialist-agent Phase 3 completion
-## Depends On: nats-core (✅), nats-infrastructure (✅ configured, ◻ running), specialist-agent Phase 3 (◻)
+## Depends On: nats-core (✅ v0.2.0 inc. TASK-NCFA-003), nats-infrastructure (✅ configured, ◻ running), specialist-agent Phase 3 (◻)
+
+### Progress log
+
+| Step | Command | Status | Date | Commit | Artefacts |
+|---|---|---|---|---|---|
+| 1 | `/system-arch` | ✅ complete | 2026-04-18 | `9f41e22` (seeded by later refinements) | `docs/architecture/ARCHITECTURE.md`, `system-context.md`, `container.md`, `domain-model.md`, `assumptions.yaml`, **31 ADRs** (`ADR-ARCH-001`..`031`) |
+| 2 | `/system-design` | ✅ complete | 2026-04-23 | `b40365c` | `docs/design/` — **9 API contracts + 5 data models + 6 DDRs + 2 C4 L3 diagrams**; 20 artefacts seeded into Graphiti (`project_design` + `architecture_decisions`) |
+| 3 | `/feature-spec × 8` | ◻ pending | — | — | — |
+| 4 | `/feature-plan × 8` | ◻ pending | — | — | — |
+| 5 | `autobuild × 8` (Waves 1–6) | ◻ pending | — | — | — |
+| 6 | Validation | ◻ pending | — | — | — |
+| 7 | FinProxy first real run | ◻ pending | — | — | — |
 
 ---
 
@@ -30,7 +42,7 @@ All prerequisites must be met before starting Step 1 (`/system-arch`).
 
 ### Hard Prerequisites (blocking)
 
-- [~] **nats-core library implemented** — shipping at 98% coverage, but v2.2-critical payloads (`BuildQueuedPayload`, `BuildPausedPayload`, `BuildResumedPayload`, `StageCompletePayload`, `StageGatedPayload`) and their topics must be added in Phase 2 (see anchor v2.2 §7 and alignment review Appendix C)
+- [x] **nats-core library implemented** — v0.2.0 shipped 2026-04-23 with **TASK-NCFA-003**: reconciled `StageCompletePayload`, `BuildPausedPayload`, `BuildResumedPayload` and added `BuildCancelledPayload` (all ISO-8601 `str` timestamps); `BuildQueuedPayload` already present. All topics registered. 761/761 tests passing, 98% coverage. Forge pins `nats-core>=0.2.0,<0.3` in `pyproject.toml`. Interim payload-carrier module was retired before creation (see DDR-001).
 - [ ] **nats-infrastructure running on GB10** — NATS server up, JetStream enabled,
       accounts configured, `docker compose up -d` executed **and provisioning
       scripts run**: `provision-streams.sh` (creates AGENTS + PIPELINE + SYSTEM
@@ -131,9 +143,9 @@ inevitable debugging of subprocess orchestration + async NATS patterns)
 
 ## GuardKit Command Sequence
 
-### Step 1: /system-arch
+### Step 1: /system-arch ✅ COMPLETE (2026-04-18)
 
-Produces the Forge's system architecture — ARCHITECTURE.md, ADRs, C4 diagrams,
+Produced the Forge's system architecture — ARCHITECTURE.md, ADRs, C4 diagrams,
 component boundaries.
 
 ```bash
@@ -151,114 +163,166 @@ guardkit system-arch \
   --context nats-core/docs/design/contracts/agent-manifest-contract.md
 ```
 
-**Expected outputs:**
-- `forge/docs/architecture/ARCHITECTURE.md`
-- `forge/docs/architecture/c4-*.svg` (context, container, component diagrams)
-- `forge/docs/decisions/ADR-FORGE-001-*.md` (likely: checkpoint protocol, delegation model, state persistence)
+**Actual outputs (on disk):**
+- [`forge/docs/architecture/ARCHITECTURE.md`](../../architecture/ARCHITECTURE.md) — module map, stack, gates, relationship to anchor v2.2, decision index (31 ADRs)
+- [`forge/docs/architecture/system-context.md`](../../architecture/system-context.md) — C4 Level 1
+- [`forge/docs/architecture/container.md`](../../architecture/container.md) — C4 Level 2 (approved)
+- [`forge/docs/architecture/domain-model.md`](../../architecture/domain-model.md) — core concepts, lifecycle, ownership
+- [`forge/docs/architecture/assumptions.yaml`](../../architecture/assumptions.yaml) — tracked assumptions (updated 2026-04-23 for nats-core v0.2.0)
+- [`forge/docs/architecture/decisions/ADR-ARCH-001`..`031`](../../architecture/decisions/) — 31 ADRs across structural / tool layer / learning / gating / state / API / fleet / deployment / security / cost / implementation
 
-**Validation:**
-- Architecture captures all three modes (greenfield, feature, review-fix)
-- Confidence-gated checkpoint protocol is a first-class architectural component
-- Specialist agent delegation via NATS `call_agent_tool()` is clearly bounded
-- GuardKit command invocation is subprocess-based, not in-process
-- Degraded mode is documented as a structural capability
-- Pipeline event publishing uses nats-core payloads (no new types)
-- State persistence uses NATS KV (not filesystem)
-- **Each ADR produced carries a trailer:** `**Decision facts as of commit:** <sha>`
-  — to be re-verified at each subsequent walkthrough. Per specialist-agent LES1
-  §8 ("Decision records must be revalidated at each major milestone"): overstated
-  parity claims only surface at live retest; the annotation makes decisions
-  temporally scoped.
+**Key revisions since initial session:**
+- ADR-ARCH-021 Revision 10 (2026-04-20) — server-mode rehydration contract (Option C hybrid) recorded after TASK-SPIKE-D2F7
+- ADR-ARCH-031 (2026-04-19) — async subagents for `autobuild_runner`
+- Commits: `9f41e22` (initial `/system-arch`) + `7bcc7da` (review + refinements) + `0a40b25` (ADR-021 Rev 10) + `79589c5` (TASK-ADR-REVISE completion)
 
-**⚠️ After this step:** Update `--context` flags in Steps 2-5 below to reference the
-actual files produced. See "Post-Architecture Update Instructions" at the end of this
-document.
+**Validation (all green):**
+- ✅ Architecture captures all three modes (greenfield, feature, review-fix)
+- ✅ Confidence-gated checkpoint protocol is a first-class architectural component (see §8 + domain model `GateDecision`)
+- ✅ Specialist agent delegation via NATS `call_agent_tool()` clearly bounded — ADR-ARCH-015
+- ✅ GuardKit command invocation is subprocess-based — ADR-ARCH-004, ADR-ARCH-020
+- ✅ Degraded mode is documented structural capability — ARCHITECTURE.md §7 + refresh-doc §"Degraded Mode"
+- ✅ Pipeline event publishing uses nats-core payloads only (no new types invented here; v0.2.0 ships them)
+- ✅ State persistence uses **SQLite + JetStream** (not NATS KV per the earlier draft — ADR-ARCH-009 explicitly omits the LangGraph checkpointer; ADR-SP-013 makes SQLite authoritative; builds KV is intentionally unused as a state store)
+- ◻ **ADR trailer** (`**Decision facts as of commit:** <sha>`) — **not yet applied** to the 31 ADRs. Low-priority backfill task; consider a follow-up commit after /feature-spec.
 
-### Step 2: /system-design
+**Noted deviation from the expected shape:**
+- Build plan predicted ADRs under `forge/docs/decisions/ADR-FORGE-001-*`. Actual location is `forge/docs/architecture/decisions/ADR-ARCH-*`. References updated throughout this document accordingly.
 
-Produces detailed design — component interactions, data models, API contracts,
-sequence diagrams.
+### Step 2: /system-design ✅ COMPLETE (2026-04-23)
+
+Produced detailed design — API contracts per container, data models, DDRs, C4 L3 diagrams.
 
 ```bash
 guardkit system-design \
   --context forge/docs/architecture/ARCHITECTURE.md \
-  --context <ADR files produced by Step 1> \
+  --context forge/docs/architecture/decisions/ADR-ARCH-001..031.md  # all 31 ADRs loaded
   --context nats-core/docs/design/specs/nats-core-system-spec.md \
   --context nats-core/docs/design/contracts/agent-manifest-contract.md \
   --context forge/docs/research/ideas/forge-pipeline-orchestrator-refresh.md
 ```
 
-**Expected outputs:**
-- `forge/docs/design/DESIGN.md`
-- `forge/docs/design/specs/forge-system-spec.md` (features, BDD acceptance criteria)
-- `forge/docs/design/contracts/` (pipeline config schema, checkpoint protocol contract)
+**Actual outputs (on disk — commit `b40365c`):**
 
-**Validation:**
-- System spec contains BDD acceptance criteria for all 8 features
-- Pipeline config schema (`forge-pipeline-config.yaml`) is fully specified with
-  per-stage thresholds, critical detections, reviewer assignment, escalation channels
-- Checkpoint protocol contract specifies exact NATS topic patterns and payload mappings
-- Sequence diagrams for Mode A greenfield show the full delegation → checkpoint →
-  invoke → verify → PR flow
-- GuardKit command invocation contract specifies subprocess interface, environment
-  variables, output file discovery
-- State machine transitions are formally defined with valid/invalid transitions
+Nine API contracts ([`forge/docs/design/contracts/`](../../design/contracts/)):
+- [`API-nats-pipeline-events.md`](../../design/contracts/API-nats-pipeline-events.md) — inbound `pipeline.build-queued.>` pull consumer + 8 outbound lifecycle subjects
+- [`API-nats-agent-dispatch.md`](../../design/contracts/API-nats-agent-dispatch.md) — specialist dispatch with LES1 per-correlation reply subject
+- [`API-nats-approval-protocol.md`](../../design/contracts/API-nats-approval-protocol.md) — `interrupt()` round-trip with rehydration contract
+- [`API-nats-fleet-lifecycle.md`](../../design/contracts/API-nats-fleet-lifecycle.md) — Forge self-registration + KV watch
+- [`API-cli.md`](../../design/contracts/API-cli.md) — `forge queue/status/history/cancel/skip`
+- [`API-sqlite-schema.md`](../../design/contracts/API-sqlite-schema.md) — `builds` + `stage_log` DDL + WAL
+- [`API-tool-layer.md`](../../design/contracts/API-tool-layer.md) — all `@tool` functions + 11 GuardKit wrappers
+- [`API-subagents.md`](../../design/contracts/API-subagents.md) — sync `build_plan_composer` + async `autobuild_runner`
+- [`API-subprocess.md`](../../design/contracts/API-subprocess.md) — GuardKit/git/gh via DeepAgents `execute`
 
-**⚠️ After this step:** Update `--context` flags in Steps 3-5 below. See "Post-
-Architecture Update Instructions."
+Five data models ([`forge/docs/design/models/`](../../design/models/)):
+- [`DM-build-lifecycle.md`](../../design/models/DM-build-lifecycle.md) — `Build` + `StageLogEntry` + state machine transitions
+- [`DM-gating.md`](../../design/models/DM-gating.md) — `GateDecision`, `GateMode`, `PriorReference`, `DetectionFinding`
+- [`DM-calibration.md`](../../design/models/DM-calibration.md) — `CalibrationEvent`/`Adjustment` + ingestion + learning pipeline
+- [`DM-discovery.md`](../../design/models/DM-discovery.md) — `CapabilityResolution` + live cache invalidation
+- [`DM-graphiti-entities.md`](../../design/models/DM-graphiti-entities.md) — entity + edge shapes in `forge_pipeline_history` + `forge_calibration_history`
 
-### Step 3: /feature-spec × 8
+Six DDRs ([`forge/docs/design/decisions/`](../../design/decisions/)):
+- [`DDR-001`](../../design/decisions/DDR-001-reply-subject-correlation.md) — reply-subject correlation (Convention B)
+- [`DDR-002`](../../design/decisions/DDR-002-resume-value-rehydration-helper.md) — `resume_value_as` helper in `forge.adapters.langgraph`
+- [`DDR-003`](../../design/decisions/DDR-003-sqlite-schema-layout-wal.md) — SQLite WAL + STRICT tables
+- [`DDR-004`](../../design/decisions/DDR-004-graphiti-group-partitioning.md) — two Graphiti groups
+- [`DDR-005`](../../design/decisions/DDR-005-cli-context-manifest-resolution.md) — context-manifest resolver placement + category table
+- [`DDR-006`](../../design/decisions/DDR-006-async-subagent-state-channel-contract.md) — `AutobuildState` schema for `async_tasks` channel
+
+Two C4 L3 diagrams ([`forge/docs/design/diagrams/`](../../design/diagrams/)):
+- [`agent-runtime.md`](../../design/diagrams/agent-runtime.md) — Agent Runtime components (16 nodes, approved)
+- [`domain-core.md`](../../design/diagrams/domain-core.md) — Domain Core components (15 nodes, approved)
+
+**Deliberately NOT produced (per ADRs):**
+- ❌ `openapi.yaml` — Forge has no HTTP/REST surface (ADR-ARCH-012)
+- ❌ `mcp-tools.json` — no MCP interface (ADR-ARCH-012)
+- ❌ `a2a-schemas.yaml` — fleet uses NATS request/reply, not A2A protocol (ADR-ARCH-003)
+- ❌ `DESIGN.md` monolith — replaced by the per-container contract/model set above (richer, more localisable)
+- ❌ `forge-system-spec.md` (BDD acceptance criteria) — belongs to `/feature-spec` (Step 3), not `/system-design`
+
+**Validation (what held vs what the plan expected):**
+- ✅ Pipeline config schema fully specified in [`forge-build-plan.md#Pipeline-Configuration-Schema`](./forge-build-plan.md#pipeline-configuration-schema) — no changes needed from the anchor-v2.2 shape
+- ✅ Checkpoint protocol contract specifies exact NATS topic patterns — see [`API-nats-approval-protocol.md`](../../design/contracts/API-nats-approval-protocol.md) §2 + §3.2
+- ✅ GuardKit command invocation contract specifies subprocess interface + env + output discovery — [`API-subprocess.md`](../../design/contracts/API-subprocess.md) §3 + [`API-tool-layer.md`](../../design/contracts/API-tool-layer.md) §6
+- ✅ State machine transitions formally defined — [`DM-build-lifecycle.md §2.1`](../../design/models/DM-build-lifecycle.md#21-valid-transitions)
+- ◻ **Sequence diagrams for Mode A greenfield** — not produced. Content is implicit across the contract set (pipeline events + approval protocol + dispatch + subagents) but a single end-to-end sequence diagram would be useful. Consider an optional follow-up artefact before `/feature-spec FEAT-FORGE-007`.
+- ◻ **BDD acceptance criteria for all 8 features** — **deferred to `/feature-spec`** (Step 3 below). Template expected this in /system-design; Forge's NOT-DDD structure means acceptance criteria belong with per-feature spec sessions, not with the interface-design pass.
+
+**Coupled changes shipped in the same commit (`b40365c`):**
+- `pyproject.toml` — pinned `nats-core>=0.2.0,<0.3`
+- `docs/architecture/assumptions.yaml` — ASSUM-004 updated to reflect nats-core v0.2.0 / TASK-NCFA-003
+
+**Graphiti seeding:** 20/20 artefacts seeded (`project_design` + `architecture_decisions` groups). Two initial vLLM flakes + one post-seed edit recovered with `--force` re-seed.
+
+**Sibling task created in `nats-core`:** [`TASK-NCFA-003`](../../../../nats-core/tasks/backlog/forge-v2-alignment/TASK-NCFA-003-add-forge-system-design-pipeline-payloads.md) — shipped same-day as `nats-core 0.2.0`.
+
+### Step 3: /feature-spec × 8 — ◻ READY TO START
 
 Produces BDD feature specifications for each feature. Run sequentially — later features
 reference earlier ones.
 
+> **Context-flag resolution (post-`/system-design`):** placeholders from the original
+> build plan resolve as follows. `DESIGN.md` / `forge-system-spec.md` were not produced
+> as monolithic files (see Step 2 deviation note); instead each `/feature-spec` pulls
+> the relevant per-container contract + data model. The GuardKit context-manifest
+> resolver (DDR-005) can drive most of this automatically once
+> `.guardkit/context-manifest.yaml` is populated.
+
 ```bash
 # FEAT-FORGE-001: Pipeline State Machine & Configuration
 guardkit feature-spec FEAT-FORGE-001 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md \
-  --context <pipeline config schema from Step 2>
+  --context forge/docs/design/models/DM-build-lifecycle.md \
+  --context forge/docs/design/contracts/API-sqlite-schema.md \
+  --context forge/docs/design/contracts/API-cli.md \
+  --context forge/docs/design/decisions/DDR-003-sqlite-schema-layout-wal.md
 
 # FEAT-FORGE-002: NATS Fleet Integration
 guardkit feature-spec FEAT-FORGE-002 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md \
+  --context forge/docs/design/contracts/API-nats-pipeline-events.md \
+  --context forge/docs/design/contracts/API-nats-fleet-lifecycle.md \
+  --context forge/docs/design/models/DM-discovery.md \
   --context nats-core/docs/design/specs/nats-core-system-spec.md \
   --context nats-core/docs/design/contracts/agent-manifest-contract.md
 
 # FEAT-FORGE-003: Specialist Agent Delegation
 guardkit feature-spec FEAT-FORGE-003 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md \
+  --context forge/docs/design/contracts/API-nats-agent-dispatch.md \
+  --context forge/docs/design/models/DM-discovery.md \
+  --context forge/docs/design/decisions/DDR-001-reply-subject-correlation.md \
   --context nats-core/docs/design/specs/nats-core-system-spec.md
 
 # FEAT-FORGE-004: Confidence-Gated Checkpoint Protocol
 guardkit feature-spec FEAT-FORGE-004 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md \
-  --context <checkpoint protocol contract from Step 2>
+  --context forge/docs/design/contracts/API-nats-approval-protocol.md \
+  --context forge/docs/design/models/DM-gating.md \
+  --context forge/docs/design/decisions/DDR-002-resume-value-rehydration-helper.md
 
 # FEAT-FORGE-005: GuardKit Command Invocation Engine
 guardkit feature-spec FEAT-FORGE-005 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md
+  --context forge/docs/design/contracts/API-tool-layer.md \
+  --context forge/docs/design/contracts/API-subprocess.md \
+  --context forge/docs/design/decisions/DDR-005-cli-context-manifest-resolution.md
 
 # FEAT-FORGE-006: Infrastructure Coordination
 guardkit feature-spec FEAT-FORGE-006 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md
+  --context forge/docs/design/models/DM-graphiti-entities.md \
+  --context forge/docs/design/models/DM-calibration.md \
+  --context forge/docs/design/contracts/API-subprocess.md \
+  --context forge/docs/design/decisions/DDR-004-graphiti-group-partitioning.md
 
 # FEAT-FORGE-007: Mode A Greenfield End-to-End
 guardkit feature-spec FEAT-FORGE-007 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md \
-  --context <all previous feature spec files>
+  --context forge/docs/design/contracts/API-subagents.md \
+  --context forge/docs/design/diagrams/agent-runtime.md \
+  --context forge/docs/design/diagrams/domain-core.md \
+  --context forge/docs/design/decisions/DDR-006-async-subagent-state-channel-contract.md \
+  # plus all previous feature spec files (forge/features/FEAT-FORGE-001..006/*)
 
 # FEAT-FORGE-008: Mode B Feature & Mode C Review-Fix
 guardkit feature-spec FEAT-FORGE-008 \
-  --context forge/docs/design/DESIGN.md \
-  --context forge/docs/design/specs/forge-system-spec.md \
-  --context <FEAT-FORGE-007 feature spec>
+  --context forge/features/FEAT-FORGE-007/feature-spec.md \
+  --context forge/docs/design/contracts/API-cli.md
 ```
 
 **Validation per feature spec:**
@@ -707,5 +771,6 @@ guardkit feature-spec FEAT-FORGE-004 \
 ---
 
 *Build plan created: 12 April 2026*
-*Status: Ready for /system-arch when prerequisites met*
+*Updated: 23 April 2026 — Steps 1 & 2 complete; nats-core v0.2.0 shipped (TASK-NCFA-003)*
+*Status: Ready for `/feature-spec × 8` (Step 3) once specialist-agent Phase 3 + NATS infra are running*
 *"The Forge is the capstone. It's the last major agent to build because it coordinates everything else. But it's also the highest-leverage: once it works, the Software Factory is real."*

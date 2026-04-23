@@ -1931,6 +1931,145 @@ R4	assumptions.yaml:38	ASSUM-004 bumped to v0.2.0 with BuildCancelledPayload + I
 R5	pyproject.toml:16	nats-core>=0.2.0,<0.3 added to dependencies; tomllib parse confirmed
 Nothing to delete — forge/adapters/nats/_interim_payloads.py never existed because the scaffold post-dates the nats-core release. The review task is complete; next step on your side is presumably to signal nats-core that Forge is aligned, then /task-complete TASK-NCFA-003 in the nats-core repo.
 
+/system-design \
+  --context forge/docs/architecture/ARCHITECTURE.md \
+  --context <ADR files produced by Step 1> \
+  --context nats-core/docs/design/specs/nats-core-system-spec.md \
+  --context nats-core/docs/design/contracts/agent-manifest-contract.md \
+  --context forge/docs/research/ideas/forge-pipeline-orchestrator-refresh.md
+
+ Graphiti reachable at whitestocks:6379, GuardKit CLI present. Presenting final summary + seeding commands.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ SYSTEM DESIGN COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Created: docs/design/
+  ├── contracts/            (9 files, ~80 KB)
+  │   ├── API-nats-pipeline-events.md
+  │   ├── API-nats-agent-dispatch.md
+  │   ├── API-nats-approval-protocol.md
+  │   ├── API-nats-fleet-lifecycle.md
+  │   ├── API-cli.md
+  │   ├── API-sqlite-schema.md
+  │   ├── API-tool-layer.md
+  │   ├── API-subagents.md
+  │   └── API-subprocess.md
+  ├── models/               (5 files, ~46 KB)
+  │   ├── DM-build-lifecycle.md
+  │   ├── DM-gating.md
+  │   ├── DM-calibration.md
+  │   ├── DM-discovery.md
+  │   └── DM-graphiti-entities.md
+  ├── diagrams/             (2 files, ~16 KB) — both approved
+  │   ├── agent-runtime.md  (C4 L3, 16 nodes)
+  │   └── domain-core.md    (C4 L3, 15 nodes)
+  └── decisions/            (6 DDRs, ~31 KB)
+      ├── DDR-001-reply-subject-correlation.md
+      ├── DDR-002-resume-value-rehydration-helper.md
+      ├── DDR-003-sqlite-schema-layout-wal.md
+      ├── DDR-004-graphiti-group-partitioning.md
+      ├── DDR-005-cli-context-manifest-resolution.md
+      └── DDR-006-async-subagent-state-channel-contract.md
+
+NOT generated (deliberately — per ADRs):
+  ✗ openapi.yaml           — ADR-ARCH-012 excludes HTTP/REST
+  ✗ mcp-tools.json         — ADR-ARCH-012 excludes MCP
+  ✗ a2a-schemas.yaml       — ADR-ARCH-003 fleet uses NATS request/reply
+
+Contradiction detection: ✓ No conflicts with 31 existing ADRs
+
+Soft flags:
+  • 4 new nats-core payload types proposed (2 from refresh doc + 2 additive) —
+    tracked in DDR-001 as TASK-NCFA-002 dependency on nats-core ≥ 0.2.0
+Graphiti seeding — ready to run (FalkorDB reachable):
+
+
+# API contracts → project_design group
+guardkit graphiti add-context docs/design/contracts/API-nats-pipeline-events.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-nats-agent-dispatch.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-nats-approval-protocol.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-nats-fleet-lifecycle.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-cli.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-sqlite-schema.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-tool-layer.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-subagents.md --group project_design
+guardkit graphiti add-context docs/design/contracts/API-subprocess.md --group project_design
+
+# Data models → project_design group
+guardkit graphiti add-context docs/design/models/DM-build-lifecycle.md --group project_design
+guardkit graphiti add-context docs/design/models/DM-gating.md --group project_design
+guardkit graphiti add-context docs/design/models/DM-calibration.md --group project_design
+guardkit graphiti add-context docs/design/models/DM-discovery.md --group project_design
+guardkit graphiti add-context docs/design/models/DM-graphiti-entities.md --group project_design
+
+# DDRs → architecture_decisions group
+guardkit graphiti add-context docs/design/decisions/DDR-001-reply-subject-correlation.md --group architecture_decisions
+guardkit graphiti add-context docs/design/decisions/DDR-002-resume-value-rehydration-helper.md --group architecture_decisions
+guardkit graphiti add-context docs/design/decisions/DDR-003-sqlite-schema-layout-wal.md --group architecture_decisions
+guardkit graphiti add-context docs/design/decisions/DDR-004-graphiti-group-partitioning.md --group architecture_decisions
+guardkit graphiti add-context docs/design/decisions/DDR-005-cli-context-manifest-resolution.md --group architecture_decisions
+guardkit graphiti add-context docs/design/decisions/DDR-006-async-subagent-state-channel-contract.md --group architecture_decisions
+Run these seeding commands now? [Y/n]
+
+(20 commands total. Diagrams are not seeded — they're visual + already referenced by the L2 container doc.)
+
+Next steps regardless of seeding:
+
+Review key design calls — especially the 4-payload addition to nats-core (DDR-001) and the forge.adapters.langgraph helper placement (DDR-002).
+Raise TASK-NCFA-002 in the nats-core repo for the payload additions.
+Feed these artefacts into /feature-spec / /feature-plan sessions when you're ready to carve Forge into implementable features.
+If you want me to also append an entry to docs/history/system-design-history.md, say so.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📝 /system-design — FINAL STATUS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Artefacts written:         22 files (9 contracts + 5 models + 6 DDRs + 2 C4 L3 diagrams)
+Contradiction check:       ✓ No ADR conflicts
+C4 L3 review gate:         ✓ Both diagrams approved
+nats-core task creation:   ✓ TASK-NCFA-003 created
+                              path: nats-core/tasks/backlog/forge-v2-alignment/
+                                    TASK-NCFA-003-add-forge-system-design-pipeline-payloads.md
+Graphiti seeding:          🔄 IN FLIGHT — background job b9u3j6twg
+                              log: /tmp/forge-design-seed-v2.log
+                              ETA ~20 min (20 files × ~60s via vLLM)
+Key correction from sub-agent's investigation (already applied to docs):
+
+Originally referenced TASK-NCFA-002 in DDR-001 + API-nats-pipeline-events — that ID was already taken (a completed integration-tests task from wave 2 of forge-v2-alignment). Actual new task is TASK-NCFA-003.
+Three of the four payloads I specified (StageCompletePayload, BuildPausedPayload, BuildResumedPayload) already exist in nats-core from TASK-NCFA-001 (completed 2026-04-16), but with different field signatures. Only BuildCancelledPayload is truly net-new.
+Scope of TASK-NCFA-003: reconcile 3 existing payloads + add 1 new one. Forge carries canonical-shape interim types locally until nats-core ≥ 0.2.0 ships the reconciled shapes.
+First seeding attempt failed silently — used a non-existent --group flag from the command template. Corrected to --type adr for DDRs, auto-detect (full_doc) for contracts/models. Groups in .guardkit/graphiti.yaml are inferred from parser type, not a direct CLI option. Also added ## Status section headers to all 6 DDRs so the ADR parser accepts them.
+
+I'll report back with the final seed log once the background job notifies completion.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ /system-design — DONE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Artefacts:       22 files in docs/design/ — all clean on disk
+Graphiti:        20/20 seeded ✓ (retry pass recovered 2 vLLM flakes;
+                 API-nats-pipeline-events re-seeded with your 0.2.0 edit)
+Total episodes:  ~27 (API-nats-pipeline-events chunked into 7)
+nats-core task:  TASK-NCFA-003 in nats-core/tasks/backlog/forge-v2-alignment/
+                 — already shipped same-day via your 0.2.0 release
+                 → DDR-001 supersession banner + API-nats-pipeline-events §3.2
+                   reflect reality: no interim carrier needed.
+State of the repo right now (docs/design/):
+
+9 API contracts + 5 data models queryable via guardkit graphiti search on project_design / architecture_decisions groups.
+6 DDRs with ## Status section headers (ADR-parser-compatible).
+2 C4 L3 diagrams approved + on disk (not seeded — visual, linked from C4 L2).
+Forge-internal types continue to use datetime; only the four nats-core 0.2.0 wire payloads use str ISO-8601.
+Suggested next moves:
+
+Commit the docs/design/ tree + the history file change when ready.
+Feed this into /feature-plan when you're ready to carve Forge into implementable features.
+The only documentary gap I noticed: docs/history/system-design-history.md (opened in your IDE) — I didn't append a session entry. Say the word if you want one.
+
+please update /Users/richardwoollcott/Projects/appmilla_github/forge/docs/research/ideas/forge-build-plan.md with the status
+
 
 
 
