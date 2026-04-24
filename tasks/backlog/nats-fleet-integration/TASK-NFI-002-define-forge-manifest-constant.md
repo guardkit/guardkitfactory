@@ -2,7 +2,7 @@
 id: TASK-NFI-002
 title: Define FORGE_MANIFEST constant builder
 task_type: declarative
-status: blocked
+status: in_review
 priority: high
 created: 2026-04-24 00:00:00+00:00
 updated: 2026-04-24 00:00:00+00:00
@@ -22,53 +22,24 @@ test_results:
   coverage: null
   last_run: null
 autobuild_state:
-  current_turn: 3
+  current_turn: 1
   max_turns: 30
   worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
   base_branch: main
-  started_at: '2026-04-24T12:34:33.093964'
-  last_updated: '2026-04-24T12:35:03.627610'
+  started_at: '2026-04-24T18:05:27.621199'
+  last_updated: '2026-04-24T18:10:27.392170'
   turns:
   - turn: 1
-    decision: feedback
-    feedback: "- Not all acceptance criteria met:\n  \u2022 `src/forge/fleet/manifest.py`\
-      \ exports a module-level `FORGE_MANIFEST` constant\n  \u2022 Type is `nats_core.manifest.AgentManifest`\
-      \ (imported, not redeclared)\n  \u2022 `agent_id == \"forge\"`, `trust_tier\
-      \ == \"core\"`, `max_concurrent == 1`\n  \u2022 Three `IntentCapability` entries\
-      \ (build.* / pipeline.* / feature.*) match \xA72.1 verbatim\n  \u2022 Five `ToolCapability`\
-      \ entries (forge_greenfield, forge_feature, forge_review_fix, forge_status,\
-      \ forg\n  (3 more)"
-    timestamp: '2026-04-24T12:34:33.093964'
-    player_summary: '[RECOVERED via player_report] Original error: Unexpected error:
-      SDK invocation failed for player: Unknown message type: rate_limit_event'
-    player_success: true
-    coach_success: true
-  - turn: 2
-    decision: feedback
-    feedback: "- Not all acceptance criteria met:\n  \u2022 `src/forge/fleet/manifest.py`\
-      \ exports a module-level `FORGE_MANIFEST` constant\n  \u2022 Type is `nats_core.manifest.AgentManifest`\
-      \ (imported, not redeclared)\n  \u2022 `agent_id == \"forge\"`, `trust_tier\
-      \ == \"core\"`, `max_concurrent == 1`\n  \u2022 Three `IntentCapability` entries\
-      \ (build.* / pipeline.* / feature.*) match \xA72.1 verbatim\n  \u2022 Five `ToolCapability`\
-      \ entries (forge_greenfield, forge_feature, forge_review_fix, forge_status,\
-      \ forg\n  (3 more)"
-    timestamp: '2026-04-24T12:34:43.978496'
-    player_summary: '[RECOVERED via player_report] Original error: Unexpected error:
-      SDK invocation failed for player: Unknown message type: rate_limit_event'
-    player_success: true
-    coach_success: true
-  - turn: 3
-    decision: feedback
-    feedback: "- Not all acceptance criteria met:\n  \u2022 `src/forge/fleet/manifest.py`\
-      \ exports a module-level `FORGE_MANIFEST` constant\n  \u2022 Type is `nats_core.manifest.AgentManifest`\
-      \ (imported, not redeclared)\n  \u2022 `agent_id == \"forge\"`, `trust_tier\
-      \ == \"core\"`, `max_concurrent == 1`\n  \u2022 Three `IntentCapability` entries\
-      \ (build.* / pipeline.* / feature.*) match \xA72.1 verbatim\n  \u2022 Five `ToolCapability`\
-      \ entries (forge_greenfield, forge_feature, forge_review_fix, forge_status,\
-      \ forg\n  (3 more)"
-    timestamp: '2026-04-24T12:34:54.286712'
-    player_summary: '[RECOVERED via player_report] Original error: Unexpected error:
-      SDK invocation failed for player: Unknown message type: rate_limit_event'
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-24T18:05:27.621199'
+    player_summary: "Created src/forge/fleet/manifest.py exporting FORGE_MANIFEST,\
+      \ a module-level nats_core.manifest.AgentManifest constant. Copied \xA72.1 of\
+      \ docs/design/contracts/API-nats-fleet-lifecycle.md verbatim: agent_id='forge',\
+      \ trust_tier='core', max_concurrent=1 (ADR-SP-012), three IntentCapability entries\
+      \ (build.*/pipeline.*/feature.*), five ToolCapability entries (forge_greenfield,\
+      \ forge_feature, forge_review_fix, forge_status, forge_cancel), and the eight-element\
+      \ required_permissions list. Also added src/f"
     player_success: true
     coach_success: true
 ---

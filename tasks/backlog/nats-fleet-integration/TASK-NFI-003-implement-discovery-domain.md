@@ -1,24 +1,79 @@
 ---
 id: TASK-NFI-003
-title: "Implement forge.discovery domain (cache + resolve + Protocols)"
+title: Implement forge.discovery domain (cache + resolve + Protocols)
 task_type: feature
-status: backlog
+status: blocked
 priority: high
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
+created: 2026-04-24 00:00:00+00:00
+updated: 2026-04-24 00:00:00+00:00
 parent_review: TASK-REV-NF20
 feature_id: FEAT-FORGE-002
 wave: 2
 implementation_mode: task-work
 complexity: 6
 dependencies:
-  - TASK-NFI-001
-  - TASK-NFI-002
-tags: [discovery, cache, domain, protocol, pure-python]
+- TASK-NFI-001
+- TASK-NFI-002
+tags:
+- discovery
+- cache
+- domain
+- protocol
+- pure-python
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 3
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
+  base_branch: main
+  started_at: '2026-04-24T18:10:29.444336'
+  last_updated: '2026-04-24T18:26:15.395720'
+  turns:
+  - turn: 1
+    decision: feedback
+    feedback: '- Task-work produced a report with 1 of 3 required agent invocations.
+      Missing phases: 4 (Testing), 5 (Code Review). Invoke these agents via the Task
+      tool before re-emitting the report:
+
+      - Phase 4: `test-orchestrator` (Testing)
+
+      - Phase 5: `code-reviewer` (Code Review)'
+    timestamp: '2026-04-24T18:10:29.444336'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
+  - turn: 2
+    decision: feedback
+    feedback: '- Task-work produced a report with 1 of 3 required agent invocations.
+      Missing phases: 4 (Testing), 5 (Code Review). Invoke these agents via the Task
+      tool before re-emitting the report:
+
+      - Phase 4: `test-orchestrator` (Testing)
+
+      - Phase 5: `code-reviewer` (Code Review)'
+    timestamp: '2026-04-24T18:19:38.592209'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
+  - turn: 3
+    decision: feedback
+    feedback: '- Task-work produced a report with 1 of 3 required agent invocations.
+      Missing phases: 4 (Testing), 5 (Code Review). Invoke these agents via the Task
+      tool before re-emitting the report:
+
+      - Phase 4: `test-orchestrator` (Testing)
+
+      - Phase 5: `code-reviewer` (Code Review)'
+    timestamp: '2026-04-24T18:22:41.494367'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Implement forge.discovery domain (cache + resolve + Protocols)

@@ -2,7 +2,7 @@
 id: TASK-NFI-001
 title: 'Extend forge.yaml config: fleet + pipeline + permissions sections'
 task_type: declarative
-status: blocked
+status: in_review
 priority: high
 created: 2026-04-24 00:00:00+00:00
 updated: 2026-04-24 00:00:00+00:00
@@ -23,50 +23,24 @@ test_results:
   coverage: null
   last_run: null
 autobuild_state:
-  current_turn: 3
+  current_turn: 1
   max_turns: 30
   worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
   base_branch: main
-  started_at: '2026-04-24T12:34:33.099353'
-  last_updated: '2026-04-24T12:35:04.769963'
+  started_at: '2026-04-24T18:05:27.621444'
+  last_updated: '2026-04-24T18:09:01.416861'
   turns:
   - turn: 1
-    decision: feedback
-    feedback: "- Not all acceptance criteria met:\n  \u2022 `FleetConfig`, `PipelineConfig`,\
-      \ `PermissionsConfig`, `FilesystemPermissions`\n  \u2022 Defaults match ASSUM-001..005\
-      \ exactly (30/90/30/0.7/60)\n  \u2022 `ForgeConfig.fleet` and `ForgeConfig.pipeline`\
-      \ are optional with defaults\n  \u2022 `ForgeConfig.permissions.filesystem.allowlist`\
-      \ is required (no default \u2014 must be explicit)\n  \u2022 `FilesystemPermissions.allowlist`\
-      \ rejects relative paths (Pydantic validator)\n  (2 more)"
-    timestamp: '2026-04-24T12:34:33.099353'
-    player_summary: '[RECOVERED via player_report] Original error: Unexpected error:
-      SDK invocation failed for player: Unknown message type: rate_limit_event'
-    player_success: true
-    coach_success: true
-  - turn: 2
-    decision: feedback
-    feedback: "- Not all acceptance criteria met:\n  \u2022 `FleetConfig`, `PipelineConfig`,\
-      \ `PermissionsConfig`, `FilesystemPermissions`\n  \u2022 Defaults match ASSUM-001..005\
-      \ exactly (30/90/30/0.7/60)\n  \u2022 `ForgeConfig.fleet` and `ForgeConfig.pipeline`\
-      \ are optional with defaults\n  \u2022 `ForgeConfig.permissions.filesystem.allowlist`\
-      \ is required (no default \u2014 must be explicit)\n  \u2022 `FilesystemPermissions.allowlist`\
-      \ rejects relative paths (Pydantic validator)\n  (2 more)"
-    timestamp: '2026-04-24T12:34:44.743717'
-    player_summary: '[RECOVERED via player_report] Original error: Unexpected error:
-      SDK invocation failed for player: Unknown message type: rate_limit_event'
-    player_success: true
-    coach_success: true
-  - turn: 3
-    decision: feedback
-    feedback: "- Not all acceptance criteria met:\n  \u2022 `FleetConfig`, `PipelineConfig`,\
-      \ `PermissionsConfig`, `FilesystemPermissions`\n  \u2022 Defaults match ASSUM-001..005\
-      \ exactly (30/90/30/0.7/60)\n  \u2022 `ForgeConfig.fleet` and `ForgeConfig.pipeline`\
-      \ are optional with defaults\n  \u2022 `ForgeConfig.permissions.filesystem.allowlist`\
-      \ is required (no default \u2014 must be explicit)\n  \u2022 `FilesystemPermissions.allowlist`\
-      \ rejects relative paths (Pydantic validator)\n  (2 more)"
-    timestamp: '2026-04-24T12:34:56.372288'
-    player_summary: '[RECOVERED via player_report] Original error: Unexpected error:
-      SDK invocation failed for player: Unknown message type: rate_limit_event'
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-24T18:05:27.621444'
+    player_summary: 'Created src/forge/config/ package with models.py containing FleetConfig
+      (heartbeat=30, stale=90, cache_ttl=30, intent=0.7), PipelineConfig (progress=60,
+      build_queue_subject=''pipeline.build-queued.>'', approved_originators list),
+      FilesystemPermissions (required allowlist: list[Path] with field_validator rejecting
+      non-absolute paths), PermissionsConfig (required filesystem), and ForgeConfig
+      (fleet/pipeline default via default_factory, permissions required). Used Pydantic
+      v2 Field/field_validator id'
     player_success: true
     coach_success: true
 ---

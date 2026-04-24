@@ -1,34 +1,96 @@
 ---
 id: TASK-NFI-007
-title: "Implement pipeline_consumer (pull consumer + validation + allowlist)"
+title: Implement pipeline_consumer (pull consumer + validation + allowlist)
 task_type: feature
-status: backlog
+status: blocked
 priority: high
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
+created: 2026-04-24 00:00:00+00:00
+updated: 2026-04-24 00:00:00+00:00
 parent_review: TASK-REV-NF20
 feature_id: FEAT-FORGE-002
 wave: 3
 implementation_mode: task-work
 complexity: 6
 dependencies:
-  - TASK-NFI-001
-tags: [nats, adapter, consumer, jetstream, pull-consumer, pipeline, security]
+- TASK-NFI-001
+tags:
+- nats
+- adapter
+- consumer
+- jetstream
+- pull-consumer
+- pipeline
+- security
 consumer_context:
-  - task: TASK-NFI-001
-    consumes: ForgeConfig.permissions.filesystem.allowlist
-    framework: "Pydantic v2 BaseModel"
-    driver: "pyyaml + pydantic"
-    format_note: "FilesystemPermissions.allowlist is list[Path] of absolute paths; every incoming BuildQueuedPayload.feature_yaml_path MUST resolve inside one of these paths (using pathlib.Path.is_relative_to). Relative paths are rejected at config load time (TASK-NFI-001 validator)."
-  - task: TASK-NFI-001
-    consumes: ForgeConfig.pipeline
-    framework: "Pydantic v2 BaseModel"
-    driver: "pyyaml + pydantic"
-    format_note: "PipelineConfig.approved_originators: list[str] — originating_adapter in BuildQueuedPayload MUST be in this list; build-failed event published if not"
+- task: TASK-NFI-001
+  consumes: ForgeConfig.permissions.filesystem.allowlist
+  framework: Pydantic v2 BaseModel
+  driver: pyyaml + pydantic
+  format_note: FilesystemPermissions.allowlist is list[Path] of absolute paths; every
+    incoming BuildQueuedPayload.feature_yaml_path MUST resolve inside one of these
+    paths (using pathlib.Path.is_relative_to). Relative paths are rejected at config
+    load time (TASK-NFI-001 validator).
+- task: TASK-NFI-001
+  consumes: ForgeConfig.pipeline
+  framework: Pydantic v2 BaseModel
+  driver: pyyaml + pydantic
+  format_note: "PipelineConfig.approved_originators: list[str] \u2014 originating_adapter\
+    \ in BuildQueuedPayload MUST be in this list; build-failed event published if\
+    \ not"
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 3
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
+  base_branch: main
+  started_at: '2026-04-24T18:10:29.455777'
+  last_updated: '2026-04-24T18:26:58.678680'
+  turns:
+  - turn: 1
+    decision: feedback
+    feedback: '- Task-work produced a report with 1 of 3 required agent invocations.
+      Missing phases: 4 (Testing), 5 (Code Review). Invoke these agents via the Task
+      tool before re-emitting the report:
+
+      - Phase 4: `test-orchestrator` (Testing)
+
+      - Phase 5: `code-reviewer` (Code Review)'
+    timestamp: '2026-04-24T18:10:29.455777'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
+  - turn: 2
+    decision: feedback
+    feedback: '- Task-work produced a report with 1 of 3 required agent invocations.
+      Missing phases: 4 (Testing), 5 (Code Review). Invoke these agents via the Task
+      tool before re-emitting the report:
+
+      - Phase 4: `test-orchestrator` (Testing)
+
+      - Phase 5: `code-reviewer` (Code Review)'
+    timestamp: '2026-04-24T18:20:41.534910'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
+  - turn: 3
+    decision: feedback
+    feedback: '- Task-work produced a report with 1 of 3 required agent invocations.
+      Missing phases: 3 (Implementation), 5 (Code Review). Invoke these agents via
+      the Task tool before re-emitting the report:
+
+      - Phase 3: `python-api-specialist` (Implementation)
+
+      - Phase 5: `code-reviewer` (Code Review)'
+    timestamp: '2026-04-24T18:24:04.212247'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Implement pipeline_consumer (pull consumer + validation + allowlist)
