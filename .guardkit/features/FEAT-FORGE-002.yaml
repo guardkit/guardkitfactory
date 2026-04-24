@@ -5,7 +5,7 @@ description: 'Forge''s participation on the shared NATS fleet: self-registration
   fallback, outbound pipeline lifecycle event stream, and inbound build-queue with
   terminal-only ack.'
 created: '2026-04-24T10:41:02.328017'
-status: planned
+status: failed
 complexity: 7
 estimated_tasks: 11
 tasks:
@@ -14,19 +14,37 @@ tasks:
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-001-extend-forge-config-fleet-pipeline-sections.md
   complexity: 3
   dependencies: []
-  status: pending
-  description: ''
+  status: failed
   implementation_mode: direct
   estimated_minutes: 33
+  requires_infrastructure: []
+  result:
+    total_turns: 3
+    final_decision: unrecoverable_stall
+    error: Unrecoverable stall detected after 3 turn(s). AutoBuild cannot make forward
+      progress.
+  turns_completed: 3
+  current_turn: 0
+  started_at: '2026-04-24T12:34:33.081222'
+  completed_at: '2026-04-24T12:35:04.773928'
 - id: TASK-NFI-002
   name: Define FORGE_MANIFEST constant builder
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-002-define-forge-manifest-constant.md
   complexity: 2
   dependencies: []
-  status: pending
-  description: ''
+  status: failed
   implementation_mode: direct
   estimated_minutes: 22
+  requires_infrastructure: []
+  result:
+    total_turns: 3
+    final_decision: unrecoverable_stall
+    error: Unrecoverable stall detected after 3 turn(s). AutoBuild cannot make forward
+      progress.
+  turns_completed: 3
+  current_turn: 0
+  started_at: '2026-04-24T12:34:33.084186'
+  completed_at: '2026-04-24T12:35:04.780539'
 - id: TASK-NFI-003
   name: Implement forge.discovery domain cache resolve protocols
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-003-implement-discovery-domain.md
@@ -35,9 +53,14 @@ tasks:
   - TASK-NFI-001
   - TASK-NFI-002
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-004
   name: Implement fleet_publisher register heartbeat deregister
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-004-fleet-publisher.md
@@ -47,9 +70,14 @@ tasks:
   - TASK-NFI-002
   - TASK-NFI-003
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-005
   name: Implement fleet_watcher subscribe delegate FleetEventSink
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-005-fleet-watcher.md
@@ -57,9 +85,14 @@ tasks:
   dependencies:
   - TASK-NFI-003
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-006
   name: Implement pipeline_publisher 8 lifecycle publisher methods
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-006-pipeline-publisher.md
@@ -67,9 +100,14 @@ tasks:
   dependencies:
   - TASK-NFI-001
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-007
   name: Implement pipeline_consumer pull validation allowlist
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-007-pipeline-consumer.md
@@ -77,9 +115,14 @@ tasks:
   dependencies:
   - TASK-NFI-001
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-008
   name: Wire state-machine transitions to pipeline_publisher
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-008-wire-state-machine-lifecycle-emission.md
@@ -87,9 +130,14 @@ tasks:
   dependencies:
   - TASK-NFI-006
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-009
   name: Implement reconcile_on_boot crash recovery paused re-announce
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-009-reconcile-on-boot-crash-recovery.md
@@ -98,9 +146,14 @@ tasks:
   - TASK-NFI-007
   - TASK-NFI-008
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-010
   name: Contract and seam tests for nats_client boundary
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-010-contract-and-seam-tests.md
@@ -112,9 +165,14 @@ tasks:
   - TASK-NFI-007
   - TASK-NFI-009
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 - id: TASK-NFI-011
   name: BDD smoke and key-example pytest wiring
   file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-011-bdd-scenario-pytest-wiring.md
@@ -127,9 +185,14 @@ tasks:
   - TASK-NFI-008
   - TASK-NFI-009
   status: pending
-  description: ''
   implementation_mode: task-work
   estimated_minutes: 50
+  requires_infrastructure: []
+  result: null
+  turns_completed: 0
+  current_turn: 0
+  started_at: null
+  completed_at: null
 orchestration:
   parallel_groups:
   - - TASK-NFI-001
@@ -145,3 +208,15 @@ orchestration:
     - TASK-NFI-011
   estimated_duration_minutes: 819
   recommended_parallel: 3
+execution:
+  started_at: '2026-04-24T12:34:33.068507'
+  completed_at: '2026-04-24T12:35:04.789246'
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
+  total_turns: 6
+  tasks_completed: 0
+  tasks_failed: 2
+  current_wave: 1
+  completed_waves: []
+  last_updated: '2026-04-24T12:35:04.780548'
+  archived_at: null
+  archived_to: null
