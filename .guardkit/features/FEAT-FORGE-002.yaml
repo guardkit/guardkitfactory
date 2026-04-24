@@ -1,0 +1,147 @@
+id: FEAT-FORGE-002
+name: NATS Fleet Integration
+description: 'Forge''s participation on the shared NATS fleet: self-registration,
+  heartbeats, live fleet cache with 30s TTL, capability resolution with degraded-mode
+  fallback, outbound pipeline lifecycle event stream, and inbound build-queue with
+  terminal-only ack.'
+created: '2026-04-24T10:41:02.328017'
+status: planned
+complexity: 7
+estimated_tasks: 11
+tasks:
+- id: TASK-NFI-001
+  name: Extend forge.yaml config fleet pipeline permissions sections
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-001-extend-forge-config-fleet-pipeline-sections.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-NFI-002
+  name: Define FORGE_MANIFEST constant builder
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-002-define-forge-manifest-constant.md
+  complexity: 2
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 22
+- id: TASK-NFI-003
+  name: Implement forge.discovery domain cache resolve protocols
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-003-implement-discovery-domain.md
+  complexity: 6
+  dependencies:
+  - TASK-NFI-001
+  - TASK-NFI-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-NFI-004
+  name: Implement fleet_publisher register heartbeat deregister
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-004-fleet-publisher.md
+  complexity: 5
+  dependencies:
+  - TASK-NFI-001
+  - TASK-NFI-002
+  - TASK-NFI-003
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-NFI-005
+  name: Implement fleet_watcher subscribe delegate FleetEventSink
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-005-fleet-watcher.md
+  complexity: 5
+  dependencies:
+  - TASK-NFI-003
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-NFI-006
+  name: Implement pipeline_publisher 8 lifecycle publisher methods
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-006-pipeline-publisher.md
+  complexity: 5
+  dependencies:
+  - TASK-NFI-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-NFI-007
+  name: Implement pipeline_consumer pull validation allowlist
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-007-pipeline-consumer.md
+  complexity: 6
+  dependencies:
+  - TASK-NFI-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-NFI-008
+  name: Wire state-machine transitions to pipeline_publisher
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-008-wire-state-machine-lifecycle-emission.md
+  complexity: 5
+  dependencies:
+  - TASK-NFI-006
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-NFI-009
+  name: Implement reconcile_on_boot crash recovery paused re-announce
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-009-reconcile-on-boot-crash-recovery.md
+  complexity: 6
+  dependencies:
+  - TASK-NFI-007
+  - TASK-NFI-008
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-NFI-010
+  name: Contract and seam tests for nats_client boundary
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-010-contract-and-seam-tests.md
+  complexity: 5
+  dependencies:
+  - TASK-NFI-004
+  - TASK-NFI-005
+  - TASK-NFI-006
+  - TASK-NFI-007
+  - TASK-NFI-009
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-NFI-011
+  name: BDD smoke and key-example pytest wiring
+  file_path: tasks/backlog/nats-fleet-integration/TASK-NFI-011-bdd-scenario-pytest-wiring.md
+  complexity: 4
+  dependencies:
+  - TASK-NFI-004
+  - TASK-NFI-005
+  - TASK-NFI-006
+  - TASK-NFI-007
+  - TASK-NFI-008
+  - TASK-NFI-009
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+orchestration:
+  parallel_groups:
+  - - TASK-NFI-001
+    - TASK-NFI-002
+  - - TASK-NFI-003
+    - TASK-NFI-006
+    - TASK-NFI-007
+  - - TASK-NFI-004
+    - TASK-NFI-005
+    - TASK-NFI-008
+  - - TASK-NFI-009
+  - - TASK-NFI-010
+    - TASK-NFI-011
+  estimated_duration_minutes: 819
+  recommended_parallel: 3
