@@ -1,19 +1,30 @@
 ---
-id: TASK-CGCP-010
-title: 'Wire gate_check wrapper into FEAT-FORGE-001 state machine (pause-and-publish atomicity)'
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 4
-implementation_mode: task-work
 complexity: 6
+consumer_context:
+- consumes: ApprovalPublisher.publish_request
+  driver: forge.adapters.nats.approval_publisher
+  format_note: Wrapper writes GateDecision to SQLite FIRST, then calls publish_request.
+    Publish failure surfaces as an operational signal but does NOT roll back the SQLite
+    row (F10).
+  framework: NATS adapter (nats-py + nats-core typed payloads)
+  task: TASK-CGCP-006
+- consumes: ApprovalSubscriber.await_response
+  driver: forge.adapters.nats.approval_subscriber
+  format_note: await_response returns Optional[ApprovalResponsePayload]; None means
+    timeout/duplicate/refused — caller's wait loop continues. Wrapper invokes resume_value_as
+    on the response payload before attribute access (DDR-002, TASK-CGCP-009).
+  framework: NATS adapter (nats-py + nats-core typed payloads)
+  task: TASK-CGCP-007
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-006
 - TASK-CGCP-007
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-010
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - gating
 - state-machine
@@ -21,21 +32,15 @@ tags:
 - data-integrity
 - crash-recovery
 - concurrency
-consumer_context:
-- task: TASK-CGCP-006
-  consumes: ApprovalPublisher.publish_request
-  framework: NATS adapter (nats-py + nats-core typed payloads)
-  driver: forge.adapters.nats.approval_publisher
-  format_note: Wrapper writes GateDecision to SQLite FIRST, then calls publish_request. Publish failure surfaces as an operational signal but does NOT roll back the SQLite row (F10).
-- task: TASK-CGCP-007
-  consumes: ApprovalSubscriber.await_response
-  framework: NATS adapter (nats-py + nats-core typed payloads)
-  driver: forge.adapters.nats.approval_subscriber
-  format_note: await_response returns Optional[ApprovalResponsePayload]; None means timeout/duplicate/refused — caller's wait loop continues. Wrapper invokes resume_value_as on the response payload before attribute access (DDR-002, TASK-CGCP-009).
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire gate_check wrapper into FEAT-FORGE-001 state machine (pause-and-publish
+  atomicity)
+updated: 2026-04-25 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Wire gate_check wrapper into FEAT-FORGE-001 state machine (pause-and-publish atomicity)
