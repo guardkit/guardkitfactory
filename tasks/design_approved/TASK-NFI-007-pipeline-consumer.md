@@ -1,18 +1,73 @@
 ---
-id: TASK-NFI-007
-title: Implement pipeline_consumer (pull consumer + validation + allowlist)
-task_type: feature
-status: blocked
-priority: high
-created: 2026-04-24 00:00:00+00:00
-updated: 2026-04-24 00:00:00+00:00
-parent_review: TASK-REV-NF20
-feature_id: FEAT-FORGE-002
-wave: 3
-implementation_mode: task-work
+autobuild_state:
+  base_branch: main
+  current_turn: 3
+  last_updated: '2026-04-25T12:55:56.948769'
+  max_turns: 30
+  started_at: '2026-04-25T12:25:32.060135'
+  turns:
+  - coach_success: true
+    decision: feedback
+    feedback: '- Task-work produced a report with 2 of 3 required agent invocations.
+      Missing phases: 3 (Implementation). Invoke these agents via the Task tool before
+      re-emitting the report:
+
+      - Phase 3: `python-api-specialist` (Implementation)'
+    player_success: true
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    timestamp: '2026-04-25T12:25:32.060135'
+    turn: 1
+  - coach_success: true
+    decision: feedback
+    feedback: '- Task-work produced a report with 2 of 3 required agent invocations.
+      Missing phases: 3 (Implementation). Invoke these agents via the Task tool before
+      re-emitting the report:
+
+      - Phase 3: `python-api-specialist` (Implementation)'
+    player_success: true
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    timestamp: '2026-04-25T12:40:06.921613'
+    turn: 2
+  - coach_success: true
+    decision: feedback
+    feedback: '- Task-work produced a report with 2 of 3 required agent invocations.
+      Missing phases: 3 (Implementation). Invoke these agents via the Task tool before
+      re-emitting the report:
+
+      - Phase 3: `python-api-specialist` (Implementation)'
+    player_success: true
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    timestamp: '2026-04-25T12:47:39.868486'
+    turn: 3
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
 complexity: 6
+consumer_context:
+- consumes: ForgeConfig.permissions.filesystem.allowlist
+  driver: pyyaml + pydantic
+  format_note: FilesystemPermissions.allowlist is list[Path] of absolute paths; every
+    incoming BuildQueuedPayload.feature_yaml_path MUST resolve inside one of these
+    paths (using pathlib.Path.is_relative_to). Relative paths are rejected at config
+    load time (TASK-NFI-001 validator).
+  framework: Pydantic v2 BaseModel
+  task: TASK-NFI-001
+- consumes: ForgeConfig.pipeline
+  driver: pyyaml + pydantic
+  format_note: 'PipelineConfig.approved_originators: list[str] — originating_adapter
+    in BuildQueuedPayload MUST be in this list; build-failed event published if not'
+  framework: Pydantic v2 BaseModel
+  task: TASK-NFI-001
+created: 2026-04-24 00:00:00+00:00
 dependencies:
 - TASK-NFI-001
+feature_id: FEAT-FORGE-002
+id: TASK-NFI-007
+implementation_mode: task-work
+parent_review: TASK-REV-NF20
+priority: high
+status: design_approved
 tags:
 - nats
 - adapter
@@ -21,70 +76,14 @@ tags:
 - pull-consumer
 - pipeline
 - security
-consumer_context:
-- task: TASK-NFI-001
-  consumes: ForgeConfig.permissions.filesystem.allowlist
-  framework: Pydantic v2 BaseModel
-  driver: pyyaml + pydantic
-  format_note: FilesystemPermissions.allowlist is list[Path] of absolute paths; every
-    incoming BuildQueuedPayload.feature_yaml_path MUST resolve inside one of these
-    paths (using pathlib.Path.is_relative_to). Relative paths are rejected at config
-    load time (TASK-NFI-001 validator).
-- task: TASK-NFI-001
-  consumes: ForgeConfig.pipeline
-  framework: Pydantic v2 BaseModel
-  driver: pyyaml + pydantic
-  format_note: "PipelineConfig.approved_originators: list[str] \u2014 originating_adapter\
-    \ in BuildQueuedPayload MUST be in this list; build-failed event published if\
-    \ not"
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
-autobuild_state:
-  current_turn: 3
-  max_turns: 30
-  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-002
-  base_branch: main
-  started_at: '2026-04-25T12:25:32.060135'
-  last_updated: '2026-04-25T12:55:56.948769'
-  turns:
-  - turn: 1
-    decision: feedback
-    feedback: '- Task-work produced a report with 2 of 3 required agent invocations.
-      Missing phases: 3 (Implementation). Invoke these agents via the Task tool before
-      re-emitting the report:
-
-      - Phase 3: `python-api-specialist` (Implementation)'
-    timestamp: '2026-04-25T12:25:32.060135'
-    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
-      actual: 0'
-    player_success: true
-    coach_success: true
-  - turn: 2
-    decision: feedback
-    feedback: '- Task-work produced a report with 2 of 3 required agent invocations.
-      Missing phases: 3 (Implementation). Invoke these agents via the Task tool before
-      re-emitting the report:
-
-      - Phase 3: `python-api-specialist` (Implementation)'
-    timestamp: '2026-04-25T12:40:06.921613'
-    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
-      actual: 0'
-    player_success: true
-    coach_success: true
-  - turn: 3
-    decision: feedback
-    feedback: '- Task-work produced a report with 2 of 3 required agent invocations.
-      Missing phases: 3 (Implementation). Invoke these agents via the Task tool before
-      re-emitting the report:
-
-      - Phase 3: `python-api-specialist` (Implementation)'
-    timestamp: '2026-04-25T12:47:39.868486'
-    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
-      actual: 0'
-    player_success: true
-    coach_success: true
+  status: pending
+title: Implement pipeline_consumer (pull consumer + validation + allowlist)
+updated: 2026-04-24 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement pipeline_consumer (pull consumer + validation + allowlist)
