@@ -457,10 +457,89 @@ def _has_running_loop() -> bool:
         return False
 
 
+# ---------------------------------------------------------------------------
+# Confidence-Gated Checkpoint Protocol fixtures (TASK-CGCP-012)
+# ---------------------------------------------------------------------------
+#
+# These fixtures activate the R2 BDD oracle for FEAT-FORGE-004 scenarios:
+#
+# * ``deterministic_reasoning_model`` — a callable double for
+#   :class:`forge.gating.reasoning.ReasoningModelCall` that returns
+#   pre-canned JSON. Tests configure its scripted responses via
+#   ``world['reasoning_script']``; the call counter on the double feeds
+#   the assertion that ``evaluate_gate`` invoked the model exactly once.
+# * ``temp_sqlite_path`` — pytest ``tmp_path`` mapped to a ``.sqlite``
+#   file path so persistence-layer scenarios can exercise the durable
+#   record path without leaking state across tests.
+# * ``approval_config`` — :class:`ApprovalConfig` with the §10 defaults
+#   so publisher/wait-time scenarios assert against documented values
+#   rather than ad-hoc numbers.
+#
+# All three fixtures are scenario-scoped; nothing crosses scenario
+# boundaries except the per-scenario ``world`` dict.
+
+
+class DeterministicReasoningModel:
+    """Scripted ``ReasoningModelCall`` double for gating-protocol BDD steps.
+
+    Implements ``__call__(prompt: str) -> str`` returning the JSON
+    fixture currently at the head of ``self.script``. Tests push
+    response bodies onto the script with :meth:`queue_response`. The
+    instance counts invocations so step assertions can verify
+    ``evaluate_gate`` invoked the model exactly once per scenario.
+
+    The double does **not** parse the prompt — assertions about prompt
+    contents belong in TASK-CGCP-005 unit tests, not the R2 oracle.
+    """
+
+    def __init__(self) -> None:
+        self.script: list[str] = []
+        self.calls: list[str] = []
+
+    def queue_response(self, parsed_decision_json: str) -> None:
+        """Push a ``ParsedDecision``-shaped JSON body onto the FIFO."""
+        self.script.append(parsed_decision_json)
+
+    def __call__(self, prompt: str) -> str:
+        self.calls.append(prompt)
+        if not self.script:
+            raise AssertionError(
+                "DeterministicReasoningModel: no scripted response queued; "
+                "call queue_response() in the Given step."
+            )
+        return self.script.pop(0)
+
+
+@pytest.fixture
+def deterministic_reasoning_model() -> DeterministicReasoningModel:
+    """Per-scenario reasoning-model double for FEAT-FORGE-004 scenarios."""
+    return DeterministicReasoningModel()
+
+
+@pytest.fixture
+def temp_sqlite_path(tmp_path):
+    """Per-scenario SQLite file path; cleaned up by ``tmp_path`` teardown."""
+    return tmp_path / "forge-cgcp.sqlite"
+
+
+@pytest.fixture
+def approval_config():
+    """:class:`ApprovalConfig` populated with §10 / ASSUM defaults.
+
+    Lazy import keeps the fixture available even when the config module
+    is mid-refactor (the failure surfaces as a clear ImportError at
+    fixture-resolution time rather than at module load).
+    """
+    from forge.config.models import ApprovalConfig
+
+    return ApprovalConfig()
+
+
 # Re-export the constant so step files can assert on AGENT_ID without
 # re-importing from the production module's deeper path.
 __all__ = [
     "AGENT_ID",
+    "DeterministicReasoningModel",
     "FakeClock",
     "FakeNatsClient",
     "RecordingPipelinePublisher",

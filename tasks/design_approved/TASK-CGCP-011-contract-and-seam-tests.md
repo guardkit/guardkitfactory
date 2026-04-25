@@ -1,20 +1,16 @@
 ---
-id: TASK-CGCP-011
-title: 'Contract and seam tests for the approval round-trip across NATS'
-task_type: testing
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 5
-implementation_mode: task-work
 complexity: 5
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-010
 - TASK-CGCP-008
 - TASK-CGCP-009
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-011
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - testing
 - contract-tests
@@ -22,10 +18,14 @@ tags:
 - nats
 - integration
 - safety-critical
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Contract and seam tests for the approval round-trip across NATS
+updated: 2026-04-25 00:00:00+00:00
+wave: 5
 ---
 
 # Task: Contract and seam tests for the approval round-trip across NATS

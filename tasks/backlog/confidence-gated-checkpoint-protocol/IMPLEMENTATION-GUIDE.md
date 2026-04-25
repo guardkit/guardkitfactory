@@ -395,3 +395,58 @@ feature's autobuild and surface the missing seam.
 | R8 — Calibration adjustment leak | TASK-CGCP-010 (`approved_only=True` filter at read seam) | Group C `@negative` |
 | R9 — Reasoning-model nondeterminism | TASK-CGCP-005 (test double) | Unit-test stability |
 | R10 — Wait-ceiling fallback overspecified | TASK-CGCP-010 (publishes marker, defers semantics) | ASSUM-003 documented as deferred |
+
+## §12 BDD Scenario Coverage (R2 oracle activation)
+
+The 32 Gherkin scenarios in
+[`confidence-gated-checkpoint-protocol.feature`](../../../features/confidence-gated-checkpoint-protocol/confidence-gated-checkpoint-protocol.feature)
+were tagged in TASK-CGCP-012 via the `bdd-linker` subagent. Tag
+distribution:
+
+| Task | Scenarios tagged |
+|---|---|
+| TASK-CGCP-001 (gating models) | 2 (criterion-breakdown extremes + out-of-range refusal) |
+| TASK-CGCP-002 (ApprovalConfig) | 0 — see justification below |
+| TASK-CGCP-003 (request_id helper) | 0 — see justification below |
+| TASK-CGCP-004 (constitutional override) | 3 (PR-review, PR-create, two-layer) |
+| TASK-CGCP-005 (reasoning-model assembly) | 8 (auto-approve, hard-stop, decision completeness, degraded, critical-finding, mandatory-vs-threshold, calibration filter, degraded-marker) |
+| TASK-CGCP-006 (approval_publisher) | 4 (flag-for-review publish, default wait, refresh, payload context) |
+| TASK-CGCP-007 (approval_subscriber dedup) | 5 (invalid decision value, dedup, routing, unrecognised responder, concurrent resolve) |
+| TASK-CGCP-008 (synthetic_response_injector) | 2 (cancel CLI, skip CLI) |
+| TASK-CGCP-009 (resume_value_as helper) | 1 (typed-vs-mapping rehydration) |
+| TASK-CGCP-010 (state-machine integration) | 7 (resume, reject, override, crash recovery, max-wait fallback, atomic pause+publish, durable-on-publish-failure) |
+| TASK-CGCP-011 (contract & seam tests) | 0 — see justification below |
+| TASK-CGCP-012 (BDD linking + pytest-bdd) | 0 — see justification below |
+
+### Untagged-task justifications
+
+The R2 oracle treats a missing `@task:` tag as *not required*. The four
+tasks below have no behaviour scenario of their own because they are
+purely structural / cross-cutting:
+
+- **TASK-CGCP-002 — ApprovalConfig settings**: pure configuration
+  surface. The default-wait-time and max-wait-seconds *behaviours*
+  surface through scenarios already tagged onto TASK-CGCP-006 (default
+  wait, refresh) and TASK-CGCP-010 (max-wait fallback). A scenario
+  describing "config can be loaded from `forge.yaml`" would be
+  redundant with the existing FEAT-FORGE-002 config tests.
+- **TASK-CGCP-003 — request_id derivation helper**: pure deterministic
+  helper. Its observable effects (idempotency-key stability across
+  refresh and crash-recovery) appear in scenarios tagged onto
+  TASK-CGCP-006 (#10 prior request id valid for dedup) and
+  TASK-CGCP-007 (#18 duplicate-response dedup) where the helper is
+  consumed; covered by R5 in §11.
+- **TASK-CGCP-011 — contract & seam tests for approval round-trip**:
+  this task *is* the integration-test layer rather than a behaviour
+  carrier. The contract scenarios it exercises (concurrent
+  resolution #28, atomic pause+publish #29, durable-on-publish-failure
+  #30, two-layer constitutional #27) are already tagged onto the tasks
+  that *implement* the behaviour (TASK-CGCP-007, TASK-CGCP-010,
+  TASK-CGCP-004). R2 runs the same scenarios through the BDD oracle;
+  the seam tests in TASK-CGCP-011 are an additional pytest layer
+  using the §4 integration contracts directly.
+- **TASK-CGCP-012 — BDD scenario linking + pytest-bdd wiring**: this
+  task delivers the tagging itself plus the pytest-bdd glue. There is
+  no domain behaviour to tag onto it. The /task-work Phase 4 oracle
+  consumes the tags it produces; tagging this task onto a scenario
+  would create a circular dependency.

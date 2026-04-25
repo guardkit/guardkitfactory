@@ -67,4 +67,17 @@ markers = [
     # ``CorrelationKey``); reviewers grep for the contract to find the
     # seam test that exercises it.
     "integration_contract: seam test for a §4 integration contract",
+    # Feature-level tags emitted by /feature-spec onto every scenario in a
+    # generated .feature file. Registered here so pytest does not warn on
+    # unknown marks when pytest-bdd reflects Gherkin tags onto test items.
+    "feat-forge-002: feature-level tag for FEAT-FORGE-002 NATS Fleet Integration",
+    "feat-forge-003: feature-level tag for FEAT-FORGE-003 Specialist Agent Delegation",
+    "feat-forge-004: feature-level tag for FEAT-FORGE-004 Confidence-Gated Checkpoint Protocol",
+    "nats-fleet-integration: feature-slug tag for FEAT-FORGE-002",
+    "specialist-agent-delegation: feature-slug tag for FEAT-FORGE-003",
+    "confidence-gated-checkpoint-protocol: feature-slug tag for FEAT-FORGE-004",
+    "key-example: synonym for ``key_example`` emitted by /feature-spec",
+    "edge-case: synonym for ``edge_case`` emitted by /feature-spec",
+    "data-integrity: synonym for ``data_integrity`` emitted by /feature-spec",
+    "regression: regression-tagged scenarios surface from /feature-spec",
 ]
