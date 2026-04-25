@@ -1,28 +1,37 @@
 ---
-id: TASK-SAD-009
-title: "correlate_outcome() writer + degraded-path synthesis"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-SAD3
-feature_id: FEAT-FORGE-003
-wave: 4
-implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-SAD-001, TASK-SAD-002, TASK-SAD-006]
-tags: [dispatch, outcome-correlation, degraded-path, idempotent]
 consumer_context:
-  - task: TASK-SAD-001
-    consumes: CapabilityResolution
-    framework: "Pydantic v2"
-    driver: "persisted via TASK-SAD-002"
-    format_note: "Updates the existing outcome_correlated boolean flag declared in TASK-SAD-001 / FEAT-FORGE-002. This task implements the correlate_outcome() helper referenced in CapabilityResolution docstrings."
+- consumes: CapabilityResolution
+  driver: persisted via TASK-SAD-002
+  format_note: Updates the existing outcome_correlated boolean flag declared in TASK-SAD-001
+    / FEAT-FORGE-002. This task implements the correlate_outcome() helper referenced
+    in CapabilityResolution docstrings.
+  framework: Pydantic v2
+  task: TASK-SAD-001
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-SAD-001
+- TASK-SAD-002
+- TASK-SAD-006
+feature_id: FEAT-FORGE-003
+id: TASK-SAD-009
+implementation_mode: task-work
+parent_review: TASK-REV-SAD3
+priority: high
+status: design_approved
+tags:
+- dispatch
+- outcome-correlation
+- degraded-path
+- idempotent
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: correlate_outcome() writer + degraded-path synthesis
+updated: 2026-04-25 00:00:00+00:00
+wave: 4
 ---
 
 # Task: correlate_outcome() writer + degraded-path synthesis

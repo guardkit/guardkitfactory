@@ -59,6 +59,7 @@ CREATE TABLE IF NOT EXISTS {_RESOLUTION_TABLE} (
     chosen_queue_depth INTEGER,
     resolved_at TEXT NOT NULL,
     outcome_correlated INTEGER NOT NULL,
+    gate_decision_id TEXT,
     retry_of TEXT
 )
 """
@@ -180,8 +181,9 @@ class SqliteHistoryWriter:
         """Insert one :class:`CapabilityResolution` row.
 
         The ``competing_agents`` list is JSON-encoded into a single
-        TEXT column. ``retry_of`` (TASK-SAD-001) is stored as a
-        nullable string so a round-trip preserves the field.
+        TEXT column. ``retry_of`` (TASK-SAD-001) and ``gate_decision_id``
+        (TASK-SAD-009) are stored as nullable strings so a round-trip
+        preserves the fields.
         """
         self._connection.execute(
             f"""
@@ -189,8 +191,9 @@ class SqliteHistoryWriter:
                 resolution_id, build_id, stage_label, requested_tool,
                 requested_intent, matched_agent_id, match_source,
                 competing_agents, chosen_trust_tier, chosen_confidence,
-                chosen_queue_depth, resolved_at, outcome_correlated, retry_of
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                chosen_queue_depth, resolved_at, outcome_correlated,
+                gate_decision_id, retry_of
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 resolution.resolution_id,
@@ -206,9 +209,89 @@ class SqliteHistoryWriter:
                 resolution.chosen_queue_depth,
                 resolution.resolved_at.isoformat(),
                 int(resolution.outcome_correlated),
+                resolution.gate_decision_id,
                 resolution.retry_of,
             ),
         )
+
+    def correlate_outcome(
+        self,
+        resolution_id: str,
+        gate_decision_id: str,
+    ) -> CapabilityResolution:
+        """Idempotently correlate one resolution to a gate decision.
+
+        Implements the SQL-layer side of TASK-SAD-009: a SELECT-then-UPDATE
+        in a single transaction. If the row already carries
+        ``outcome_correlated=1`` *and* ``gate_decision_id`` matching the
+        argument, the UPDATE is skipped — the second consecutive call
+        with the same arguments issues zero UPDATE statements.
+
+        Args:
+            resolution_id: Primary key of the resolution to correlate.
+            gate_decision_id: Identifier of the downstream gate decision
+                (FEAT-FORGE-004). Persisted onto the resolution row.
+
+        Returns:
+            The current :class:`CapabilityResolution` (post-update or
+            unchanged if already correlated).
+
+        Raises:
+            KeyError: If no row with ``resolution_id`` exists. We refuse
+                to silently no-op because that would hide bugs in the
+                gating layer's call site.
+            ValueError: If ``gate_decision_id`` would conflict with an
+                already-recorded value (different gate decision for the
+                same resolution). Idempotency is per-(resolution, gate)
+                pair, not "any gate".
+        """
+        if not isinstance(resolution_id, str) or not resolution_id:
+            raise TypeError("resolution_id must be a non-empty str")
+        if not isinstance(gate_decision_id, str) or not gate_decision_id:
+            raise TypeError("gate_decision_id must be a non-empty str")
+
+        with self.transaction() as conn:
+            cursor = conn.execute(
+                f"SELECT * FROM {_RESOLUTION_TABLE} WHERE resolution_id = ?",
+                (resolution_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                raise KeyError(
+                    f"No CapabilityResolution row for resolution_id="
+                    f"{resolution_id!r}",
+                )
+
+            already_correlated = bool(row["outcome_correlated"])
+            existing_gate = row["gate_decision_id"]
+
+            if already_correlated and existing_gate == gate_decision_id:
+                # Idempotent no-op — the second-and-subsequent calls hit
+                # this branch and issue no UPDATE.
+                return _row_to_resolution(row)
+
+            if already_correlated and existing_gate not in (None, gate_decision_id):
+                raise ValueError(
+                    f"resolution_id={resolution_id!r} already correlated to "
+                    f"gate_decision_id={existing_gate!r}; refusing to "
+                    f"overwrite with {gate_decision_id!r}",
+                )
+
+            conn.execute(
+                f"""
+                UPDATE {_RESOLUTION_TABLE}
+                SET outcome_correlated = 1,
+                    gate_decision_id = ?
+                WHERE resolution_id = ?
+                """,
+                (gate_decision_id, resolution_id),
+            )
+
+            cursor = conn.execute(
+                f"SELECT * FROM {_RESOLUTION_TABLE} WHERE resolution_id = ?",
+                (resolution_id,),
+            )
+            return _row_to_resolution(cursor.fetchone())
 
     def insert_parameter(
         self,
@@ -330,6 +413,10 @@ class SqliteHistoryWriter:
 
 def _row_to_resolution(row: sqlite3.Row) -> CapabilityResolution:
     """Convert a SQLite row into a validated :class:`CapabilityResolution`."""
+    # ``gate_decision_id`` is sqlite3-keyed and may legitimately be NULL
+    # for un-correlated rows. Use ``dict-style`` indexing so missing keys
+    # raise loudly during a schema-drift regression rather than silently
+    # default to ``None``.
     return CapabilityResolution(
         resolution_id=row["resolution_id"],
         build_id=row["build_id"],
@@ -344,6 +431,7 @@ def _row_to_resolution(row: sqlite3.Row) -> CapabilityResolution:
         chosen_queue_depth=row["chosen_queue_depth"],
         resolved_at=datetime.fromisoformat(row["resolved_at"]),
         outcome_correlated=bool(row["outcome_correlated"]),
+        gate_decision_id=row["gate_decision_id"],
         retry_of=row["retry_of"],
     )
 

@@ -1,28 +1,38 @@
 ---
-id: TASK-SAD-010
-title: "NATS adapter: specialist_dispatch.py — bind, publish, deliver"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-SAD3
-feature_id: FEAT-FORGE-003
-wave: 4
-implementation_mode: task-work
 complexity: 6
-dependencies: [TASK-SAD-003, TASK-SAD-006]
-tags: [dispatch, nats, transport, adapter, jetstream]
 consumer_context:
-  - task: TASK-SAD-003
-    consumes: CorrelationKey
-    framework: "asyncio"
-    driver: "nats.aio"
-    format_note: "Reply subject must be agents.result.{matched_agent_id}.{correlation_key} where correlation_key is 32 lowercase hex (per CorrelationKey contract from TASK-SAD-003). Headers carry correlation_key, requesting_agent_id (forge), dispatched_at (ISO8601 UTC)."
+- consumes: CorrelationKey
+  driver: nats.aio
+  format_note: Reply subject must be agents.result.{matched_agent_id}.{correlation_key}
+    where correlation_key is 32 lowercase hex (per CorrelationKey contract from TASK-SAD-003).
+    Headers carry correlation_key, requesting_agent_id (forge), dispatched_at (ISO8601
+    UTC).
+  framework: asyncio
+  task: TASK-SAD-003
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-SAD-003
+- TASK-SAD-006
+feature_id: FEAT-FORGE-003
+id: TASK-SAD-010
+implementation_mode: task-work
+parent_review: TASK-REV-SAD3
+priority: high
+status: design_approved
+tags:
+- dispatch
+- nats
+- transport
+- adapter
+- jetstream
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: 'NATS adapter: specialist_dispatch.py — bind, publish, deliver'
+updated: 2026-04-25 00:00:00+00:00
+wave: 4
 ---
 
 # Task: NATS adapter — specialist_dispatch.py — bind, publish, deliver

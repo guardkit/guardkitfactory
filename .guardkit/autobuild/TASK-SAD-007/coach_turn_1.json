@@ -1,0 +1,167 @@
+{
+  "task_id": "TASK-SAD-007",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/dispatch/test_async_polling.py tests/forge/dispatch/test_outcome.py tests/forge/dispatch/test_retry.py -v --tb=short",
+      "test_output_summary": "Error detail:\ntests/forge/dispatch/test_async_polling.py::TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded PASSED [ 22%]\ntests/forge/dispatch/test_async_polling.py::TestStatusToolError::test_status_tool_error_stops_polling_after_one_call PASSED [ 25%]\ntests/forge/dispatch/test_async_polling.py::TestCeilingTrackedViaClock::test_ceiling_does_not_fire_when_clock_does_not_advance PASSED [ 27%]\ntests/forge/dispatch/test_async_polling.py::TestCeilingTrackedViaClock::test_ceiling_fires_at_expected_clock_elapsed_time PASSED [ 29%]\ntests/forge/dispatch/test_async_polling.py::TestDegradedOutcomePassthrough::test_degraded_status_outcome_is_returned_with_restamped_resolution_id PASSED [ 31%]\nResult:\ntests/forge/dispatch/test_retry.py::TestRetryCoordinatorConstruction::test_retry_coordinator_holds_injected_orchestrator PASSED [ 97%]\ntests/forge/dispatch/test_retry.py::TestSeamCapabilityResolutionSiblingContract::test_retry_creates_sibling_record_not_ove...",
+      "duration_seconds": 0.5947566032409668
+    },
+    "requirements": {
+      "criteria_total": 7,
+      "criteria_met": 7,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`src/forge/dispatch/retry.py` defines `RetryCoordinator` with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/dispatch/retry.py exporting class RetryCoordinator with async method retry_with_context(*, previous_outcome, capability, original_parameters, additional_context). Verified by tests TestRetryCoordinatorSurface.test_module_defines_retry_coordinator_class and test_retry_with_context_is_async (both passing).",
+      "notes": "Created src/forge/dispatch/retry.py exporting class RetryCoordinator with async method retry_with_context(*, previous_outcome, capability, original_parameters, additional_context). Verified by tests TestRetryCoordinatorSurface.test_module_defines_retry_coordinator_class and test_retry_with_context_is_async (both passing)."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "No fixed max-retry count at this layer. The retry coordinator does",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Module docstring in src/forge/dispatch/retry.py opens with 'This module is intentionally policy-free. There is no fixed max-retry count at this layer (ASSUM-005)' and includes a 'Why no max-retry counter here' section explaining the reasoning loop owns retry policy. Implementation has no counter or refusal logic \u2014 every call forwards directly to orchestrator.dispatch(). Verified by TestNoFixedMaxRetryDocumented.test_module_docstring_documents_no_max_retry (passing) which asserts the docstring mentions both 'max-retry' and 'reasoning'.",
+      "notes": "Module docstring in src/forge/dispatch/retry.py opens with 'This module is intentionally policy-free. There is no fixed max-retry count at this layer (ASSUM-005)' and includes a 'Why no max-retry counter here' section explaining the reasoning loop owns retry policy. Implementation has no counter or refusal logic \u2014 every call forwards directly to orchestrator.dispatch(). Verified by TestNoFixedMaxRetryDocumented.test_module_docstring_documents_no_max_retry (passing) which asserts the docstring mentions both 'max-retry' and 'reasoning'."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Test (A.retry-with-additional-context): retry call's resulting",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implementation computes next_attempt_no = previous_outcome.attempt_no + 1 and passes retry_of=previous_outcome.resolution_id to orchestrator.dispatch(); the orchestrator then stamps retry_of onto the persisted CapabilityResolution copy. Verified by TestRetryWithAdditionalContext: test_retry_outcome_attempt_no_is_previous_plus_one (passes assertion retry.attempt_no == 2) and test_retry_persists_retry_of_link_to_previous_resolution (passes assertion exactly one persisted row carries retry_of=first.resolution_id).",
+      "notes": "Implementation computes next_attempt_no = previous_outcome.attempt_no + 1 and passes retry_of=previous_outcome.resolution_id to orchestrator.dispatch(); the orchestrator then stamps retry_of onto the persisted CapabilityResolution copy. Verified by TestRetryWithAdditionalContext: test_retry_outcome_attempt_no_is_previous_plus_one (passes assertion retry.attempt_no == 2) and test_retry_persists_retry_of_link_to_previous_resolution (passes assertion exactly one persisted row carries retry_of=first.resolution_id)."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Test (fresh correlation): the new dispatch attempt's correlation",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "RetryCoordinator does NOT pass through any correlation key \u2014 the orchestrator's CorrelationRegistry.fresh_correlation_key() issues a new 32-hex token per dispatch. Verified by TestFreshCorrelationKey.test_retry_uses_fresh_correlation_key_not_previous_one (passing): asserts publisher.published[0].attempt.correlation_key != publisher.published[1].attempt.correlation_key, that both match [0-9a-f]{32}, and that both keys appear exactly once in transport.subscribed_keys (the registry's binding-map projection).",
+      "notes": "RetryCoordinator does NOT pass through any correlation key \u2014 the orchestrator's CorrelationRegistry.fresh_correlation_key() issues a new 32-hex token per dispatch. Verified by TestFreshCorrelationKey.test_retry_uses_fresh_correlation_key_not_previous_one (passing): asserts publisher.published[0].attempt.correlation_key != publisher.published[1].attempt.correlation_key, that both match [0-9a-f]{32}, and that both keys appear exactly once in transport.subscribed_keys (the registry's binding-map projection)."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Test (sibling not overwrite): after retry, BOTH resolution records",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Verified by TestSiblingResolutionRecord.test_retry_creates_sibling_record_and_preserves_original (passing): asserts len(rows_after) == len(rows_before) + 1, asserts the original row equals its pre-retry snapshot via Pydantic structural equality, and asserts original.retry_of remains None. Also covered by the verbatim seam test TestSeamCapabilityResolutionSiblingContract.test_retry_creates_sibling_record_not_overwrite.",
+      "notes": "Verified by TestSiblingResolutionRecord.test_retry_creates_sibling_record_and_preserves_original (passing): asserts len(rows_after) == len(rows_before) + 1, asserts the original row equals its pre-retry snapshot via Pydantic structural equality, and asserts original.retry_of remains None. Also covered by the verbatim seam test TestSeamCapabilityResolutionSiblingContract.test_retry_creates_sibling_record_not_overwrite."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Test (additional context propagation): parameters list passed to",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implementation uses list concatenation (original_parameters + additional_context), explicitly NOT in-place extend. Verified by TestAdditionalContextPropagation: test_orchestrator_receives_original_then_additional_in_order (asserts published params equal [(\"goal\",\"ship\"), (\"repo\",\"forge\"), (\"hint\",\"check tests\"), (\"severity\",\"high\")] in exact order) and test_retry_does_not_mutate_caller_provided_lists (asserts id() and len() of caller-provided lists are unchanged after the call).",
+      "notes": "Implementation uses list concatenation (original_parameters + additional_context), explicitly NOT in-place extend. Verified by TestAdditionalContextPropagation: test_orchestrator_receives_original_then_additional_in_order (asserts published params equal [(\"goal\",\"ship\"), (\"repo\",\"forge\"), (\"hint\",\"check tests\"), (\"severity\",\"high\")] in exact order) and test_retry_does_not_mutate_caller_provided_lists (asserts id() and len() of caller-provided lists are unchanged after the call)."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Both new files follow PEP 8, max line length 88, type-hinted, snake_case functions/PascalCase classes, full docstrings on module/class/method. No project lint runner is configured in pyproject.toml beyond pytest (no ruff/black/flake8 tooling declared). Code style mirrors the surrounding dispatch package (orchestrator.py, persistence.py) which is the de-facto style baseline.",
+      "notes": "Both new files follow PEP 8, max line length 88, type-hinted, snake_case functions/PascalCase classes, full docstrings on module/class/method. No project lint runner is configured in pyproject.toml beyond pytest (no ruff/black/flake8 tooling declared). Code style mirrors the surrounding dispatch package (orchestrator.py, persistence.py) which is the de-facto style baseline."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`src/forge/dispatch/retry.py` defines `RetryCoordinator` with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/dispatch/retry.py exporting class RetryCoordinator with async method retry_with_context(*, previous_outcome, capability, original_parameters, additional_context). Verified by tests TestRetryCoordinatorSurface.test_module_defines_retry_coordinator_class and test_retry_with_context_is_async (both passing).",
+        "notes": "Created src/forge/dispatch/retry.py exporting class RetryCoordinator with async method retry_with_context(*, previous_outcome, capability, original_parameters, additional_context). Verified by tests TestRetryCoordinatorSurface.test_module_defines_retry_coordinator_class and test_retry_with_context_is_async (both passing)."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "No fixed max-retry count at this layer. The retry coordinator does",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Module docstring in src/forge/dispatch/retry.py opens with 'This module is intentionally policy-free. There is no fixed max-retry count at this layer (ASSUM-005)' and includes a 'Why no max-retry counter here' section explaining the reasoning loop owns retry policy. Implementation has no counter or refusal logic \u2014 every call forwards directly to orchestrator.dispatch(). Verified by TestNoFixedMaxRetryDocumented.test_module_docstring_documents_no_max_retry (passing) which asserts the docstring mentions both 'max-retry' and 'reasoning'.",
+        "notes": "Module docstring in src/forge/dispatch/retry.py opens with 'This module is intentionally policy-free. There is no fixed max-retry count at this layer (ASSUM-005)' and includes a 'Why no max-retry counter here' section explaining the reasoning loop owns retry policy. Implementation has no counter or refusal logic \u2014 every call forwards directly to orchestrator.dispatch(). Verified by TestNoFixedMaxRetryDocumented.test_module_docstring_documents_no_max_retry (passing) which asserts the docstring mentions both 'max-retry' and 'reasoning'."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Test (A.retry-with-additional-context): retry call's resulting",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implementation computes next_attempt_no = previous_outcome.attempt_no + 1 and passes retry_of=previous_outcome.resolution_id to orchestrator.dispatch(); the orchestrator then stamps retry_of onto the persisted CapabilityResolution copy. Verified by TestRetryWithAdditionalContext: test_retry_outcome_attempt_no_is_previous_plus_one (passes assertion retry.attempt_no == 2) and test_retry_persists_retry_of_link_to_previous_resolution (passes assertion exactly one persisted row carries retry_of=first.resolution_id).",
+        "notes": "Implementation computes next_attempt_no = previous_outcome.attempt_no + 1 and passes retry_of=previous_outcome.resolution_id to orchestrator.dispatch(); the orchestrator then stamps retry_of onto the persisted CapabilityResolution copy. Verified by TestRetryWithAdditionalContext: test_retry_outcome_attempt_no_is_previous_plus_one (passes assertion retry.attempt_no == 2) and test_retry_persists_retry_of_link_to_previous_resolution (passes assertion exactly one persisted row carries retry_of=first.resolution_id)."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Test (fresh correlation): the new dispatch attempt's correlation",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "RetryCoordinator does NOT pass through any correlation key \u2014 the orchestrator's CorrelationRegistry.fresh_correlation_key() issues a new 32-hex token per dispatch. Verified by TestFreshCorrelationKey.test_retry_uses_fresh_correlation_key_not_previous_one (passing): asserts publisher.published[0].attempt.correlation_key != publisher.published[1].attempt.correlation_key, that both match [0-9a-f]{32}, and that both keys appear exactly once in transport.subscribed_keys (the registry's binding-map projection).",
+        "notes": "RetryCoordinator does NOT pass through any correlation key \u2014 the orchestrator's CorrelationRegistry.fresh_correlation_key() issues a new 32-hex token per dispatch. Verified by TestFreshCorrelationKey.test_retry_uses_fresh_correlation_key_not_previous_one (passing): asserts publisher.published[0].attempt.correlation_key != publisher.published[1].attempt.correlation_key, that both match [0-9a-f]{32}, and that both keys appear exactly once in transport.subscribed_keys (the registry's binding-map projection)."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Test (sibling not overwrite): after retry, BOTH resolution records",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Verified by TestSiblingResolutionRecord.test_retry_creates_sibling_record_and_preserves_original (passing): asserts len(rows_after) == len(rows_before) + 1, asserts the original row equals its pre-retry snapshot via Pydantic structural equality, and asserts original.retry_of remains None. Also covered by the verbatim seam test TestSeamCapabilityResolutionSiblingContract.test_retry_creates_sibling_record_not_overwrite.",
+        "notes": "Verified by TestSiblingResolutionRecord.test_retry_creates_sibling_record_and_preserves_original (passing): asserts len(rows_after) == len(rows_before) + 1, asserts the original row equals its pre-retry snapshot via Pydantic structural equality, and asserts original.retry_of remains None. Also covered by the verbatim seam test TestSeamCapabilityResolutionSiblingContract.test_retry_creates_sibling_record_not_overwrite."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Test (additional context propagation): parameters list passed to",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implementation uses list concatenation (original_parameters + additional_context), explicitly NOT in-place extend. Verified by TestAdditionalContextPropagation: test_orchestrator_receives_original_then_additional_in_order (asserts published params equal [(\"goal\",\"ship\"), (\"repo\",\"forge\"), (\"hint\",\"check tests\"), (\"severity\",\"high\")] in exact order) and test_retry_does_not_mutate_caller_provided_lists (asserts id() and len() of caller-provided lists are unchanged after the call).",
+        "notes": "Implementation uses list concatenation (original_parameters + additional_context), explicitly NOT in-place extend. Verified by TestAdditionalContextPropagation: test_orchestrator_receives_original_then_additional_in_order (asserts published params equal [(\"goal\",\"ship\"), (\"repo\",\"forge\"), (\"hint\",\"check tests\"), (\"severity\",\"high\")] in exact order) and test_retry_does_not_mutate_caller_provided_lists (asserts id() and len() of caller-provided lists are unchanged after the call)."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Both new files follow PEP 8, max line length 88, type-hinted, snake_case functions/PascalCase classes, full docstrings on module/class/method. No project lint runner is configured in pyproject.toml beyond pytest (no ruff/black/flake8 tooling declared). Code style mirrors the surrounding dispatch package (orchestrator.py, persistence.py) which is the de-facto style baseline.",
+        "notes": "Both new files follow PEP 8, max line length 88, type-hinted, snake_case functions/PascalCase classes, full docstrings on module/class/method. No project lint runner is configured in pyproject.toml beyond pytest (no ruff/black/flake8 tooling declared). Code style mirrors the surrounding dispatch package (orchestrator.py, persistence.py) which is the de-facto style baseline."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 360 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1725/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ASSIGNS_TASK_TO\n- USED_IN_PATTERN\n- PROJECT_CONTEXT\n- SOURCE_PATTERN\n\n### \u26a0\ufe0f Warnings\n- DEPENDS_ON\n- IS_IMPLEMENTED_AS\n- ERROR_CAUSE_OF\n\n### \ud83c\udfad Role Constraints\n- HAS_ROLE_CONSTRAINT\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- BELONGS_TO_IMPLEMENTATION_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

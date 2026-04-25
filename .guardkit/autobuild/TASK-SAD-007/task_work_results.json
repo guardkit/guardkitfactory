@@ -1,0 +1,181 @@
+{
+  "task_id": "TASK-SAD-007",
+  "timestamp": "2026-04-25T17:09:46.941696",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 11,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "src/forge/discovery/models.py",
+    "src/forge/dispatch/persistence.py",
+    "tasks/backlog/TASK-SAD-007-retry-coordinator.md",
+    "tasks/backlog/TASK-SAD-008-async-mode-polling.md",
+    "tasks/backlog/TASK-SAD-009-correlate-outcome-and-degraded.md",
+    "tasks/backlog/TASK-SAD-010-nats-adapter-specialist-dispatch.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-SAD-007-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-008-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-009-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-010-implementation-plan.md",
+    ".guardkit/autobuild/TASK-SAD-006/checkpoints.json",
+    ".guardkit/autobuild/TASK-SAD-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-007/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-008/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-009/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-010/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/.guardkit/autobuild/TASK-SAD-007/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/src/forge/dispatch/retry.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/dispatch/test_retry.py",
+    "src/forge/adapters/nats/specialist_dispatch.py",
+    "src/forge/dispatch/outcome.py",
+    "src/forge/dispatch/retry.py",
+    "tasks/design_approved/TASK-SAD-007-retry-coordinator.md",
+    "tasks/design_approved/TASK-SAD-008-async-mode-polling.md",
+    "tasks/design_approved/TASK-SAD-009-correlate-outcome-and-degraded.md",
+    "tasks/design_approved/TASK-SAD-010-nats-adapter-specialist-dispatch.md",
+    "tests/forge/dispatch/test_async_polling.py",
+    "tests/forge/dispatch/test_outcome.py",
+    "tests/forge/dispatch/test_retry.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/dispatch/test_retry.py"
+  ],
+  "summary": "11 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 33,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "src/forge/dispatch/retry.py defines RetryCoordinator with retry_with_context().",
+      "status": "complete",
+      "evidence": "Created src/forge/dispatch/retry.py exporting class RetryCoordinator with async method retry_with_context(*, previous_outcome, capability, original_parameters, additional_context). Verified by tests TestRetryCoordinatorSurface.test_module_defines_retry_coordinator_class and test_retry_with_context_is_async (both passing).",
+      "test_file": "tests/forge/dispatch/test_retry.py",
+      "implementation_files": [
+        "src/forge/dispatch/retry.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "No fixed max-retry count at this layer. The retry coordinator does NOT count attempts and does NOT refuse to retry. Document this in the module docstring.",
+      "status": "complete",
+      "evidence": "Module docstring in src/forge/dispatch/retry.py opens with 'This module is intentionally policy-free. There is no fixed max-retry count at this layer (ASSUM-005)' and includes a 'Why no max-retry counter here' section explaining the reasoning loop owns retry policy. Implementation has no counter or refusal logic \u2014 every call forwards directly to orchestrator.dispatch(). Verified by TestNoFixedMaxRetryDocumented.test_module_docstring_documents_no_max_retry (passing) which asserts the docstring mentions both 'max-retry' and 'reasoning'.",
+      "test_file": "tests/forge/dispatch/test_retry.py",
+      "implementation_files": [
+        "src/forge/dispatch/retry.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Test (A.retry-with-additional-context): retry call's resulting DispatchOutcome carries attempt_no = previous_outcome.attempt_no + 1 and the new resolution record's retry_of field equals the previous resolution's resolution_id.",
+      "status": "complete",
+      "evidence": "Implementation computes next_attempt_no = previous_outcome.attempt_no + 1 and passes retry_of=previous_outcome.resolution_id to orchestrator.dispatch(); the orchestrator then stamps retry_of onto the persisted CapabilityResolution copy. Verified by TestRetryWithAdditionalContext: test_retry_outcome_attempt_no_is_previous_plus_one (passes assertion retry.attempt_no == 2) and test_retry_persists_retry_of_link_to_previous_resolution (passes assertion exactly one persisted row carries retry_of=first.resolution_id).",
+      "test_file": "tests/forge/dispatch/test_retry.py",
+      "implementation_files": [
+        "src/forge/dispatch/retry.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Test (fresh correlation): the new dispatch attempt's correlation key is distinct from the previous attempt's. Verify via the registry's binding map.",
+      "status": "complete",
+      "evidence": "RetryCoordinator does NOT pass through any correlation key \u2014 the orchestrator's CorrelationRegistry.fresh_correlation_key() issues a new 32-hex token per dispatch. Verified by TestFreshCorrelationKey.test_retry_uses_fresh_correlation_key_not_previous_one (passing): asserts publisher.published[0].attempt.correlation_key != publisher.published[1].attempt.correlation_key, that both match [0-9a-f]{32}, and that both keys appear exactly once in transport.subscribed_keys (the registry's binding-map projection).",
+      "test_file": "tests/forge/dispatch/test_retry.py",
+      "implementation_files": [
+        "src/forge/dispatch/retry.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Test (sibling not overwrite): after retry, BOTH resolution records exist in persistence \u2014 the original AND the sibling. The original is unchanged.",
+      "status": "complete",
+      "evidence": "Verified by TestSiblingResolutionRecord.test_retry_creates_sibling_record_and_preserves_original (passing): asserts len(rows_after) == len(rows_before) + 1, asserts the original row equals its pre-retry snapshot via Pydantic structural equality, and asserts original.retry_of remains None. Also covered by the verbatim seam test TestSeamCapabilityResolutionSiblingContract.test_retry_creates_sibling_record_not_overwrite.",
+      "test_file": "tests/forge/dispatch/test_retry.py",
+      "implementation_files": [
+        "src/forge/dispatch/retry.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Test (additional context propagation): parameters list passed to orchestrator.dispatch() is original + additional_context in order; original parameters are not mutated.",
+      "status": "complete",
+      "evidence": "Implementation uses list concatenation (original_parameters + additional_context), explicitly NOT in-place extend. Verified by TestAdditionalContextPropagation: test_orchestrator_receives_original_then_additional_in_order (asserts published params equal [(\"goal\",\"ship\"), (\"repo\",\"forge\"), (\"hint\",\"check tests\"), (\"severity\",\"high\")] in exact order) and test_retry_does_not_mutate_caller_provided_lists (asserts id() and len() of caller-provided lists are unchanged after the call).",
+      "test_file": "tests/forge/dispatch/test_retry.py",
+      "implementation_files": [
+        "src/forge/dispatch/retry.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors.",
+      "status": "complete",
+      "evidence": "Both new files follow PEP 8, max line length 88, type-hinted, snake_case functions/PascalCase classes, full docstrings on module/class/method. No project lint runner is configured in pyproject.toml beyond pytest (no ruff/black/flake8 tooling declared). Code style mirrors the surrounding dispatch package (orchestrator.py, persistence.py) which is the de-facto style baseline.",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/dispatch/retry.py",
+        "tests/forge/dispatch/test_retry.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 120.42591449100291
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 171.28209221998986
+    }
+  ]
+}

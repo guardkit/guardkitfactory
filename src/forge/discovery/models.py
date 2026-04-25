@@ -108,6 +108,11 @@ class CapabilityResolution(BaseModel):
         outcome_correlated: ``True`` once the downstream
             :class:`~nats_core.events.ResultPayload` is linked back via
             :func:`correlate_outcome`. Append-only — cannot regress.
+        gate_decision_id: Identifier of the downstream gate decision
+            (FEAT-FORGE-004) that this resolution was correlated to.
+            ``None`` until :func:`forge.dispatch.outcome.correlate_outcome`
+            has run for this row. Set together with
+            ``outcome_correlated=True`` and never cleared.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -147,6 +152,17 @@ class CapabilityResolution(BaseModel):
     outcome_correlated: bool = Field(
         default=False,
         description="True once the ResultPayload has been linked back",
+    )
+    # TASK-SAD-009: gate-decision back-reference written by
+    # :func:`forge.dispatch.outcome.correlate_outcome`. Defaults to
+    # ``None`` so every existing CapabilityResolution call site keeps
+    # working unchanged. Set together with ``outcome_correlated=True``.
+    gate_decision_id: str | None = Field(
+        default=None,
+        description=(
+            "Identifier of the downstream gate decision this resolution "
+            "was correlated to, or None before correlate_outcome runs"
+        ),
     )
 
     # Append-only field added by TASK-SAD-001. Records the resolution_id of

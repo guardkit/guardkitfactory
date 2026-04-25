@@ -1,22 +1,27 @@
 ---
-id: TASK-SAD-008
-title: "Async-mode polling: run-identifier handling, status-tool convergence"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-SAD3
-feature_id: FEAT-FORGE-003
-wave: 4
-implementation_mode: task-work
 complexity: 4
-dependencies: [TASK-SAD-006]
-tags: [dispatch, async-mode, polling, run-identifier]
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-SAD-006
+feature_id: FEAT-FORGE-003
+id: TASK-SAD-008
+implementation_mode: task-work
+parent_review: TASK-REV-SAD3
+priority: high
+status: design_approved
+tags:
+- dispatch
+- async-mode
+- polling
+- run-identifier
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: 'Async-mode polling: run-identifier handling, status-tool convergence'
+updated: 2026-04-25 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Async-mode polling — run-identifier handling, status-tool convergence

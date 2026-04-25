@@ -1,28 +1,36 @@
 ---
-id: TASK-SAD-007
-title: "Retry coordinator: fresh correlation, additional context, sibling resolution record"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-SAD3
-feature_id: FEAT-FORGE-003
-wave: 3
-implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-SAD-001, TASK-SAD-006]
-tags: [dispatch, retry, reasoning-model-driven, sibling-record]
 consumer_context:
-  - task: TASK-SAD-001
-    consumes: CapabilityResolution
-    framework: "Pydantic v2"
-    driver: "in-memory + persisted via TASK-SAD-002"
-    format_note: "Reads the prior attempt's resolution_id and writes a sibling record with retry_of=<prev_resolution_id>. Append-only retry_of field from TASK-SAD-001."
+- consumes: CapabilityResolution
+  driver: in-memory + persisted via TASK-SAD-002
+  format_note: Reads the prior attempt's resolution_id and writes a sibling record
+    with retry_of=<prev_resolution_id>. Append-only retry_of field from TASK-SAD-001.
+  framework: Pydantic v2
+  task: TASK-SAD-001
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-SAD-001
+- TASK-SAD-006
+feature_id: FEAT-FORGE-003
+id: TASK-SAD-007
+implementation_mode: task-work
+parent_review: TASK-REV-SAD3
+priority: high
+status: design_approved
+tags:
+- dispatch
+- retry
+- reasoning-model-driven
+- sibling-record
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: 'Retry coordinator: fresh correlation, additional context, sibling resolution
+  record'
+updated: 2026-04-25 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Retry coordinator — fresh correlation, additional context, sibling resolution record

@@ -1,0 +1,7 @@
+{
+  "tests_run": 450,
+  "tests_failed": 1,
+  "coverage_pct": 84.0,
+  "output_summary": "pytest: 449 passed, 1 failed (clock-hygiene violation in src/forge/adapters/nats/specialist_dispatch.py:378); coverage 84% over src/forge",
+  "quality_gates_passed": false
+}

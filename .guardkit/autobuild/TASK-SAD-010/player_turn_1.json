@@ -1,0 +1,170 @@
+{
+  "task_id": "TASK-SAD-010",
+  "turn": 1,
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/src/forge/adapters/nats/specialist_dispatch.py",
+    "src/forge/discovery/models.py",
+    "src/forge/dispatch/persistence.py",
+    "tasks/backlog/TASK-SAD-007-retry-coordinator.md",
+    "tasks/backlog/TASK-SAD-008-async-mode-polling.md",
+    "tasks/backlog/TASK-SAD-009-correlate-outcome-and-degraded.md",
+    "tasks/backlog/TASK-SAD-010-nats-adapter-specialist-dispatch.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-SAD-007-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-008-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-009-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-010-implementation-plan.md",
+    ".guardkit/autobuild/TASK-SAD-006/checkpoints.json",
+    ".guardkit/autobuild/TASK-SAD-007/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-SAD-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-007/specialist_results.json",
+    ".guardkit/autobuild/TASK-SAD-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-007/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-008/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-SAD-008/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-008/specialist_results.json",
+    ".guardkit/autobuild/TASK-SAD-008/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-008/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-009/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-SAD-009/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-009/specialist_results.json",
+    ".guardkit/autobuild/TASK-SAD-009/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-009/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-010/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-010/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-010/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/.guardkit/autobuild/TASK-SAD-010/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/src/forge/adapters/nats/specialist_dispatch.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/adapters/test_specialist_dispatch.py",
+    "src/forge/adapters/nats/specialist_dispatch.py",
+    "src/forge/dispatch/async_polling.py",
+    "src/forge/dispatch/outcome.py",
+    "src/forge/dispatch/retry.py",
+    "tasks/design_approved/TASK-SAD-007-retry-coordinator.md",
+    "tasks/design_approved/TASK-SAD-008-async-mode-polling.md",
+    "tasks/design_approved/TASK-SAD-009-correlate-outcome-and-degraded.md",
+    "tasks/design_approved/TASK-SAD-010-nats-adapter-specialist-dispatch.md",
+    "tests/forge/adapters/test_specialist_dispatch.py",
+    "tests/forge/dispatch/test_async_polling.py",
+    "tests/forge/dispatch/test_outcome.py",
+    "tests/forge/dispatch/test_retry.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/adapters/test_specialist_dispatch.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001 \u2014 public surface (NatsSpecialistDispatchAdapter + 3 lifecycle methods)",
+    "AC-002 \u2014 singular subject convention (agents.command/agents.result)",
+    "AC-003 \u2014 dispatch headers (correlation_key, requesting_agent_id='forge', dispatched_at ISO8601 UTC)",
+    "AC-004 \u2014 subscribe-before-publish (subscribe_reply blocks until SUB active)",
+    "AC-005 \u2014 PubAck not routed through registry",
+    "AC-006 \u2014 unsubscribe_reply idempotency",
+    "AC-007 \u2014 _on_reply_received forwards to registry without local authentication",
+    "AC-008 \u2014 drop-in compatibility with FakeNatsClient surface",
+    "AC-009 \u2014 clock-hygiene gate satisfied via Clock injection"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 58,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 452,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "src/forge/adapters/nats/specialist_dispatch.py implements NatsSpecialistDispatchAdapter with subscribe_reply, unsubscribe_reply, publish_dispatch.",
+      "status": "complete",
+      "evidence": "Module created at src/forge/adapters/nats/specialist_dispatch.py exports NatsSpecialistDispatchAdapter with all three async methods (subscribe_reply, unsubscribe_reply, publish_dispatch) plus _on_reply_received callback. Verified by TestPublicSurface::test_adapter_exposes_three_lifecycle_methods which checks each method exists and is a coroutine function.",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Subjects use singular convention: agents.command.{agent_id} and agents.result.{agent_id}.{correlation_key}. Verify via regex in tests.",
+      "status": "complete",
+      "evidence": "COMMAND_SUBJECT_TEMPLATE='agents.command.{agent_id}' and RESULT_SUBJECT_TEMPLATE='agents.result.{agent_id}.{correlation_key}' constants are exported and used by command_subject_for/result_subject_for static helpers. TestSubjectConvention::test_subscribe_reply_uses_singular_result_subject and test_publish_dispatch_uses_singular_command_subject verify with re.fullmatch using the spec regexes (agents\\.result\\.[a-z0-9-]+\\.[0-9a-f]{32} and agents\\.command\\.[a-z0-9-]+).",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Headers on the published dispatch include correlation_key, requesting_agent_id='forge', dispatched_at (ISO 8601 UTC).",
+      "status": "complete",
+      "evidence": "publish_dispatch builds headers dict with all three keys: CORRELATION_KEY_HEADER=attempt.correlation_key, REQUESTING_AGENT_HEADER='forge', DISPATCHED_AT_HEADER=self._clock.now().isoformat(). TestDispatchHeaders has four tests verifying each header is present, correlation_key matches the attempt, requesting_agent_id is 'forge', and dispatched_at parses as ISO 8601 with UTC offset. Clock injection (default SystemClock) keeps the adapter compliant with the project's clock-hygiene rule.",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "subscribe_reply() returns ONLY after the underlying NATS subscription is fully active. Test by asserting that a reply published immediately after subscribe_reply returns is received.",
+      "status": "complete",
+      "evidence": "subscribe_reply awaits self._nc.subscribe(...) which (per nats-py contract) returns after SUB is sent, then issues a belt-and-braces flush() so the SUB lands at the server before return. TestSubscribeBeforePublish::test_subscribe_reply_blocks_until_underlying_subscribe_returns uses a subscribe_gate Event to assert subscribe_reply does not return while subscribe is parked. test_reply_published_after_subscribe_return_is_received calls subscribe_reply then immediately delivers via the recorded subscription callback and asserts the reply is forwarded to the registry.",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "PubAck on the audit stream does NOT trigger registry.deliver_reply() \u2014 it is observed by the publisher only as the 'publish was sent' signal, not as the dispatch outcome.",
+      "status": "complete",
+      "evidence": "publish_dispatch logs PubAck at DEBUG only \u2014 no call to registry.deliver_reply on the success path. TestPubAckNotSuccess::test_pubAck_is_not_routed_through_registry sets nats_client.publish_ack to a sentinel object and verifies recording_registry.delivered remains empty. test_pubAck_is_not_routed_with_real_registry repeats with a real CorrelationRegistry instance.",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "unsubscribe_reply() is idempotent (safe to call twice with the same correlation_key).",
+      "status": "complete",
+      "evidence": "unsubscribe_reply uses self._subscriptions.pop(correlation_key, None) so a second call observes None and returns early. TestUnsubscribeIdempotency has four tests: invokes_underlying_unsubscribe_once, twice_is_no_op (verifies sub.unsubscribe_calls == 1 after multiple invocations), unsubscribe_unknown_key_is_no_op (never-subscribed key), swallows_transport_error (RuntimeError from sub.unsubscribe is caught and logged).",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "_on_reply_received() extracts the source agent ID from msg headers and forwards to registry.deliver_reply(). The adapter does NOT attempt to authenticate \u2014 that lives in the registry (TASK-SAD-003).",
+      "status": "complete",
+      "evidence": "_on_reply_received reads SOURCE_AGENT_HEADER and CORRELATION_KEY_HEADER from msg.headers, decodes the JSON body, and forwards to self._registry.deliver_reply(correlation_key, source_agent_id, payload) verbatim \u2014 no source comparison, no authentication. TestOnReplyReceived::test_does_not_authenticate_locally explicitly verifies that an 'imposter-agent' source value is forwarded unchanged to the registry. Defensive drops (missing headers, malformed JSON, non-dict root, callback exceptions) are covered by six additional tests in the class.",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Compatibility: existing tests/bdd/conftest.py:FakeNatsClient fixture is a drop-in test double \u2014 do NOT introduce a parallel test transport. Add fake-side recording for subscribe/unsubscribe events if needed.",
+      "status": "complete",
+      "evidence": "The adapter's transport surface is restricted to subscribe(subject, cb=...), publish(subject, body, headers=...), and flush() \u2014 methods either present or trivially addable to the BDD FakeNatsClient. TestFakeNatsClientCompatibility::test_adapter_uses_only_subscribe_publish_flush builds a deliberately-minimal client exposing only those three methods and exercises the full adapter surface (subscribe_reply, publish_dispatch, unsubscribe_reply) against it. Per the task's Implementation Notes, the actual conftest extension (subscribe/unsubscribe recording) is deferred to TASK-SAD-011 \u2014 this task only proves the adapter does not require additional transport surface beyond what FakeNatsClient already provides.",
+      "test_file": "tests/forge/adapters/test_specialist_dispatch.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors.",
+      "status": "complete",
+      "evidence": "Code follows project style (Black-compatible, 88-char lines, type hints, snake_case/PascalCase, docstrings, f-strings, context managers). Module passes the project's clock-hygiene gate (tests/forge/test_contract_and_seam.py::TestClockHygiene) \u2014 the initial datetime.now(timezone.utc) call was refactored to inject a Clock dependency (defaulting to SystemClock) which is the project-canonical pattern used by DiscoveryCache. No other lint configuration (ruff, flake8, mypy) is committed at the repo root.",
+      "test_file": "tests/forge/test_contract_and_seam.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/specialist_dispatch.py"
+      ]
+    }
+  ]
+}
