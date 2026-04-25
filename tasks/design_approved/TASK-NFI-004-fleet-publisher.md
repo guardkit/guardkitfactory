@@ -1,36 +1,44 @@
 ---
-id: TASK-NFI-004
-title: "Implement fleet_publisher (register / heartbeat-loop / deregister)"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
-parent_review: TASK-REV-NF20
-feature_id: FEAT-FORGE-002
-wave: 3
-implementation_mode: task-work
 complexity: 5
-dependencies:
-  - TASK-NFI-001
-  - TASK-NFI-002
-  - TASK-NFI-003
-tags: [nats, adapter, publisher, heartbeat, fleet]
 consumer_context:
-  - task: TASK-NFI-001
-    consumes: ForgeConfig.fleet
-    framework: "Pydantic v2 BaseModel"
-    driver: "pyyaml + pydantic"
-    format_note: "FleetConfig.heartbeat_interval_seconds (int, default 30) drives heartbeat loop cadence; FleetConfig.stale_heartbeat_seconds (int, default 90) is read by fleet_watcher, not this task"
-  - task: TASK-NFI-002
-    consumes: FORGE_MANIFEST
-    framework: "nats-core AgentManifest"
-    driver: "nats-core >= 0.2.0"
-    format_note: "Module-level constant imported directly: `from forge.fleet.manifest import FORGE_MANIFEST`; passed as-is to nats_client.register_agent()"
+- consumes: ForgeConfig.fleet
+  driver: pyyaml + pydantic
+  format_note: FleetConfig.heartbeat_interval_seconds (int, default 30) drives heartbeat
+    loop cadence; FleetConfig.stale_heartbeat_seconds (int, default 90) is read by
+    fleet_watcher, not this task
+  framework: Pydantic v2 BaseModel
+  task: TASK-NFI-001
+- consumes: FORGE_MANIFEST
+  driver: nats-core >= 0.2.0
+  format_note: 'Module-level constant imported directly: `from forge.fleet.manifest
+    import FORGE_MANIFEST`; passed as-is to nats_client.register_agent()'
+  framework: nats-core AgentManifest
+  task: TASK-NFI-002
+created: 2026-04-24 00:00:00+00:00
+dependencies:
+- TASK-NFI-001
+- TASK-NFI-002
+- TASK-NFI-003
+feature_id: FEAT-FORGE-002
+id: TASK-NFI-004
+implementation_mode: task-work
+parent_review: TASK-REV-NF20
+priority: high
+status: design_approved
+tags:
+- nats
+- adapter
+- publisher
+- heartbeat
+- fleet
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement fleet_publisher (register / heartbeat-loop / deregister)
+updated: 2026-04-24 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement fleet_publisher (register / heartbeat-loop / deregister)

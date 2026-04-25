@@ -1,34 +1,43 @@
 ---
-id: TASK-NFI-005
-title: "Implement fleet_watcher (subscribe + delegate to FleetEventSink)"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
-parent_review: TASK-REV-NF20
-feature_id: FEAT-FORGE-002
-wave: 3
-implementation_mode: task-work
 complexity: 5
-dependencies:
-  - TASK-NFI-003
-tags: [nats, adapter, watcher, subscriber, fleet, cache-invalidation]
 consumer_context:
-  - task: TASK-NFI-003
-    consumes: FleetEventSink
-    framework: "Python asyncio Protocol (PEP 544)"
-    driver: "forge.discovery.protocol"
-    format_note: "Calls `sink.upsert_agent(manifest)`, `sink.remove_agent(agent_id)`, `sink.update_heartbeat(agent_id, hb, status_changed)` — must match protocol signatures exactly; mutations happen inside the sink's asyncio.Lock"
-  - task: TASK-NFI-001
-    consumes: ForgeConfig.fleet
-    framework: "Pydantic v2 BaseModel"
-    driver: "pyyaml + pydantic"
-    format_note: "FleetConfig.stale_heartbeat_seconds (int, default 90) drives background stale-agent sweeper"
+- consumes: FleetEventSink
+  driver: forge.discovery.protocol
+  format_note: Calls `sink.upsert_agent(manifest)`, `sink.remove_agent(agent_id)`,
+    `sink.update_heartbeat(agent_id, hb, status_changed)` — must match protocol signatures
+    exactly; mutations happen inside the sink's asyncio.Lock
+  framework: Python asyncio Protocol (PEP 544)
+  task: TASK-NFI-003
+- consumes: ForgeConfig.fleet
+  driver: pyyaml + pydantic
+  format_note: FleetConfig.stale_heartbeat_seconds (int, default 90) drives background
+    stale-agent sweeper
+  framework: Pydantic v2 BaseModel
+  task: TASK-NFI-001
+created: 2026-04-24 00:00:00+00:00
+dependencies:
+- TASK-NFI-003
+feature_id: FEAT-FORGE-002
+id: TASK-NFI-005
+implementation_mode: task-work
+parent_review: TASK-REV-NF20
+priority: high
+status: design_approved
+tags:
+- nats
+- adapter
+- watcher
+- subscriber
+- fleet
+- cache-invalidation
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement fleet_watcher (subscribe + delegate to FleetEventSink)
+updated: 2026-04-24 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement fleet_watcher (subscribe + delegate to FleetEventSink)

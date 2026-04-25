@@ -1,29 +1,37 @@
 ---
-id: TASK-NFI-008
-title: "Wire state-machine transitions to pipeline_publisher (lifecycle emission points)"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
-parent_review: TASK-REV-NF20
-feature_id: FEAT-FORGE-002
-wave: 4
-implementation_mode: task-work
 complexity: 5
-dependencies:
-  - TASK-NFI-006
-tags: [integration, state-machine, pipeline, lifecycle]
 consumer_context:
-  - task: TASK-NFI-006
-    consumes: PipelinePublisher
-    framework: "Python class with async methods"
-    driver: "forge.adapters.nats.pipeline_publisher"
-    format_note: "Eight async methods (publish_build_started, publish_build_progress, publish_stage_complete, publish_build_paused, publish_build_resumed, publish_build_complete, publish_build_failed, publish_build_cancelled); each takes a typed payload from nats_core.events.pipeline; caller is responsible for building the payload with correct correlation_id threading"
+- consumes: PipelinePublisher
+  driver: forge.adapters.nats.pipeline_publisher
+  format_note: Eight async methods (publish_build_started, publish_build_progress,
+    publish_stage_complete, publish_build_paused, publish_build_resumed, publish_build_complete,
+    publish_build_failed, publish_build_cancelled); each takes a typed payload from
+    nats_core.events.pipeline; caller is responsible for building the payload with
+    correct correlation_id threading
+  framework: Python class with async methods
+  task: TASK-NFI-006
+created: 2026-04-24 00:00:00+00:00
+dependencies:
+- TASK-NFI-006
+feature_id: FEAT-FORGE-002
+id: TASK-NFI-008
+implementation_mode: task-work
+parent_review: TASK-REV-NF20
+priority: high
+status: design_approved
+tags:
+- integration
+- state-machine
+- pipeline
+- lifecycle
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire state-machine transitions to pipeline_publisher (lifecycle emission points)
+updated: 2026-04-24 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Wire state-machine transitions to pipeline_publisher
