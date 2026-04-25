@@ -1,0 +1,184 @@
+id: FEAT-CBDE
+name: Mode A Greenfield End-to-End
+description: 'Capstone composition feature: drives a one-line product brief through
+  eight Mode A stages (product-owner, architect, system-arch, system-design, feature-spec,
+  feature-plan, autobuild, pull-request review) under one supervised build with stage-ordering
+  invariants, forward propagation, async-subagent autobuild dispatch, constitutional
+  belt-and-braces PR review, crash-recovery via durable history, CLI steering, pause
+  isolation, and idempotent first-wins approval handling.'
+created: '2026-04-25T16:02:32.486906'
+status: planned
+complexity: 7
+estimated_tasks: 14
+tasks:
+- id: TASK-MAG7-001
+  name: Define StageClass enum and prerequisite map
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-001-define-stage-taxonomy.md
+  complexity: 2
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 22
+- id: TASK-MAG7-002
+  name: Define forward-propagation contract map
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-002-define-forward-propagation-map.md
+  complexity: 2
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 22
+- id: TASK-MAG7-003
+  name: Implement StageOrderingGuard
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-003-stage-ordering-guard.md
+  complexity: 5
+  dependencies:
+  - TASK-MAG7-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-MAG7-004
+  name: Implement ConstitutionalGuard for PR-review
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-004-constitutional-guard.md
+  complexity: 4
+  dependencies:
+  - TASK-MAG7-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-MAG7-005
+  name: Implement PerFeatureLoopSequencer
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-005-per-feature-loop-sequencer.md
+  complexity: 4
+  dependencies:
+  - TASK-MAG7-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-MAG7-006
+  name: Implement ForwardContextBuilder
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-006-forward-context-builder.md
+  complexity: 5
+  dependencies:
+  - TASK-MAG7-001
+  - TASK-MAG7-002
+  - TASK-MAG7-003
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-MAG7-007
+  name: Wire dispatch_specialist_stage
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-007-dispatch-specialist-stage.md
+  complexity: 4
+  dependencies:
+  - TASK-MAG7-001
+  - TASK-MAG7-006
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-MAG7-008
+  name: Wire dispatch_subprocess_stage
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-008-dispatch-subprocess-stage.md
+  complexity: 5
+  dependencies:
+  - TASK-MAG7-001
+  - TASK-MAG7-006
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-MAG7-009
+  name: Wire dispatch_autobuild_async
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-009-dispatch-autobuild-async.md
+  complexity: 6
+  dependencies:
+  - TASK-MAG7-001
+  - TASK-MAG7-006
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-MAG7-010
+  name: Wire Supervisor.next_turn dispatch loop
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-010-supervisor-next-turn.md
+  complexity: 7
+  dependencies:
+  - TASK-MAG7-003
+  - TASK-MAG7-004
+  - TASK-MAG7-005
+  - TASK-MAG7-007
+  - TASK-MAG7-008
+  - TASK-MAG7-009
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+- id: TASK-MAG7-011
+  name: Wire CLI steering injection
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-011-cli-steering-injection.md
+  complexity: 5
+  dependencies:
+  - TASK-MAG7-004
+  - TASK-MAG7-009
+  - TASK-MAG7-010
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-MAG7-012
+  name: Smoke greenfield E2E to PR-awaiting-review
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-012-smoke-greenfield-e2e.md
+  complexity: 5
+  dependencies:
+  - TASK-MAG7-010
+  - TASK-MAG7-011
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-MAG7-013
+  name: Crash-recovery integration tests
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-013-crash-recovery-integration.md
+  complexity: 6
+  dependencies:
+  - TASK-MAG7-010
+  - TASK-MAG7-011
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-MAG7-014
+  name: Concurrency and multi-feature integration tests
+  file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-014-concurrency-multifeature-integration.md
+  complexity: 7
+  dependencies:
+  - TASK-MAG7-010
+  - TASK-MAG7-011
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+orchestration:
+  parallel_groups:
+  - - TASK-MAG7-001
+    - TASK-MAG7-002
+  - - TASK-MAG7-003
+    - TASK-MAG7-004
+    - TASK-MAG7-005
+  - - TASK-MAG7-006
+  - - TASK-MAG7-007
+    - TASK-MAG7-008
+    - TASK-MAG7-009
+  - - TASK-MAG7-010
+  - - TASK-MAG7-011
+  - - TASK-MAG7-012
+    - TASK-MAG7-013
+    - TASK-MAG7-014
+  estimated_duration_minutes: 1135
+  recommended_parallel: 3

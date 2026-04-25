@@ -24,6 +24,7 @@ Feature: Infrastructure Coordination
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Core seeding path — every completed stage is durably remembered
+  @task:TASK-IC-003
   @key-example @smoke
   Scenario: A stage outcome is seeded into long-term memory after the stage completes
     Given a build is running
@@ -33,6 +34,7 @@ Feature: Infrastructure Coordination
     And its rationale, score, and criterion breakdown should be retrievable by future builds
 
   # Why: Capability lookup recorded before dispatch — supports write-before-send invariant
+  @task:TASK-IC-003
   @key-example
   Scenario: A capability resolution is recorded before the matching specialist is dispatched
     Given the reasoning model requested a tool by name
@@ -41,6 +43,7 @@ Feature: Infrastructure Coordination
     And the competing candidates and the chosen agent should both be captured
 
   # Why: Overrides are the learning signal — they must be captured whenever Rich diverges from the gate
+  @task:TASK-IC-003
   @key-example
   Scenario: An operator override is recorded whenever the reviewer diverges from the gate
     Given Forge has recorded a gate decision
@@ -49,6 +52,7 @@ Feature: Infrastructure Coordination
     And it should be linked to the originating gate decision
 
   # Why: End-of-build summary is the substrate of cross-build pattern mining
+  @task:TASK-IC-007
   @key-example @smoke
   Scenario: A session outcome is written when the build reaches a terminal state
     Given a build has completed, failed, or been cancelled
@@ -57,6 +61,7 @@ Feature: Infrastructure Coordination
     And it should link to every gate decision and capability resolution produced during the build
 
   # Why: Priors retrieval — the whole point of writing history
+  @task:TASK-IC-006
   @key-example @smoke
   Scenario: At build start Forge retrieves priors from similar past builds
     Given previous builds exist for the same feature or project
@@ -67,6 +72,7 @@ Feature: Infrastructure Coordination
     And these priors should be available to the reasoning model as narrative context
 
   # Why: Q&A priors retrieval from the calibration group
+  @task:TASK-IC-006
   @key-example
   Scenario: At build start Forge retrieves Q&A priors for the expected pipeline stages
     Given the operator's past Q&A history has been ingested
@@ -75,6 +81,7 @@ Feature: Infrastructure Coordination
     And these Q&A priors should be available to the reasoning model as narrative context
 
   # Why: Incremental ingestion — unchanged files are skipped, changed files re-parse
+  @task:TASK-IC-005
   @key-example
   Scenario: On startup Forge ingests the operator's Q&A history files
     Given the operator's history files are listed in the configuration
@@ -84,6 +91,7 @@ Feature: Infrastructure Coordination
     And a snapshot of each file's content hash should be recorded
 
   # Why: Git clone + branch preparation is the first durable action of every build
+  @task:TASK-IC-010
   @key-example @smoke
   Scenario: A dedicated, ephemeral worktree is prepared for every build
     Given a build is about to enter PREPARING
@@ -93,6 +101,7 @@ Feature: Infrastructure Coordination
 
   # Why: Tests verify the build before it is eligible for PR creation
   # [ASSUMPTION: confidence=medium] The configured test command is pytest run from the worktree root
+  @task:TASK-IC-009
   @key-example @smoke
   Scenario: The build's tests are executed before a pull request is proposed
     Given the autobuild step has produced changes in the worktree
@@ -102,6 +111,7 @@ Feature: Infrastructure Coordination
 
   # Why: Every build that passes produces a reviewable PR
   # [ASSUMPTION: confidence=high] The default pull-request base branch is main
+  @task:TASK-IC-010
   @key-example
   Scenario: A pull request is opened when verification passes
     Given verification passed
@@ -116,6 +126,7 @@ Feature: Infrastructure Coordination
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Subprocess default timeout — at-limit and just-under pair
+  @task:TASK-IC-009
   @boundary
   Scenario Outline: A subprocess call is allowed to run up to the configured timeout
     Given the default subprocess timeout is configured
@@ -128,6 +139,7 @@ Feature: Infrastructure Coordination
       | exactly at the default timeout   | the subprocess should complete and return its output  |
 
   # Why: Just-outside boundary — subprocess exceeding timeout is terminated
+  @task:TASK-IC-009
   @boundary @negative
   Scenario: A subprocess that exceeds the configured timeout is terminated
     Given the default subprocess timeout is configured
@@ -137,6 +149,7 @@ Feature: Infrastructure Coordination
 
   # Why: Learning-loop threshold — proposals only fire above the minimum evidence count
   # [ASSUMPTION: confidence=high] Pattern detection requires at least five supporting overrides before a proposal is emitted
+  @task:TASK-IC-005
   @boundary
   Scenario Outline: An adjustment proposal is only emitted when the evidence count meets the minimum
     Given the learning loop is watching a capability
@@ -150,6 +163,7 @@ Feature: Infrastructure Coordination
       | well above the minimum        | propose a calibration adjustment            |
 
   # Why: Incremental ingestion — sha match is the skip signal
+  @task:TASK-IC-005
   @boundary
   Scenario Outline: A history file is re-parsed only when its content hash has changed
     Given a history file has been ingested before
@@ -163,6 +177,7 @@ Feature: Infrastructure Coordination
 
   # Why: Calibration adjustments expire — at-expiry and after-expiry pair
   # [ASSUMPTION: confidence=high] Adjustments with expires_at in the past are excluded at retrieval, not deleted
+  @task:TASK-IC-006
   @boundary
   Scenario Outline: Expired calibration adjustments are excluded from retrieval
     Given an approved calibration adjustment exists
@@ -180,6 +195,7 @@ Feature: Infrastructure Coordination
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Long-term memory is enrichment, not a hard dependency — builds survive its outages
+  @task:TASK-IC-002
   @negative
   Scenario: A long-term memory write failure does not halt the build
     Given a stage outcome is being recorded
@@ -189,6 +205,7 @@ Feature: Infrastructure Coordination
     And the build should continue to the next stage
 
   # Why: Pending calibration adjustments must never be returned as priors
+  @task:TASK-IC-006
   @negative
   Scenario: Unapproved calibration adjustments are excluded from priors
     Given a proposed calibration adjustment has not yet been approved
@@ -196,6 +213,7 @@ Feature: Infrastructure Coordination
     Then the proposed adjustment should not appear in the narrative context
 
   # Why: Unchanged Q&A re-ingestion must be idempotent
+  @task:TASK-IC-005
   @negative
   Scenario: Re-ingesting the same Q&A events produces no duplicates
     Given a batch of history events has already been ingested
@@ -204,6 +222,7 @@ Feature: Infrastructure Coordination
     And no duplicate calibration events should appear in the memory group
 
   # Why: Partial parse failures must preserve what was parsed
+  @task:TASK-IC-005
   @negative
   Scenario: A malformed section in a history file is tolerated without losing earlier events
     Given a history file contains a malformed section
@@ -213,6 +232,7 @@ Feature: Infrastructure Coordination
 
   # Why: Test failures must be observable, not silent
   # [ASSUMPTION: confidence=medium] The failed-test report delivered to the reasoning model carries pass/fail counts, failing test identifiers, and a tail of captured output
+  @task:TASK-IC-009
   @negative
   Scenario: Failing tests are reported to the reasoning model rather than crashing the build
     Given the autobuild step produced changes
@@ -221,6 +241,7 @@ Feature: Infrastructure Coordination
     And the build should remain in a state where the reasoning model can decide how to respond
 
   # Why: Pull-request creation is not always possible — missing credentials must be surfaced safely
+  @task:TASK-IC-010
   @negative
   Scenario: A pull request cannot be opened when GitHub credentials are missing
     Given the GitHub credentials are not available in the environment
@@ -230,6 +251,7 @@ Feature: Infrastructure Coordination
     And the session outcome should still be written with the failure reason
 
   # Why: Constitutional permissions must refuse any command outside the allowlist
+  @task:TASK-IC-010
   @negative @security
   Scenario: A shell command that is not on the allowlist is refused
     Given the subprocess permissions list a fixed set of allowed binaries
@@ -242,6 +264,7 @@ Feature: Infrastructure Coordination
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Write ordering invariant — authoritative store commits before long-term memory mirror
+  @task:TASK-IC-003
   @edge-case
   Scenario: The authoritative build history is committed before the long-term memory mirror
     Given a stage result has arrived
@@ -250,6 +273,7 @@ Feature: Infrastructure Coordination
     And only then should the matching long-term memory entry be written
 
   # Why: Reconcile backfills anything that failed to land in long-term memory
+  @task:TASK-IC-004
   @edge-case
   Scenario: Entries missing from long-term memory are backfilled on the next build
     Given a previous build wrote build-history entries that never reached long-term memory
@@ -258,6 +282,7 @@ Feature: Infrastructure Coordination
     And Forge should backfill them into the pipeline-history memory group
 
   # Why: Session outcomes are never in-progress — only terminal
+  @task:TASK-IC-007
   @edge-case
   Scenario: A build interrupted mid-run never leaves an in-progress session outcome behind
     Given a build has been interrupted before a terminal state was reached
@@ -266,6 +291,7 @@ Feature: Infrastructure Coordination
     And the interruption should be represented only by the individual stage entries already written
 
   # Why: Cross-group edges — pipeline-history references calibration-history
+  @task:TASK-IC-001
   @edge-case
   Scenario: A gate decision can reference the Q&A event that informed it
     Given a gate decision drew on a prior Q&A event
@@ -273,6 +299,7 @@ Feature: Infrastructure Coordination
     Then the decision should carry a link to the originating Q&A event in calibration-history
 
   # Why: Worktree cleanup is best-effort — failure must not hold up the state machine
+  @task:TASK-IC-010
   @edge-case
   Scenario: A worktree that cannot be deleted does not block the terminal state transition
     Given the build has reached a terminal state
@@ -282,6 +309,7 @@ Feature: Infrastructure Coordination
     And the build's durable history should still be finalised
 
   # Why: Incremental ingestion on every boot and build finish
+  @task:TASK-IC-005
   @edge-case
   Scenario: Changed Q&A files are ingested again after every completed build
     Given a completed build has finished
@@ -295,6 +323,7 @@ Feature: Infrastructure Coordination
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Subprocess working directory is confined to the ephemeral worktree
+  @task:TASK-IC-010
   @security
   Scenario: A subprocess cannot be launched with a working directory outside the worktree
     Given the working-directory allowlist permits only per-build worktrees
@@ -302,6 +331,7 @@ Feature: Infrastructure Coordination
     Then the invocation should be refused before any process is spawned
 
   # Why: GitHub credentials come only from the environment, never from forge.yaml
+  @task:TASK-IC-010
   @security
   Scenario: GitHub operations use credentials from the environment rather than configuration
     Given GitHub credentials are provided by the deployment environment
@@ -310,6 +340,7 @@ Feature: Infrastructure Coordination
     And no GitHub credentials should ever be read from the project configuration file
 
   # Why: Duplicate ingestion must be a true no-op — deterministic identity
+  @task:TASK-IC-005
   @data-integrity
   Scenario: A Q&A event has a deterministic identity so re-ingestion never creates duplicates
     Given the same history event is parsed twice
@@ -319,6 +350,7 @@ Feature: Infrastructure Coordination
 
   # Why: Concurrent gate writes within a build must not interleave or corrupt each other
   # [ASSUMPTION: confidence=low] Gate-decision links inside a session outcome are ordered chronologically by decided_at ascending
+  @task:TASK-IC-007
   @concurrency
   Scenario: Gate decisions produced in close succession are recorded in order
     Given two stage results arrive for the same build within a short window
@@ -327,6 +359,7 @@ Feature: Infrastructure Coordination
     And the session outcome should link to them in the order they were decided
 
   # Why: Reviewer approval round-trip flips the approved flag, making the adjustment visible to priors
+  @task:TASK-IC-006
   @integration
   Scenario: An approved calibration adjustment becomes visible to subsequent builds
     Given the learning loop proposed a calibration adjustment
@@ -335,6 +368,7 @@ Feature: Infrastructure Coordination
     And the next build should retrieve the adjustment as a prior
 
   # Why: History-parser idempotency is provenance-safe — re-running on the same file yields the same counts
+  @task:TASK-IC-005
   @data-integrity
   Scenario: A second ingestion pass on an unchanged history file reports zero new events
     Given a history file has been fully ingested
@@ -344,6 +378,7 @@ Feature: Infrastructure Coordination
 
   # Why: Branches, commits, pushes, and PR titles flow end-to-end from a single build
   # [ASSUMPTION: confidence=high] The default pull-request base branch is main
+  @task:TASK-IC-010
   @integration
   Scenario: A successful end-to-end build produces a branch, a commit, a push, and a pull request
     Given a build has just produced verified changes
@@ -360,6 +395,7 @@ Feature: Infrastructure Coordination
 
   # Why: Secrets in rationale fields should never leak into long-term memory
   # [ASSUMPTION: confidence=low] Credential-shaped substrings in rationale text are redacted by a pattern-based filter before write
+  @task:TASK-IC-002
   @edge-case @security
   Scenario: Secrets appearing in rationale text are redacted before long-term memory is written
     Given a gate decision's rationale contains something that looks like a credential
@@ -367,6 +403,7 @@ Feature: Infrastructure Coordination
     Then the credential-shaped content should be redacted from the stored rationale
 
   # Why: Filesystem isolation mirrors shell isolation
+  @task:TASK-IC-012
   @edge-case @security
   Scenario: A file read outside the allowlist is refused
     Given the filesystem read allowlist is configured
@@ -374,6 +411,7 @@ Feature: Infrastructure Coordination
     Then the read should be refused before any bytes are returned
 
   # Why: Priors content is never trusted as an executable input
+  @task:TASK-IC-006
   @edge-case @security
   Scenario: Retrieved priors are not used as subprocess arguments
     Given priors have been retrieved from long-term memory
@@ -383,6 +421,7 @@ Feature: Infrastructure Coordination
 
   # Why: Split-brain safety — two Forge instances must not race on the same build
   # [ASSUMPTION: confidence=low] Split-brain dedupe relies on entity_id uniqueness at the memory-service level; a pre-check skips an already-present mirror write
+  @task:TASK-IC-012
   @edge-case @concurrency
   Scenario: A second Forge instance cannot mirror a stage that has already been mirrored
     Given one Forge instance has already written a stage entry to long-term memory
@@ -391,6 +430,7 @@ Feature: Infrastructure Coordination
 
   # Why: Recency horizon — very old overrides should not skew pattern detection
   # [ASSUMPTION: confidence=high] The recency horizon for counting overrides in pattern detection is thirty days
+  @task:TASK-IC-012
   @edge-case @concurrency
   Scenario: Override counts used by pattern detection honour a bounded recency horizon
     Given operator overrides exist across a wide time range
@@ -399,6 +439,7 @@ Feature: Infrastructure Coordination
     And older overrides should be excluded from the count
 
   # Why: Supersession chains must terminate
+  @task:TASK-IC-008
   @edge-case @data-integrity
   Scenario: A calibration adjustment cannot supersede one that already supersedes it
     Given an approved calibration adjustment chain exists
@@ -407,6 +448,7 @@ Feature: Infrastructure Coordination
     And a proposal that would create a cycle should be rejected
 
   # Why: Session outcomes are written exactly once, even under retry
+  @task:TASK-IC-007
   @edge-case @data-integrity
   Scenario: A session outcome is written exactly once even when the terminal transition is retried
     Given the terminal transition handler has already written the session outcome
@@ -416,6 +458,7 @@ Feature: Infrastructure Coordination
 
   # Why: Empty priors are not a failure mode
   # [ASSUMPTION: confidence=medium] When no priors match, retrieval returns an empty narrative section rather than omitting the block or erroring
+  @task:TASK-IC-006
   @edge-case @integration
   Scenario: Priors retrieval returns an empty context when there is nothing to retrieve
     Given the memory groups contain no entries relevant to the current build

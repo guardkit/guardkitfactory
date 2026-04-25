@@ -23,6 +23,7 @@ Feature: Specialist Agent Delegation
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Core happy-path — exact tool match, round-trip reply, gating input formed
+  @task:TASK-SAD-011
   @key-example @smoke
   Scenario: Forge delegates a stage to a specialist advertising the exact tool
     Given a specialist agent advertises a tool matching the stage's requested capability
@@ -32,6 +33,7 @@ Feature: Specialist Agent Delegation
     And Forge should feed the coach score, criterion breakdown, and detection findings into the gating layer
 
   # Why: Intent-pattern fallback — resolution still succeeds when no exact tool match exists
+  @task:TASK-SAD-006
   @key-example
   Scenario: Forge falls back to intent-pattern matching when no tool match exists
     Given no specialist advertises the requested tool by exact name
@@ -41,6 +43,7 @@ Feature: Specialist Agent Delegation
     And the resulting resolution record should mark the match source as an intent-pattern match
 
   # Why: Result parsing — Coach output may live at the top level or nested under result
+  @task:TASK-SAD-005
   @key-example @smoke
   Scenario: Forge reads Coach output preferring top-level fields over nested result fields
     Given a specialist returns a result carrying both top-level Coach fields and nested Coach fields
@@ -50,6 +53,7 @@ Feature: Specialist Agent Delegation
 
   # Why: Retry path — reasoning loop can re-dispatch with additional context after a soft failure
   # [ASSUMPTION: confidence=medium] Retry is reasoning-model-driven; no fixed max-retry count is enforced at the dispatch layer
+  @task:TASK-SAD-007
   @key-example
   Scenario: Forge retries a failed dispatch with additional context on the second attempt
     Given a first dispatch to a specialist returns an error result
@@ -59,6 +63,7 @@ Feature: Specialist Agent Delegation
     And the retry attempt should be recorded alongside the original attempt
 
   # Why: Outcome correlation — discovery records are linked back to their downstream outcome
+  @task:TASK-SAD-009
   @key-example
   Scenario: Forge links each capability resolution to its downstream outcome
     Given Forge has dispatched to a resolved specialist
@@ -72,6 +77,7 @@ Feature: Specialist Agent Delegation
 
   # Why: Just-inside boundary — intent match at exactly the minimum confidence is accepted
   # [ASSUMPTION: confidence=high] Intent-fallback minimum confidence is 0.7 (DM-discovery §3)
+  @task:TASK-SAD-006
   @boundary
   Scenario: An intent match at exactly the minimum confidence is accepted
     Given no specialist advertises the requested tool by exact name
@@ -81,6 +87,7 @@ Feature: Specialist Agent Delegation
     And the resolution should record the match source as an intent-pattern match
 
   # Why: Just-outside boundary — intent match below threshold is rejected
+  @task:TASK-SAD-006
   @boundary @negative
   Scenario: An intent match below the minimum confidence is treated as unresolved
     Given no specialist advertises the requested tool by exact name
@@ -91,6 +98,7 @@ Feature: Specialist Agent Delegation
 
   # Why: Just-inside boundary — reply arriving inside the local timeout is accepted
   # [ASSUMPTION: confidence=high] Forge-side hard dispatch timeout default is 900 seconds (API-nats-agent-dispatch §5)
+  @task:TASK-SAD-004
   @boundary
   Scenario: A reply received just before the local timeout succeeds
     Given Forge has dispatched a command with the default local timeout
@@ -99,6 +107,7 @@ Feature: Specialist Agent Delegation
     And no timeout handling should run
 
   # Why: Just-outside boundary — reply arriving after the local timeout is not honoured
+  @task:TASK-SAD-004
   @boundary @negative
   Scenario: A reply received after the local timeout is not used
     Given Forge has dispatched a command with the default local timeout
@@ -107,6 +116,7 @@ Feature: Specialist Agent Delegation
     And any reply that arrives afterwards should be ignored
 
   # Why: Tie-break by trust tier — core beats specialist beats extension at equal confidence
+  @task:TASK-SAD-006
   @boundary
   Scenario Outline: Trust-tier ranking decides between otherwise-equivalent specialists
     Given two specialists advertise the same capability at the same confidence and queue depth
@@ -121,6 +131,7 @@ Feature: Specialist Agent Delegation
       | specialist  | extension  |
 
   # Why: Tie-break by queue depth — lowest queue wins at equal tier and confidence
+  @task:TASK-SAD-006
   @boundary
   Scenario: Lowest queue depth wins when trust tier and confidence are equal
     Given two specialists advertise the same capability at the same trust tier and confidence
@@ -134,6 +145,7 @@ Feature: Specialist Agent Delegation
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Unresolved capability — no specialist matches and reasoning must decide next move
+  @task:TASK-SAD-009
   @negative
   Scenario: No matching specialist triggers the degraded reasoning path
     Given no specialist advertises the requested tool or an intent-pattern match
@@ -142,6 +154,7 @@ Feature: Specialist Agent Delegation
     And the reasoning loop should receive the degraded result as the outcome of the stage
 
   # Why: Degraded agents are excluded — a specialist that reports degraded status is not selected
+  @task:TASK-SAD-006
   @negative
   Scenario: A specialist reporting degraded status is excluded from resolution
     Given only one specialist advertises the requested capability
@@ -151,6 +164,7 @@ Feature: Specialist Agent Delegation
     And the resolution should record the match source as unresolved
 
   # Why: Specialist error — the specialist answered, but the outcome is an error
+  @task:TASK-SAD-005
   @negative
   Scenario: A specialist error result is surfaced to the reasoning loop
     Given Forge has dispatched a command to a specialist
@@ -159,6 +173,7 @@ Feature: Specialist Agent Delegation
     And Forge should not auto-approve the stage on the error result
 
   # Why: PubAck is not success — the audit stream may ack quickly and Forge must still wait for the reply
+  @task:TASK-SAD-003
   @negative
   Scenario: A fast publish acknowledgement is not treated as the specialist's answer
     Given Forge has subscribed to the correlation-keyed reply channel before publishing
@@ -167,6 +182,7 @@ Feature: Specialist Agent Delegation
     And the publish acknowledgement should not be recorded as a successful dispatch
 
   # Why: Wrong correlation — a stray reply for a different request must not be consumed
+  @task:TASK-SAD-003
   @negative
   Scenario: A reply addressed to a different correlation is not consumed
     Given Forge is waiting on a correlation-keyed reply channel for a specific request
@@ -176,6 +192,7 @@ Feature: Specialist Agent Delegation
 
   # Why: Missing Coach output — without a Coach score the gate cannot auto-approve
   # [ASSUMPTION: confidence=high] Gate fallback when Coach score is absent is FLAG_FOR_REVIEW (API-nats-agent-dispatch §6)
+  @task:TASK-SAD-005
   @negative
   Scenario: A reply that omits the Coach score cannot auto-approve the stage
     Given a specialist replies with a successful result that carries no Coach score
@@ -184,6 +201,7 @@ Feature: Specialist Agent Delegation
     And the reason for the flag should cite the missing Coach score
 
   # Why: Malformed reply — a reply that fails schema validation is treated as an error, not success
+  @task:TASK-SAD-005
   @negative
   Scenario: A malformed reply envelope is treated as an error outcome
     Given a reply arrives on the correlation-keyed channel but fails envelope validation
@@ -196,6 +214,7 @@ Feature: Specialist Agent Delegation
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Write-before-send invariant — the resolution record is persisted before the command is published
+  @task:TASK-SAD-006
   @edge-case
   Scenario: The capability resolution is persisted before the command is published
     Given Forge is about to dispatch to a resolved specialist
@@ -204,6 +223,7 @@ Feature: Specialist Agent Delegation
     And the persisted resolution should reference the agent that the command was sent to
 
   # Why: Subscribe-before-publish invariant — per LES1, the reply channel must exist before the command goes out
+  @task:TASK-SAD-003
   @edge-case
   Scenario: The reply subscription is established before the command is published
     Given Forge is about to dispatch to a resolved specialist
@@ -212,6 +232,7 @@ Feature: Specialist Agent Delegation
     And it should remain active until either the reply arrives or the local timeout fires
 
   # Why: Unsubscribe on timeout — the one-shot subscription is released to prevent leaks
+  @task:TASK-SAD-003
   @edge-case
   Scenario: The correlation-keyed subscription is released after a timeout
     Given Forge has dispatched a command and begun waiting for a reply
@@ -221,6 +242,7 @@ Feature: Specialist Agent Delegation
 
   # Why: Cache freshness — a specialist joining mid-build becomes resolvable without restart
   # [ASSUMPTION: confidence=high] Discovery cache TTL is 30 seconds (DM-discovery §1)
+  @task:TASK-SAD-006
   @edge-case
   Scenario: A specialist that joins during a build becomes resolvable on the next resolution
     Given Forge has already resolved an earlier stage against the current fleet
@@ -229,6 +251,7 @@ Feature: Specialist Agent Delegation
     Then the newly-registered specialist should be considered during resolution
 
   # Why: Cache invalidation — a specialist that leaves must not be selected afterwards
+  @task:TASK-SAD-006
   @edge-case
   Scenario: A specialist that deregisters after an earlier stage is not selected for the next one
     Given the specialist that served an earlier stage has deregistered
@@ -238,6 +261,7 @@ Feature: Specialist Agent Delegation
 
   # Why: Async-mode dispatch — long-running work returns a run identifier to be polled
   # [ASSUMPTION: confidence=high] Advisory specialist-side command timeout default is 600 seconds (API-nats-agent-dispatch §3.2)
+  @task:TASK-SAD-008
   @edge-case
   Scenario: An async-mode dispatch returns a run identifier for later polling
     Given the resolved specialist advertises the capability as long-running
@@ -246,6 +270,7 @@ Feature: Specialist Agent Delegation
     And Forge should poll for the final result using the capability's status tool
 
   # Why: Concurrent dispatches — two simultaneous dispatches must not cross wires
+  @task:TASK-SAD-003
   @edge-case @concurrency
   Scenario: Two concurrent dispatches to the same specialist keep their replies separate
     Given Forge has two stages ready to dispatch at the same time
@@ -259,6 +284,7 @@ Feature: Specialist Agent Delegation
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Reply authenticity — only the resolved specialist's reply completes the round-trip
+  @task:TASK-SAD-003
   @edge-case @security
   Scenario: A reply from a source other than the resolved specialist is not trusted
     Given Forge has dispatched a command to a specific resolved specialist
@@ -267,6 +293,7 @@ Feature: Specialist Agent Delegation
     And Forge should continue to wait for the resolved specialist's reply or for the local timeout
 
   # Why: Secret hygiene — dispatched parameters may carry sensitive details that must not be persisted
+  @task:TASK-SAD-002
   @edge-case @security
   Scenario: Dispatch parameters flagged as sensitive are not persisted in the resolution record
     Given a stage dispatches parameters that include fields marked as sensitive
@@ -275,6 +302,7 @@ Feature: Specialist Agent Delegation
     And the pipeline history view of this dispatch should describe only non-sensitive fields
 
   # Why: Trust-tier is authoritative — a lower-trust extension cannot override a core specialist for the same tool
+  @task:TASK-SAD-006
   @edge-case @security
   Scenario: An extension-tier specialist cannot shadow a core-tier specialist for the same tool
     Given a core-tier specialist and an extension-tier specialist both advertise the same tool
@@ -283,6 +311,7 @@ Feature: Specialist Agent Delegation
     And the extension-tier specialist should appear only in the competing agents list
 
   # Why: Snapshot stability — an in-flight resolution must not see a cache swap mid-call
+  @task:TASK-SAD-006
   @edge-case @concurrency
   Scenario: A fleet event that invalidates the cache does not disturb an in-flight resolution
     Given Forge is in the middle of resolving a capability against the current fleet snapshot
@@ -291,6 +320,7 @@ Feature: Specialist Agent Delegation
     And the next resolution after the in-flight one should use the refreshed snapshot
 
   # Why: Determinism — concurrent resolutions with the same inputs must produce the same choice
+  @task:TASK-SAD-006
   @edge-case @concurrency
   Scenario: Two concurrent resolutions for the same capability produce the same choice
     Given two stages resolve the same capability at the same time against the same fleet snapshot
@@ -299,6 +329,7 @@ Feature: Specialist Agent Delegation
     And the competing-agents list should be consistent across the two resolutions
 
   # Why: Exactly-once delivery — a duplicate reply on the same correlation is ignored
+  @task:TASK-SAD-003
   @edge-case @data-integrity
   Scenario: A duplicate reply on the same correlation-keyed channel is ignored
     Given Forge has already accepted a reply on a correlation-keyed channel
@@ -307,6 +338,7 @@ Feature: Specialist Agent Delegation
     And the gate decision derived from the first reply should stand
 
   # Why: Bus outage — a disconnect while waiting must not hang the pipeline silently
+  @task:TASK-SAD-009
   @edge-case @integration
   Scenario: The fleet bus disconnects while Forge is waiting for a reply
     Given Forge has dispatched a command and is waiting for the specialist's reply
@@ -315,6 +347,7 @@ Feature: Specialist Agent Delegation
     And the pipeline should not wait indefinitely for a reply that cannot arrive
 
   # Why: Registry outage — Forge keeps serving from the last known snapshot rather than stalling
+  @task:TASK-SAD-009
   @edge-case @integration
   Scenario: A registry read failure during cache refresh falls back to the last-known snapshot
     Given the live fleet registry is temporarily unreadable

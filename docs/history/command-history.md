@@ -2445,40 +2445,6 @@ Per the build plan, FEAT-FORGE-007 depends on FEAT-FORGE-003, 004, 005, and 006 
 
 
 
-guardkit autobuild task TASK-AB59-CANON
-
-
-guardkit autobuild task TASK-AB59-CANON
-
-GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild task TASK-AB59-CANON --verbose --max-turns 30
-
-
-
-
-
-
-GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild task TASK-AB59-CANON --no-pre-loop --max-turns 5
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /feature-plan "NATS Fleet Integration" \
   --context features/nats-fleet-integration/nats-fleet-integration_summary.md
 
@@ -2526,6 +2492,192 @@ GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-002 --verbose --m
 
 
 
+/feature-plan "Specialist Agent Delegation" \
+  --context features/specialist-agent-delegation/specialist-agent-delegation_summary.md
+
+
+✅ FEATURE PLANNING COMPLETE — FEAT-FORGE-003
+Created artefacts
+Path	Purpose
+.guardkit/features/FEAT-FORGE-003.yaml	Structured feature manifest (12 tasks, 5 waves)
+tasks/backlog/specialist-agent-delegation/	Feature subfolder
+tasks/backlog/specialist-agent-delegation/README.md	Overview & wave plan
+tasks/backlog/specialist-agent-delegation/IMPLEMENTATION-GUIDE.md	Architecture, data flow & integration contracts (with mandatory Mermaid diagrams)
+TASK-SAD-001 … TASK-SAD-012	12 subtask markdown files
+tasks/in_review/TASK-REV-SAD3-plan-specialist-agent-delegation.md	Review task (status: review_complete)
+.claude/reviews/TASK-REV-SAD3-review-report.md	Full review report
+features/specialist-agent-delegation/specialist-agent-delegation.feature	All 33 scenarios tagged with @task:
+Wave plan (auto-detected)
+
+Wave 1: TASK-SAD-001                                          (1 task — foundation)
+Wave 2: TASK-SAD-002, TASK-SAD-003, TASK-SAD-004, TASK-SAD-005 (4 parallel)
+Wave 3: TASK-SAD-006                                          (1 task — orchestrator integrates everything)
+Wave 4: TASK-SAD-007, TASK-SAD-008, TASK-SAD-009, TASK-SAD-010 (4 parallel)
+Wave 5: TASK-SAD-011, TASK-SAD-012                            (2 parallel — verification)
+BDD linker results
+33/33 scenarios tagged with @task: (all above the 0.60 confidence threshold; lowest match was 0.84)
+Distribution: SAD-006 (12 scenarios), SAD-003 (8), SAD-005 (5), SAD-009 (4), SAD-004 (2), SAD-002 (1), SAD-007 (1), SAD-008 (1), SAD-011 (1)
+The @task: tags activate the R2 BDD oracle for /task-work Phase 4
+Quality gates
+✅ AC-quality linter (R1): 0 unverifiable acceptance criteria
+⚠ Smoke-gates nudge (R3): no smoke_gates: block in YAML — between-wave smoke checks won't fire during autobuild. Consider adding one before /feature-build if composition failures are a concern
+✅ Pre-flight validation: skipped (CLI subcommand guardkit feature validate not present in this version; AC linter and nudges already ran transitively)
+Next steps
+
+# Autonomous implementation
+/feature-build FEAT-FORGE-003
+
+# Or start manually with the foundation task
+/task-work TASK-SAD-001
+Want me to /schedule an agent in 2 weeks to check /feature-build progress and open a follow-up review on the deferred Group B/C/D/E BDD scenarios (the 28 scenarios beyond the smoke + key-example wired in TASK-SAD-011)?
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-003 --verbose --max-turns 30
+
+
+
+
+
+/feature-plan "Confidence-Gated Checkpoint Protocol" \
+  --context features/confidence-gated-checkpoint-protocol/confidence-gated-checkpoint-protocol_summary.md
+
+
+FEATURE PLANNING COMPLETE — FEAT-FORGE-004
+Feature: Confidence-Gated Checkpoint Protocol
+
+What was created
+Review artefact
+📄 .claude/reviews/TASK-REV-CG44-review-report.md — full decision-mode analysis (12 findings, 10 risks, 5 integration contracts, 3 options analysed)
+Review task (status: review_complete)
+📋 tasks/backlog/TASK-REV-CG44-plan-confidence-gated-checkpoint-protocol.md
+Feature implementation structure
+📁 tasks/backlog/confidence-gated-checkpoint-protocol/
+README.md
+IMPLEMENTATION-GUIDE.md — with Data Flow + Sequence + Task Dependency Mermaid diagrams + §4 Integration Contracts
+12 task files: TASK-CGCP-001 → TASK-CGCP-012
+Structured feature file (AutoBuild-ready)
+⚡ .guardkit/features/FEAT-FORGE-004.yaml
+Wave layout (5 waves, auto-detected)
+Wave	Tasks	Theme
+1	CGCP-001/002/003	Module structure, ApprovalConfig, request_id helper (all declarative)
+2	CGCP-004/005/008	Constitutional override, reasoning-model assembly, synthetic CLI injector
+3	CGCP-006/007/009	approval_publisher, approval_subscriber + dedup, resume_value_as helper
+4	CGCP-010	State-machine integration (pause-and-publish atomicity, crash-recovery re-emission)
+5	CGCP-011/012	Contract + seam tests, BDD scenario→task linker
+Validation
+✅ 12 task files all present on disk
+✅ 5 waves cover every task with no orphans/duplicates
+✅ All dependencies reference known task IDs
+✅ No intra-wave dependency conflicts
+✅ All tasks have valid task_type field
+✅ AC-quality lint: 0 unverifiable acceptance criteria
+Notes
+AutoBuild ready: /feature-build FEAT-FORGE-004
+Step 11 (BDD @task: linking) deferred: the .feature file has a Gherkin syntax error on line 176 (informal Or keyword instead of And). TASK-CGCP-012 absorbs this as a prerequisite fix in its acceptance criteria
+R3 smoke gate not configured: 5-wave feature would benefit from between-wave smoke gates. To activate, add a smoke_gates: block to .guardkit/features/FEAT-FORGE-004.yaml (e.g. python -c "import forge.gating" after Wave 2)
+Upstream gate: Wave 4 (state-machine integration) requires FEAT-FORGE-001/002/003 to be in place; pause and surface the missing seam if not
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-004 --verbose --max-turns 30
+
+
+
+
+guardkit feature-plan FEAT-FORGE-005 \
+  --context forge/features/guardkit-command-invocation-engine/guardkit-command-invocation-engine_summary.md
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ FEAT-FORGE-005 PLANNING COMPLETE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Created
+
+Review task: TASK-REV-GCI0-plan-guardkit-command-invocation-engine.md
+Feature folder: tasks/backlog/guardkit-command-invocation-engine/
+11 task files + IMPLEMENTATION-GUIDE.md + README.md
+Structured feature YAML: .guardkit/features/FEAT-FORGE-005.yaml
+32 BDD scenarios tagged with @task:TASK-GCI-NNN (all confidence ≥ 0.78, 0 below threshold)
+Wave plan
+
+
+Wave 1: TASK-GCI-001, TASK-GCI-002              (schemas — direct mode)
+Wave 2: TASK-GCI-003, 004, 005, 006, 007        (resolver/parser/NATS-sub/git/gh — 5-way parallel)
+Wave 3: TASK-GCI-008                            (run() subprocess wrapper joins resolver+parser)
+Wave 4: TASK-GCI-009, TASK-GCI-010              (9 + 2 @tool wrappers — parallel)
+Wave 5: TASK-GCI-011                            (BDD pytest wiring — activates R2 oracle)
+Quality gates
+
+✅ FeatureLoader validation: no errors (11 tasks, 5 waves resolve cleanly)
+✅ AC-quality linter: 0 unverifiable acceptance criteria
+✅ BDD-linker: 32/32 scenarios tagged, 0 below confidence threshold
+⚠️ R3 smoke gates: not configured (notice from generator — see below)
+Two non-blocking notes for follow-up
+
+R3 smoke gates — the generator surfaced the >=2 waves, no smoke_gates: key notice. Worth adding a between-wave smoke check to .guardkit/features/FEAT-FORGE-005.yaml before /feature-build (e.g. python -c "from forge.adapters.guardkit import GuardKitResult" after wave 1, pytest tests/bdd -k "guardkit and key_example" -x after wave 4). I left it unset so you can decide what's worth gating.
+Build plan progress log — the FEAT-FORGE-005 row at docs/research/ideas/forge-build-plan.md:16 still shows ◻ pending for Step 4 (/feature-plan). Want me to flip that to 🟡 in progress (or ✅ complete) and add today's date + the wave map?
+Next: guardkit feature-build FEAT-FORGE-005 when you're ready to autobuild, or guardkit task-work TASK-GCI-001 to start wave 1 manually.
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-005 --verbose --max-turns 30
+
+
+
+
+/feature-plan "Infrastructure Coordination" \
+  --context features/infrastructure-coordination/infrastructure-coordination_summary.md
+
+
+═══════════════════════════════════════════════════════════════════════════
+✅ FEATURE PLANNING COMPLETE — FEAT-FORGE-006 / FEAT-8D10
+═══════════════════════════════════════════════════════════════════════════
+
+📁 Feature folder:        tasks/backlog/infrastructure-coordination/
+📋 Implementation guide:  tasks/backlog/infrastructure-coordination/IMPLEMENTATION-GUIDE.md
+📋 README:                tasks/backlog/infrastructure-coordination/README.md
+📁 Review report:         .claude/reviews/TASK-REV-IC8B-review-report.md
+📁 Structured YAML:       .guardkit/features/FEAT-8D10.yaml
+🔖 BDD scenarios tagged:  43/43 (@task:TASK-IC-XXX) in
+                          features/infrastructure-coordination/infrastructure-coordination.feature
+Tasks Created (12 across 6 waves)
+Wave	Task ID	Title	Type	Cmplx	Mode
+1	TASK-IC-001	Entity model layer and credential redaction	declarative	4	task-work
+1	TASK-IC-009	Test verification via execute tool	feature	3	direct
+2	TASK-IC-002	Fire-and-forget Graphiti write wrapper	feature	5	task-work
+2	TASK-IC-008	Supersession-cycle detection	feature	4	task-work
+2	TASK-IC-010	Git/gh ops via execute tool	feature	4	task-work
+3	TASK-IC-003	Write-ordering guard	feature	3	direct
+3	TASK-IC-005	Q&A history ingestion pipeline	feature	5	task-work
+3	TASK-IC-006	Priors retrieval and prose injection	feature	5	task-work
+4	TASK-IC-004	Reconcile backfill at build start	feature	6	task-work
+4	TASK-IC-007	SessionOutcome writer with ordering	feature	5	task-work
+5	TASK-IC-011	BDD step implementations (43 scenarios)	testing	6	task-work
+6	TASK-IC-012	Security and concurrency hardening	testing	4	task-work
+Validation Results
+✅ All 12 task file_path values exist on disk
+✅ No intra-wave dependency conflicts
+✅ AC-quality linter: 0 unverifiable acceptance criteria
+✅ All §4 contracts have matching consumer_context blocks + seam tests
+✅ BDD link distribution looks healthy (no over-loaded task; everyone gets ≥1 scenario)
+
+Outstanding Notes
+⚠️ R3 smoke gates not configured. The generator nudged that .guardkit/features/FEAT-8D10.yaml has 6 waves but no smoke_gates: block. Between-wave smoke checks won't fire during /feature-build. To activate, add a block like:
+
+
+smoke_gates:
+  after_wave_1:
+    - python -c "from forge.memory.models import GateDecision"
+  after_wave_4:
+    - pytest tests/unit -x
+Next Steps
+Read IMPLEMENTATION-GUIDE.md — the Data Flow diagram (§1) is required reading.
+Optionally add smoke_gates: to .guardkit/features/FEAT-8D10.yaml for between-wave composition checks.
+Start Wave 1 in parallel: /task-work TASK-IC-001 and /task-work TASK-IC-009 (Conductor workspaces recommended).
+Or autonomous: /feature-build FEAT-8D10.
+Want me to /schedule an agent for 24h after /feature-build completes to triage the first BDD oracle run on the smoke scenarios?
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-8D10 --verbose --max-turns 30
 
 
 
@@ -2534,21 +2686,56 @@ GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-002 --verbose --m
 
 
 
+/feature-plan "Mode A Greenfield End-to-End" \
+  --context features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end_summary.md
+
+
+Feature Plan Complete — FEAT-FORGE-007 Mode A Greenfield End-to-End
+Created
+Artefact	Location
+📋 Review report	.claude/reviews/TASK-REV-MAG7-review-report.md
+📝 Review task	tasks/backlog/TASK-REV-MAG7-plan-mode-a-greenfield-end-to-end.md
+📁 Feature folder	tasks/backlog/mode-a-greenfield-end-to-end/
+🗺️ Implementation guide	tasks/backlog/mode-a-greenfield-end-to-end/IMPLEMENTATION-GUIDE.md
+📖 README	tasks/backlog/mode-a-greenfield-end-to-end/README.md
+📄 14 task files	TASK-MAG7-001 through TASK-MAG7-014
+⚡ Structured YAML	.guardkit/features/FEAT-CBDE.yaml
+🥒 BDD-tagged feature	features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end.feature (47/47 scenarios tagged)
+Wave Plan (auto-detected from dependencies — 7 fine-grained waves)
+
+Wave 1 (parallel): TASK-MAG7-001, TASK-MAG7-002              ── declarative foundations
+Wave 2 (parallel): TASK-MAG7-003, TASK-MAG7-004, TASK-MAG7-005 ── core guards
+Wave 3:            TASK-MAG7-006                              ── ForwardContextBuilder
+Wave 4 (parallel): TASK-MAG7-007, TASK-MAG7-008, TASK-MAG7-009 ── 3 dispatchers
+Wave 5:            TASK-MAG7-010                              ── Supervisor.next_turn
+Wave 6:            TASK-MAG7-011                              ── CLI steering
+Wave 7 (parallel): TASK-MAG7-012, TASK-MAG7-013, TASK-MAG7-014 ── integration tests
+BDD Linking Result
+
+[Step 11] linked 47 scenario(s) to task(s);
+          0 already tagged;
+          0 below threshold (0.60)
+          (of 47 total)
+R2 BDD oracle is now active — every scenario will run as a Coach-blocking oracle during /task-work phase 4.
+
+Quality Notes
+✅ Zero unverifiable acceptance criteria (AC-quality linter passed)
+⚠️ R3 smoke gates not configured — smoke_gates: block not added to FEAT-CBDE.yaml. This is the gate that catches composition failures between waves. Recommend adding before running /feature-build (see notice in script output)
+Next Steps
+
+# Begin Wave 1 in parallel:
+/task-work TASK-MAG7-001
+/task-work TASK-MAG7-002
+
+# Or run autonomously:
+/feature-build FEAT-CBDE
+The original review task TASK-REV-MAG7 remains in backlog/ — move to completed/ when the feature lands, or use /task-complete TASK-REV-MAG7 to close it now.
+
+Want me to /schedule an agent in 2 weeks to add a smoke_gates: block to the feature YAML and open a review PR before /feature-build runs?
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-002 --verbose --max-turns 30
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-CBDE --verbose --max-turns 30
 
 
 

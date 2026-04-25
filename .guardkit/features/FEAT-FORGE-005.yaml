@@ -1,0 +1,139 @@
+id: FEAT-FORGE-005
+name: GuardKit Command Invocation Engine
+description: 'Forge''s subprocess surface for every GuardKit subcommand: context-manifest
+  resolver (DDR-005), tolerant output parser, NATS progress-stream subscriber, central
+  forge.adapters.guardkit.run() wrapper, 11 guardkit_* @tool wrappers, plus the git/gh
+  adapter. Worktree-confined, never raises past the tool boundary (ADR-ARCH-025).'
+created: '2026-04-25T15:41:44.417827'
+status: planned
+complexity: 7
+estimated_tasks: 11
+tasks:
+- id: TASK-GCI-001
+  name: Define GuardKitResult and result Pydantic models
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-001-define-guardkit-result-models.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-GCI-002
+  name: Define GitOpResult PRResult and progress event DTOs
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-002-define-git-and-progress-event-models.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-GCI-003
+  name: Implement context_resolver resolve_context_flags DDR-005
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-003-implement-context-resolver.md
+  complexity: 6
+  dependencies:
+  - TASK-GCI-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-GCI-004
+  name: Implement parse_guardkit_output tolerant parser
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-004-implement-tolerant-output-parser.md
+  complexity: 5
+  dependencies:
+  - TASK-GCI-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-GCI-005
+  name: Implement NATS progress-stream subscriber telemetry
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-005-implement-progress-stream-subscriber.md
+  complexity: 5
+  dependencies:
+  - TASK-GCI-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-GCI-006
+  name: Implement forge adapters git worktree commit push cleanup
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-006-implement-git-adapter.md
+  complexity: 5
+  dependencies:
+  - TASK-GCI-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-GCI-007
+  name: Implement forge adapters gh create_pr missing-credential error
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-007-implement-gh-adapter.md
+  complexity: 4
+  dependencies:
+  - TASK-GCI-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-GCI-008
+  name: Implement forge adapters guardkit run subprocess wrapper
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-008-implement-guardkit-run-subprocess-wrapper.md
+  complexity: 7
+  dependencies:
+  - TASK-GCI-003
+  - TASK-GCI-004
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+- id: TASK-GCI-009
+  name: Wire 9 guardkit_ tool wrappers system feature task autobuild
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-009-wire-guardkit-tool-wrappers.md
+  complexity: 6
+  dependencies:
+  - TASK-GCI-008
+  - TASK-GCI-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-GCI-010
+  name: Wire 2 Graphiti guardkit_ tool wrappers bypass resolver
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-010-wire-graphiti-tool-wrappers.md
+  complexity: 4
+  dependencies:
+  - TASK-GCI-008
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-GCI-011
+  name: BDD scenario pytest wiring R2 oracle activation
+  file_path: tasks/backlog/guardkit-command-invocation-engine/TASK-GCI-011-bdd-scenario-pytest-wiring.md
+  complexity: 5
+  dependencies:
+  - TASK-GCI-009
+  - TASK-GCI-010
+  - TASK-GCI-006
+  - TASK-GCI-007
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+orchestration:
+  parallel_groups:
+  - - TASK-GCI-001
+    - TASK-GCI-002
+  - - TASK-GCI-003
+    - TASK-GCI-004
+    - TASK-GCI-005
+    - TASK-GCI-006
+    - TASK-GCI-007
+  - - TASK-GCI-008
+  - - TASK-GCI-009
+    - TASK-GCI-010
+  - - TASK-GCI-011
+  estimated_duration_minutes: 862
+  recommended_parallel: 4

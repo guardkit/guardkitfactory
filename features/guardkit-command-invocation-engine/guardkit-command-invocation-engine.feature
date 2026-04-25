@@ -22,6 +22,7 @@ Feature: GuardKit Command Invocation Engine
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Core invocation — a GuardKit subcommand runs and returns a parsed success result
+  @task:TASK-GCI-008
   @key-example @smoke
   Scenario: A GuardKit subcommand completes successfully and its artefacts are captured
     Given the reasoning model invokes a GuardKit subcommand wrapper for the current build
@@ -33,6 +34,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Auto-assembled context flags — the central value prop, zero hand-wiring
   # [ASSUMPTION: confidence=high] /feature-spec pulls manifest categories: specs, contracts, source, decisions
+  @task:TASK-GCI-003
   @key-example @smoke
   Scenario: Context flags are assembled automatically from the manifest for the invoked subcommand
     Given the manifest lists documents tagged with multiple categories
@@ -42,6 +44,7 @@ Feature: GuardKit Command Invocation Engine
     And the subprocess command line should carry one context flag per selected document
 
   # Why: Live telemetry — progress events surface on the bus while the subprocess still runs
+  @task:TASK-GCI-005
   @key-example
   Scenario: GuardKit progress is streamed on the bus while the subprocess is still running
     Given the reasoning model invokes any GuardKit wrapper that supports streaming
@@ -50,6 +53,7 @@ Feature: GuardKit Command Invocation Engine
     And the blocking invocation should still return only after the subprocess exits
 
   # Why: Error contract — the tool layer must never raise past its boundary
+  @task:TASK-GCI-004
   @key-example @smoke
   Scenario: A failing GuardKit subprocess is reported as a structured error, not an exception
     Given the reasoning model invokes a GuardKit wrapper
@@ -59,6 +63,7 @@ Feature: GuardKit Command Invocation Engine
     And the tool layer should not propagate an exception to the reasoning model
 
   # Why: Worktree confinement — every subprocess runs inside the build's ephemeral directory
+  @task:TASK-GCI-008
   @key-example
   Scenario: Subprocesses are executed inside the current build's worktree
     Given a build's worktree has been prepared
@@ -67,6 +72,7 @@ Feature: GuardKit Command Invocation Engine
     And the subprocess should not be able to read or write outside the allowed worktree paths
 
   # Why: Version control adapter — PR creation is the terminal artefact of a build
+  @task:TASK-GCI-007
   @key-example
   Scenario: Forge opens a pull request for the build through the version-control adapter
     Given a build has committed and pushed its work to a remote branch
@@ -75,6 +81,7 @@ Feature: GuardKit Command Invocation Engine
     And the invocation should return the pull-request URL as a structured result
 
   # Why: Graphiti subcommands bypass manifest resolution — they don't take --context
+  @task:TASK-GCI-010
   @key-example
   Scenario: Graphiti GuardKit subcommands skip context-manifest resolution entirely
     When Forge invokes a Graphiti GuardKit wrapper
@@ -87,6 +94,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Just-inside timeout — a subprocess that finishes just before the cap still succeeds
   # [ASSUMPTION: confidence=high] Default subprocess timeout is 600 seconds
+  @task:TASK-GCI-008
   @boundary
   Scenario Outline: A subprocess that finishes within the timeout is reported as successful
     Given the subprocess timeout has been configured
@@ -101,6 +109,7 @@ Feature: GuardKit Command Invocation Engine
       | 599     |
 
   # Why: Just-outside timeout — once the cap is breached, the result is "timeout", not "failed"
+  @task:TASK-GCI-008
   @boundary @negative
   Scenario: A subprocess that exceeds the timeout is reported as timed-out
     Given the subprocess timeout has been configured
@@ -110,6 +119,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Depth-2 dependency chase — the resolver should follow one hop into a sibling repo
   # [ASSUMPTION: confidence=high] Dependency traversal depth cap is 2
+  @task:TASK-GCI-003
   @boundary
   Scenario: Context resolution follows dependency references up to the depth cap
     Given the manifest declares a dependency on a sibling repository
@@ -119,6 +129,7 @@ Feature: GuardKit Command Invocation Engine
     And the final context list should preserve a stable order
 
   # Why: Just-outside depth — traversing a deeper chain should stop and warn, not explode
+  @task:TASK-GCI-003
   @boundary @edge-case
   Scenario: Context resolution stops at the depth cap and warns instead of recursing further
     Given the manifest chain would require traversing beyond the resolver's depth cap
@@ -129,6 +140,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Just-inside stdout-tail — a compact stdout is preserved verbatim
   # [ASSUMPTION: confidence=high] stdout_tail captures the last 4 KB of subprocess output
+  @task:TASK-GCI-004
   @boundary
   Scenario: A compact stdout is preserved verbatim in the returned result
     Given a GuardKit subprocess that prints fewer than four kilobytes to standard output
@@ -136,6 +148,7 @@ Feature: GuardKit Command Invocation Engine
     Then the returned result should include the full standard output
 
   # Why: Just-outside stdout-tail — larger output is truncated to the tail, not dropped
+  @task:TASK-GCI-004
   @boundary
   Scenario: A large stdout is truncated to the most recent tail in the returned result
     Given a GuardKit subprocess that prints far more than the captured tail size
@@ -148,6 +161,7 @@ Feature: GuardKit Command Invocation Engine
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Missing manifest — proceed without --context rather than blocking adoption
+  @task:TASK-GCI-003
   @negative
   Scenario: A missing context manifest degrades gracefully to no context flags
     Given the target repository has no context manifest
@@ -157,6 +171,7 @@ Feature: GuardKit Command Invocation Engine
     And the reasoning model should be able to see the warning in the returned result
 
   # Why: A binary that isn't on the allowlist must be refused before it runs
+  @task:TASK-GCI-008
   @negative
   Scenario: A subprocess whose binary is not in the shell allowlist is refused
     Given the project configuration lists the permitted shell binaries
@@ -166,6 +181,7 @@ Feature: GuardKit Command Invocation Engine
     And no side effects should occur on the worktree
 
   # Why: A cwd outside the worktree allowlist must be refused — worktree confinement invariant
+  @task:TASK-GCI-008
   @negative
   Scenario: A subprocess targeting a working directory outside the allowlist is refused
     Given the project configuration allows subprocesses only within the build worktrees path
@@ -174,6 +190,7 @@ Feature: GuardKit Command Invocation Engine
     And the invocation should return a structured permissions error
 
   # Why: Non-zero exit with captured stderr — must reach the reasoning model intact
+  @task:TASK-GCI-004
   @negative
   Scenario: A non-zero exit is reported as a failure with the subprocess error output
     Given the reasoning model invokes a GuardKit wrapper
@@ -182,6 +199,7 @@ Feature: GuardKit Command Invocation Engine
     And the failure result should include the subprocess exit status and error output
 
   # Why: Tolerant parser — unknown output shape should NOT explode the whole call
+  @task:TASK-GCI-004
   @negative @edge-case
   Scenario: An unknown GuardKit output shape degrades to success with no artefacts
     Given the reasoning model invokes a GuardKit wrapper
@@ -191,6 +209,7 @@ Feature: GuardKit Command Invocation Engine
     And the reasoning model should be responsible for deciding whether the stage produced useful work
 
   # Why: Documents outside the filesystem read-allowlist must be omitted, not silently included
+  @task:TASK-GCI-003
   @negative
   Scenario: Context documents that fall outside the read allowlist are omitted with a warning
     Given the manifest references a document whose path is outside the filesystem read allowlist
@@ -199,6 +218,7 @@ Feature: GuardKit Command Invocation Engine
     And a structured warning should be emitted identifying the omitted document
 
   # Why: Missing GitHub credentials — surface at the adapter boundary, never raise
+  @task:TASK-GCI-007
   @negative
   Scenario: A pull-request creation without GitHub credentials returns a structured error
     Given the runtime has no GitHub access credentials available
@@ -211,6 +231,7 @@ Feature: GuardKit Command Invocation Engine
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: The resolver must not loop on a circular dependency graph
+  @task:TASK-GCI-003
   @edge-case
   Scenario: A circular dependency chain is detected and resolved safely
     Given two repositories' manifests reference one another as dependencies
@@ -220,6 +241,7 @@ Feature: GuardKit Command Invocation Engine
     And a structured cycle-detected warning should be recorded
 
   # Why: Worktree cleanup is best-effort — must not block terminal transitions
+  @task:TASK-GCI-006
   @edge-case
   Scenario: A failed worktree cleanup is logged but does not prevent build completion
     Given a build has reached a terminal state
@@ -229,6 +251,7 @@ Feature: GuardKit Command Invocation Engine
     And a structured warning should be logged about the failed cleanup
 
   # Why: NATS progress stream is telemetry, not authoritative — outcome must still be returned
+  @task:TASK-GCI-005
   @edge-case
   Scenario: The authoritative result still returns when progress streaming is unavailable
     Given the progress stream channel is unavailable during a GuardKit invocation
@@ -238,6 +261,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Retry with additional context — explicit build-plan requirement ("error handling and retry")
   # [ASSUMPTION: confidence=medium] A failed invocation can be retried with extra context flags chosen by the reasoning model
+  @task:TASK-GCI-008
   @edge-case
   Scenario: A failed invocation can be retried with additional explicit context
     Given a GuardKit wrapper has returned a failure result
@@ -246,6 +270,7 @@ Feature: GuardKit Command Invocation Engine
     And the retry should be a fresh subprocess launch, not a continuation
 
   # Why: Tool-layer exceptions must never escape — the universal error contract
+  @task:TASK-GCI-009
   @edge-case
   Scenario: An unexpected error inside a wrapper is returned as a structured error, not raised
     Given any GuardKit wrapper is invoked
@@ -256,6 +281,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Multiple parallel invocations within the same build — important for autobuild fan-out
   # [ASSUMPTION: confidence=medium] Multiple GuardKit wrappers may run in parallel within the same build worktree
+  @task:TASK-GCI-008
   @edge-case
   Scenario: Parallel GuardKit invocations in the same build do not corrupt each other's results
     Given two GuardKit wrappers are invoked in parallel within the same build
@@ -268,6 +294,7 @@ Feature: GuardKit Command Invocation Engine
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Path traversal in a manifest entry must not escape the repository root
+  @task:TASK-GCI-003
   @edge-case @negative
   Scenario: A context manifest entry that would escape the repository root is rejected
     Given the context manifest lists a document path that resolves outside the target repository
@@ -277,6 +304,7 @@ Feature: GuardKit Command Invocation Engine
     And the invocation should proceed with the remaining valid documents
 
   # Why: Shell-metacharacter injection via arguments must stay literal, not expand
+  @task:TASK-GCI-006
   @edge-case @negative
   Scenario: Shell metacharacters in subprocess arguments are passed as literal tokens
     Given the reasoning model builds subprocess arguments that contain shell metacharacters
@@ -286,6 +314,7 @@ Feature: GuardKit Command Invocation Engine
 
   # Why: Two concurrent builds targeting the same repo must resolve independently
   # [ASSUMPTION: confidence=medium] Context resolution has no cached state shared across concurrent builds
+  @task:TASK-GCI-003
   @edge-case
   Scenario: Two concurrent builds against the same repository resolve context independently
     Given two builds are running at the same time against the same target repository
@@ -294,6 +323,7 @@ Feature: GuardKit Command Invocation Engine
     And one build's resolver warnings should not appear in the other build's result
 
   # Why: Cancellation must terminate in-flight subprocess and discard partial artefacts
+  @task:TASK-GCI-008
   @edge-case
   Scenario: A cancelled build terminates its in-flight subprocess cleanly
     Given a GuardKit subprocess is currently running inside a build
@@ -302,6 +332,7 @@ Feature: GuardKit Command Invocation Engine
     And any partial artefacts produced by the terminated subprocess should not be reported as completed work
 
   # Why: The live status view must not miss progress events because of slow consumption
+  @task:TASK-GCI-005
   @edge-case
   Scenario: Progress events emitted faster than Forge consumes them are still observable for live status
     Given a GuardKit subprocess is emitting progress events at a high cadence
@@ -310,6 +341,7 @@ Feature: GuardKit Command Invocation Engine
     And the authoritative completion result should remain unaffected
 
   # Why: A stalled subprocess with no output still hits the timeout, never hangs the build
+  @task:TASK-GCI-008
   @edge-case
   Scenario: A silent stalled subprocess is terminated by the configured timeout
     Given a GuardKit subprocess has produced no standard output and no progress events

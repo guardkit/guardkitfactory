@@ -1,0 +1,155 @@
+id: FEAT-8D10
+name: Infrastructure Coordination
+description: 'Cross-build memory and infrastructure plumbing for Forge: Graphiti pipeline-history
+  seeding, Q&A ingestion, priors retrieval, test verification, and git/gh ops via
+  DeepAgents execute tool'
+created: '2026-04-25T16:02:37.695336'
+status: planned
+complexity: 7
+estimated_tasks: 12
+tasks:
+- id: TASK-IC-001
+  name: Entity model layer and credential redaction
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-001-entity-models-and-redaction.md
+  complexity: 4
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-IC-002
+  name: Fire-and-forget Graphiti write wrapper
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-002-fire-and-forget-graphiti-write.md
+  complexity: 5
+  dependencies:
+  - TASK-IC-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-IC-003
+  name: Write-ordering guard
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-003-write-ordering-guard.md
+  complexity: 3
+  dependencies:
+  - TASK-IC-002
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-IC-004
+  name: Reconcile backfill at build start
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-004-reconcile-backfill.md
+  complexity: 6
+  dependencies:
+  - TASK-IC-002
+  - TASK-IC-003
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-IC-005
+  name: Q&A history ingestion pipeline
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-005-qa-history-ingestion.md
+  complexity: 5
+  dependencies:
+  - TASK-IC-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-IC-006
+  name: Priors retrieval and prose injection
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-006-priors-retrieval-and-injection.md
+  complexity: 5
+  dependencies:
+  - TASK-IC-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-IC-007
+  name: SessionOutcome writer with ordering
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-007-session-outcome-writer.md
+  complexity: 5
+  dependencies:
+  - TASK-IC-001
+  - TASK-IC-003
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-IC-008
+  name: Supersession-cycle detection
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-008-supersession-cycle-detection.md
+  complexity: 4
+  dependencies:
+  - TASK-IC-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-IC-009
+  name: Test verification via DeepAgents execute tool
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-009-test-verification-via-execute.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-IC-010
+  name: Git/gh operations via DeepAgents execute tool
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-010-git-gh-via-execute.md
+  complexity: 4
+  dependencies:
+  - TASK-IC-009
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-IC-011
+  name: BDD step implementations for all 43 scenarios
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-011-bdd-step-implementations.md
+  complexity: 6
+  dependencies:
+  - TASK-IC-001
+  - TASK-IC-002
+  - TASK-IC-003
+  - TASK-IC-004
+  - TASK-IC-005
+  - TASK-IC-006
+  - TASK-IC-007
+  - TASK-IC-008
+  - TASK-IC-009
+  - TASK-IC-010
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-IC-012
+  name: Security and concurrency scenario hardening
+  file_path: tasks/backlog/infrastructure-coordination/TASK-IC-012-security-concurrency-hardening.md
+  complexity: 4
+  dependencies:
+  - TASK-IC-011
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+orchestration:
+  parallel_groups:
+  - - TASK-IC-001
+    - TASK-IC-009
+  - - TASK-IC-002
+    - TASK-IC-008
+    - TASK-IC-010
+  - - TASK-IC-003
+    - TASK-IC-005
+    - TASK-IC-006
+  - - TASK-IC-004
+    - TASK-IC-007
+  - - TASK-IC-011
+  - - TASK-IC-012
+  estimated_duration_minutes: 792
+  recommended_parallel: 3

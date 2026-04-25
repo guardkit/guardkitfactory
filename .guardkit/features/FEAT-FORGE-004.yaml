@@ -1,0 +1,153 @@
+id: FEAT-FORGE-004
+name: Confidence-Gated Checkpoint Protocol
+description: 'Confidence-gated checkpoint protocol for Forge: four gate modes (auto-approve
+  / flag-for-review / hard-stop / mandatory human approval) driven by reasoning-model
+  emergent gating (ADR-ARCH-019), two-layer constitutional override on PR-review/PR-create
+  (ADR-ARCH-026 belt-and-braces), NATS approval round-trip with first-response-wins
+  idempotency, forge cancel/skip CLI steering, DDR-002 resume-value rehydration, SQLite-first
+  durable recording, crash-recovery re-emission.'
+created: '2026-04-25T15:58:49.140417'
+status: planned
+complexity: 7
+estimated_tasks: 12
+tasks:
+- id: TASK-CGCP-001
+  name: Define gating module structure
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-001-define-gating-module-structure.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-CGCP-002
+  name: Add ApprovalConfig settings
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-002-add-approval-config.md
+  complexity: 2
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 22
+- id: TASK-CGCP-003
+  name: Define request_id derivation helper
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-003-request-id-derivation-helper.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-CGCP-004
+  name: Implement constitutional override branch
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-004-constitutional-override-branch.md
+  complexity: 5
+  dependencies:
+  - TASK-CGCP-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-CGCP-005
+  name: Implement reasoning-model assembly post-conditions
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-005-reasoning-model-assembly.md
+  complexity: 6
+  dependencies:
+  - TASK-CGCP-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-CGCP-006
+  name: Implement approval_publisher
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-006-approval-publisher.md
+  complexity: 5
+  dependencies:
+  - TASK-CGCP-005
+  - TASK-CGCP-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-CGCP-007
+  name: Implement approval_subscriber with dedup buffer
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-007-approval-subscriber-dedup.md
+  complexity: 6
+  dependencies:
+  - TASK-CGCP-005
+  - TASK-CGCP-002
+  - TASK-CGCP-003
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-CGCP-008
+  name: Implement synthetic_response_injector for CLI steering
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-008-synthetic-response-injector.md
+  complexity: 4
+  dependencies:
+  - TASK-CGCP-003
+  - TASK-CGCP-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-CGCP-009
+  name: Wire resume_value_as helper at every interrupt consumer
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-009-resume-value-rehydration-helper.md
+  complexity: 4
+  dependencies:
+  - TASK-CGCP-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-CGCP-010
+  name: Wire gate_check wrapper into state machine
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-010-state-machine-integration.md
+  complexity: 6
+  dependencies:
+  - TASK-CGCP-006
+  - TASK-CGCP-007
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-CGCP-011
+  name: Contract and seam tests for approval round-trip
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-011-contract-and-seam-tests.md
+  complexity: 5
+  dependencies:
+  - TASK-CGCP-010
+  - TASK-CGCP-008
+  - TASK-CGCP-009
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-CGCP-012
+  name: BDD scenario task linking and pytest-bdd wiring
+  file_path: tasks/backlog/confidence-gated-checkpoint-protocol/TASK-CGCP-012-bdd-scenario-task-linking.md
+  complexity: 3
+  dependencies:
+  - TASK-CGCP-010
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+orchestration:
+  parallel_groups:
+  - - TASK-CGCP-001
+    - TASK-CGCP-002
+    - TASK-CGCP-003
+  - - TASK-CGCP-004
+    - TASK-CGCP-005
+    - TASK-CGCP-008
+  - - TASK-CGCP-006
+    - TASK-CGCP-007
+    - TASK-CGCP-009
+  - - TASK-CGCP-010
+  - - TASK-CGCP-011
+    - TASK-CGCP-012
+  estimated_duration_minutes: 785
+  recommended_parallel: 3

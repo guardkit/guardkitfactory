@@ -26,6 +26,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: The capstone happy path — one greenfield brief produces one reviewed pull request
   # [ASSUMPTION: confidence=high] Eight stage classes drive Mode A: product-owner → architect → /system-arch → /system-design → /feature-spec → /feature-plan → autobuild → pull-request review
+  @task:TASK-MAG7-012
   @key-example @smoke
   Scenario: A greenfield brief drives a full pipeline run to a pull request awaiting review
     Given the build is picked up from the queue
@@ -39,6 +40,7 @@ Feature: Mode A Greenfield End-to-End
     And the recorded stage history should contain the full chain in order
 
   # Why: Stage outputs must feed forward — the product-owner's charter is consumed by the architect
+  @task:TASK-MAG7-006
   @key-example
   Scenario: The product-owner output is supplied as input to the architect delegation
     Given the product-owner specialist has returned an approved charter
@@ -47,6 +49,7 @@ Feature: Mode A Greenfield End-to-End
     And the architect should not be invoked before the product-owner stage is recorded as approved
 
   # Why: Architecture artefacts must feed /system-design — directional dependency between subprocess stages
+  @task:TASK-MAG7-006
   @key-example
   Scenario: Architecture outputs are supplied as context for system design
     Given the architecture stage has produced architecture artefacts
@@ -55,6 +58,7 @@ Feature: Mode A Greenfield End-to-End
     And system-design should not be invoked before the architecture stage is recorded as approved
 
   # Why: System design partitions the work into one or more features that drive the spec/plan/autobuild loop
+  @task:TASK-MAG7-005
   @key-example
   Scenario: System design produces a feature catalogue that drives per-feature iterations
     Given the system-design stage has produced a feature catalogue
@@ -65,6 +69,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: Long-running per-feature autobuild runs through an async subagent so the supervisor stays responsive
   # [ASSUMPTION: confidence=high] Autobuild dispatch uses the AsyncSubAgent pattern with the async_tasks state channel exposing wave and task indices
+  @task:TASK-MAG7-009
   @key-example @smoke
   Scenario: Autobuild runs as an asynchronous subagent so the supervisor remains responsive during long runs
     Given a feature has an approved build plan
@@ -74,6 +79,7 @@ Feature: Mode A Greenfield End-to-End
     And the supervisor should remain available to answer status queries while the autobuild is in flight
 
   # Why: A pause at any gated stage suspends the build without losing per-stage outputs
+  @task:TASK-MAG7-010
   @key-example
   Scenario: A flagged-for-review checkpoint pauses the build and the next stage waits on the response
     Given Forge is in the per-feature loop and a stage has been flagged for review
@@ -84,6 +90,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: PR creation must always defer to a human — constitutional rule (belt-and-braces)
   # [ASSUMPTION: confidence=high] Pull-request review and pull-request creation tool names are constitutionally pinned to mandatory human approval
+  @task:TASK-MAG7-004
   @key-example @regression
   Scenario: The pull-request review stage is mandatory human approval regardless of upstream scores
     Given every preceding stage of the build has been auto-approved with high Coach scores
@@ -92,6 +99,7 @@ Feature: Mode A Greenfield End-to-End
     And the pause should not be eligible to be auto-approved
 
   # Why: Successful build records a session outcome with the full chain of gate decisions
+  @task:TASK-MAG7-010
   @key-example
   Scenario: Completing the pull-request review writes a session outcome that links every gate decision in order
     Given a build is paused at pull-request review
@@ -105,6 +113,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: A single-feature catalogue is the smallest valid scope — exercises one full inner loop
+  @task:TASK-MAG7-012
   @boundary @smoke
   Scenario: A greenfield build with a single feature in the catalogue completes one inner loop
     Given the system-design stage has produced exactly one feature
@@ -113,6 +122,7 @@ Feature: Mode A Greenfield End-to-End
     And the chain should culminate in a single pull-request review pause
 
   # Why: Multiple-feature catalogues exercise the iteration boundary — each feature must run its own inner loop
+  @task:TASK-MAG7-014
   @boundary
   Scenario Outline: Multi-feature catalogues run one inner loop per feature
     Given the system-design stage has produced <count> features in the catalogue
@@ -127,6 +137,7 @@ Feature: Mode A Greenfield End-to-End
       | 5     |
 
   # Why: Just-outside boundary — a system-design stage that produces no features cannot proceed
+  @task:TASK-MAG7-005
   @boundary @negative
   Scenario: A system-design stage that produces zero features cannot enter the per-feature loop
     Given the system-design stage has produced no features
@@ -135,6 +146,7 @@ Feature: Mode A Greenfield End-to-End
     And the build should be flagged for review with the missing-catalogue rationale recorded
 
   # Why: Stage-ordering invariant — no stage dispatches before its prerequisite chain is approved
+  @task:TASK-MAG7-003
   @boundary
   Scenario Outline: A downstream stage is not dispatched before its prerequisite has reached the approved state
     Given the prerequisite "<prerequisite>" has not yet been approved
@@ -152,6 +164,7 @@ Feature: Mode A Greenfield End-to-End
       | pull-request  | autobuild for every feature   |
 
   # Why: Per-feature autobuild boundary — minimal one-wave plan exercises the smallest valid plan shape
+  @task:TASK-MAG7-009
   @boundary
   Scenario: Autobuild executing a single-wave plan completes one wave before reporting complete
     Given a feature's approved build plan contains exactly one wave with one task
@@ -160,6 +173,7 @@ Feature: Mode A Greenfield End-to-End
     And on success the autobuild lifecycle should reach the completed state with one task completed
 
   # Why: Async-subagent ETA boundary — supervisor can poll status without blocking
+  @task:TASK-MAG7-014
   @boundary
   Scenario: While autobuild is running, the supervisor can answer concurrent status queries
     Given autobuild is dispatched and reports the running-wave lifecycle
@@ -172,6 +186,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: A hard-stop at the product-owner stage terminates the build — no later dispatches should occur
+  @task:TASK-MAG7-010
   @negative
   Scenario: A hard-stop at the product-owner stage prevents any later stage from being dispatched
     Given the product-owner specialist returns a result that causes a hard-stop gate
@@ -180,6 +195,7 @@ Feature: Mode A Greenfield End-to-End
     And no architect, architecture, design, specification, planning, or autobuild dispatch should have been recorded
 
   # Why: Specialist degraded mode forces flag-for-review even when scoring is unavailable
+  @task:TASK-MAG7-007
   @negative
   Scenario: When no product-owner specialist is reachable the build is flagged for review at that stage
     Given the live discovery cache reports no healthy product-owner specialist
@@ -189,6 +205,7 @@ Feature: Mode A Greenfield End-to-End
     And no later stage should have been dispatched
 
   # Why: A failed inner-loop /feature-spec dispatch must not cascade into a planning attempt
+  @task:TASK-MAG7-008
   @negative
   Scenario: A failed /feature-spec dispatch for a feature halts that feature's inner loop
     Given a feature is being processed in the per-feature loop
@@ -198,6 +215,7 @@ Feature: Mode A Greenfield End-to-End
     And the failed-spec rationale should be recorded against the build
 
   # Why: Constitutional override — pull-request review can never be auto-approved by upstream score alone
+  @task:TASK-MAG7-004
   @negative @regression
   Scenario: Auto-approval is refused at the pull-request review stage even when the upstream Coach score is at the maximum
     Given the upstream stages have all returned the maximum Coach score
@@ -206,6 +224,7 @@ Feature: Mode A Greenfield End-to-End
     And the pause should not be eligible to resolve without a human decision
 
   # Why: Skip steering must not bypass constitutional gates
+  @task:TASK-MAG7-004
   @negative @regression
   Scenario: A skip directive issued against the pull-request review stage is refused
     Given the build is paused at pull-request review
@@ -214,6 +233,7 @@ Feature: Mode A Greenfield End-to-End
     And the skip should be recorded as refused with a constitutional rationale
 
   # Why: An autobuild internal hard-stop must not be silently absorbed — it surfaces to the build
+  @task:TASK-MAG7-009
   @negative
   Scenario: An autobuild internal hard-stop is propagated to the build and prevents pull-request creation
     Given autobuild is in flight for a feature
@@ -223,6 +243,7 @@ Feature: Mode A Greenfield End-to-End
     And the build's stage history should record the autobuild failure with the hard-stop rationale
 
   # Why: Pull-request creation failure must mark the build failed even if every prior stage was approved
+  @task:TASK-MAG7-010
   @negative
   Scenario: A pull-request creation failure marks the build failed with no pull-request URL
     Given every prior stage has been approved
@@ -231,6 +252,7 @@ Feature: Mode A Greenfield End-to-End
     And no pull-request URL should be recorded against the build
 
   # Why: Reject decision at any pause is a terminal failure path, not a retry path
+  @task:TASK-MAG7-010
   @negative
   Scenario: A reject decision at a flagged-for-review checkpoint terminates the build
     Given the build is paused at any flagged-for-review checkpoint before pull-request review
@@ -243,6 +265,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: Crash mid-stage triggers anchor §5 retry-from-scratch — the build re-enters preparing
+  @task:TASK-MAG7-013
   @edge-case
   Scenario Outline: A crash during any non-terminal stage is recovered by retry-from-scratch
     Given the build is in the "<stage>" stage
@@ -262,6 +285,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: Async subagent state channel is advisory on recovery — durable history is authoritative
   # [ASSUMPTION: confidence=high] On crash recovery, durable history is authoritative; live async-subagent state channel is advisory
+  @task:TASK-MAG7-013
   @edge-case
   Scenario: After a crash mid-autobuild the build's authoritative status comes from durable history not the live state channel
     Given autobuild was running and the runtime crashes
@@ -270,6 +294,7 @@ Feature: Mode A Greenfield End-to-End
     And any live state channel data should be treated as advisory
 
   # Why: Mid-flight steering — the operator can inject a directive to a running autobuild
+  @task:TASK-MAG7-011
   @edge-case
   Scenario: A directive injected into a running autobuild is delivered as a pending instruction without halting the wave
     Given autobuild is in the running-wave lifecycle for a feature
@@ -278,6 +303,7 @@ Feature: Mode A Greenfield End-to-End
     And the autobuild should remain in the running-wave lifecycle until it next checks for directives
 
   # Why: Cancel during a paused stage produces a synthetic reject and terminates the build
+  @task:TASK-MAG7-011
   @edge-case
   Scenario: A cancel directive while paused at a checkpoint terminates the build with a synthetic reject
     Given the build is paused at a flagged-for-review checkpoint
@@ -286,6 +312,7 @@ Feature: Mode A Greenfield End-to-End
     And the build should reach a cancelled terminal state
 
   # Why: Cancel during autobuild reaches into the async subagent
+  @task:TASK-MAG7-011
   @edge-case
   Scenario: A cancel directive during a running autobuild halts the asynchronous task and terminates the build
     Given autobuild is in flight for a feature
@@ -294,6 +321,7 @@ Feature: Mode A Greenfield End-to-End
     And the build should reach a cancelled terminal state with no pull-request creation attempted
 
   # Why: Skip on a non-constitutional stage records the skip and continues the chain
+  @task:TASK-MAG7-011
   @edge-case
   Scenario: A skip directive on a non-constitutional stage marks that stage skipped and resumes the chain
     Given the build is paused at a flagged-for-review checkpoint that is not pull-request review
@@ -302,6 +330,7 @@ Feature: Mode A Greenfield End-to-End
     And the build should resume at the next stage in the chain
 
   # Why: Approval responses are routed by build identifier — concurrent paused builds remain isolated
+  @task:TASK-MAG7-014
   @edge-case
   Scenario: An approval response is routed to the build whose identifier matches the response channel
     Given two builds are simultaneously paused at flagged-for-review checkpoints
@@ -310,6 +339,7 @@ Feature: Mode A Greenfield End-to-End
     And the other paused build should remain awaiting its own approval
 
   # Why: Async subagent's interrupt does not block the supervisor — pauses are visible via status only
+  @task:TASK-MAG7-014
   @edge-case
   Scenario: An internal autobuild pause is observable through the supervisor without blocking other supervisor work
     Given an autobuild internal task fires a flagged-for-review pause
@@ -319,6 +349,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: Per-feature parallelism boundary — supervisor sequences inner loops to avoid resource clash
   # [ASSUMPTION: confidence=medium] Per-feature autobuild runs are sequenced within a single build to avoid worktree contention; inter-feature parallelism is out of scope for Mode A v1
+  @task:TASK-MAG7-005
   @edge-case
   Scenario: Per-feature inner loops are sequenced so each feature's autobuild completes before the next feature's autobuild begins
     Given the system-design stage has produced two or more features
@@ -326,6 +357,7 @@ Feature: Mode A Greenfield End-to-End
     Then no second autobuild dispatch should begin while a first autobuild is still in a non-terminal lifecycle
 
   # Why: A repeat approval for the same request is idempotent — first response wins
+  @task:TASK-MAG7-014
   @edge-case
   Scenario: A duplicate approval response for the same paused stage is ignored
     Given the build has resumed after an approval response was honoured
@@ -339,6 +371,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: Constitutional pull-request rule is enforced at both the prompt layer and the executor layer
   # [ASSUMPTION: confidence=high] Constitutional pull-request review is enforced both in the prompt and by an executor-side hardcoded branch (belt-and-braces)
+  @task:TASK-MAG7-004
   @security @regression
   Scenario: Pull-request review enforcement holds even if a misconfigured prompt would have allowed auto-approve
     Given the system prompt is configured incorrectly so that pull-request review appears auto-approvable
@@ -346,6 +379,7 @@ Feature: Mode A Greenfield End-to-End
     Then the executor layer should still enforce mandatory human approval
 
   # Why: Specialist results cannot escalate beyond their delegated authority
+  @task:TASK-MAG7-004
   @security
   Scenario: A specialist result that asserts an override of constitutional rules is ignored at gating
     Given a specialist returns a result claiming to override the pull-request review rule
@@ -354,6 +388,7 @@ Feature: Mode A Greenfield End-to-End
     And the build should pause for mandatory human approval
 
   # Why: Each build runs only inside its ephemeral worktree allowlist — no cross-build leakage
+  @task:TASK-MAG7-008
   @security
   Scenario: Subprocess stages run only against the build's ephemeral worktree path
     Given the build has a configured worktree path
@@ -366,6 +401,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: Two builds run concurrently with isolated approval channels and isolated autobuild task identifiers
+  @task:TASK-MAG7-014
   @concurrency
   Scenario: Two concurrent greenfield builds use separate approval channels and separate autobuild task identifiers
     Given two distinct builds are dispatched at approximately the same time
@@ -374,6 +410,7 @@ Feature: Mode A Greenfield End-to-End
     And each build's approval pause should resolve only on a response matching its own build identifier
 
   # Why: A long-running autobuild does not block the supervisor's reasoning loop for unrelated builds
+  @task:TASK-MAG7-014
   @concurrency
   Scenario: The supervisor can dispatch a different build's stage while another build's autobuild is mid-flight
     Given a first build's autobuild is in the running-wave lifecycle
@@ -385,6 +422,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: Stage-history ordering invariant — the chain reflects the actual order of approvals
+  @task:TASK-MAG7-003
   @data-integrity
   Scenario: The recorded stage history of a successful build follows the canonical Mode A ordering
     Given a build has reached the complete terminal state
@@ -392,6 +430,7 @@ Feature: Mode A Greenfield End-to-End
     Then the stage entries should appear in the order product-owner, architect, architecture, design, then per-feature spec, plan, and autobuild, then pull-request review
 
   # Why: Each per-feature loop's artefacts are attributed to the feature that produced them
+  @task:TASK-MAG7-014
   @data-integrity
   Scenario: Per-feature artefact paths are recorded against the feature that produced them
     Given the system-design stage has produced two or more features
@@ -400,6 +439,7 @@ Feature: Mode A Greenfield End-to-End
     And no artefact path should be attributed to more than one feature
 
   # Why: Even when a stage's outbound notification publish fails, the build's durable transition still holds
+  @task:TASK-MAG7-013
   @data-integrity
   Scenario: A notification publish failure does not regress the build's recorded stage progress
     Given a stage has been approved
@@ -412,6 +452,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: End-to-end smoke — minimal greenfield input produces a paused-for-review pull request
+  @task:TASK-MAG7-012
   @integration @smoke
   Scenario: A minimal greenfield brief drives a single-feature run to a pull request awaiting human review
     Given the operator queues a build with a one-line product brief
@@ -421,6 +462,7 @@ Feature: Mode A Greenfield End-to-End
     And a pull-request URL should be recorded against the build
 
   # Why: Degraded mode (no specialist available) at any specialist stage forces flag-for-review there
+  @task:TASK-MAG7-012
   @integration
   Scenario: A greenfield build with no available specialists is flagged for review at every specialist stage
     Given no product-owner or architect specialist is reachable on the fleet
@@ -430,6 +472,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: A multi-feature catalogue produces a series of completed inner loops culminating in pull-request review
   # [ASSUMPTION: confidence=medium] One pull request per feature in the catalogue (not a single combined pull request); pull-request review pauses occur per feature
+  @task:TASK-MAG7-014
   @integration
   Scenario: A multi-feature greenfield run produces one autobuild and one pull-request review pause per feature
     Given the system-design stage will produce two or more features
@@ -442,6 +485,7 @@ Feature: Mode A Greenfield End-to-End
   # ===========================================================================
 
   # Why: First-write-wins discipline survives at the integration level even when two operators respond simultaneously
+  @task:TASK-MAG7-014
   @concurrency @edge-case
   Scenario: Two simultaneous approval responses for the same paused build resolve as first-wins
     Given the build is paused at a flagged-for-review checkpoint
@@ -450,6 +494,7 @@ Feature: Mode A Greenfield End-to-End
     And no second resume should be applied for the duplicate response
 
   # Why: Correlation threading is the audit anchor — every lifecycle event for one build must carry the same correlation identifier
+  @task:TASK-MAG7-014
   @data-integrity
   Scenario: Every published lifecycle event for a build threads the same correlation identifier from queue to terminal
     Given a build has been queued with a correlation identifier
@@ -458,6 +503,7 @@ Feature: Mode A Greenfield End-to-End
 
   # Why: Calibration snapshot stability — a long-running build sees a consistent priors view, not a moving target
   # [ASSUMPTION: confidence=medium] Calibration priors are snapshotted at build start and remain stable for the duration of that build; mid-run history changes apply only to subsequent builds
+  @task:TASK-MAG7-014
   @data-integrity
   Scenario: Calibration priors captured at build start remain the snapshot used by every stage of that build
     Given a build is picked up and a calibration-priors snapshot is captured at start
@@ -465,6 +511,7 @@ Feature: Mode A Greenfield End-to-End
     Then later stages of the in-flight build should still use the priors snapshot captured at start
 
   # Why: Long-term memory seeding is best-effort and must never regress an authoritative approval
+  @task:TASK-MAG7-013
   @integration @data-integrity
   Scenario: A long-term-memory seeding failure for one stage does not regress that stage's recorded approval
     Given a stage has been approved by gating
