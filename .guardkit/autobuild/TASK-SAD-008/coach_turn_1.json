@@ -1,0 +1,167 @@
+{
+  "task_id": "TASK-SAD-008",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/dispatch/test_async_polling.py tests/forge/dispatch/test_outcome.py tests/forge/dispatch/test_retry.py -v --tb=short",
+      "test_output_summary": "Error detail:\ntests/forge/dispatch/test_async_polling.py::TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded PASSED [ 22%]\ntests/forge/dispatch/test_async_polling.py::TestStatusToolError::test_status_tool_error_stops_polling_after_one_call PASSED [ 25%]\ntests/forge/dispatch/test_async_polling.py::TestCeilingTrackedViaClock::test_ceiling_does_not_fire_when_clock_does_not_advance PASSED [ 27%]\ntests/forge/dispatch/test_async_polling.py::TestCeilingTrackedViaClock::test_ceiling_fires_at_expected_clock_elapsed_time PASSED [ 29%]\ntests/forge/dispatch/test_async_polling.py::TestDegradedOutcomePassthrough::test_degraded_status_outcome_is_returned_with_restamped_resolution_id PASSED [ 31%]\nResult:\ntests/forge/dispatch/test_retry.py::TestRetryCoordinatorConstruction::test_retry_coordinator_holds_injected_orchestrator PASSED [ 97%]\ntests/forge/dispatch/test_retry.py::TestSeamCapabilityResolutionSiblingContract::test_retry_creates_sibling_record_not_ove...",
+      "duration_seconds": 0.5474205017089844
+    },
+    "requirements": {
+      "criteria_total": 7,
+      "criteria_met": 7,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`src/forge/dispatch/async_polling.py` defines `AsyncPollingCoordinator`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/dispatch/async_polling.py defining class AsyncPollingCoordinator with async method converge(self, pending: AsyncPending, *, status_capability: str = 'status') -> DispatchOutcome. Module exports AsyncPollingCoordinator, CEILING_EXCEEDED_EXPLANATION, DEFAULT_MAX_TOTAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS via __all__. Surface verified by TestSurface (5 tests: module import, default ceiling = 900.0, converge is coroutine, ValueError on bad max_total_seconds and bad poll_interval_seconds).",
+      "notes": "Created src/forge/dispatch/async_polling.py defining class AsyncPollingCoordinator with async method converge(self, pending: AsyncPending, *, status_capability: str = 'status') -> DispatchOutcome. Module exports AsyncPollingCoordinator, CEILING_EXCEEDED_EXPLANATION, DEFAULT_MAX_TOTAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS via __all__. Surface verified by TestSurface (5 tests: module import, default ceiling = 900.0, converge is coroutine, ValueError on bad max_total_seconds and bad poll_interval_seconds)."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Each poll dispatches via the orchestrator \u2014 does NOT bypass",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "converge() calls self._orchestrator.dispatch(capability=status_capability, parameters=[DispatchParameter(name='run_identifier', value=...)]) on every iteration. The orchestrator owns all invariants (resolve\u2192persist\u2192bind\u2192publish\u2192wait\u2192parse), so reusing it preserves subscribe-before-publish, write-before-send, and the per-attempt timeout. Verified by TestPollDispatchesViaOrchestrator: a stub orchestrator records every dispatch call; tests assert capability='status' (and an override 'run_status'), and that the run_identifier parameter is threaded through. The subsequent_pending test also proves rotated run_identifiers from successive replies are forwarded.",
+      "notes": "converge() calls self._orchestrator.dispatch(capability=status_capability, parameters=[DispatchParameter(name='run_identifier', value=...)]) on every iteration. The orchestrator owns all invariants (resolve\u2192persist\u2192bind\u2192publish\u2192wait\u2192parse), so reusing it preserves subscribe-before-publish, write-before-send, and the per-attempt timeout. Verified by TestPollDispatchesViaOrchestrator: a stub orchestrator records every dispatch call; tests assert capability='status' (and an override 'run_status'), and that the run_identifier parameter is threaded through. The subsequent_pending test also proves rotated run_identifiers from successive replies are forwarded."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Polling honours the same hard 900s ceiling as sync dispatch",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "DEFAULT_MAX_TOTAL_SECONDS = 900.0 (asserted by test_default_max_total_seconds_matches_assum_003). converge() captures started_at = self._clock.now() and on every iteration computes elapsed_seconds = (self._clock.now() - started_at).total_seconds(); when elapsed_seconds >= max_total_seconds it returns DispatchError(error_explanation='async_polling_ceiling_exceeded'). Verified by TestCeilingTrackedViaClock: (a) frozen clock with tiny ceiling never trips, proving wall-clock time is not used, (b) clock advance equal to ceiling causes the next pre-dispatch check to fire after exactly one dispatch.",
+      "notes": "DEFAULT_MAX_TOTAL_SECONDS = 900.0 (asserted by test_default_max_total_seconds_matches_assum_003). converge() captures started_at = self._clock.now() and on every iteration computes elapsed_seconds = (self._clock.now() - started_at).total_seconds(); when elapsed_seconds >= max_total_seconds it returns DispatchError(error_explanation='async_polling_ceiling_exceeded'). Verified by TestCeilingTrackedViaClock: (a) frozen clock with tiny ceiling never trips, proving wall-clock time is not used, (b) clock advance equal to ceiling causes the next pre-dispatch check to fire after exactly one dispatch."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Test (D.async-mode-polling): initial reply with `run_identifier` \u2192",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestConvergeFromPending::test_async_pending_then_sync_result_links_via_resolution_id constructs an AsyncPending(resolution_id='resolution-original'), scripts a status-tool SyncResult with a different resolution_id ('resolution-status-poll', coach_score=0.92, criterion_breakdown, detection_findings), and asserts the converged outcome is a SyncResult whose resolution_id == pending.resolution_id and whose coach fields propagate verbatim. Linkage is enforced by _restamp_outcome() which uses model_copy(update={resolution_id, attempt_no}).",
+      "notes": "TestConvergeFromPending::test_async_pending_then_sync_result_links_via_resolution_id constructs an AsyncPending(resolution_id='resolution-original'), scripts a status-tool SyncResult with a different resolution_id ('resolution-status-poll', coach_score=0.92, criterion_breakdown, detection_findings), and asserts the converged outcome is a SyncResult whose resolution_id == pending.resolution_id and whose coach fields propagate verbatim. Linkage is enforced by _restamp_outcome() which uses model_copy(update={resolution_id, attempt_no})."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Test (status-tool repeated pending): if the status tool keeps",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded scripts 50 successive AsyncPending replies. The stub orchestrator advances the FakeClock by 100s per call; with max_total_seconds=250 the loop polls 3 times then trips the ceiling. Asserts: outcome is DispatchError, error_explanation == CEILING_EXCEEDED_EXPLANATION == 'async_polling_ceiling_exceeded', resolution_id and attempt_no are restamped to the original pending's values, and stub.calls < 50 (proving polling actually stopped).",
+      "notes": "TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded scripts 50 successive AsyncPending replies. The stub orchestrator advances the FakeClock by 100s per call; with max_total_seconds=250 the loop polls 3 times then trips the ceiling. Asserts: outcome is DispatchError, error_explanation == CEILING_EXCEEDED_EXPLANATION == 'async_polling_ceiling_exceeded', resolution_id and attempt_no are restamped to the original pending's values, and stub.calls < 50 (proving polling actually stopped)."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Test (status-tool error): if the status tool replies with an",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestStatusToolError::test_status_tool_error_stops_polling_after_one_call scripts two DispatchError outcomes (so a continued loop would be detectable). Asserts: outcome is DispatchError with the specialist's explanation preserved verbatim ('specialist failed: invalid run_identifier'), resolution_id/attempt_no restamped to the original AsyncPending's values, and exactly len(stub.calls) == 1 (polling stopped after first error). converge() handles this in the terminal branch: any non-AsyncPending outcome is restamped and returned immediately.",
+      "notes": "TestStatusToolError::test_status_tool_error_stops_polling_after_one_call scripts two DispatchError outcomes (so a continued loop would be detectable). Asserts: outcome is DispatchError with the specialist's explanation preserved verbatim ('specialist failed: invalid run_identifier'), resolution_id/attempt_no restamped to the original AsyncPending's values, and exactly len(stub.calls) == 1 (polling stopped after first error). converge() handles this in the terminal branch: any non-AsyncPending outcome is restamped and returned immediately."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ruff check src/forge/dispatch/async_polling.py tests/forge/dispatch/test_async_polling.py reports 'All checks passed!' (zero errors). black is not available in this environment but the code follows PEP 8, uses type hints, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants per .claude/rules/code-style.md.",
+      "notes": "ruff check src/forge/dispatch/async_polling.py tests/forge/dispatch/test_async_polling.py reports 'All checks passed!' (zero errors). black is not available in this environment but the code follows PEP 8, uses type hints, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants per .claude/rules/code-style.md."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`src/forge/dispatch/async_polling.py` defines `AsyncPollingCoordinator`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/dispatch/async_polling.py defining class AsyncPollingCoordinator with async method converge(self, pending: AsyncPending, *, status_capability: str = 'status') -> DispatchOutcome. Module exports AsyncPollingCoordinator, CEILING_EXCEEDED_EXPLANATION, DEFAULT_MAX_TOTAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS via __all__. Surface verified by TestSurface (5 tests: module import, default ceiling = 900.0, converge is coroutine, ValueError on bad max_total_seconds and bad poll_interval_seconds).",
+        "notes": "Created src/forge/dispatch/async_polling.py defining class AsyncPollingCoordinator with async method converge(self, pending: AsyncPending, *, status_capability: str = 'status') -> DispatchOutcome. Module exports AsyncPollingCoordinator, CEILING_EXCEEDED_EXPLANATION, DEFAULT_MAX_TOTAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS via __all__. Surface verified by TestSurface (5 tests: module import, default ceiling = 900.0, converge is coroutine, ValueError on bad max_total_seconds and bad poll_interval_seconds)."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Each poll dispatches via the orchestrator \u2014 does NOT bypass",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "converge() calls self._orchestrator.dispatch(capability=status_capability, parameters=[DispatchParameter(name='run_identifier', value=...)]) on every iteration. The orchestrator owns all invariants (resolve\u2192persist\u2192bind\u2192publish\u2192wait\u2192parse), so reusing it preserves subscribe-before-publish, write-before-send, and the per-attempt timeout. Verified by TestPollDispatchesViaOrchestrator: a stub orchestrator records every dispatch call; tests assert capability='status' (and an override 'run_status'), and that the run_identifier parameter is threaded through. The subsequent_pending test also proves rotated run_identifiers from successive replies are forwarded.",
+        "notes": "converge() calls self._orchestrator.dispatch(capability=status_capability, parameters=[DispatchParameter(name='run_identifier', value=...)]) on every iteration. The orchestrator owns all invariants (resolve\u2192persist\u2192bind\u2192publish\u2192wait\u2192parse), so reusing it preserves subscribe-before-publish, write-before-send, and the per-attempt timeout. Verified by TestPollDispatchesViaOrchestrator: a stub orchestrator records every dispatch call; tests assert capability='status' (and an override 'run_status'), and that the run_identifier parameter is threaded through. The subsequent_pending test also proves rotated run_identifiers from successive replies are forwarded."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Polling honours the same hard 900s ceiling as sync dispatch",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "DEFAULT_MAX_TOTAL_SECONDS = 900.0 (asserted by test_default_max_total_seconds_matches_assum_003). converge() captures started_at = self._clock.now() and on every iteration computes elapsed_seconds = (self._clock.now() - started_at).total_seconds(); when elapsed_seconds >= max_total_seconds it returns DispatchError(error_explanation='async_polling_ceiling_exceeded'). Verified by TestCeilingTrackedViaClock: (a) frozen clock with tiny ceiling never trips, proving wall-clock time is not used, (b) clock advance equal to ceiling causes the next pre-dispatch check to fire after exactly one dispatch.",
+        "notes": "DEFAULT_MAX_TOTAL_SECONDS = 900.0 (asserted by test_default_max_total_seconds_matches_assum_003). converge() captures started_at = self._clock.now() and on every iteration computes elapsed_seconds = (self._clock.now() - started_at).total_seconds(); when elapsed_seconds >= max_total_seconds it returns DispatchError(error_explanation='async_polling_ceiling_exceeded'). Verified by TestCeilingTrackedViaClock: (a) frozen clock with tiny ceiling never trips, proving wall-clock time is not used, (b) clock advance equal to ceiling causes the next pre-dispatch check to fire after exactly one dispatch."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Test (D.async-mode-polling): initial reply with `run_identifier` \u2192",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestConvergeFromPending::test_async_pending_then_sync_result_links_via_resolution_id constructs an AsyncPending(resolution_id='resolution-original'), scripts a status-tool SyncResult with a different resolution_id ('resolution-status-poll', coach_score=0.92, criterion_breakdown, detection_findings), and asserts the converged outcome is a SyncResult whose resolution_id == pending.resolution_id and whose coach fields propagate verbatim. Linkage is enforced by _restamp_outcome() which uses model_copy(update={resolution_id, attempt_no}).",
+        "notes": "TestConvergeFromPending::test_async_pending_then_sync_result_links_via_resolution_id constructs an AsyncPending(resolution_id='resolution-original'), scripts a status-tool SyncResult with a different resolution_id ('resolution-status-poll', coach_score=0.92, criterion_breakdown, detection_findings), and asserts the converged outcome is a SyncResult whose resolution_id == pending.resolution_id and whose coach fields propagate verbatim. Linkage is enforced by _restamp_outcome() which uses model_copy(update={resolution_id, attempt_no})."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Test (status-tool repeated pending): if the status tool keeps",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded scripts 50 successive AsyncPending replies. The stub orchestrator advances the FakeClock by 100s per call; with max_total_seconds=250 the loop polls 3 times then trips the ceiling. Asserts: outcome is DispatchError, error_explanation == CEILING_EXCEEDED_EXPLANATION == 'async_polling_ceiling_exceeded', resolution_id and attempt_no are restamped to the original pending's values, and stub.calls < 50 (proving polling actually stopped).",
+        "notes": "TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded scripts 50 successive AsyncPending replies. The stub orchestrator advances the FakeClock by 100s per call; with max_total_seconds=250 the loop polls 3 times then trips the ceiling. Asserts: outcome is DispatchError, error_explanation == CEILING_EXCEEDED_EXPLANATION == 'async_polling_ceiling_exceeded', resolution_id and attempt_no are restamped to the original pending's values, and stub.calls < 50 (proving polling actually stopped)."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Test (status-tool error): if the status tool replies with an",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestStatusToolError::test_status_tool_error_stops_polling_after_one_call scripts two DispatchError outcomes (so a continued loop would be detectable). Asserts: outcome is DispatchError with the specialist's explanation preserved verbatim ('specialist failed: invalid run_identifier'), resolution_id/attempt_no restamped to the original AsyncPending's values, and exactly len(stub.calls) == 1 (polling stopped after first error). converge() handles this in the terminal branch: any non-AsyncPending outcome is restamped and returned immediately.",
+        "notes": "TestStatusToolError::test_status_tool_error_stops_polling_after_one_call scripts two DispatchError outcomes (so a continued loop would be detectable). Asserts: outcome is DispatchError with the specialist's explanation preserved verbatim ('specialist failed: invalid run_identifier'), resolution_id/attempt_no restamped to the original AsyncPending's values, and exactly len(stub.calls) == 1 (polling stopped after first error). converge() handles this in the terminal branch: any non-AsyncPending outcome is restamped and returned immediately."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ruff check src/forge/dispatch/async_polling.py tests/forge/dispatch/test_async_polling.py reports 'All checks passed!' (zero errors). black is not available in this environment but the code follows PEP 8, uses type hints, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants per .claude/rules/code-style.md.",
+        "notes": "ruff check src/forge/dispatch/async_polling.py tests/forge/dispatch/test_async_polling.py reports 'All checks passed!' (zero errors). black is not available in this environment but the code follows PEP 8, uses type hints, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants per .claude/rules/code-style.md."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 345 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1586/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- INVOLVES\n- ACCEPTS_INPUT\n- HAS_ERROR_HANDLER_FOR\n- HAS_METADATA_PROJECT\n\n### \u26a0\ufe0f Warnings\n- ALTERNATIVE_TO\n- IS_IMPLEMENTED_AS\n- CAUSES\n\n### \ud83c\udfad Role Constraints\n- PROJECT_INVOLVES\n- DELEGATE_TO_TASK_WORK\n- HAS_ROLE_MUST_DO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO_TASK\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}
