@@ -23,6 +23,7 @@ Feature: Confidence-Gated Checkpoint Protocol
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Core happy path — when the evidence confidently supports the work, the pipeline continues without human engagement.
+  @task:TASK-CGCP-005
   @key-example @smoke
   Scenario: A confidently-supported stage is auto-approved and the build continues
     Given a gated stage has just completed with a strong Coach score, a clean set of detection findings, and priors that concur
@@ -32,6 +33,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the build should continue to the next stage without pausing
 
   # Why: Core uncertain path — when the evidence is ambiguous, the build pauses and asks Rich to decide.
+  @task:TASK-CGCP-006
   @key-example @smoke
   Scenario: A stage with ambiguous evidence pauses and requests human review
     Given a gated stage has just completed with evidence that is neither clearly positive nor clearly negative
@@ -42,6 +44,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the request should carry the stage label, the Coach score, the criterion breakdown, the detection findings, the rationale, the evidence priors, and the resume options available to Rich
 
   # Why: Core unsafe path — clearly bad work halts the build rather than burning more turns.
+  @task:TASK-CGCP-005
   @key-example @smoke
   Scenario: A stage with strongly negative evidence halts the build
     Given a gated stage has just completed with a poor Coach score or strongly negative detection findings
@@ -51,6 +54,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the reasons for halting should be recorded on the decision for later review
 
   # Why: Resume on approval — Rich confirms the paused work and the build continues where it left off.
+  @task:TASK-CGCP-010
   @key-example
   Scenario: Approval from Rich resumes the paused build
     Given a build is paused on a gated stage awaiting Rich's decision
@@ -59,6 +63,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the decision and responder should be recorded against the gate
 
   # Why: Reject on decision — Rich refuses the paused work; the build ends cleanly.
+  @task:TASK-CGCP-010
   @key-example
   Scenario: Rejection from Rich ends the paused build
     Given a build is paused on a gated stage awaiting Rich's decision
@@ -67,6 +72,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the reason Rich gave for rejecting should be recorded against the gate
 
   # Why: Override/skip — Rich waves through the specific stage without endorsing the general criteria.
+  @task:TASK-CGCP-010
   @key-example
   Scenario: Override from Rich skips the stage and the build continues
     Given a build is paused on a gated stage awaiting Rich's decision
@@ -76,6 +82,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the override and its reason should be recorded against the gate
 
   # Why: Constitutional rule — PR review is always human, no matter how strong the evidence.
+  @task:TASK-CGCP-004
   @key-example @smoke
   Scenario: A pull-request-review stage always requires human approval regardless of evidence
     Given a pull-request-review stage has just completed with evidence that would otherwise warrant auto-approval
@@ -85,6 +92,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the build should pause and request Rich's decision before any pull request is created or merged
 
   # Why: Evidence-driven gating — each decision carries a written trail back to the priors and findings that shaped it.
+  @task:TASK-CGCP-005
   @key-example
   Scenario: Every gate decision records its rationale, priors, and findings
     Given a gated stage has completed and Forge has evaluated the gate
@@ -99,6 +107,7 @@ Feature: Confidence-Gated Checkpoint Protocol
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Degraded mode — no Coach score means auto-approval is off the table (invariant from DM-gating §6).
+  @task:TASK-CGCP-005
   @boundary @negative
   Scenario: A gated stage with no Coach score cannot be auto-approved
     Given a gated stage has completed but no Coach score is available for it
@@ -109,6 +118,7 @@ Feature: Confidence-Gated Checkpoint Protocol
 
   # Why: Just-inside boundary for the initial approval wait.
   # [ASSUMPTION: confidence=high] Default approval request timeout is 300 seconds (API-nats-approval-protocol §3.1).
+  @task:TASK-CGCP-006
   @boundary
   Scenario: An approval request is published with the default wait time when none is specified
     Given Forge has evaluated a stage as flag-for-review
@@ -118,6 +128,7 @@ Feature: Confidence-Gated Checkpoint Protocol
 
   # Why: Just-outside boundary — wait exceeds the per-request default but stays within the configured maximum.
   # [ASSUMPTION: confidence=high] Maximum total wait is approximately 3600 seconds via forge.yaml.approval.max_wait_seconds (API-nats-approval-protocol §7).
+  @task:TASK-CGCP-006
   @boundary
   Scenario: An approval that is not answered within the default wait time is refreshed without cancelling the pause
     Given a build has been paused and the default wait time has elapsed without a response
@@ -127,6 +138,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the prior request identifier should remain valid for deduplication
 
   # Why: Criterion-breakdown boundary (invariant from DM-gating §6).
+  @task:TASK-CGCP-001
   @boundary
   Scenario Outline: Criterion-breakdown values at the permitted extremes are accepted
     Given a gated stage completes with a criterion score of <value> for one criterion
@@ -139,6 +151,7 @@ Feature: Confidence-Gated Checkpoint Protocol
       | 1.0   |
 
   # Why: Criterion-breakdown outside the permitted range is a malformed input and must be refused.
+  @task:TASK-CGCP-001
   @boundary @negative
   Scenario: Criterion-breakdown values outside the permitted range are refused
     Given a gated stage completes with a criterion score outside the range zero to one
@@ -151,6 +164,7 @@ Feature: Confidence-Gated Checkpoint Protocol
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Detection findings must be able to escalate even when the headline score is strong.
+  @task:TASK-CGCP-005
   @negative
   Scenario: A critical detection finding escalates a stage away from auto-approval regardless of a strong score
     Given a gated stage has completed with a strong Coach score
@@ -160,6 +174,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the critical finding should be listed on the decision as part of the rationale
 
   # Why: Constitutional guardrail — executor-layer belt-and-braces for PR creation, not only PR review.
+  @task:TASK-CGCP-004
   @negative
   Scenario: Creating a pull request after review is treated with the same constitutional rule as reviewing one
     Given a stage that creates a pull request after review has completed with evidence that would otherwise warrant auto-approval
@@ -168,14 +183,16 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the decision should be marked as a constitutional override
 
   # Why: Invariant — when the mode is mandatory human approval, auto-approve override must be recorded or no threshold applied.
+  @task:TASK-CGCP-005
   @negative
   Scenario: A mandatory-human-approval decision must not masquerade as a threshold-based approval
     Given Forge is recording a gate decision whose mode is mandatory human approval
     When the decision is persisted
-    Then the decision should either be marked as a constitutional override with no threshold applied
-    Or the decision should record no threshold value at all
+    Then the decision should be marked as a constitutional override with no threshold applied
+    And the decision should record no threshold value at all
 
   # Why: Only Rich-approved calibration adjustments shape gate decisions; unapproved proposals are invisible to the evaluator.
+  @task:TASK-CGCP-005
   @negative
   Scenario: An unapproved calibration adjustment does not influence gate decisions
     Given a calibration adjustment has been proposed but not yet approved by Rich
@@ -184,6 +201,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the gate decision should not cite the unapproved adjustment as evidence
 
   # Why: Response payloads arriving with an unrecognised decision value must be rejected rather than silently coerced.
+  @task:TASK-CGCP-007
   @negative
   Scenario: An approval response with an unrecognised decision value is refused
     Given a build is paused awaiting Rich's decision
@@ -198,6 +216,7 @@ Feature: Confidence-Gated Checkpoint Protocol
 
   # Why: Idempotency on the responder side — duplicates must not accidentally resume a build twice.
   # [ASSUMPTION: confidence=high] Responders deduplicate on request identifier; first response wins (API-nats-approval-protocol §6).
+  @task:TASK-CGCP-007
   @edge-case
   Scenario: Duplicate approval responses for the same request are ignored after the first
     Given a build has been paused and a response carrying a specific request identifier has already resumed it
@@ -206,6 +225,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the build should continue under the decision taken by the first response
 
   # Why: Crash recovery — if Forge restarts while paused, the request is re-emitted so Rich never sees a silent pipeline.
+  @task:TASK-CGCP-010
   @edge-case @regression
   Scenario: A build that was paused before a crash re-emits its approval request on restart
     Given a build was paused awaiting approval and Forge then stopped before a response arrived
@@ -215,6 +235,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And responders should still treat the original request identifier as the idempotency key
 
   # Why: CLI steering — Rich can cancel a paused build from the command line; this is indistinguishable from a normal rejection to the graph.
+  @task:TASK-CGCP-008
   @edge-case
   Scenario: Cancelling a paused build from the command line behaves as a rejection
     Given a build is paused awaiting Rich's decision
@@ -224,6 +245,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the build should transition to a cancelled outcome
 
   # Why: CLI steering — Rich can skip a single paused stage from the command line without approving the whole run.
+  @task:TASK-CGCP-008
   @edge-case
   Scenario: Skipping a paused build from the command line overrides the current stage only
     Given a build is paused awaiting Rich's decision
@@ -233,6 +255,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the build should continue to the next stage
 
   # Why: The rehydration contract (DDR-002) must be invisible to callers — the same code works whether the response arrives typed or as a bare mapping.
+  @task:TASK-CGCP-009
   @edge-case
   Scenario Outline: Approval responses are handled identically whether they arrive typed or as a bare mapping
     Given a build is paused awaiting Rich's decision
@@ -246,6 +269,7 @@ Feature: Confidence-Gated Checkpoint Protocol
       | bare mapping of equivalent content |
 
   # Why: Each build has its own approval channel; responses for one build must never be applied to another.
+  @task:TASK-CGCP-007
   @edge-case
   Scenario: Responses are routed only to the build whose identifier they match
     Given two builds are paused at the same time on different stages
@@ -254,6 +278,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the other paused build should continue waiting for its own response
 
   # Why: Degraded mode is observable — if specialist scoring is unavailable, evaluations cannot silently land as auto-approve.
+  @task:TASK-CGCP-005
   @edge-case @regression
   Scenario: Degraded mode is recorded on every gate decision that lacks a Coach score
     Given a gated stage completes while specialist scoring is unavailable
@@ -263,6 +288,7 @@ Feature: Confidence-Gated Checkpoint Protocol
 
   # Why: Timeout refreshes have a ceiling — once the total configured wait is reached, the pause cannot be extended indefinitely.
   # [ASSUMPTION: confidence=medium] Total wait is bounded by forge.yaml.approval.max_wait_seconds (implied by API-nats-approval-protocol §7 "refresh up to ≈ 3600"); behaviour at the ceiling is not explicitly described.
+  @task:TASK-CGCP-010
   @edge-case
   Scenario: A pause that reaches the configured maximum wait ends rather than refreshing forever
     Given a build has been paused awaiting Rich's decision for the full configured maximum wait
@@ -276,6 +302,7 @@ Feature: Confidence-Gated Checkpoint Protocol
 
   # Why: Responder identity matters — a response that does not come from a recognised responder must not silently resume a production build.
   # [ASSUMPTION: confidence=medium] The "expected approver" allowlist is implied by the constitutional framing; the specific responder value is configured per deployment (e.g. "rich" or the Jarvis adapter identity).
+  @task:TASK-CGCP-007
   @security @edge-case
   Scenario: A response from an unrecognised responder is not treated as authoritative
     Given a build is paused awaiting Rich's decision
@@ -285,6 +312,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the build should continue to wait for a response from the expected approver
 
   # Why: Belt-and-braces (ADR-ARCH-026) — the PR-review rule lives in two places so that losing one does not silently re-enable auto-approval.
+  @task:TASK-CGCP-004
   @security @regression
   Scenario: The constitutional pull-request-review rule is enforced independently at two layers
     Given the system prompt carries the safety constitution that declares pull-request review is always human
@@ -294,6 +322,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the loss of the other layer should be surfaced as a constitutional regression
 
   # Why: Concurrent responses must resolve to exactly one outcome — the first to land wins, the rest are observed duplicates.
+  @task:TASK-CGCP-007
   @concurrency @edge-case
   Scenario: Two responses arriving for the same paused build at the same time resolve to exactly one decision
     Given a build is paused awaiting Rich's decision
@@ -302,6 +331,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the other response should be recorded as a duplicate without further effect
 
   # Why: The pause-and-publish pair must be consistent — a build must never be paused without a published request, and a published request must never outlive a build that moved on.
+  @task:TASK-CGCP-010
   @concurrency @data-integrity
   Scenario: Pausing and publishing the approval request are observed as a single consistent transition
     Given Forge is about to transition a build into the paused state for a gated stage
@@ -310,6 +340,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And when the build leaves the paused state, no further approval requests for that build's paused stage should be published
 
   # Why: Graphiti history is the traceability backbone — a transient publish failure must not erase the record of the decision that was made.
+  @task:TASK-CGCP-010
   @data-integrity @regression
   Scenario: A gate decision is recorded durably even if the notification publish fails
     Given Forge has evaluated a gated stage and produced a gate decision
@@ -319,6 +350,7 @@ Feature: Confidence-Gated Checkpoint Protocol
     And the failure of the notification publish should be surfaced for retry or investigation
 
   # Why: The approval request is the contract between Forge and any notification adapter — it must carry enough context to render without a secondary query.
+  @task:TASK-CGCP-006
   @integration
   Scenario: The approval request carries enough context for a notification adapter to render the decision unaided
     Given Forge has evaluated a gated stage as flag-for-review

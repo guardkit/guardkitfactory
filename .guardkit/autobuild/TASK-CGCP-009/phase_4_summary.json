@@ -1,0 +1,7 @@
+{
+  "tests_run": 17,
+  "tests_failed": 0,
+  "coverage_pct": 92.86,
+  "output_summary": "pytest: 17/17 passed, 0 failed; coverage 92.86% on src/forge/adapters/langgraph/__init__.py (1 missing line)",
+  "quality_gates_passed": true
+}

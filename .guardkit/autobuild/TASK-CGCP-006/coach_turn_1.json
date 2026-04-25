@@ -1,0 +1,199 @@
+{
+  "task_id": "TASK-CGCP-006",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": false,
+      "test_command": "pytest tests/forge/adapters/test_resume_value_helper.py tests/forge/test_approval_publisher.py -v --tb=short",
+      "test_output_summary": "Error detail:\n\n==================================== ERRORS ====================================\n______ ERROR collecting tests/forge/adapters/test_resume_value_helper.py _______\nImportError while importing test module '/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/adapters/test_resume_value_helper.py'.\nHint: make sure your test modules/packages have valid Python names.\nResult:\nE   ModuleNotFoundError: No module named 'forge'\nERROR tests/forge/adapters/test_resume_value_helper.py\nERROR tests/forge/test_approval_publisher.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!\n============================== 2 errors in 0.16s ===============================",
+      "duration_seconds": 0.6168344020843506
+    },
+    "requirements": {
+      "criteria_total": 9,
+      "criteria_met": 9,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`ApprovalPublisher.publish_request(envelope: MessageEnvelope) -> None` async method",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ApprovalPublisher.publish_request is defined as `async def` taking a MessageEnvelope, asserted by TestPublisherSurface.test_publish_request_is_async via asyncio.iscoroutinefunction. Class is exported from forge.adapters.nats.approval_publisher.",
+      "notes": "ApprovalPublisher.publish_request is defined as `async def` taking a MessageEnvelope, asserted by TestPublisherSurface.test_publish_request_is_async via asyncio.iscoroutinefunction. Class is exported from forge.adapters.nats.approval_publisher."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`_build_approval_details(decision: GateDecision, **context) -> dict` produces the eleven-key dict per `API \u00a73.2`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_build_approval_details produces exactly the eleven documented keys (build_id, feature_id, stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings, rationale, evidence_priors, artefact_paths, resume_options). Asserted by TestBuildApprovalDetails: returns_exactly_the_eleven_documented_keys, scalar_fields_propagate_from_decision, criterion_breakdown_is_a_plain_dict_copy, detection_findings_serialised_as_list_of_dicts, evidence_priors_use_entity_id_and_summary_subset, kwargs_propagate_verbatim, returned_dict_is_json_serialisable, degraded_decision_emits_none_coach_score (8 tests).",
+      "notes": "_build_approval_details produces exactly the eleven documented keys (build_id, feature_id, stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings, rationale, evidence_priors, artefact_paths, resume_options). Asserted by TestBuildApprovalDetails: returns_exactly_the_eleven_documented_keys, scalar_fields_propagate_from_decision, criterion_breakdown_is_a_plain_dict_copy, detection_findings_serialised_as_list_of_dicts, evidence_priors_use_entity_id_and_summary_subset, kwargs_propagate_verbatim, returned_dict_is_json_serialisable, degraded_decision_emits_none_coach_score (8 tests)."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`_derive_risk_level(decision: GateDecision) -> Literal[\"low\", \"medium\", \"high\"]` matches the table in \u00a73.3 exactly",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Helper implements the \u00a73.3 table verbatim: HARD_STOP -> 'high'; MANDATORY_HUMAN_APPROVAL -> 'medium'; FLAG_FOR_REVIEW -> 'low' if coach_score >= 0.65 else 'medium'. AUTO_APPROVE raises ValueError (not in table). Asserted by TestDeriveRiskLevel across 7 cases including the 0.65 boundary, sub-threshold, degraded mode (None), HARD_STOP, MANDATORY_HUMAN_APPROVAL, and AUTO_APPROVE rejection.",
+      "notes": "Helper implements the \u00a73.3 table verbatim: HARD_STOP -> 'high'; MANDATORY_HUMAN_APPROVAL -> 'medium'; FLAG_FOR_REVIEW -> 'low' if coach_score >= 0.65 else 'medium'. AUTO_APPROVE raises ValueError (not in table). Asserted by TestDeriveRiskLevel across 7 cases including the 0.65 boundary, sub-threshold, degraded mode (None), HARD_STOP, MANDATORY_HUMAN_APPROVAL, and AUTO_APPROVE rejection."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Subject resolves to `agents.approval.forge.{build_id}` (project-scoped via `Topics.for_project` if configured)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_subject_for() calls Topics.resolve(Topics.Agents.APPROVAL_REQUEST, agent_id='forge', task_id=build_id) and wraps via Topics.for_project when self._project is set. Verified by TestPublishRequest.test_subject_resolves_to_agents_approval_forge_build_id (asserts 'agents.approval.forge.<build_id>') and test_project_scope_prefixes_subject (asserts 'finproxy.agents.approval.forge.<build_id>').",
+      "notes": "_subject_for() calls Topics.resolve(Topics.Agents.APPROVAL_REQUEST, agent_id='forge', task_id=build_id) and wraps via Topics.for_project when self._project is set. Verified by TestPublishRequest.test_subject_resolves_to_agents_approval_forge_build_id (asserts 'agents.approval.forge.<build_id>') and test_project_scope_prefixes_subject (asserts 'finproxy.agents.approval.forge.<build_id>')."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Publish failures raise a typed `ApprovalPublishError` that the caller can catch \u2014 failure does NOT swallow silently",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Underlying exceptions are caught and re-raised as ApprovalPublishError (RuntimeError subclass) with .subject and .cause attributes plus __cause__ chain. Asserted by TestPublishRequest.test_publish_failure_wraps_underlying_exception (verifies wrapping, attribute access, and message content).",
+      "notes": "Underlying exceptions are caught and re-raised as ApprovalPublishError (RuntimeError subclass) with .subject and .cause attributes plus __cause__ chain. Asserted by TestPublishRequest.test_publish_failure_wraps_underlying_exception (verifies wrapping, attribute access, and message content)."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Group E `@data-integrity @regression`**: when the publish call raises, the helper still returns control to the caller without rolling back any state \u2014 verified by integration test in TASK-CGCP-011",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Publisher's exception path only logs and raises; it never reaches into caller domain. Asserted at unit level by TestPublishRequest.test_publish_failure_does_not_roll_back_caller_state (caller_state sentinel mapping unchanged after ApprovalPublishError propagates). Full Group E @data-integrity scenario is the integration test in TASK-CGCP-011 as noted in the AC text.",
+      "notes": "Publisher's exception path only logs and raises; it never reaches into caller domain. Asserted at unit level by TestPublishRequest.test_publish_failure_does_not_roll_back_caller_state (caller_state sentinel mapping unchanged after ApprovalPublishError propagates). Full Group E @data-integrity scenario is the integration test in TASK-CGCP-011 as noted in the AC text."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Group E `@integration`**: a published request carries enough context for an adapter to render \u2014 assertion against the eleven-key dict",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Published envelope round-trips through MessageEnvelope.model_validate and ApprovalRequestPayload.model_validate, recovering payload.details with set(details.keys()) == EXPECTED_KEYS (the eleven \u00a73.2 keys). Asserted by TestPublishedEnvelopeContract.test_published_envelope_round_trips_through_message_envelope and test_envelope_payload_is_serialisable_as_json.",
+      "notes": "Published envelope round-trips through MessageEnvelope.model_validate and ApprovalRequestPayload.model_validate, recovering payload.details with set(details.keys()) == EXPECTED_KEYS (the eleven \u00a73.2 keys). Asserted by TestPublishedEnvelopeContract.test_published_envelope_round_trips_through_message_envelope and test_envelope_payload_is_serialisable_as_json."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Module is the **only** place in `forge.gating` / `forge.adapters.nats.approval_*` where the `details` dict shape is constructed",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestSingleOwnership.test_no_other_module_in_forge_constructs_evidence_priors walks src/forge/**/*.py and asserts the literal 'evidence_priors' appears nowhere except approval_publisher.py. This is a structural CI guard against future scope creep.",
+      "notes": "TestSingleOwnership.test_no_other_module_in_forge_constructs_evidence_priors walks src/forge/**/*.py and asserts the literal 'evidence_priors' appears nowhere except approval_publisher.py. This is a structural CI guard against future scope creep."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ruff check on both new files reports 'All checks passed!'. py_compile on both files reports clean byte-compile. No new dependencies added. Files conform to .claude/rules/code-style.md (PEP 8, snake_case functions, PascalCase classes, type hints throughout, line length <=88).",
+      "notes": "ruff check on both new files reports 'All checks passed!'. py_compile on both files reports clean byte-compile. No new dependencies added. Files conform to .claude/rules/code-style.md (PEP 8, snake_case functions, PascalCase classes, type hints throughout, line length <=88)."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`ApprovalPublisher.publish_request(envelope: MessageEnvelope) -> None` async method",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ApprovalPublisher.publish_request is defined as `async def` taking a MessageEnvelope, asserted by TestPublisherSurface.test_publish_request_is_async via asyncio.iscoroutinefunction. Class is exported from forge.adapters.nats.approval_publisher.",
+        "notes": "ApprovalPublisher.publish_request is defined as `async def` taking a MessageEnvelope, asserted by TestPublisherSurface.test_publish_request_is_async via asyncio.iscoroutinefunction. Class is exported from forge.adapters.nats.approval_publisher."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`_build_approval_details(decision: GateDecision, **context) -> dict` produces the eleven-key dict per `API \u00a73.2`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_build_approval_details produces exactly the eleven documented keys (build_id, feature_id, stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings, rationale, evidence_priors, artefact_paths, resume_options). Asserted by TestBuildApprovalDetails: returns_exactly_the_eleven_documented_keys, scalar_fields_propagate_from_decision, criterion_breakdown_is_a_plain_dict_copy, detection_findings_serialised_as_list_of_dicts, evidence_priors_use_entity_id_and_summary_subset, kwargs_propagate_verbatim, returned_dict_is_json_serialisable, degraded_decision_emits_none_coach_score (8 tests).",
+        "notes": "_build_approval_details produces exactly the eleven documented keys (build_id, feature_id, stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings, rationale, evidence_priors, artefact_paths, resume_options). Asserted by TestBuildApprovalDetails: returns_exactly_the_eleven_documented_keys, scalar_fields_propagate_from_decision, criterion_breakdown_is_a_plain_dict_copy, detection_findings_serialised_as_list_of_dicts, evidence_priors_use_entity_id_and_summary_subset, kwargs_propagate_verbatim, returned_dict_is_json_serialisable, degraded_decision_emits_none_coach_score (8 tests)."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`_derive_risk_level(decision: GateDecision) -> Literal[\"low\", \"medium\", \"high\"]` matches the table in \u00a73.3 exactly",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Helper implements the \u00a73.3 table verbatim: HARD_STOP -> 'high'; MANDATORY_HUMAN_APPROVAL -> 'medium'; FLAG_FOR_REVIEW -> 'low' if coach_score >= 0.65 else 'medium'. AUTO_APPROVE raises ValueError (not in table). Asserted by TestDeriveRiskLevel across 7 cases including the 0.65 boundary, sub-threshold, degraded mode (None), HARD_STOP, MANDATORY_HUMAN_APPROVAL, and AUTO_APPROVE rejection.",
+        "notes": "Helper implements the \u00a73.3 table verbatim: HARD_STOP -> 'high'; MANDATORY_HUMAN_APPROVAL -> 'medium'; FLAG_FOR_REVIEW -> 'low' if coach_score >= 0.65 else 'medium'. AUTO_APPROVE raises ValueError (not in table). Asserted by TestDeriveRiskLevel across 7 cases including the 0.65 boundary, sub-threshold, degraded mode (None), HARD_STOP, MANDATORY_HUMAN_APPROVAL, and AUTO_APPROVE rejection."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Subject resolves to `agents.approval.forge.{build_id}` (project-scoped via `Topics.for_project` if configured)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_subject_for() calls Topics.resolve(Topics.Agents.APPROVAL_REQUEST, agent_id='forge', task_id=build_id) and wraps via Topics.for_project when self._project is set. Verified by TestPublishRequest.test_subject_resolves_to_agents_approval_forge_build_id (asserts 'agents.approval.forge.<build_id>') and test_project_scope_prefixes_subject (asserts 'finproxy.agents.approval.forge.<build_id>').",
+        "notes": "_subject_for() calls Topics.resolve(Topics.Agents.APPROVAL_REQUEST, agent_id='forge', task_id=build_id) and wraps via Topics.for_project when self._project is set. Verified by TestPublishRequest.test_subject_resolves_to_agents_approval_forge_build_id (asserts 'agents.approval.forge.<build_id>') and test_project_scope_prefixes_subject (asserts 'finproxy.agents.approval.forge.<build_id>')."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Publish failures raise a typed `ApprovalPublishError` that the caller can catch \u2014 failure does NOT swallow silently",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Underlying exceptions are caught and re-raised as ApprovalPublishError (RuntimeError subclass) with .subject and .cause attributes plus __cause__ chain. Asserted by TestPublishRequest.test_publish_failure_wraps_underlying_exception (verifies wrapping, attribute access, and message content).",
+        "notes": "Underlying exceptions are caught and re-raised as ApprovalPublishError (RuntimeError subclass) with .subject and .cause attributes plus __cause__ chain. Asserted by TestPublishRequest.test_publish_failure_wraps_underlying_exception (verifies wrapping, attribute access, and message content)."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Group E `@data-integrity @regression`**: when the publish call raises, the helper still returns control to the caller without rolling back any state \u2014 verified by integration test in TASK-CGCP-011",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Publisher's exception path only logs and raises; it never reaches into caller domain. Asserted at unit level by TestPublishRequest.test_publish_failure_does_not_roll_back_caller_state (caller_state sentinel mapping unchanged after ApprovalPublishError propagates). Full Group E @data-integrity scenario is the integration test in TASK-CGCP-011 as noted in the AC text.",
+        "notes": "Publisher's exception path only logs and raises; it never reaches into caller domain. Asserted at unit level by TestPublishRequest.test_publish_failure_does_not_roll_back_caller_state (caller_state sentinel mapping unchanged after ApprovalPublishError propagates). Full Group E @data-integrity scenario is the integration test in TASK-CGCP-011 as noted in the AC text."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Group E `@integration`**: a published request carries enough context for an adapter to render \u2014 assertion against the eleven-key dict",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Published envelope round-trips through MessageEnvelope.model_validate and ApprovalRequestPayload.model_validate, recovering payload.details with set(details.keys()) == EXPECTED_KEYS (the eleven \u00a73.2 keys). Asserted by TestPublishedEnvelopeContract.test_published_envelope_round_trips_through_message_envelope and test_envelope_payload_is_serialisable_as_json.",
+        "notes": "Published envelope round-trips through MessageEnvelope.model_validate and ApprovalRequestPayload.model_validate, recovering payload.details with set(details.keys()) == EXPECTED_KEYS (the eleven \u00a73.2 keys). Asserted by TestPublishedEnvelopeContract.test_published_envelope_round_trips_through_message_envelope and test_envelope_payload_is_serialisable_as_json."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Module is the **only** place in `forge.gating` / `forge.adapters.nats.approval_*` where the `details` dict shape is constructed",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestSingleOwnership.test_no_other_module_in_forge_constructs_evidence_priors walks src/forge/**/*.py and asserts the literal 'evidence_priors' appears nowhere except approval_publisher.py. This is a structural CI guard against future scope creep.",
+        "notes": "TestSingleOwnership.test_no_other_module_in_forge_constructs_evidence_priors walks src/forge/**/*.py and asserts the literal 'evidence_priors' appears nowhere except approval_publisher.py. This is a structural CI guard against future scope creep."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ruff check on both new files reports 'All checks passed!'. py_compile on both files reports clean byte-compile. No new dependencies added. Files conform to .claude/rules/code-style.md (PEP 8, snake_case functions, PascalCase classes, type hints throughout, line length <=88).",
+        "notes": "ruff check on both new files reports 'All checks passed!'. py_compile on both files reports clean byte-compile. No new dependencies added. Files conform to .claude/rules/code-style.md (PEP 8, snake_case functions, PascalCase classes, type hints throughout, line length <=88)."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Conditionally approved \u2014 test collection errors in independent verification. All Player quality gates passed. All acceptance criteria met. Architecture context: 368 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1582/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- DESCRIBES\n- HAS_FIELD\n- ASSIGNS_TASK_TO\n- EXECUTES_STEP\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- IS_IMPLEMENTED_AS\n- HAS_IMPLEMENTATION_TARGET\n\n### \ud83c\udfad Role Constraints\n- MUST_CONSULT_BEFORE_MODIFYING\n- DELEGATE_TO_TASK_WORK\n- MUST_CONSULT_BEFORE_CHANGING\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO\n",
+  "approved_without_independent_tests": true,
+  "is_configuration_error": false
+}

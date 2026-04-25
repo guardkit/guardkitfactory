@@ -1,0 +1,197 @@
+{
+  "task_id": "TASK-CGCP-006",
+  "timestamp": "2026-04-25T18:12:46.670682",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 28,
+    "tests_failed": 0,
+    "coverage": 100.0,
+    "coverage_met": true,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "src/forge/adapters/nats/__init__.py",
+    "tasks/backlog/TASK-CGCP-006-approval-publisher.md",
+    "tasks/backlog/TASK-CGCP-007-approval-subscriber-dedup.md",
+    "tasks/backlog/TASK-CGCP-009-resume-value-rehydration-helper.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-CGCP-006-implementation-plan.md",
+    ".claude/task-plans/TASK-CGCP-007-implementation-plan.md",
+    ".claude/task-plans/TASK-CGCP-009-implementation-plan.md",
+    ".guardkit/autobuild/TASK-CGCP-004/checkpoints.json",
+    ".guardkit/autobuild/TASK-CGCP-006/player_turn_1.json",
+    ".guardkit/autobuild/TASK-CGCP-006/task_work_results.json",
+    ".guardkit/autobuild/TASK-CGCP-006/turn_context.json",
+    ".guardkit/autobuild/TASK-CGCP-007/turn_context.json",
+    ".guardkit/autobuild/TASK-CGCP-009/player_turn_1.json",
+    ".guardkit/autobuild/TASK-CGCP-009/task_work_results.json",
+    ".guardkit/autobuild/TASK-CGCP-009/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/.guardkit/autobuild/TASK-CGCP-006/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/src/forge/adapters/nats/approval_publisher.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/test_approval_publisher.py",
+    "src/forge/adapters/langgraph/__init__.py",
+    "src/forge/adapters/nats/approval_publisher.py",
+    "src/forge/adapters/nats/approval_subscriber.py",
+    "tasks/design_approved/TASK-CGCP-006-approval-publisher.md",
+    "tasks/design_approved/TASK-CGCP-007-approval-subscriber-dedup.md",
+    "tasks/design_approved/TASK-CGCP-009-resume-value-rehydration-helper.md",
+    "tests/forge/adapters/test_resume_value_helper.py",
+    "tests/forge/test_approval_publisher.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/test_approval_publisher.py"
+  ],
+  "summary": "28 tests passed, 100.0% coverage, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 52,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "ApprovalPublisher.publish_request(envelope: MessageEnvelope) -> None async method",
+      "status": "complete",
+      "evidence": "ApprovalPublisher.publish_request is defined as `async def` taking a MessageEnvelope, asserted by TestPublisherSurface.test_publish_request_is_async via asyncio.iscoroutinefunction. Class is exported from forge.adapters.nats.approval_publisher.",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "_build_approval_details(decision: GateDecision, **context) -> dict produces the eleven-key dict per API \u00a73.2",
+      "status": "complete",
+      "evidence": "_build_approval_details produces exactly the eleven documented keys (build_id, feature_id, stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings, rationale, evidence_priors, artefact_paths, resume_options). Asserted by TestBuildApprovalDetails: returns_exactly_the_eleven_documented_keys, scalar_fields_propagate_from_decision, criterion_breakdown_is_a_plain_dict_copy, detection_findings_serialised_as_list_of_dicts, evidence_priors_use_entity_id_and_summary_subset, kwargs_propagate_verbatim, returned_dict_is_json_serialisable, degraded_decision_emits_none_coach_score (8 tests).",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "_derive_risk_level(decision: GateDecision) -> Literal['low', 'medium', 'high'] matches the table in \u00a73.3 exactly",
+      "status": "complete",
+      "evidence": "Helper implements the \u00a73.3 table verbatim: HARD_STOP -> 'high'; MANDATORY_HUMAN_APPROVAL -> 'medium'; FLAG_FOR_REVIEW -> 'low' if coach_score >= 0.65 else 'medium'. AUTO_APPROVE raises ValueError (not in table). Asserted by TestDeriveRiskLevel across 7 cases including the 0.65 boundary, sub-threshold, degraded mode (None), HARD_STOP, MANDATORY_HUMAN_APPROVAL, and AUTO_APPROVE rejection.",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Subject resolves to agents.approval.forge.{build_id} (project-scoped via Topics.for_project if configured)",
+      "status": "complete",
+      "evidence": "_subject_for() calls Topics.resolve(Topics.Agents.APPROVAL_REQUEST, agent_id='forge', task_id=build_id) and wraps via Topics.for_project when self._project is set. Verified by TestPublishRequest.test_subject_resolves_to_agents_approval_forge_build_id (asserts 'agents.approval.forge.<build_id>') and test_project_scope_prefixes_subject (asserts 'finproxy.agents.approval.forge.<build_id>').",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Publish failures raise a typed ApprovalPublishError that the caller can catch \u2014 failure does NOT swallow silently",
+      "status": "complete",
+      "evidence": "Underlying exceptions are caught and re-raised as ApprovalPublishError (RuntimeError subclass) with .subject and .cause attributes plus __cause__ chain. Asserted by TestPublishRequest.test_publish_failure_wraps_underlying_exception (verifies wrapping, attribute access, and message content).",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Group E @data-integrity @regression: when the publish call raises, the helper still returns control to the caller without rolling back any state \u2014 verified by integration test in TASK-CGCP-011",
+      "status": "complete",
+      "evidence": "Publisher's exception path only logs and raises; it never reaches into caller domain. Asserted at unit level by TestPublishRequest.test_publish_failure_does_not_roll_back_caller_state (caller_state sentinel mapping unchanged after ApprovalPublishError propagates). Full Group E @data-integrity scenario is the integration test in TASK-CGCP-011 as noted in the AC text.",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Group E @integration: a published request carries enough context for an adapter to render \u2014 assertion against the eleven-key dict",
+      "status": "complete",
+      "evidence": "Published envelope round-trips through MessageEnvelope.model_validate and ApprovalRequestPayload.model_validate, recovering payload.details with set(details.keys()) == EXPECTED_KEYS (the eleven \u00a73.2 keys). Asserted by TestPublishedEnvelopeContract.test_published_envelope_round_trips_through_message_envelope and test_envelope_payload_is_serialisable_as_json.",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Module is the only place in forge.gating / forge.adapters.nats.approval_* where the details dict shape is constructed",
+      "status": "complete",
+      "evidence": "TestSingleOwnership.test_no_other_module_in_forge_constructs_evidence_priors walks src/forge/**/*.py and asserts the literal 'evidence_priors' appears nowhere except approval_publisher.py. This is a structural CI guard against future scope creep.",
+      "test_file": "tests/forge/test_approval_publisher.py",
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "ruff check on both new files reports 'All checks passed!'. py_compile on both files reports clean byte-compile. No new dependencies added. Files conform to .claude/rules/code-style.md (PEP 8, snake_case functions, PascalCase classes, type hints throughout, line length <=88).",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/adapters/nats/approval_publisher.py",
+        "tests/forge/test_approval_publisher.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 52.40079870200134
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 185.9408323940006
+    }
+  ]
+}
