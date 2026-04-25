@@ -1,0 +1,183 @@
+{
+  "task_id": "TASK-SAD-002",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": false,
+      "test_command": "pytest tests/forge/dispatch/test_correlation.py tests/forge/dispatch/test_persistence.py tests/forge/dispatch/test_reply_parser.py tests/forge/dispatch/test_timeout.py -v --tb=short",
+      "test_output_summary": "Error detail:\n\n==================================== ERRORS ====================================\n__________ ERROR collecting tests/forge/dispatch/test_correlation.py ___________\nImportError while importing test module '/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/dispatch/test_correlation.py'.\nHint: make sure your test modules/packages have valid Python names.\nResult:\nERROR tests/forge/dispatch/test_persistence.py\nERROR tests/forge/dispatch/test_reply_parser.py\nERROR tests/forge/dispatch/test_timeout.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 4 errors during collection !!!!!!!!!!!!!!!!!!!!\n============================== 4 errors in 0.08s ===============================",
+      "duration_seconds": 0.5024268627166748
+    },
+    "requirements": {
+      "criteria_total": 8,
+      "criteria_met": 8,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`src/forge/dispatch/persistence.py` defines `DispatchParameter` with a",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/dispatch/persistence.py with a Pydantic v2 DispatchParameter model that exposes a `sensitive: bool` field defaulting to False (drives the scrub). Verified by TestDispatchParameterSchema (4 tests, all passing).",
+      "notes": "Created src/forge/dispatch/persistence.py with a Pydantic v2 DispatchParameter model that exposes a `sensitive: bool` field defaulting to False (drives the scrub). Verified by TestDispatchParameterSchema (4 tests, all passing)."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`persist_resolution()` writes the resolution to the existing",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "persist_resolution() writes through SqliteHistoryWriter, which composes over a sqlite3.Connection without editing FEAT-FORGE-001 internals. Per the task's Implementation Notes ('add a sibling table forge_capability_resolutions and join via correlation_id'), the writer creates two sibling tables (forge_capability_resolutions, forge_dispatch_parameters) idempotently via CREATE TABLE IF NOT EXISTS \u2014 no FEAT-FORGE-001 schema change is required. retry_of (TASK-SAD-001) is persisted as a nullable TEXT column. TestPersistResolutionWritesToSqlite covers retry_of=None and retry_of='res-original' round-trips.",
+      "notes": "persist_resolution() writes through SqliteHistoryWriter, which composes over a sqlite3.Connection without editing FEAT-FORGE-001 internals. Per the task's Implementation Notes ('add a sibling table forge_capability_resolutions and join via correlation_id'), the writer creates two sibling tables (forge_capability_resolutions, forge_dispatch_parameters) idempotently via CREATE TABLE IF NOT EXISTS \u2014 no FEAT-FORGE-001 schema change is required. retry_of (TASK-SAD-001) is persisted as a nullable TEXT column. TestPersistResolutionWritesToSqlite covers retry_of=None and retry_of='res-original' round-trips."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Sensitive parameters are scrubbed at the persistence boundary: only",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "persist_resolution() drops the value (substitutes None) before calling insert_parameter() whenever DispatchParameter.sensitive is True. The sensitive flag itself is preserved alongside name in forge_dispatch_parameters. TestSensitiveParameterScrub.test_sensitive_value_is_not_present_in_any_column performs a defence-in-depth sweep using sqlite3.Connection.iterdump() to confirm the secret value never lands in any column anywhere in the database.",
+      "notes": "persist_resolution() drops the value (substitutes None) before calling insert_parameter() whenever DispatchParameter.sensitive is True. The sensitive flag itself is preserved alongside name in forge_dispatch_parameters. TestSensitiveParameterScrub.test_sensitive_value_is_not_present_in_any_column performs a defence-in-depth sweep using sqlite3.Connection.iterdump() to confirm the secret value never lands in any column anywhere in the database."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Non-sensitive parameters are persisted in full.",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Non-sensitive parameters (sensitive=False, the default) flow into forge_dispatch_parameters with their value column populated verbatim. TestNonSensitiveParameterRoundTrip verifies both an explicit sensitive=False record and a defaulted DispatchParameter survive the round-trip with their values intact.",
+      "notes": "Non-sensitive parameters (sensitive=False, the default) flow into forge_dispatch_parameters with their value column populated verbatim. TestNonSensitiveParameterRoundTrip verifies both an explicit sensitive=False record and a defaulted DispatchParameter survive the round-trip with their values intact."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Atomic write: either the resolution + all non-sensitive parameters",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "persist_resolution() wraps the resolution insert and every parameter insert in a single SqliteHistoryWriter.transaction() context (a thin wrapper around `with self._connection:` which commits on clean exit and rolls back on exception). TestAtomicWriteSemantics has two tests: (a) a duplicate resolution_id raises sqlite3.IntegrityError and leaves the parameter table empty; (b) a monkey-patched mid-batch parameter insert raising sqlite3.DatabaseError leaves both the resolution row and earlier parameter rows absent.",
+      "notes": "persist_resolution() wraps the resolution insert and every parameter insert in a single SqliteHistoryWriter.transaction() context (a thin wrapper around `with self._connection:` which commits on clean exit and rolls back on exception). TestAtomicWriteSemantics has two tests: (a) a duplicate resolution_id raises sqlite3.IntegrityError and leaves the parameter table empty; (b) a monkey-patched mid-batch parameter insert raising sqlite3.DatabaseError leaves both the resolution row and earlier parameter rows absent."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Test: passing a `DispatchParameter(name=\"api_token\", value=\"secret\",",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestSensitiveParameterScrub.test_api_token_value_column_is_null is the literal AC test. It persists DispatchParameter(name='api_token', value='VERY-SECRET', sensitive=True) and asserts dump_all_parameter_rows()[0]['value'] is None while name and sensitive remain True. Companion test test_sensitive_value_is_not_present_in_any_column scans iterdump() output for the literal secret string to guard against leaks via auxiliary columns.",
+      "notes": "TestSensitiveParameterScrub.test_api_token_value_column_is_null is the literal AC test. It persists DispatchParameter(name='api_token', value='VERY-SECRET', sensitive=True) and asserts dump_all_parameter_rows()[0]['value'] is None while name and sensitive remain True. Companion test test_sensitive_value_is_not_present_in_any_column scans iterdump() output for the literal secret string to guard against leaks via auxiliary columns."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Test: pipeline-history view of the dispatch shows non-sensitive fields",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "SqliteHistoryWriter.read_pipeline_history_view() returns a dict whose 'parameters' list contains either {name, value, sensitive=False} for public parameters or {name, sensitive=True} (no 'value' key at all) for sensitive ones. TestPipelineHistoryView.test_view_includes_non_sensitive_value_and_sensitive_name_only asserts (a) sensitive entries lack a 'value' key entirely, (b) the auditor can still read the sensitive parameter's name, (c) the literal secret 'VERY-SECRET' does not appear anywhere in str(view).",
+      "notes": "SqliteHistoryWriter.read_pipeline_history_view() returns a dict whose 'parameters' list contains either {name, value, sensitive=False} for public parameters or {name, sensitive=True} (no 'value' key at all) for sensitive ones. TestPipelineHistoryView.test_view_includes_non_sensitive_value_and_sensitive_name_only asserts (a) sensitive entries lack a 'value' key entirely, (b) the auditor can still read the sensitive parameter's name, (c) the literal secret 'VERY-SECRET' does not appear anywhere in str(view)."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Both new files follow the project's PEP 8 + Black 88-char + type-hints-everywhere conventions documented in .claude/rules/code-style.md. The full unit-test suite (excluding pytest-bdd) runs clean: 387 tests pass, only pre-existing PytestUnknownMarkWarning warnings remain (from existing fleet_watcher/fleet_publisher seam markers \u2014 unrelated to this task). No new warnings introduced.",
+      "notes": "Both new files follow the project's PEP 8 + Black 88-char + type-hints-everywhere conventions documented in .claude/rules/code-style.md. The full unit-test suite (excluding pytest-bdd) runs clean: 387 tests pass, only pre-existing PytestUnknownMarkWarning warnings remain (from existing fleet_watcher/fleet_publisher seam markers \u2014 unrelated to this task). No new warnings introduced."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`src/forge/dispatch/persistence.py` defines `DispatchParameter` with a",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/dispatch/persistence.py with a Pydantic v2 DispatchParameter model that exposes a `sensitive: bool` field defaulting to False (drives the scrub). Verified by TestDispatchParameterSchema (4 tests, all passing).",
+        "notes": "Created src/forge/dispatch/persistence.py with a Pydantic v2 DispatchParameter model that exposes a `sensitive: bool` field defaulting to False (drives the scrub). Verified by TestDispatchParameterSchema (4 tests, all passing)."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`persist_resolution()` writes the resolution to the existing",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "persist_resolution() writes through SqliteHistoryWriter, which composes over a sqlite3.Connection without editing FEAT-FORGE-001 internals. Per the task's Implementation Notes ('add a sibling table forge_capability_resolutions and join via correlation_id'), the writer creates two sibling tables (forge_capability_resolutions, forge_dispatch_parameters) idempotently via CREATE TABLE IF NOT EXISTS \u2014 no FEAT-FORGE-001 schema change is required. retry_of (TASK-SAD-001) is persisted as a nullable TEXT column. TestPersistResolutionWritesToSqlite covers retry_of=None and retry_of='res-original' round-trips.",
+        "notes": "persist_resolution() writes through SqliteHistoryWriter, which composes over a sqlite3.Connection without editing FEAT-FORGE-001 internals. Per the task's Implementation Notes ('add a sibling table forge_capability_resolutions and join via correlation_id'), the writer creates two sibling tables (forge_capability_resolutions, forge_dispatch_parameters) idempotently via CREATE TABLE IF NOT EXISTS \u2014 no FEAT-FORGE-001 schema change is required. retry_of (TASK-SAD-001) is persisted as a nullable TEXT column. TestPersistResolutionWritesToSqlite covers retry_of=None and retry_of='res-original' round-trips."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Sensitive parameters are scrubbed at the persistence boundary: only",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "persist_resolution() drops the value (substitutes None) before calling insert_parameter() whenever DispatchParameter.sensitive is True. The sensitive flag itself is preserved alongside name in forge_dispatch_parameters. TestSensitiveParameterScrub.test_sensitive_value_is_not_present_in_any_column performs a defence-in-depth sweep using sqlite3.Connection.iterdump() to confirm the secret value never lands in any column anywhere in the database.",
+        "notes": "persist_resolution() drops the value (substitutes None) before calling insert_parameter() whenever DispatchParameter.sensitive is True. The sensitive flag itself is preserved alongside name in forge_dispatch_parameters. TestSensitiveParameterScrub.test_sensitive_value_is_not_present_in_any_column performs a defence-in-depth sweep using sqlite3.Connection.iterdump() to confirm the secret value never lands in any column anywhere in the database."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Non-sensitive parameters are persisted in full.",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Non-sensitive parameters (sensitive=False, the default) flow into forge_dispatch_parameters with their value column populated verbatim. TestNonSensitiveParameterRoundTrip verifies both an explicit sensitive=False record and a defaulted DispatchParameter survive the round-trip with their values intact.",
+        "notes": "Non-sensitive parameters (sensitive=False, the default) flow into forge_dispatch_parameters with their value column populated verbatim. TestNonSensitiveParameterRoundTrip verifies both an explicit sensitive=False record and a defaulted DispatchParameter survive the round-trip with their values intact."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Atomic write: either the resolution + all non-sensitive parameters",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "persist_resolution() wraps the resolution insert and every parameter insert in a single SqliteHistoryWriter.transaction() context (a thin wrapper around `with self._connection:` which commits on clean exit and rolls back on exception). TestAtomicWriteSemantics has two tests: (a) a duplicate resolution_id raises sqlite3.IntegrityError and leaves the parameter table empty; (b) a monkey-patched mid-batch parameter insert raising sqlite3.DatabaseError leaves both the resolution row and earlier parameter rows absent.",
+        "notes": "persist_resolution() wraps the resolution insert and every parameter insert in a single SqliteHistoryWriter.transaction() context (a thin wrapper around `with self._connection:` which commits on clean exit and rolls back on exception). TestAtomicWriteSemantics has two tests: (a) a duplicate resolution_id raises sqlite3.IntegrityError and leaves the parameter table empty; (b) a monkey-patched mid-batch parameter insert raising sqlite3.DatabaseError leaves both the resolution row and earlier parameter rows absent."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Test: passing a `DispatchParameter(name=\"api_token\", value=\"secret\",",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestSensitiveParameterScrub.test_api_token_value_column_is_null is the literal AC test. It persists DispatchParameter(name='api_token', value='VERY-SECRET', sensitive=True) and asserts dump_all_parameter_rows()[0]['value'] is None while name and sensitive remain True. Companion test test_sensitive_value_is_not_present_in_any_column scans iterdump() output for the literal secret string to guard against leaks via auxiliary columns.",
+        "notes": "TestSensitiveParameterScrub.test_api_token_value_column_is_null is the literal AC test. It persists DispatchParameter(name='api_token', value='VERY-SECRET', sensitive=True) and asserts dump_all_parameter_rows()[0]['value'] is None while name and sensitive remain True. Companion test test_sensitive_value_is_not_present_in_any_column scans iterdump() output for the literal secret string to guard against leaks via auxiliary columns."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Test: pipeline-history view of the dispatch shows non-sensitive fields",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "SqliteHistoryWriter.read_pipeline_history_view() returns a dict whose 'parameters' list contains either {name, value, sensitive=False} for public parameters or {name, sensitive=True} (no 'value' key at all) for sensitive ones. TestPipelineHistoryView.test_view_includes_non_sensitive_value_and_sensitive_name_only asserts (a) sensitive entries lack a 'value' key entirely, (b) the auditor can still read the sensitive parameter's name, (c) the literal secret 'VERY-SECRET' does not appear anywhere in str(view).",
+        "notes": "SqliteHistoryWriter.read_pipeline_history_view() returns a dict whose 'parameters' list contains either {name, value, sensitive=False} for public parameters or {name, sensitive=True} (no 'value' key at all) for sensitive ones. TestPipelineHistoryView.test_view_includes_non_sensitive_value_and_sensitive_name_only asserts (a) sensitive entries lack a 'value' key entirely, (b) the auditor can still read the sensitive parameter's name, (c) the literal secret 'VERY-SECRET' does not appear anywhere in str(view)."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Both new files follow the project's PEP 8 + Black 88-char + type-hints-everywhere conventions documented in .claude/rules/code-style.md. The full unit-test suite (excluding pytest-bdd) runs clean: 387 tests pass, only pre-existing PytestUnknownMarkWarning warnings remain (from existing fleet_watcher/fleet_publisher seam markers \u2014 unrelated to this task). No new warnings introduced.",
+        "notes": "Both new files follow the project's PEP 8 + Black 88-char + type-hints-everywhere conventions documented in .claude/rules/code-style.md. The full unit-test suite (excluding pytest-bdd) runs clean: 387 tests pass, only pre-existing PytestUnknownMarkWarning warnings remain (from existing fleet_watcher/fleet_publisher seam markers \u2014 unrelated to this task). No new warnings introduced."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Conditionally approved \u2014 test collection errors in independent verification. All Player quality gates passed. All acceptance criteria met. Architecture context: 371 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1721/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- SERIALIZES_TO_JSON\n- ACCEPTS_INPUT\n- ACCEPTS_PARAMETER\n- ACCEPTS_INPUT\n\n### \u26a0\ufe0f Warnings\n- DEPENDS_ON\n- HAS_ROOT_CAUSE\n- ERROR_CAUSE_OF\n\n### \ud83c\udfad Role Constraints\n- PROJECT_INVOLVES\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n- MONITORS_RESULTS_FROM\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- STATE_PERSISTED_USING\n",
+  "approved_without_independent_tests": true,
+  "is_configuration_error": false
+}

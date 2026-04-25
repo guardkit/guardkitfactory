@@ -1,0 +1,185 @@
+{
+  "task_id": "TASK-SAD-008",
+  "timestamp": "2026-04-25T17:11:36.643106",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 14,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "src/forge/discovery/models.py",
+    "src/forge/dispatch/persistence.py",
+    "tasks/backlog/TASK-SAD-007-retry-coordinator.md",
+    "tasks/backlog/TASK-SAD-008-async-mode-polling.md",
+    "tasks/backlog/TASK-SAD-009-correlate-outcome-and-degraded.md",
+    "tasks/backlog/TASK-SAD-010-nats-adapter-specialist-dispatch.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-SAD-007-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-008-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-009-implementation-plan.md",
+    ".claude/task-plans/TASK-SAD-010-implementation-plan.md",
+    ".guardkit/autobuild/TASK-SAD-006/checkpoints.json",
+    ".guardkit/autobuild/TASK-SAD-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-007/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-008/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-008/task_work_results.json",
+    ".guardkit/autobuild/TASK-SAD-008/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-009/player_turn_1.json",
+    ".guardkit/autobuild/TASK-SAD-009/turn_context.json",
+    ".guardkit/autobuild/TASK-SAD-010/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/.guardkit/autobuild/TASK-SAD-008/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/src/forge/dispatch/async_polling.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/dispatch/test_async_polling.py",
+    "src/forge/adapters/nats/specialist_dispatch.py",
+    "src/forge/dispatch/async_polling.py",
+    "src/forge/dispatch/outcome.py",
+    "src/forge/dispatch/retry.py",
+    "tasks/design_approved/TASK-SAD-007-retry-coordinator.md",
+    "tasks/design_approved/TASK-SAD-008-async-mode-polling.md",
+    "tasks/design_approved/TASK-SAD-009-correlate-outcome-and-degraded.md",
+    "tasks/design_approved/TASK-SAD-010-nats-adapter-specialist-dispatch.md",
+    "tests/forge/dispatch/test_async_polling.py",
+    "tests/forge/dispatch/test_outcome.py",
+    "tests/forge/dispatch/test_retry.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-003/tests/forge/dispatch/test_async_polling.py"
+  ],
+  "summary": "14 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 36,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "src/forge/dispatch/async_polling.py defines AsyncPollingCoordinator with converge().",
+      "status": "complete",
+      "evidence": "Created src/forge/dispatch/async_polling.py defining class AsyncPollingCoordinator with async method converge(self, pending: AsyncPending, *, status_capability: str = 'status') -> DispatchOutcome. Module exports AsyncPollingCoordinator, CEILING_EXCEEDED_EXPLANATION, DEFAULT_MAX_TOTAL_SECONDS, DEFAULT_POLL_INTERVAL_SECONDS via __all__. Surface verified by TestSurface (5 tests: module import, default ceiling = 900.0, converge is coroutine, ValueError on bad max_total_seconds and bad poll_interval_seconds).",
+      "test_file": "tests/forge/dispatch/test_async_polling.py",
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Each poll dispatches via the orchestrator \u2014 does NOT bypass subscribe-before-publish or any other invariant.",
+      "status": "complete",
+      "evidence": "converge() calls self._orchestrator.dispatch(capability=status_capability, parameters=[DispatchParameter(name='run_identifier', value=...)]) on every iteration. The orchestrator owns all invariants (resolve\u2192persist\u2192bind\u2192publish\u2192wait\u2192parse), so reusing it preserves subscribe-before-publish, write-before-send, and the per-attempt timeout. Verified by TestPollDispatchesViaOrchestrator: a stub orchestrator records every dispatch call; tests assert capability='status' (and an override 'run_status'), and that the run_identifier parameter is threaded through. The subsequent_pending test also proves rotated run_identifiers from successive replies are forwarded.",
+      "test_file": "tests/forge/dispatch/test_async_polling.py",
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Polling honours the same hard 900s ceiling as sync dispatch (ASSUM-003); cumulative time is tracked via the injected Clock.",
+      "status": "complete",
+      "evidence": "DEFAULT_MAX_TOTAL_SECONDS = 900.0 (asserted by test_default_max_total_seconds_matches_assum_003). converge() captures started_at = self._clock.now() and on every iteration computes elapsed_seconds = (self._clock.now() - started_at).total_seconds(); when elapsed_seconds >= max_total_seconds it returns DispatchError(error_explanation='async_polling_ceiling_exceeded'). Verified by TestCeilingTrackedViaClock: (a) frozen clock with tiny ceiling never trips, proving wall-clock time is not used, (b) clock advance equal to ceiling causes the next pre-dispatch check to fire after exactly one dispatch.",
+      "test_file": "tests/forge/dispatch/test_async_polling.py",
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Test (D.async-mode-polling): initial reply with run_identifier \u2192 AsyncPending; subsequent status-tool reply with coach_score \u2192 SyncResult. The two are linked via the same resolution_id.",
+      "status": "complete",
+      "evidence": "TestConvergeFromPending::test_async_pending_then_sync_result_links_via_resolution_id constructs an AsyncPending(resolution_id='resolution-original'), scripts a status-tool SyncResult with a different resolution_id ('resolution-status-poll', coach_score=0.92, criterion_breakdown, detection_findings), and asserts the converged outcome is a SyncResult whose resolution_id == pending.resolution_id and whose coach fields propagate verbatim. Linkage is enforced by _restamp_outcome() which uses model_copy(update={resolution_id, attempt_no}).",
+      "test_file": "tests/forge/dispatch/test_async_polling.py",
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Test (status-tool repeated pending): if the status tool keeps returning AsyncPending, polling continues until the ceiling, then emits DispatchError(error_explanation='async_polling_ceiling_exceeded').",
+      "status": "complete",
+      "evidence": "TestRepeatedPendingHitsCeiling::test_repeated_pending_yields_async_polling_ceiling_exceeded scripts 50 successive AsyncPending replies. The stub orchestrator advances the FakeClock by 100s per call; with max_total_seconds=250 the loop polls 3 times then trips the ceiling. Asserts: outcome is DispatchError, error_explanation == CEILING_EXCEEDED_EXPLANATION == 'async_polling_ceiling_exceeded', resolution_id and attempt_no are restamped to the original pending's values, and stub.calls < 50 (proving polling actually stopped).",
+      "test_file": "tests/forge/dispatch/test_async_polling.py",
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Test (status-tool error): if the status tool replies with an error, the polling loop emits the DispatchError and stops.",
+      "status": "complete",
+      "evidence": "TestStatusToolError::test_status_tool_error_stops_polling_after_one_call scripts two DispatchError outcomes (so a continued loop would be detectable). Asserts: outcome is DispatchError with the specialist's explanation preserved verbatim ('specialist failed: invalid run_identifier'), resolution_id/attempt_no restamped to the original AsyncPending's values, and exactly len(stub.calls) == 1 (polling stopped after first error). converge() handles this in the terminal branch: any non-AsyncPending outcome is restamped and returned immediately.",
+      "test_file": "tests/forge/dispatch/test_async_polling.py",
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors.",
+      "status": "complete",
+      "evidence": "ruff check src/forge/dispatch/async_polling.py tests/forge/dispatch/test_async_polling.py reports 'All checks passed!' (zero errors). black is not available in this environment but the code follows PEP 8, uses type hints, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants per .claude/rules/code-style.md.",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/dispatch/async_polling.py",
+        "tests/forge/dispatch/test_async_polling.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 51.24704826300149
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 198.4464239640074
+    }
+  ]
+}

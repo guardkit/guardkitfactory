@@ -1,0 +1,7 @@
+{
+  "tests_run": 203,
+  "tests_failed": 0,
+  "coverage_pct": 95.0,
+  "output_summary": "pytest: 203 passed, 0 failed; coverage 95% across src/forge/dispatch and src/forge/discovery (modified modules included).",
+  "quality_gates_passed": true
+}
