@@ -21,17 +21,30 @@ from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats_core.envelope import EventType, MessageEnvelope
 from nats_core.events import BuildFailedPayload, BuildQueuedPayload
 
+from nats_core.events import (
+    ApprovalRequestPayload,
+    BuildPausedPayload,
+)
+
 from forge.adapters.nats.pipeline_consumer import (
     ACK_WAIT_SECONDS,
     BUILD_QUEUE_SUBJECT,
     DURABLE_NAME,
+    IN_FLIGHT_BUILD_STATES,
+    PAUSED_BUILD_STATE,
     REASON_MALFORMED_PAYLOAD,
     REASON_ORIGINATOR_NOT_RECOGNISED,
     REASON_PATH_OUTSIDE_ALLOWLIST,
+    RESTART_FROM_PREPARING_STATES,
     STREAM_NAME,
+    TERMINAL_BUILD_STATES,
+    PausedBuildSnapshot,
     PipelineConsumerDeps,
+    ReconcileDeps,
+    ReconcileReport,
     build_consumer_config,
     handle_message,
+    reconcile_on_boot,
 )
 from forge.config.models import (
     FilesystemPermissions,
@@ -592,3 +605,537 @@ class TestRobustness:
         # inner validation does — both flow into "malformed". We just need
         # to confirm we never dispatched.
         mocks["dispatch_build"].assert_not_called()
+
+
+# ===========================================================================
+# TASK-NFI-009: reconcile_on_boot crash recovery
+# ===========================================================================
+#
+# Each `TestReconcile*` class maps to one or more acceptance criteria of
+# TASK-NFI-009. SQLite is mocked via two ``AsyncMock``s — ``read_build_state``
+# (returns the persisted status) and ``mark_interrupted_and_reset`` (no-op
+# writer). The redelivery queue is simulated with a list-backed
+# ``fetch_redeliveries`` callable that yields one batch then drains.
+# ---------------------------------------------------------------------------
+
+
+def _make_paused_snapshot(
+    *,
+    feature_id: str = "FEAT-A1B2",
+    correlation_id: str = "corr-001",
+    approval_subject: str = "agents.approval.forge.task-001",
+) -> PausedBuildSnapshot:
+    """Construct a :class:`PausedBuildSnapshot` with realistic payloads.
+
+    The two payloads carry the same ``correlation_id`` so AC-004 ("ORIGINAL
+    correlation_id") can be asserted by reading back the re-emitted
+    envelope's correlation_id.
+    """
+
+    paused = BuildPausedPayload(
+        feature_id=feature_id,
+        build_id=f"build-{feature_id}-20260424120000",
+        stage_label="implementation",
+        gate_mode="MANDATORY_HUMAN_APPROVAL",
+        coach_score=0.55,
+        rationale="quality below threshold",
+        approval_subject=approval_subject,
+        paused_at=datetime.now(timezone.utc).isoformat(),
+        correlation_id=correlation_id,
+    )
+    approval = ApprovalRequestPayload(
+        request_id=f"req-{correlation_id}",
+        agent_id="forge",
+        action_description=(
+            f"Resume paused build for {feature_id} after gate review"
+        ),
+        risk_level="medium",
+        details={"feature_id": feature_id, "correlation_id": correlation_id},
+        timeout_seconds=3600,
+    )
+    return PausedBuildSnapshot(
+        feature_id=feature_id,
+        correlation_id=correlation_id,
+        build_paused_payload=paused,
+        approval_request_payload=approval,
+        approval_subject=approval_subject,
+    )
+
+
+def _make_fetch_redeliveries(batches: list[list[Any]]):
+    """Return an async callable that yields ``batches`` then ``[]`` forever.
+
+    Mirrors how ``js.PullSubscription.fetch`` behaves once the inbox is
+    empty: subsequent calls return ``[]`` rather than raising.
+    """
+
+    queue: list[list[Any]] = list(batches)
+
+    async def _fetch() -> list[Any]:
+        if queue:
+            return queue.pop(0)
+        return []
+
+    return _fetch
+
+
+@pytest.fixture
+def reconcile_factory(deps_factory):
+    """Build a :class:`ReconcileDeps` with mocks for every collaborator.
+
+    Returns a factory so individual tests can override the persisted state
+    map, the paused-build snapshot list, and the redelivery batches.
+    """
+
+    def _make(
+        *,
+        state_by_key: dict[tuple[str, str], str | None] | None = None,
+        paused_snapshots: list[PausedBuildSnapshot] | None = None,
+        redelivery_batches: list[list[Any]] | None = None,
+    ) -> tuple[ReconcileDeps, dict[str, AsyncMock]]:
+        consumer_deps, consumer_mocks = deps_factory()
+        state_map: dict[tuple[str, str], str | None] = state_by_key or {}
+
+        async def _read(feature_id: str, correlation_id: str) -> str | None:
+            return state_map.get((feature_id, correlation_id))
+
+        read_build_state = AsyncMock(side_effect=_read)
+        mark_interrupted_and_reset = AsyncMock()
+        iter_paused_builds = AsyncMock(return_value=paused_snapshots or [])
+        publish_build_paused = AsyncMock()
+        publish_approval_request = AsyncMock()
+        fetch_redeliveries = AsyncMock(
+            side_effect=_make_fetch_redeliveries(redelivery_batches or [])
+        )
+
+        deps = ReconcileDeps(
+            consumer_deps=consumer_deps,
+            fetch_redeliveries=fetch_redeliveries,
+            read_build_state=read_build_state,
+            mark_interrupted_and_reset=mark_interrupted_and_reset,
+            iter_paused_builds=iter_paused_builds,
+            publish_build_paused=publish_build_paused,
+            publish_approval_request=publish_approval_request,
+        )
+        return deps, {
+            **consumer_mocks,
+            "read_build_state": read_build_state,
+            "mark_interrupted_and_reset": mark_interrupted_and_reset,
+            "iter_paused_builds": iter_paused_builds,
+            "publish_build_paused": publish_build_paused,
+            "publish_approval_request": publish_approval_request,
+            "fetch_redeliveries": fetch_redeliveries,
+        }
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
+# AC-001: reconcile runs to completion and returns a report
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileLifecycle:
+    """AC-001: reconcile_on_boot runs once and returns a typed report."""
+
+    @pytest.mark.asyncio
+    async def test_returns_report_with_no_redeliveries_and_no_paused(
+        self, reconcile_factory
+    ) -> None:
+        deps, _mocks = reconcile_factory()
+        report = await reconcile_on_boot(deps)
+        assert isinstance(report, ReconcileReport)
+        # Empty inbox + empty paused scan ⇒ all counters zero.
+        assert report.acked_terminal == 0
+        assert report.restarted_in_flight == 0
+        assert report.re_emitted_paused == 0
+        assert report.fresh_builds == 0
+        assert report.malformed == 0
+        assert report.paused_scan_re_emitted == 0
+
+    @pytest.mark.asyncio
+    async def test_drains_until_fetch_returns_empty(
+        self, reconcile_factory, allowlist_root: Path
+    ) -> None:
+        # Two non-empty batches then drain — verify we fetch until empty.
+        yaml_path = allowlist_root / "feature.yaml"
+        msg_a = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        msg_b = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): "COMPLETE"},
+            redelivery_batches=[[msg_a], [msg_b]],
+        )
+        report = await reconcile_on_boot(deps)
+
+        # First two calls return batches, third returns [] terminating loop.
+        assert mocks["fetch_redeliveries"].await_count == 3
+        assert report.acked_terminal == 2
+
+
+# ---------------------------------------------------------------------------
+# AC-002 + AC-007: terminal-state redelivery → ack, no new build (idempotent)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileTerminalStates:
+    """AC-002 + AC-007: redelivered terminal-state builds are acked + skipped."""
+
+    @pytest.mark.parametrize(
+        "terminal_state", sorted(TERMINAL_BUILD_STATES)
+    )
+    @pytest.mark.asyncio
+    async def test_terminal_state_is_acked_and_no_build_dispatched(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+        terminal_state: str,
+    ) -> None:
+        # AC-007 scenario: "A redelivered build-queued message for a
+        # completed build is acknowledged idempotently". Run for every
+        # terminal value in the contract — COMPLETE, FAILED, CANCELLED,
+        # SKIPPED — to lock in the idempotency invariant.
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): terminal_state},
+            redelivery_batches=[[msg]],
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        msg.ack.assert_awaited_once()
+        mocks["dispatch_build"].assert_not_called()
+        mocks["mark_interrupted_and_reset"].assert_not_called()
+        mocks["publish_build_paused"].assert_not_called()
+        assert report.acked_terminal == 1
+        assert report.fresh_builds == 0
+        assert report.restarted_in_flight == 0
+
+
+# ---------------------------------------------------------------------------
+# AC-003: INTERRUPTED-marked rows transition to PREPARING (retry-from-scratch)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileInFlightStates:
+    """AC-003: RUNNING/FINALISING are marked INTERRUPTED and restarted."""
+
+    @pytest.mark.parametrize(
+        "in_flight_state", sorted(IN_FLIGHT_BUILD_STATES)
+    )
+    @pytest.mark.asyncio
+    async def test_in_flight_marks_interrupted_and_redispatches(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+        in_flight_state: str,
+    ) -> None:
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): in_flight_state},
+            redelivery_batches=[[msg]],
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        # Row was marked INTERRUPTED + reset to PREPARING via the writer.
+        mocks["mark_interrupted_and_reset"].assert_awaited_once_with(
+            "FEAT-A1B2", "corr-001"
+        )
+        # Build was re-dispatched through the standard pipeline path.
+        mocks["dispatch_build"].assert_awaited_once()
+        sent_payload, ack_callback = mocks["dispatch_build"].await_args.args
+        assert sent_payload.feature_id == "FEAT-A1B2"
+        assert callable(ack_callback)
+        # ack is deferred — only the state machine's terminal callback fires it.
+        msg.ack.assert_not_called()
+        assert report.restarted_in_flight == 1
+        assert report.acked_terminal == 0
+
+    @pytest.mark.asyncio
+    async def test_preparing_state_is_treated_as_in_flight(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+    ) -> None:
+        # PREPARING + crash also means INTERRUPTED + re-prepare. Lock this
+        # in so a future migration that introduces a separate
+        # PREPARING-only branch does not silently regress.
+        assert "PREPARING" in RESTART_FROM_PREPARING_STATES
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): "PREPARING"},
+            redelivery_batches=[[msg]],
+        )
+
+        await reconcile_on_boot(deps)
+
+        mocks["mark_interrupted_and_reset"].assert_awaited_once()
+        mocks["dispatch_build"].assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# AC-004 + AC-005: paused builds re-emit BuildPaused + ApprovalRequest
+# ---------------------------------------------------------------------------
+
+
+class TestReconcilePausedRedelivery:
+    """AC-004 + AC-005: PAUSED redelivery re-emits both lifecycle events."""
+
+    @pytest.mark.asyncio
+    async def test_paused_redelivery_reemits_build_paused_with_original_correlation_id(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+    ) -> None:
+        # AC-004: re-emit MUST carry the ORIGINAL correlation_id so
+        # subscribers thread the resumption onto the same conversation.
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        snap = _make_paused_snapshot()
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): PAUSED_BUILD_STATE},
+            paused_snapshots=[snap],
+            redelivery_batches=[[msg]],
+        )
+
+        await reconcile_on_boot(deps)
+
+        mocks["publish_build_paused"].assert_awaited_once()
+        (sent_payload,) = mocks["publish_build_paused"].await_args.args
+        assert isinstance(sent_payload, BuildPausedPayload)
+        assert sent_payload.feature_id == "FEAT-A1B2"
+        # The ORIGINAL correlation_id is preserved on the re-emit.
+        assert sent_payload.correlation_id == "corr-001"
+        # No INTERRUPTED transition; PAUSED is kept.
+        mocks["mark_interrupted_and_reset"].assert_not_called()
+        # Message is NOT acked — paused builds keep the queue position.
+        msg.ack.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_paused_redelivery_reemits_approval_request_on_original_subject(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+    ) -> None:
+        # AC-005: ApprovalRequest re-emit honours ADR-ARCH-021's
+        # first-response-wins. Same request_id ⇒ same logical request, so
+        # a late approval responder cannot double-resume after restart.
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        snap = _make_paused_snapshot(
+            approval_subject="agents.approval.forge.gate-impl"
+        )
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): PAUSED_BUILD_STATE},
+            paused_snapshots=[snap],
+            redelivery_batches=[[msg]],
+        )
+
+        await reconcile_on_boot(deps)
+
+        mocks["publish_approval_request"].assert_awaited_once()
+        sent_payload, sent_subject = (
+            mocks["publish_approval_request"].await_args.args
+        )
+        assert isinstance(sent_payload, ApprovalRequestPayload)
+        # Same request_id as the original (first-response-wins guard).
+        assert sent_payload.request_id == "req-corr-001"
+        assert sent_subject == "agents.approval.forge.gate-impl"
+
+
+# ---------------------------------------------------------------------------
+# AC-006: unknown (feature_id, correlation_id) → fresh build
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileUnknownBuild:
+    """AC-006: unknown identity → fresh dispatch via handle_message."""
+
+    @pytest.mark.asyncio
+    async def test_unknown_redelivery_is_dispatched_as_fresh(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+    ) -> None:
+        # No SQLite row → state_by_key returns None → fresh build.
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        deps, mocks = reconcile_factory(
+            state_by_key={},  # empty → read_build_state returns None
+            redelivery_batches=[[msg]],
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        # Fresh dispatch — handle_message validates allowlists, finds no
+        # duplicate (is_duplicate_terminal is the default mock returning
+        # False), and dispatches as if it were a brand-new build.
+        mocks["dispatch_build"].assert_awaited_once()
+        # Critical: the duplicate-terminal check did fire (handle_message
+        # path), but the reconcile-side ack-and-skip branch did NOT.
+        msg.ack.assert_not_called()
+        mocks["mark_interrupted_and_reset"].assert_not_called()
+        assert report.fresh_builds == 1
+        assert report.acked_terminal == 0
+
+
+# ---------------------------------------------------------------------------
+# AC-008: SQLite belt-and-braces paused scan
+# ---------------------------------------------------------------------------
+
+
+class TestReconcilePausedScan:
+    """AC-008 / Group D @edge-case: PAUSED rows re-emit even with no redelivery.
+
+    The ``iter_paused_builds`` reader returns a paused snapshot whose
+    redelivery did NOT arrive in the JetStream batch. ``reconcile_on_boot``
+    must still re-emit the paused lifecycle so subscribers see the gate
+    request after a Forge restart.
+    """
+
+    @pytest.mark.asyncio
+    async def test_paused_scan_reemits_when_no_redelivery(
+        self,
+        reconcile_factory,
+    ) -> None:
+        snap = _make_paused_snapshot()
+        deps, mocks = reconcile_factory(
+            state_by_key={},  # nothing in the redelivery loop
+            paused_snapshots=[snap],
+            redelivery_batches=[],  # JetStream redelivered nothing
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        # Belt-and-braces fired both publishes from the SQLite scan.
+        mocks["publish_build_paused"].assert_awaited_once()
+        mocks["publish_approval_request"].assert_awaited_once()
+        assert report.paused_scan_re_emitted == 1
+        assert report.re_emitted_paused == 0  # nothing came via redelivery
+
+    @pytest.mark.asyncio
+    async def test_paused_redelivery_and_scan_emit_only_once_per_build(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+    ) -> None:
+        # If JetStream redelivers AND SQLite has the row, we must not
+        # re-emit twice. The redelivery branch wins; the scan skips.
+        yaml_path = allowlist_root / "feature.yaml"
+        msg = _make_msg(_envelope_bytes(_valid_payload_dict(yaml_path)))
+        snap = _make_paused_snapshot()
+        deps, mocks = reconcile_factory(
+            state_by_key={("FEAT-A1B2", "corr-001"): PAUSED_BUILD_STATE},
+            paused_snapshots=[snap],
+            redelivery_batches=[[msg]],
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        # Each publisher fires exactly once total — the redelivery branch.
+        mocks["publish_build_paused"].assert_awaited_once()
+        mocks["publish_approval_request"].assert_awaited_once()
+        assert report.re_emitted_paused == 1
+        assert report.paused_scan_re_emitted == 0
+
+
+# ---------------------------------------------------------------------------
+# AC-008: all four rule branches with mocked SQLite reader (one-shot test)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileAllBranches:
+    """AC-008: a single reconcile call dispatches every rule branch correctly."""
+
+    @pytest.mark.asyncio
+    async def test_one_call_handles_terminal_running_paused_and_unknown(
+        self,
+        reconcile_factory,
+        allowlist_root: Path,
+    ) -> None:
+        # Compose four redeliveries — one per rule branch — with distinct
+        # (feature_id, correlation_id) tuples so the SQLite mock can
+        # return a different state for each.
+        yaml_path = allowlist_root / "feature.yaml"
+
+        def _msg_for(feature_id: str, correlation_id: str):
+            payload = _valid_payload_dict(yaml_path)
+            payload["feature_id"] = feature_id
+            payload["correlation_id"] = correlation_id
+            return _make_msg(_envelope_bytes(payload))
+
+        msg_terminal = _msg_for("FEAT-DONE", "corr-done")
+        msg_running = _msg_for("FEAT-RUN", "corr-run")
+        msg_paused = _msg_for("FEAT-PAUSE", "corr-pause")
+        msg_unknown = _msg_for("FEAT-NEW", "corr-new")
+
+        snap = _make_paused_snapshot(
+            feature_id="FEAT-PAUSE", correlation_id="corr-pause"
+        )
+
+        deps, mocks = reconcile_factory(
+            state_by_key={
+                ("FEAT-DONE", "corr-done"): "COMPLETE",
+                ("FEAT-RUN", "corr-run"): "RUNNING",
+                ("FEAT-PAUSE", "corr-pause"): PAUSED_BUILD_STATE,
+                # FEAT-NEW intentionally absent → None → fresh
+            },
+            paused_snapshots=[snap],
+            redelivery_batches=[
+                [msg_terminal, msg_running, msg_paused, msg_unknown]
+            ],
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        # Branch 1: terminal acked.
+        msg_terminal.ack.assert_awaited_once()
+        # Branch 2: running marked INTERRUPTED and dispatched.
+        mocks["mark_interrupted_and_reset"].assert_awaited_once_with(
+            "FEAT-RUN", "corr-run"
+        )
+        # Branch 3: paused re-emitted.
+        mocks["publish_build_paused"].assert_awaited_once()
+        mocks["publish_approval_request"].assert_awaited_once()
+        # Branch 4: unknown handed to handle_message → dispatch_build.
+        # dispatch_build is called twice: once for RUNNING, once for unknown.
+        assert mocks["dispatch_build"].await_count == 2
+        # Confirm the report counters reflect each branch firing once.
+        assert report.acked_terminal == 1
+        assert report.restarted_in_flight == 1
+        assert report.re_emitted_paused == 1
+        assert report.fresh_builds == 1
+        assert report.paused_scan_re_emitted == 0  # already covered via redelivery
+
+
+# ---------------------------------------------------------------------------
+# Robustness: malformed redelivery delegates to handle_message (ack + failed)
+# ---------------------------------------------------------------------------
+
+
+class TestReconcileMalformedRedelivery:
+    """Malformed redelivery does not break the loop; handle_message owns it."""
+
+    @pytest.mark.asyncio
+    async def test_malformed_redelivery_is_acked_and_published_failed(
+        self,
+        reconcile_factory,
+    ) -> None:
+        msg = _make_msg(b"this is not even close to valid json {{{")
+        deps, mocks = reconcile_factory(
+            redelivery_batches=[[msg]],
+        )
+
+        report = await reconcile_on_boot(deps)
+
+        # handle_message owns the ack + build-failed for malformed input.
+        msg.ack.assert_awaited_once()
+        mocks["publish_build_failed"].assert_awaited_once()
+        assert report.malformed == 1
+        # SQLite was never read for a malformed payload — we don't have
+        # a parseable identity to look up.
+        mocks["read_build_state"].assert_not_called()

@@ -1,24 +1,28 @@
 ---
-id: TASK-NFI-009
-title: "Implement pipeline_consumer.reconcile_on_boot (crash recovery + paused re-announce)"
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
-parent_review: TASK-REV-NF20
-feature_id: FEAT-FORGE-002
-wave: 4
-implementation_mode: task-work
 complexity: 6
+created: 2026-04-24 00:00:00+00:00
 dependencies:
-  - TASK-NFI-007
-  - TASK-NFI-008
-tags: [crash-recovery, reconciliation, pipeline, idempotency]
+- TASK-NFI-007
+- TASK-NFI-008
+feature_id: FEAT-FORGE-002
+id: TASK-NFI-009
+implementation_mode: task-work
+parent_review: TASK-REV-NF20
+priority: high
+status: design_approved
+tags:
+- crash-recovery
+- reconciliation
+- pipeline
+- idempotency
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement pipeline_consumer.reconcile_on_boot (crash recovery + paused re-announce)
+updated: 2026-04-24 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Implement pipeline_consumer.reconcile_on_boot

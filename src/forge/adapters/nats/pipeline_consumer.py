@@ -32,21 +32,25 @@ ADR / contract anchors:
 - API contract: ``docs/design/contracts/API-nats-pipeline-events.md``
 - Sequential-build constraint: ADR-ARCH-014 (``max_ack_pending=1``)
 - Terminal-only ack semantics: ADR-SP-013
-- Crash recovery (out of scope here, owned by TASK-NFI-009)
+- Crash recovery: :func:`reconcile_on_boot` (added in TASK-NFI-009).
 """
 
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Protocol, runtime_checkable
 
-from nats.aio.msg import Msg
 from nats.js.api import AckPolicy, ConsumerConfig, DeliverPolicy
 from nats.js.client import JetStreamContext
 from nats_core.envelope import MessageEnvelope
-from nats_core.events import BuildFailedPayload, BuildQueuedPayload
+from nats_core.events import (
+    ApprovalRequestPayload,
+    BuildFailedPayload,
+    BuildPausedPayload,
+    BuildQueuedPayload,
+)
 from pydantic import ValidationError
 
 from forge.config.models import ForgeConfig
@@ -433,19 +437,415 @@ def _safe_envelope_feature(envelope: MessageEnvelope) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Crash-recovery reconciliation (TASK-NFI-009 / API-nats-pipeline-events.md §4)
+# ---------------------------------------------------------------------------
+
+
+#: Persisted build states that mean the build already finished. Their
+#: redelivered ``build-queued`` messages are acked-and-skipped — the
+#: previous run completed before its ack was committed (idempotency).
+TERMINAL_BUILD_STATES: frozenset[str] = frozenset(
+    {"COMPLETE", "FAILED", "CANCELLED", "SKIPPED"}
+)
+
+#: Persisted build states that mean the build was actively running when
+#: the previous Forge process died. We mark them ``INTERRUPTED`` and
+#: restart from ``PREPARING`` (DM-build-lifecycle.md §2.1; ADR-SP-013
+#: retry-from-scratch policy).
+IN_FLIGHT_BUILD_STATES: frozenset[str] = frozenset({"RUNNING", "FINALISING"})
+
+#: Persisted build states that, on redelivery, must be retried from
+#: scratch via the same ``INTERRUPTED → PREPARING`` transition. We
+#: include ``PREPARING`` here so a crash mid-worktree-creation does not
+#: leave the build wedged.
+RESTART_FROM_PREPARING_STATES: frozenset[str] = (
+    IN_FLIGHT_BUILD_STATES | frozenset({"PREPARING"})
+)
+
+#: Single literal value: the persisted state for paused builds. Pulled
+#: out as a constant so tests can assert verbatim against the string the
+#: SQLite reader returns.
+PAUSED_BUILD_STATE: str = "PAUSED"
+
+
+@dataclass(frozen=True, slots=True)
+class PausedBuildSnapshot:
+    """Snapshot of a paused build, sufficient to re-emit lifecycle events.
+
+    The SQLite reader hydrates one of these per row whose ``status`` is
+    ``PAUSED``. The two payloads carry the **original** ``correlation_id``
+    so subscribers (Jarvis, dashboards) thread the re-announcement onto
+    the same conversation as the build that was paused before the crash
+    (Group D @edge-case; ADR-ARCH-021 "first response wins").
+
+    Attributes:
+        feature_id: ``FEAT-XXXX`` identifier; mirrored on both payloads
+            and used for subject construction.
+        correlation_id: Original ``correlation_id`` threaded through the
+            paused build's lifecycle. MUST equal
+            ``build_paused_payload.correlation_id``.
+        build_paused_payload: Re-emit verbatim via
+            :class:`PipelinePublisher.publish_build_paused`.
+        approval_request_payload: Re-emit verbatim on
+            ``approval_subject``. Carries the same ``request_id`` as the
+            original — ADR-ARCH-021's first-response-wins semantics treat
+            duplicate requests with the same ``request_id`` as the same
+            request, so a late approval responder cannot double-resume.
+        approval_subject: NATS subject the approval request was originally
+            published on (mirrors :attr:`BuildPausedPayload.approval_subject`).
+    """
+
+    feature_id: str
+    correlation_id: str
+    build_paused_payload: BuildPausedPayload
+    approval_request_payload: ApprovalRequestPayload
+    approval_subject: str
+
+
+# Type aliases for crash-recovery collaborators ------------------------------
+
+ReadBuildState = Callable[[str, str], Awaitable["str | None"]]
+"""``async (feature_id, correlation_id) -> persisted state | None``.
+
+Returns the SQLite ``builds.status`` value for the row matching the
+identity, or ``None`` if no row exists (unknown build → fresh).
+"""
+
+MarkInterruptedAndReset = Callable[[str, str], Awaitable[None]]
+"""``async (feature_id, correlation_id) -> None``.
+
+Persists the ``INTERRUPTED`` transition and immediately re-resets the
+row to ``PREPARING`` so the redispatched build re-enters the normal
+state machine cleanly. Implementations are expected to be atomic.
+"""
+
+IterPausedBuilds = Callable[[], Awaitable["list[PausedBuildSnapshot]"]]
+"""``async () -> list[PausedBuildSnapshot]`` — every PAUSED row in SQLite."""
+
+PublishBuildPausedFn = Callable[[BuildPausedPayload], Awaitable[None]]
+"""Re-emit ``pipeline.build-paused.{feature_id}``."""
+
+PublishApprovalRequestFn = Callable[
+    [ApprovalRequestPayload, str], Awaitable[None]
+]
+"""``async (payload, approval_subject) -> None`` — re-emit the approval
+request on its original subject."""
+
+FetchRedeliveries = Callable[[], Awaitable["list[_MsgLike]"]]
+"""``async () -> list[Msg]`` — drain one batch from the durable pull
+subscription. Returns an empty list when the inbox is empty."""
+
+
+@dataclass(frozen=True, slots=True)
+class ReconcileDeps:
+    """Injected collaborators for :func:`reconcile_on_boot`.
+
+    Wraps the existing :class:`PipelineConsumerDeps` (re-used for the
+    "fresh build" branch) and adds the SQLite reader, INTERRUPTED writer,
+    paused-row enumerator, and the two re-emit publishers needed for the
+    paused branch.
+
+    A second dataclass (rather than extending :class:`PipelineConsumerDeps`)
+    is used so production wiring can construct one consumer's worth of
+    deps and reuse them both at boot and during normal flow without
+    carrying boot-only collaborators forever.
+    """
+
+    consumer_deps: PipelineConsumerDeps
+    fetch_redeliveries: FetchRedeliveries
+    read_build_state: ReadBuildState
+    mark_interrupted_and_reset: MarkInterruptedAndReset
+    iter_paused_builds: IterPausedBuilds
+    publish_build_paused: PublishBuildPausedFn
+    publish_approval_request: PublishApprovalRequestFn
+
+
+@dataclass
+class ReconcileReport:
+    """Per-branch counters describing what reconcile_on_boot did.
+
+    Used for boot-time logs and observability. Not load-bearing for
+    correctness — the function's contract is the side effects (acks,
+    state writes, re-emitted events), not this report.
+
+    Attributes:
+        acked_terminal: Redelivered messages whose SQLite row was already
+            in a terminal state (acked + skipped).
+        restarted_in_flight: Redelivered messages whose SQLite row was
+            ``RUNNING / FINALISING / PREPARING`` (marked INTERRUPTED then
+            re-dispatched from PREPARING).
+        re_emitted_paused: Redelivered messages whose SQLite row was
+            ``PAUSED`` (re-emitted BuildPaused + ApprovalRequest).
+        fresh_builds: Redelivered messages with no matching SQLite row
+            (handed to the normal :func:`handle_message` path).
+        malformed: Redelivered messages that failed envelope or payload
+            validation (handed to :func:`handle_message`, which acks +
+            publishes ``build-failed``).
+        paused_scan_re_emitted: PAUSED rows the SQLite belt-and-braces
+            scan re-emitted that the redelivery loop did NOT already
+            cover (so total paused re-emissions == ``re_emitted_paused +
+            paused_scan_re_emitted``).
+    """
+
+    acked_terminal: int = 0
+    restarted_in_flight: int = 0
+    re_emitted_paused: int = 0
+    fresh_builds: int = 0
+    malformed: int = 0
+    paused_scan_re_emitted: int = 0
+    redelivery_keys: set[tuple[str, str]] = field(default_factory=set)
+
+
+async def reconcile_on_boot(deps: ReconcileDeps) -> ReconcileReport:
+    """Run crash-recovery reconciliation exactly once at startup.
+
+    Drains every redelivered ``build-queued`` message from the durable
+    pull subscription, applies the §4 reconciliation rules, then runs a
+    belt-and-braces scan of SQLite for ``PAUSED`` builds whose paused
+    event must be re-announced even if JetStream did not redeliver
+    (Group D @edge-case).
+
+    Reconciliation rules — applied per redelivered ``BuildQueuedPayload``:
+
+    1. *terminal* (``COMPLETE | FAILED | CANCELLED | SKIPPED``)
+       → ack the message; do not start a new build (idempotent).
+    2. *in-flight or PREPARING* (``RUNNING | FINALISING | PREPARING``)
+       → mark ``INTERRUPTED`` then reset to ``PREPARING``
+       (retry-from-scratch), and hand the message to the standard
+       dispatch path with a deferred ack callback.
+    3. *paused* (``PAUSED``)
+       → re-emit :class:`BuildPausedPayload` and
+       :class:`ApprovalRequestPayload` with the ORIGINAL ``correlation_id``
+       (first-response-wins per ADR-ARCH-021), leave the message unacked
+       so the queue position is preserved.
+    4. *unknown* (no SQLite row matches)
+       → fresh build; hand to :func:`handle_message` for the normal
+       validation + dispatch path.
+
+    The SQLite scan that runs after the redelivery drain re-emits
+    paused events for any ``PAUSED`` rows whose redelivery did not fire
+    (e.g. message expired from JetStream stream). Builds already
+    re-emitted via the redelivery path are skipped — keyed on
+    ``(feature_id, correlation_id)`` — so subscribers never see a
+    duplicate paused event from one ``reconcile_on_boot`` call.
+
+    Args:
+        deps: Injected collaborators. See :class:`ReconcileDeps`.
+
+    Returns:
+        :class:`ReconcileReport` with per-branch counters. Useful for
+        boot-log observability; not load-bearing for correctness.
+
+    Notes:
+        Per the task brief, this function may be called sequentially
+        over the redelivery queue at startup — there is no concurrency
+        requirement. Normal operation (post-boot) remains async per
+        message via :func:`handle_message`.
+    """
+
+    report = ReconcileReport()
+
+    # Pre-fetch all paused snapshots once; index by identity tuple so
+    # the redelivery loop can hand over the originals without re-reading
+    # SQLite per-message.
+    snapshots = await deps.iter_paused_builds()
+    paused_by_key: dict[tuple[str, str], PausedBuildSnapshot] = {
+        (s.feature_id, s.correlation_id): s for s in snapshots
+    }
+
+    # --- Phase 1: drain redelivered messages -----------------------------
+    while True:
+        batch = await deps.fetch_redeliveries()
+        if not batch:
+            break
+        for msg in batch:
+            await _reconcile_one_redelivery(msg, deps, report, paused_by_key)
+
+    # --- Phase 2: belt-and-braces SQLite scan for PAUSED rows ------------
+    # Re-emit any paused rows the redelivery loop did not already cover.
+    # The `redelivery_keys` set guarantees we never emit twice for the
+    # same (feature_id, correlation_id) within one call.
+    for key, snap in paused_by_key.items():
+        if key in report.redelivery_keys:
+            continue
+        await deps.publish_build_paused(snap.build_paused_payload)
+        await deps.publish_approval_request(
+            snap.approval_request_payload, snap.approval_subject
+        )
+        report.paused_scan_re_emitted += 1
+
+    logger.info(
+        "reconcile_on_boot: complete acked_terminal=%d restarted=%d "
+        "re_emitted_paused=%d fresh=%d malformed=%d paused_scan=%d",
+        report.acked_terminal,
+        report.restarted_in_flight,
+        report.re_emitted_paused,
+        report.fresh_builds,
+        report.malformed,
+        report.paused_scan_re_emitted,
+    )
+    return report
+
+
+async def _reconcile_one_redelivery(
+    msg: _MsgLike,
+    deps: ReconcileDeps,
+    report: ReconcileReport,
+    paused_by_key: dict[tuple[str, str], PausedBuildSnapshot],
+) -> None:
+    """Apply the §4 reconciliation rules to a single redelivered message.
+
+    Mutually-exclusive outcomes mirror the rule table in
+    :func:`reconcile_on_boot`. Malformed redeliveries are handed to
+    :func:`handle_message` — that function already owns the
+    ack + ``build-failed`` publish flow, so reconciliation does not
+    duplicate it.
+    """
+
+    # Parse envelope + payload. Malformed payloads cannot be
+    # reconciled — they have no usable identity — so we delegate to
+    # :func:`handle_message` which acks and publishes ``build-failed``.
+    try:
+        envelope = MessageEnvelope.model_validate_json(msg.data)
+        payload = BuildQueuedPayload.model_validate(envelope.payload)
+    except (ValidationError, ValueError) as exc:
+        logger.warning(
+            "reconcile_on_boot: malformed redelivery (%s); delegating to "
+            "handle_message for ack + build-failed publish",
+            exc,
+        )
+        report.malformed += 1
+        await handle_message(msg, deps.consumer_deps)
+        return
+
+    feature_id = payload.feature_id
+    correlation_id = payload.correlation_id
+    key = (feature_id, correlation_id)
+
+    state = await deps.read_build_state(feature_id, correlation_id)
+
+    # --- Branch 4: unknown build → fresh dispatch ------------------------
+    if state is None:
+        logger.info(
+            "reconcile_on_boot: unknown build feature_id=%s correlation_id=%s; "
+            "treating as fresh",
+            feature_id,
+            correlation_id,
+        )
+        report.fresh_builds += 1
+        await handle_message(msg, deps.consumer_deps)
+        return
+
+    # --- Branch 1: terminal → ack + skip --------------------------------
+    if state in TERMINAL_BUILD_STATES:
+        logger.info(
+            "reconcile_on_boot: terminal state=%s feature_id=%s correlation_id=%s; "
+            "ack + skip (idempotent)",
+            state,
+            feature_id,
+            correlation_id,
+        )
+        await msg.ack()
+        report.acked_terminal += 1
+        return
+
+    # --- Branch 3: paused → re-emit lifecycle, leave unacked ------------
+    if state == PAUSED_BUILD_STATE:
+        snap = paused_by_key.get(key)
+        if snap is None:
+            # SQLite says PAUSED but the snapshot enumerator did not
+            # surface this row. We cannot re-emit without the original
+            # payloads, so the safest fallback is fresh dispatch — the
+            # standard handler will detect the duplicate via
+            # is_duplicate_terminal (False here) and either dispatch or
+            # ack + build-failed if the payload no longer validates.
+            logger.warning(
+                "reconcile_on_boot: state=PAUSED but no snapshot for "
+                "feature_id=%s correlation_id=%s; falling back to "
+                "fresh dispatch",
+                feature_id,
+                correlation_id,
+            )
+            report.fresh_builds += 1
+            await handle_message(msg, deps.consumer_deps)
+            return
+
+        logger.info(
+            "reconcile_on_boot: re-emitting paused lifecycle for "
+            "feature_id=%s correlation_id=%s",
+            feature_id,
+            correlation_id,
+        )
+        await deps.publish_build_paused(snap.build_paused_payload)
+        await deps.publish_approval_request(
+            snap.approval_request_payload, snap.approval_subject
+        )
+        report.re_emitted_paused += 1
+        report.redelivery_keys.add(key)
+        # NOTE: do not ack — paused builds keep the queue position so
+        # JetStream redelivers again on the next crash.
+        return
+
+    # --- Branch 2: in-flight (or PREPARING) → mark INTERRUPTED, restart -
+    if state in RESTART_FROM_PREPARING_STATES:
+        logger.info(
+            "reconcile_on_boot: in-flight state=%s feature_id=%s "
+            "correlation_id=%s; marking INTERRUPTED + restarting from "
+            "PREPARING",
+            state,
+            feature_id,
+            correlation_id,
+        )
+        await deps.mark_interrupted_and_reset(feature_id, correlation_id)
+        # Hand to dispatch_build directly (NOT handle_message) — we have
+        # already validated identity against SQLite, so re-running the
+        # path/originator allowlist would be redundant. Use the same
+        # idempotent ack callback shape as the normal handler so the
+        # state machine acks on terminal transition.
+        ack_callback = _build_ack_callback(msg)
+        await deps.consumer_deps.dispatch_build(payload, ack_callback)
+        report.restarted_in_flight += 1
+        return
+
+    # Defensive: unexpected state. This should never fire — the SQLite
+    # column is constrained to the values above — but if a future
+    # migration adds a state without updating this module, we don't
+    # want to silently swallow the redelivery. Logging at WARNING and
+    # falling back to fresh dispatch keeps the build moving while
+    # surfacing the inconsistency to operators.
+    logger.warning(
+        "reconcile_on_boot: unexpected state=%r feature_id=%s "
+        "correlation_id=%s; falling back to fresh dispatch",
+        state,
+        feature_id,
+        correlation_id,
+    )
+    report.fresh_builds += 1
+    await handle_message(msg, deps.consumer_deps)
+
+
 __all__ = [
     "ACK_WAIT_SECONDS",
     "BUILD_FAILED_SUBJECT_PREFIX",
     "BUILD_QUEUE_SUBJECT",
     "DURABLE_NAME",
     "FORGE_SOURCE_ID",
+    "IN_FLIGHT_BUILD_STATES",
+    "PAUSED_BUILD_STATE",
+    "PausedBuildSnapshot",
     "PipelineConsumerDeps",
     "REASON_MALFORMED_PAYLOAD",
     "REASON_ORIGINATOR_NOT_RECOGNISED",
     "REASON_PATH_OUTSIDE_ALLOWLIST",
+    "RESTART_FROM_PREPARING_STATES",
+    "ReconcileDeps",
+    "ReconcileReport",
     "STREAM_NAME",
+    "TERMINAL_BUILD_STATES",
     "UNKNOWN_FEATURE_ID",
     "build_consumer_config",
     "handle_message",
+    "reconcile_on_boot",
     "start_pipeline_consumer",
 ]
