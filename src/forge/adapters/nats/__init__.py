@@ -7,6 +7,8 @@ package root without knowing the module layout:
 - :func:`register_on_boot`, :func:`heartbeat_loop`, :func:`deregister`
   plus the :class:`StatusProvider` and :class:`Clock` injection
   protocols (fleet self-registration).
+- :class:`SyntheticResponseInjector` / :class:`SyntheticInjectFailure`
+  (CLI cancel/skip steering — TASK-CGCP-008).
 """
 
 from forge.adapters.nats.fleet_publisher import (
@@ -22,6 +24,10 @@ from forge.adapters.nats.pipeline_publisher import (
     PipelinePublisher,
     PublishFailure,
 )
+from forge.adapters.nats.synthetic_response_injector import (
+    SyntheticInjectFailure,
+    SyntheticResponseInjector,
+)
 
 __all__ = [
     "AGENT_ID",
@@ -30,6 +36,8 @@ __all__ = [
     "PipelinePublisher",
     "PublishFailure",
     "StatusProvider",
+    "SyntheticInjectFailure",
+    "SyntheticResponseInjector",
     "deregister",
     "heartbeat_loop",
     "register_on_boot",

@@ -1,0 +1,208 @@
+{
+  "task_id": "TASK-CGCP-004",
+  "timestamp": "2026-04-25T18:01:32.180097",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 146,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/src/forge/gating/models.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/gating/test_constitutional.py",
+    "src/forge/adapters/nats/__init__.py",
+    "src/forge/gating/__init__.py",
+    "src/forge/gating/models.py",
+    "tasks/backlog/TASK-CGCP-004-constitutional-override-branch.md",
+    "tasks/backlog/TASK-CGCP-005-reasoning-model-assembly.md",
+    "tasks/backlog/TASK-CGCP-008-synthetic-response-injector.md",
+    "tests/forge/gating/test_models.py"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-CGCP-004-implementation-plan.md",
+    ".claude/task-plans/TASK-CGCP-005-implementation-plan.md",
+    ".claude/task-plans/TASK-CGCP-008-implementation-plan.md",
+    ".guardkit/autobuild/TASK-CGCP-001/checkpoints.json",
+    ".guardkit/autobuild/TASK-CGCP-004/player_turn_1.json",
+    ".guardkit/autobuild/TASK-CGCP-004/task_work_results.json",
+    ".guardkit/autobuild/TASK-CGCP-004/turn_context.json",
+    ".guardkit/autobuild/TASK-CGCP-005/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-CGCP-005/player_turn_1.json",
+    ".guardkit/autobuild/TASK-CGCP-005/specialist_results.json",
+    ".guardkit/autobuild/TASK-CGCP-005/task_work_results.json",
+    ".guardkit/autobuild/TASK-CGCP-005/turn_context.json",
+    ".guardkit/autobuild/TASK-CGCP-008/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-CGCP-008/player_turn_1.json",
+    ".guardkit/autobuild/TASK-CGCP-008/specialist_results.json",
+    ".guardkit/autobuild/TASK-CGCP-008/task_work_results.json",
+    ".guardkit/autobuild/TASK-CGCP-008/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/.guardkit/autobuild/TASK-CGCP-004/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/src/forge/gating/constitutional.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/gating/test_constitutional.py",
+    "src/forge/adapters/nats/synthetic_response_injector.py",
+    "src/forge/gating/constitutional.py",
+    "src/forge/gating/reasoning.py",
+    "tasks/design_approved/TASK-CGCP-004-constitutional-override-branch.md",
+    "tasks/design_approved/TASK-CGCP-005-reasoning-model-assembly.md",
+    "tasks/design_approved/TASK-CGCP-008-synthetic-response-injector.md",
+    "tests/forge/adapters/test_synthetic_response_injector.py",
+    "tests/forge/gating/test_constitutional.py",
+    "tests/forge/gating/test_reasoning.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/gating/test_constitutional.py"
+  ],
+  "summary": "146 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 53,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 1,
+    "missing_phases": [
+      "4",
+      "5"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 1 completed invocations\n\nMissing phases:\n  - Phase 4 (Testing)\n  - Phase 5 (Code Review)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 3 (Phase 3): Implementation (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "_check_constitutional_override(target_identifier: str) -> GateDecision | None returns a fully-formed GateDecision for target_identifier in {\"review_pr\", \"create_pr_after_review\"} and None otherwise",
+      "status": "complete",
+      "evidence": "src/forge/gating/constitutional.py defines CONSTITUTIONAL_OVERRIDE_TARGETS = frozenset({'review_pr', 'create_pr_after_review'}) and _check_constitutional_override which returns a fully-formed GateDecision when target_identifier is in the set and None otherwise. test_constitutional.py::TestCheckConstitutionalOverrideMatching parametrizes both matching identifiers and five non-matching identifiers (plus empty-string edge case) \u2014 all 8 cases pass.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Returned GateDecision has mode == GateMode.MANDATORY_HUMAN_APPROVAL, auto_approve_override is True, threshold_applied is None, and a rationale that names the constitutional rule",
+      "status": "complete",
+      "evidence": "_check_constitutional_override constructs GateDecision with mode=GateMode.MANDATORY_HUMAN_APPROVAL, auto_approve_override=True, threshold_applied=None, and rationale=CONSTITUTIONAL_OVERRIDE_RATIONALE which includes 'ADR-ARCH-026'. test_constitutional.py::TestConstitutionalOverrideDecisionFields covers each field via parametrized tests for both targets \u2014 all pass.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "evaluate_gate() calls _check_constitutional_override as its first statement; if non-None, returns immediately without consulting coach_score, detection_findings, retrieved_priors, or calibration_adjustments",
+      "status": "complete",
+      "evidence": "src/forge/gating/models.py evaluate_gate body now opens with a lazy import of _check_constitutional_override followed by the override call (passing only target_identifier, target_kind, stage_label, build_id, decided_at). If override is non-None, the function returns it before _validate_criterion_breakdown, prompt assembly, or the reasoning_model_call. test_constitutional.py::TestEvaluateGateConstitutionalFirst::test_evaluate_gate_first_statement_is_constitutional_override walks the function AST to assert override reference precedes any reasoning helper, and test_evaluate_gate_does_not_consult_reasoning_model_for_override passes a reasoning-model double that raises if invoked \u2014 passing means the model was never called.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Group A scenario \"A pull-request-review stage always requires human approval regardless of evidence\" passes against coach_score=0.95, detection_findings=[], retrieved_priors=[concurring]",
+      "status": "complete",
+      "evidence": "test_constitutional.py::TestEvaluateGateConstitutionalFirst::test_evaluate_gate_review_pr_returns_constitutional_decision invokes evaluate_gate with target_identifier='review_pr', coach_score=0.95, criterion_breakdown all 0.95, empty detection_findings, and a concurring PriorReference (relevance_score=0.95). Asserts mode=MANDATORY_HUMAN_APPROVAL, auto_approve_override=True, threshold_applied=None, coach_score=None (override short-circuits) \u2014 passes.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Group C scenario \"Creating a pull request after review is treated with the same constitutional rule\" passes for target_identifier=\"create_pr_after_review\"",
+      "status": "complete",
+      "evidence": "test_constitutional.py::TestEvaluateGateConstitutionalFirst::test_evaluate_gate_create_pr_after_review_returns_constitutional_decision invokes evaluate_gate with target_identifier='create_pr_after_review' and coach_score=0.99 (would auto-approve absent override). Asserts mode=MANDATORY_HUMAN_APPROVAL, auto_approve_override=True, threshold_applied=None \u2014 passes.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Group E @security @regression two-layer regression test: a pull-request-review stage produces MANDATORY_HUMAN_APPROVAL even when the prompt-layer SAFETY_CONSTITUTION is removed in the test harness (executor branch alone is sufficient)",
+      "status": "complete",
+      "evidence": "test_constitutional.py::TestTwoLayerRegression::test_executor_branch_alone_produces_mandatory_human_approval is parametrized over both override targets. The harness simulates 'prompt layer disabled' by passing constitutional_rules=[] AND a reasoning_model_call double that raises if invoked \u2014 the executor branch is the only enforcement remaining. Both parametrized invocations pass with mode=MANDATORY_HUMAN_APPROVAL. A complementary AST-walk test (test_regression_signal_is_visible_when_executor_layer_disabled) pins the override-precedes-reasoning ordering so a future refactor surfaces the regression.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Group C @negative scenario \"A mandatory-human-approval decision must not masquerade as a threshold-based approval\" passes \u2014 auto_approve_override=True AND threshold_applied is None invariant holds",
+      "status": "complete",
+      "evidence": "test_constitutional.py::TestConstitutionalOverrideDecisionFields::test_negative_invariant_holds_for_both_targets iterates over CONSTITUTIONAL_OVERRIDE_TARGETS and asserts BOTH auto_approve_override is True AND threshold_applied is None hold simultaneously for every matching target. Pydantic's GateDecision._check_invariants validator (DM-gating \u00a76 invariant 1) rejects MANDATORY_HUMAN_APPROVAL with auto_approve_override=False AND threshold_applied is not None, so any drift would fail at construction time as well.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit tests cover both target identifiers and at least three non-matching identifiers",
+      "status": "complete",
+      "evidence": "test_constitutional.py::TestCheckConstitutionalOverrideMatching covers both target identifiers ('review_pr', 'create_pr_after_review') as parametrized matching cases AND five non-matching identifiers ('review_specification', 'review_design', 'review_build_plan', 'execute_subagent', 'search_graphiti') plus empty-string edge case \u2014 well above the three-non-matching threshold.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Module imports nothing from nats_core, nats-py, or langgraph",
+      "status": "complete",
+      "evidence": "src/forge/gating/constitutional.py imports only from stdlib (datetime) and the sibling forge.gating.models. test_constitutional.py::TestModulePurity::test_constitutional_imports_are_clean parses constitutional.py with ast and asserts no import path begins with any of {'nats_core', 'nats', 'langgraph', 'forge.adapters'} \u2014 passes.",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/constitutional.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran `ruff check` and `ruff format --check` against src/forge/gating/constitutional.py, src/forge/gating/models.py, and tests/forge/gating/test_constitutional.py. After applying `ruff format` to the test file (cosmetic only), all three files pass `ruff check` with 'All checks passed!' and `ruff format --check` reports no diffs. Full project test suite: 713 passed, 20 warnings (pre-existing pytest.mark.seam typos in unrelated files).",
+      "test_file": "tests/forge/gating/test_constitutional.py",
+      "implementation_files": [
+        "src/forge/gating/constitutional.py",
+        "src/forge/gating/models.py"
+      ]
+    }
+  ]
+}

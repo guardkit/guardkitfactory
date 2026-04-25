@@ -1,27 +1,27 @@
 ---
-id: TASK-CGCP-004
-title: 'Implement constitutional override branch in evaluate_gate (ADR-ARCH-026 belt-and-braces)'
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 2
-implementation_mode: task-work
 complexity: 5
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-001
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-004
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - gating
 - constitutional
 - safety-critical
 - adr-arch-026
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement constitutional override branch in evaluate_gate (ADR-ARCH-026 belt-and-braces)
+updated: 2026-04-25 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement constitutional override branch in evaluate_gate (ADR-ARCH-026 belt-and-braces)

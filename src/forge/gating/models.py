@@ -1,4 +1,4 @@
-"""Pure-domain data models and the ``evaluate_gate`` stub for ``forge.gating``.
+"""Pure-domain data models and ``evaluate_gate`` for ``forge.gating``.
 
 This module is the **declarative producer** for the Confidence-Gated
 Checkpoint Protocol (FEAT-FORGE-004), per ``docs/design/models/DM-gating.md``
@@ -6,12 +6,16 @@ sections 1, 2 and 3.
 
 Domain purity rules (DM-gating §1, ADR-ARCH-019):
 
-* Imports are restricted to the standard library and ``pydantic``.
+* Imports are restricted to the standard library, ``pydantic``, and the
+  sibling :mod:`forge.gating.reasoning` module (which is itself pure).
 * No imports from ``nats_core``, ``nats-py``, ``langgraph``, or
-  ``forge.adapters.*``. The body of :func:`evaluate_gate` is filled in by
-  Wave 2 (TASK-CGCP-004 constitutional branch + TASK-CGCP-005 reasoning
-  assembly); this module ships only the model surface and a
-  ``NotImplementedError`` shell.
+  ``forge.adapters.*``.
+
+The body of :func:`evaluate_gate` implements the **reasoning-branch** half
+of the function (TASK-CGCP-005). The constitutional-override branch
+(TASK-CGCP-004 / ADR-ARCH-026) lands as a sibling check that runs before
+the reasoning model — this module purposely keeps the reasoning branch
+self-contained so the two tasks compose cleanly.
 
 See also:
 
@@ -23,11 +27,22 @@ See also:
 
 from __future__ import annotations
 
-from datetime import datetime
+from collections.abc import Callable
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+# The reasoning-model dependency is annotated here as the structurally
+# equivalent ``Callable[[str], str]`` rather than the
+# :class:`forge.gating.reasoning.ReasoningModelCall` Protocol. This avoids
+# an import cycle (``reasoning`` imports the data models from this module)
+# while still satisfying TASK-CGCP-005's "Protocol or callable type" AC —
+# any value that satisfies the Protocol also satisfies this Callable, and
+# vice versa. ``ReasoningModelCall`` remains the documented public alias
+# and is available via ``from forge.gating import ReasoningModelCall``.
+ReasoningModelCallable = Callable[[str], str]
 
 # ---------------------------------------------------------------------------
 # Type aliases (DM-gating §1)
@@ -358,8 +373,43 @@ class ConstitutionalRule(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+def _default_clock() -> datetime:
+    """Module-level default clock — UTC ``datetime.now``.
+
+    Pulled out so :func:`evaluate_gate` does not call ``datetime.now()`` in
+    its hot path: tests inject a deterministic clock and the production
+    caller can inject the orchestrator's monotonic clock.
+    """
+    return datetime.now(UTC)
+
+
+def _validate_criterion_breakdown(criterion_breakdown: dict[str, float]) -> None:
+    """Refuse out-of-range criterion scores **before** invoking the model.
+
+    Per AC: criterion scores in ``[0.0, 1.0]`` are accepted; values
+    outside this range are refused with a validation error and **no
+    decision is recorded** (Group B ``@negative``). The check happens
+    pre-reasoning so a malformed breakdown never reaches the model.
+
+    Raises:
+        ValueError: If any value lies outside ``[0.0, 1.0]``.
+    """
+    offenders = [
+        f"{key}={value!r}"
+        for key, value in criterion_breakdown.items()
+        if not 0.0 <= float(value) <= 1.0
+    ]
+    if offenders:
+        joined = ", ".join(offenders)
+        raise ValueError(
+            "criterion_breakdown values must lie in [0.0, 1.0]; "
+            f"out-of-range entries: {joined}.",
+        )
+
+
 def evaluate_gate(
     *,
+    build_id: str,
     target_kind: str,
     target_identifier: str,
     stage_label: str,
@@ -369,22 +419,37 @@ def evaluate_gate(
     retrieved_priors: list[PriorReference],
     calibration_adjustments: list[CalibrationAdjustment],
     constitutional_rules: list[ConstitutionalRule],
+    reasoning_model_call: ReasoningModelCallable,
+    clock: Callable[[], datetime] | None = None,
 ) -> GateDecision:
     """Pure-reasoning gate evaluator (DM-gating §3).
 
-    This shell is intentionally unimplemented. The body is filled in by:
+    The reasoning model is **dependency-injected** via
+    ``reasoning_model_call`` — production wiring binds the orchestrator's
+    reasoning model; tests bind a deterministic ``(prompt: str) -> str``
+    double that returns hard-coded JSON. This keeps :func:`evaluate_gate`
+    a pure function (no I/O, no global state, deterministic in tests).
 
-    * TASK-CGCP-004 — constitutional override branch (ADR-ARCH-026
-      executor-layer hard-coded check).
-    * TASK-CGCP-005 — reasoning-model prompt assembly and structured-response
-      parsing into a :class:`GateDecision`.
+    The function performs:
 
-    The signature is keyword-only by design: callers must pass every input
-    explicitly so partial-application bugs at the tool layer are impossible.
+    1. Pre-validation of ``criterion_breakdown`` — out-of-range values are
+       refused **before** the reasoning call so no decision is recorded
+       (Group B ``@negative``).
+    2. Prompt assembly via
+       :func:`forge.gating.reasoning._assemble_reasoning_prompt`.
+    3. Reasoning-model invocation via the injected ``reasoning_model_call``.
+    4. Structured-response parsing via
+       :func:`forge.gating.reasoning._parse_model_response`.
+    5. Post-condition enforcement via
+       :func:`forge.gating.reasoning._enforce_post_conditions` —
+       degraded-mode invariant + critical-finding escalation.
+    6. :class:`GateDecision` construction with ``rationale``, ``evidence``
+       (filtered priors), ``detection_findings``, ``decided_at``.
 
     Args:
-        target_kind: Kind of gated target — local tool, fleet capability,
-            or subagent.
+        build_id: Stable identifier of the build being gated.
+        target_kind: Kind of gated target — ``local_tool``,
+            ``fleet_capability``, or ``subagent``.
         target_identifier: Identifier of the gated target.
         stage_label: Pipeline stage label producing the decision.
         coach_score: Specialist-agent Coach overall score, or ``None`` when
@@ -394,17 +459,116 @@ def evaluate_gate(
         retrieved_priors: Graphiti priors retrieved by the tool layer.
         calibration_adjustments: Approved bias entities.
         constitutional_rules: ADR-ARCH-026 belt+braces executor-layer rules.
+            The constitutional-override branch (TASK-CGCP-004) is a
+            sibling check that runs before this function; it is accepted
+            here for forward-compatible signature stability.
+        reasoning_model_call: Dependency-injected reasoning-model callable
+            (``(prompt: str) -> str``) — see
+            :class:`forge.gating.reasoning.ReasoningModelCall`.
+        clock: Optional callable returning the "now" timestamp; defaults to
+            UTC ``datetime.now``. Inject in tests for deterministic
+            ``decided_at`` values.
 
     Returns:
-        A :class:`GateDecision`. (Once implemented.)
+        A :class:`GateDecision` with ``rationale``, ``evidence``,
+        ``detection_findings``, and ``decided_at`` populated.
 
     Raises:
-        NotImplementedError: Always — body is reserved for Wave 2.
+        ValueError: If ``criterion_breakdown`` contains out-of-range values
+            (no decision is recorded).
+        forge.gating.reasoning.ReasoningResponseError: If the reasoning
+            model's response cannot be parsed.
+        forge.gating.reasoning.PostConditionError: If the parsed decision
+            violates a §6 post-condition (degraded-mode or
+            critical-finding-escalation invariant).
     """
-    raise NotImplementedError(
-        "forge.gating.evaluate_gate is not implemented yet. "
-        "Body is filled in by TASK-CGCP-004 (constitutional override) and "
-        "TASK-CGCP-005 (reasoning-model assembly). See DM-gating.md §3.",
+    # 0. ADR-ARCH-026 belt-and-braces executor-layer override (TASK-CGCP-004).
+    #    MUST be the first behavioral check in this function body:
+    #    pull-request review and pull-request creation always demand human
+    #    approval, regardless of any other input. This branch deliberately
+    #    consults *only* ``target_identifier`` (plus the executor-context
+    #    fields needed to stamp the decision); it does **not** look at
+    #    ``coach_score``, ``detection_findings``, ``retrieved_priors``, or
+    #    ``calibration_adjustments`` (TASK-CGCP-004 AC-003).
+    #
+    #    Lazy import avoids a circular dependency: the ``constitutional``
+    #    sibling imports :class:`GateDecision` / :class:`GateMode` /
+    #    :data:`GateTargetKind` from this module.
+    from forge.gating.constitutional import _check_constitutional_override
+
+    override = _check_constitutional_override(
+        target_identifier,
+        target_kind=target_kind,  # type: ignore[arg-type]
+        stage_label=stage_label,
+        build_id=build_id,
+        decided_at=(clock if clock is not None else _default_clock)(),
+    )
+    if override is not None:
+        return override
+
+    # Local import keeps the type-only ReasoningModelCall reference above
+    # honest while pulling the runtime helpers without an import cycle.
+    from forge.gating.reasoning import (
+        _assemble_reasoning_prompt,
+        _enforce_post_conditions,
+        _parse_model_response,
+    )
+
+    # 1. Refuse out-of-range criterion scores BEFORE invoking the model
+    #    (Group B @negative — no decision is recorded).
+    _validate_criterion_breakdown(criterion_breakdown)
+
+    # 2. Build the reasoning-model prompt deterministically.
+    prompt = _assemble_reasoning_prompt(
+        target_kind=target_kind,
+        target_identifier=target_identifier,
+        stage_label=stage_label,
+        coach_score=coach_score,
+        criterion_breakdown=criterion_breakdown,
+        detection_findings=detection_findings,
+        retrieved_priors=retrieved_priors,
+        calibration_adjustments=calibration_adjustments,
+    )
+
+    # 3. Invoke the dependency-injected reasoning model.
+    raw_response = reasoning_model_call(prompt)
+
+    # 4. Parse and validate the structured response.
+    parsed = _parse_model_response(raw_response)
+
+    # 5. Enforce DM-gating §6 post-conditions (degraded mode +
+    #    critical-finding escalation).
+    _enforce_post_conditions(
+        parsed=parsed,
+        coach_score=coach_score,
+        detection_findings=detection_findings,
+    )
+
+    # 6. Build the GateDecision. ``evidence`` is the subset of supplied
+    #    priors the reasoning model named via ``relevant_prior_ids`` —
+    #    falling back to the full set when the model declined to filter.
+    decided_at_clock = clock if clock is not None else _default_clock
+    relevant_ids = set(parsed.relevant_prior_ids)
+    if relevant_ids:
+        evidence = [p for p in retrieved_priors if p.entity_id in relevant_ids]
+    else:
+        evidence = list(retrieved_priors)
+
+    return GateDecision(
+        build_id=build_id,
+        stage_label=stage_label,
+        target_kind=target_kind,  # type: ignore[arg-type]
+        target_identifier=target_identifier,
+        mode=parsed.mode,
+        rationale=parsed.rationale,
+        coach_score=coach_score,
+        criterion_breakdown=dict(criterion_breakdown),
+        detection_findings=list(detection_findings),
+        evidence=evidence,
+        threshold_applied=parsed.threshold_applied,
+        auto_approve_override=False,
+        degraded_mode=coach_score is None,
+        decided_at=decided_at_clock(),
     )
 
 
@@ -421,3 +585,16 @@ __all__ = [
     "ResponseKind",
     "evaluate_gate",
 ]
+
+# Re-export ``ReasoningModelCall`` for callers that prefer importing the
+# Protocol from the model module rather than ``forge.gating.reasoning``.
+# The runtime reference is created lazily via ``__getattr__`` to avoid the
+# import cycle (``reasoning`` imports from this module at module load).
+
+
+def __getattr__(name: str) -> object:  # pragma: no cover — trivial shim
+    if name == "ReasoningModelCall":
+        from forge.gating.reasoning import ReasoningModelCall
+
+        return ReasoningModelCall
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

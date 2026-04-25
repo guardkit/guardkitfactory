@@ -401,12 +401,22 @@ class TestResponseKindEnum:
 # ---------------------------------------------------------------------------
 
 
-class TestEvaluateGateStub:
-    """AC-010: keyword-only signature; raises NotImplementedError."""
+class TestEvaluateGateSignature:
+    """AC-010: keyword-only signature carrying the Wave 2 reasoning hooks.
+
+    Updated by TASK-CGCP-005: ``evaluate_gate`` no longer raises
+    :class:`NotImplementedError`. The reasoning-model dependency
+    (``reasoning_model_call``) is injected, and a new ``build_id`` slot
+    plus an optional ``clock`` complete the keyword-only signature.
+    The legacy stub-era tests have been replaced with the contract this
+    task ships.
+    """
 
     def test_evaluate_gate_signature_is_keyword_only_with_expected_params(self) -> None:
         sig = inspect.signature(evaluate_gate)
+        # Pre-existing DM-gating §3 inputs ...
         expected_params = [
+            "build_id",
             "target_kind",
             "target_identifier",
             "stage_label",
@@ -416,24 +426,14 @@ class TestEvaluateGateStub:
             "retrieved_priors",
             "calibration_adjustments",
             "constitutional_rules",
+            # ... plus the TASK-CGCP-005 injected reasoning hook and
+            # optional clock for purity.
+            "reasoning_model_call",
+            "clock",
         ]
         assert list(sig.parameters) == expected_params
         for param in sig.parameters.values():
             assert param.kind is inspect.Parameter.KEYWORD_ONLY
-
-    def test_evaluate_gate_raises_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
-            evaluate_gate(
-                target_kind="local_tool",
-                target_identifier="review_pr",
-                stage_label="review",
-                coach_score=None,
-                criterion_breakdown={},
-                detection_findings=[],
-                retrieved_priors=[],
-                calibration_adjustments=[],
-                constitutional_rules=[],
-            )
 
     def test_evaluate_gate_return_annotation_is_gate_decision(self) -> None:
         # ``from __future__ import annotations`` keeps annotations as
@@ -445,7 +445,7 @@ class TestEvaluateGateStub:
         assert hints["return"] is GateDecision
 
     def test_constitutional_rule_can_be_constructed(self) -> None:
-        # Ensures the placeholder type used by the stub signature is real.
+        # Ensures the placeholder type used in the signature is real.
         rule = ConstitutionalRule(
             rule_id="PR_REVIEW_HUMAN_ONLY",
             description="PR review is ALWAYS human (ADR-ARCH-026).",
@@ -492,4 +492,14 @@ class TestModulePurity:
             for forbidden in _FORBIDDEN_ROOTS:
                 assert not imported.startswith(forbidden), (
                     f"forge.gating.__init__ imports forbidden module: {imported!r}"
+                )
+
+    def test_gating_reasoning_imports_are_clean(self) -> None:
+        # TASK-CGCP-005: the reasoning helper module must obey the same
+        # purity rule as the rest of forge.gating.
+        reasoning_path = _GATING_PKG / "reasoning.py"
+        for imported in _iter_imports(reasoning_path):
+            for forbidden in _FORBIDDEN_ROOTS:
+                assert not imported.startswith(forbidden), (
+                    f"forge.gating.reasoning imports forbidden module: {imported!r}"
                 )

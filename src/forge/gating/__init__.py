@@ -13,8 +13,14 @@ Re-exports:
   :class:`GateDecision`, :class:`CalibrationAdjustment`,
   :class:`ConstitutionalRule` — Pydantic v2 models per DM-gating §1.
 * :func:`evaluate_gate` — pure-reasoning entry point (DM-gating §3),
-  currently a ``NotImplementedError`` shell that Wave 2 fills in
-  (TASK-CGCP-004 + TASK-CGCP-005).
+  reasoning-branch implementation (TASK-CGCP-005) wired against an
+  injected :class:`ReasoningModelCall`. The constitutional-override
+  branch (TASK-CGCP-004) is a sibling check that runs ahead of this
+  function.
+* :class:`ReasoningModelCall`,
+  :class:`forge.gating.reasoning.ReasoningResponseError`,
+  :class:`forge.gating.reasoning.PostConditionError` — extension points
+  and error types for the reasoning branch.
 """
 
 from .identity import derive_request_id
@@ -31,6 +37,11 @@ from .models import (
     ResponseKind,
     evaluate_gate,
 )
+from .reasoning import (
+    PostConditionError,
+    ReasoningModelCall,
+    ReasoningResponseError,
+)
 
 __all__ = [
     "CalibrationAdjustment",
@@ -40,8 +51,11 @@ __all__ = [
     "GateDecision",
     "GateMode",
     "GateTargetKind",
+    "PostConditionError",
     "PriorGroupId",
     "PriorReference",
+    "ReasoningModelCall",
+    "ReasoningResponseError",
     "ResponseKind",
     "derive_request_id",
     "evaluate_gate",

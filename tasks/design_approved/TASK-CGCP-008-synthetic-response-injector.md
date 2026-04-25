@@ -1,35 +1,37 @@
 ---
-id: TASK-CGCP-008
-title: 'Implement synthetic_response_injector for forge cancel/skip CLI steering'
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 2
-implementation_mode: task-work
 complexity: 4
+consumer_context:
+- consumes: request_id derivation
+  driver: forge.gating.identity
+  format_note: Synthetic injector reads the persisted request_id for the paused stage
+    from SQLite (not re-derived) to guarantee responder-side dedup against any concurrent
+    real response.
+  framework: pure-Python helper (forge.gating.identity.derive_request_id)
+  task: TASK-CGCP-003
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-003
 - TASK-CGCP-002
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-008
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - nats
 - adapter
 - cli
 - approval
 - synthetic-response
-consumer_context:
-- task: TASK-CGCP-003
-  consumes: request_id derivation
-  framework: pure-Python helper (forge.gating.identity.derive_request_id)
-  driver: forge.gating.identity
-  format_note: Synthetic injector reads the persisted request_id for the paused stage from SQLite (not re-derived) to guarantee responder-side dedup against any concurrent real response.
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement synthetic_response_injector for forge cancel/skip CLI steering
+updated: 2026-04-25 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement synthetic_response_injector for forge cancel/skip CLI steering
