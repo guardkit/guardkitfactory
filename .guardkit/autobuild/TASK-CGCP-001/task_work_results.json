@@ -1,0 +1,189 @@
+{
+  "task_id": "TASK-CGCP-001",
+  "timestamp": "2026-04-25T17:49:52.288892",
+  "completed": true,
+  "success": true,
+  "implementation_mode": "direct",
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": true,
+    "quality_gates_relaxed": true,
+    "all_passed": true
+  },
+  "files_modified": [
+    "src/forge/gating/__init__.py"
+  ],
+  "files_created": [
+    "src/forge/gating/models.py",
+    "tests/forge/gating/__init__.py",
+    "tests/forge/gating/test_models.py"
+  ],
+  "tests_written": [
+    "tests/forge/gating/test_models.py"
+  ],
+  "requirements_addressed": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010",
+    "AC-011",
+    "AC-012"
+  ],
+  "requirements_met": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010",
+    "AC-011",
+    "AC-012"
+  ],
+  "summary": "Direct mode implementation completed successfully",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "[ ] `GateMode` enum defined with four members (`AUTO_APPROVE`, `FLAG_FOR_REVIEW`, `HARD_STOP`, `MANDATORY_HUMAN_APPROVAL`) per `DM-gating.md \u00a71`",
+      "status": "complete",
+      "evidence": "GateMode(str, Enum) declared in src/forge/gating/models.py with exactly the four required members (values match names). Verified by TestGateModeEnum: test_gate_mode_has_exactly_four_members, test_gate_mode_values_match_names, test_gate_mode_is_str_enum.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/__init__.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "[ ] `PriorReference` Pydantic model with `entity_id`, `group_id` (Literal), `summary`, `relevance_score` fields",
+      "status": "complete",
+      "evidence": "PriorReference(BaseModel) declared with entity_id: str, group_id: Literal['forge_pipeline_history','forge_calibration_history'], summary: str, relevance_score: float | None (constrained to [0,1]). Tests verify required-field construction, optional relevance_score, rejection of unknown group_id literal values, and rejection of relevance_score outside the unit interval.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "[ ] `DetectionFinding` Pydantic model with `pattern`, `severity` (Literal), `evidence`, `criterion` fields",
+      "status": "complete",
+      "evidence": "DetectionFinding(BaseModel) declared with pattern: str, severity: Literal['low','medium','high','critical'], evidence: str, criterion: str | None. TestDetectionFindingModel verifies field set, optional criterion, parametrised acceptance of all four severities, and rejection of an out-of-set severity.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "[ ] `GateDecision` Pydantic model with all fields per `DM-gating.md \u00a71` \u2014 invariants enforced by validators per \u00a76",
+      "status": "complete",
+      "evidence": "GateDecision(BaseModel) exposes every DM-gating \u00a71 field: build_id, stage_label, target_kind (Literal), target_identifier, mode, rationale, coach_score, criterion_breakdown, detection_findings, evidence, threshold_applied, auto_approve_override, degraded_mode, decided_at. _check_invariants is a model_validator(mode='after') that enforces all three \u00a76 invariants. test_gate_decision_exposes_every_dm_gating_field guards the field set; test_gate_decision_with_minimal_valid_kwargs_constructs covers the happy path.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`mode == MANDATORY_HUMAN_APPROVAL \u21d2 auto_approve_override is True OR threshold_applied is None`",
+      "status": "complete",
+      "evidence": "Implemented as the first branch of GateDecision._check_invariants. test_mandatory_mode_with_override_and_threshold_is_allowed and test_mandatory_mode_with_no_threshold_is_allowed cover the two valid configurations; test_mandatory_mode_with_threshold_and_no_override_is_rejected covers the violation.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "`coach_score is None \u21d2 mode in {FLAG_FOR_REVIEW, HARD_STOP, MANDATORY_HUMAN_APPROVAL}`",
+      "status": "complete",
+      "evidence": "Implemented as the second branch of GateDecision._check_invariants (degraded mode cannot AUTO_APPROVE). test_degraded_mode_cannot_auto_approve covers the rejected case; parametrised test_degraded_mode_accepts_non_auto_approve_modes covers all three permitted modes.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "`criterion_breakdown` values are floats in `[0.0, 1.0]`",
+      "status": "complete",
+      "evidence": "Implemented as the third branch of GateDecision._check_invariants (collects offenders into a single ValueError). test_criterion_breakdown_accepts_unit_interval_values covers boundary values 0.0 and 1.0; test_criterion_breakdown_rejects_value_above_one and test_criterion_breakdown_rejects_negative_value cover violations.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "[ ] `CalibrationAdjustment` Pydantic model with all fields per `DM-gating.md \u00a71`",
+      "status": "complete",
+      "evidence": "CalibrationAdjustment(BaseModel) declared with all DM-gating \u00a71 fields: adjustment_id, target_capability, project_scope, observed_pattern, proposed_bias, approved_by_rich, approved_at, expires_at, supersedes. test_calibration_adjustment_exposes_every_dm_gating_field guards the field set; test_calibration_adjustment_with_all_fields_constructs and test_calibration_adjustment_minimal_construction cover full and minimal construction with the defaults from \u00a71.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "[ ] `ResponseKind` enum defined with five members per `DM-gating.md \u00a72`",
+      "status": "complete",
+      "evidence": "ResponseKind(str, Enum) declared with the five members ACCEPT_ALL, ACCEPT_WITH_EDIT, REJECT, DEFER, CUSTOM. test_response_kind_has_exactly_five_members and test_response_kind_is_str_enum verify the surface.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "[ ] `evaluate_gate()` stub function with full keyword-only signature per `DM-gating.md \u00a73` raises `NotImplementedError`",
+      "status": "complete",
+      "evidence": "evaluate_gate(*, target_kind, target_identifier, stage_label, coach_score, criterion_breakdown, detection_findings, retrieved_priors, calibration_adjustments, constitutional_rules) -> GateDecision implemented as a NotImplementedError shell. test_evaluate_gate_signature_is_keyword_only_with_expected_params verifies parameter order and that every parameter is KEYWORD_ONLY; test_evaluate_gate_raises_not_implemented exercises the call; test_evaluate_gate_return_annotation_is_gate_decision resolves the annotation via typing.get_type_hints to confirm the GateDecision return type.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/__init__.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "[ ] Module imports nothing from `nats_core`, `nats-py`, `langgraph`, or `forge.adapters.*`",
+      "status": "complete",
+      "evidence": "models.py imports only datetime, enum, typing.Literal, and pydantic. __init__.py imports only from .identity and .models. TestModulePurity uses ast.parse to walk every import in models.py and __init__.py and assert no name starts with 'nats_core', 'nats', 'langgraph', or 'forge.adapters'\u2014the AST-based check would catch even a transitive import that ruff would miss.",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/__init__.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "[ ] All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "ruff check src/forge/gating/models.py src/forge/gating/__init__.py tests/forge/gating/test_models.py \u2192 'All checks passed!'. ruff format --check on the same set \u2192 '3 files already formatted'. (Pre-existing identity.py / test_identity.py format diffs are out of scope for this task.)",
+      "test_file": "tests/forge/gating/test_models.py",
+      "implementation_files": [
+        "src/forge/gating/models.py",
+        "src/forge/gating/__init__.py",
+        "tests/forge/gating/test_models.py"
+      ]
+    }
+  ]
+}
