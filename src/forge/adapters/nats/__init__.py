@@ -9,8 +9,16 @@ package root without knowing the module layout:
   protocols (fleet self-registration).
 - :class:`SyntheticResponseInjector` / :class:`SyntheticInjectFailure`
   (CLI cancel/skip steering — TASK-CGCP-008).
+- :class:`ApprovalSubscriber` / :class:`ApprovalSubscriberDeps` /
+  :class:`InvalidDecisionError` (inbound approval responses with
+  short-TTL dedup buffer — TASK-CGCP-007).
 """
 
+from forge.adapters.nats.approval_subscriber import (
+    ApprovalSubscriber,
+    ApprovalSubscriberDeps,
+    InvalidDecisionError,
+)
 from forge.adapters.nats.fleet_publisher import (
     AGENT_ID,
     Clock,
@@ -31,7 +39,10 @@ from forge.adapters.nats.synthetic_response_injector import (
 
 __all__ = [
     "AGENT_ID",
+    "ApprovalSubscriber",
+    "ApprovalSubscriberDeps",
     "Clock",
+    "InvalidDecisionError",
     "MonotonicClock",
     "PipelinePublisher",
     "PublishFailure",

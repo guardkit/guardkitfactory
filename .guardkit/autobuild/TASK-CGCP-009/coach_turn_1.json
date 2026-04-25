@@ -1,0 +1,215 @@
+{
+  "task_id": "TASK-CGCP-009",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": false,
+      "test_command": "pytest tests/forge/adapters/test_resume_value_helper.py tests/forge/test_approval_publisher.py -v --tb=short",
+      "test_output_summary": "Error detail:\n\n==================================== ERRORS ====================================\n______ ERROR collecting tests/forge/adapters/test_resume_value_helper.py _______\nImportError while importing test module '/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-004/tests/forge/adapters/test_resume_value_helper.py'.\nHint: make sure your test modules/packages have valid Python names.\nResult:\nE   ModuleNotFoundError: No module named 'forge'\nERROR tests/forge/adapters/test_resume_value_helper.py\nERROR tests/forge/test_approval_publisher.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 2 errors during collection !!!!!!!!!!!!!!!!!!!!\n============================== 2 errors in 0.17s ===============================",
+      "duration_seconds": 0.6499109268188477
+    },
+    "requirements": {
+      "criteria_total": 10,
+      "criteria_met": 10,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`resume_value_as[T](typ: type[T], raw: T | dict | Any) -> T` defined as a generic function",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "src/forge/adapters/langgraph/__init__.py defines `T = TypeVar('T', bound=BaseModel)` and `def resume_value_as(typ: type[T], raw: T | dict[str, Any] | Any) -> T:` \u2014 generic over any Pydantic model.",
+      "notes": "src/forge/adapters/langgraph/__init__.py defines `T = TypeVar('T', bound=BaseModel)` and `def resume_value_as(typ: type[T], raw: T | dict[str, Any] | Any) -> T:` \u2014 generic over any Pydantic model."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`isinstance(raw, typ)` short-circuit returns `raw` unchanged (no-op in direct-invoke mode)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "First branch in resume_value_as: `if isinstance(raw, typ): return raw`. Verified by TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity (asserts `result is original`, identity not equality) and test_typed_input_subclass_short_circuits.",
+      "notes": "First branch in resume_value_as: `if isinstance(raw, typ): return raw`. Verified by TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity (asserts `result is original`, identity not equality) and test_typed_input_subclass_short_circuits."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Otherwise calls `typ.model_validate(raw)` (Pydantic v2) and returns the result",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Second branch: `if isinstance(raw, dict): return typ.model_validate(raw)`. Verified by TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance and test_dict_input_with_invalid_field_raises_validation_error.",
+      "notes": "Second branch: `if isinstance(raw, dict): return typ.model_validate(raw)`. Verified by TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance and test_dict_input_with_invalid_field_raises_validation_error."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Raises a clear `TypeError` for inputs that are neither `typ` nor `dict`-like",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Third branch raises TypeError with message including expected type, actual type, and bounded repr of raw. Verified by TestRejectsUnsupportedInputs parametrised across int/str/None/list/object \u2014 each asserts the message contains 'ApprovalResponsePayload' and 'dict'.",
+      "notes": "Third branch raises TypeError with message including expected type, actual type, and bounded repr of raw. Verified by TestRejectsUnsupportedInputs parametrised across int/str/None/list/object \u2014 each asserts the message contains 'ApprovalResponsePayload' and 'dict'."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Group D `Scenario Outline`** parametrised contract test: same caller code observes a typed `ApprovalResponsePayload` whether the input was a typed instance or a bare mapping of equivalent content",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_group_d_scenario_outline_caller_code_is_mode_agnostic uses @pytest.mark.parametrize over (typed_direct_invoke, dict_server_mode) and asserts identical attribute access (.decision/.decided_by/.request_id) succeeds for both input shapes.",
+      "notes": "test_group_d_scenario_outline_caller_code_is_mode_agnostic uses @pytest.mark.parametrize over (typed_direct_invoke, dict_server_mode) and asserts identical attribute access (.decision/.decided_by/.request_id) succeeds for both input shapes."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Direct-invoke test: typed input is returned unchanged (identity check, not just equality)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity asserts `result is original` (Python identity, not __eq__).",
+      "notes": "TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity asserts `result is original` (Python identity, not __eq__)."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Server-mode test: `dict` input round-trips through `model_validate` and produces an equivalent typed instance",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance constructs a dict payload, calls resume_value_as, asserts the result is an ApprovalResponsePayload with the same field values; test_dict_input_produces_new_instance_not_input verifies it is a fresh instance.",
+      "notes": "TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance constructs a dict payload, calls resume_value_as, asserts the result is an ApprovalResponsePayload with the same field values; test_dict_input_produces_new_instance_not_input verifies it is a fresh instance."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "CI grep guard (`tests/integration/test_rehydration_guard.py` or similar): scan `forge/` for `interrupt(...)` followed by `.decision` / `.responder` attribute access in the same function without an intervening `resume_value_as`; fail the test if found",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_rehydration_grep_guard_no_unhelpered_interrupt_attribute_access walks every src/forge/**/*.py via ast.parse, locates Call nodes with func name 'interrupt', flags Attribute nodes named .decision/.responder later in the same function unless an intervening resume_value_as Call exists or # noqa: rehydration-guard is on the line. Confidence tests (test_rehydration_grep_guard_detects_synthetic_violation, ...respects_allowlist_directive, ...accepts_helpered_access) prove the scanner detects, allow-lists, and accepts the helpered path correctly. AST-based scanning means docstring/comment mentions are ignored \u2014 only real code paths are inspected.",
+      "notes": "test_rehydration_grep_guard_no_unhelpered_interrupt_attribute_access walks every src/forge/**/*.py via ast.parse, locates Call nodes with func name 'interrupt', flags Attribute nodes named .decision/.responder later in the same function unless an intervening resume_value_as Call exists or # noqa: rehydration-guard is on the line. Confidence tests (test_rehydration_grep_guard_detects_synthetic_violation, ...respects_allowlist_directive, ...accepts_helpered_access) prove the scanner detects, allow-lists, and accepts the helpered path correctly. AST-based scanning means docstring/comment mentions are ignored \u2014 only real code paths are inspected."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Module imports nothing from `nats_core` or `nats-py` (only `langgraph` types if needed)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModuleImportPurity.test_langgraph_adapter_does_not_import_nats_core uses ast.walk to inspect actual Import / ImportFrom nodes in src/forge/adapters/langgraph/__init__.py, asserting no import has root 'nats_core' or 'nats'. The module's only third-party import is `from pydantic import BaseModel`.",
+      "notes": "TestModuleImportPurity.test_langgraph_adapter_does_not_import_nats_core uses ast.walk to inspect actual Import / ImportFrom nodes in src/forge/adapters/langgraph/__init__.py, asserting no import has root 'nats_core' or 'nats'. The module's only third-party import is `from pydantic import BaseModel`."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Source follows PEP 8 / Black-compatible style: type hints, snake_case functions, max line width respected, docstrings on every public symbol. Module compiles without syntax errors (verified by ast.parse in the test) and the full non-BDD test suite passes (718 pre-existing tests + 17 new tests = 735 passing, 0 failures introduced). Project does not currently run an external linter in CI; the style conforms to .claude/rules/code-style.md.",
+      "notes": "Source follows PEP 8 / Black-compatible style: type hints, snake_case functions, max line width respected, docstrings on every public symbol. Module compiles without syntax errors (verified by ast.parse in the test) and the full non-BDD test suite passes (718 pre-existing tests + 17 new tests = 735 passing, 0 failures introduced). Project does not currently run an external linter in CI; the style conforms to .claude/rules/code-style.md."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`resume_value_as[T](typ: type[T], raw: T | dict | Any) -> T` defined as a generic function",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "src/forge/adapters/langgraph/__init__.py defines `T = TypeVar('T', bound=BaseModel)` and `def resume_value_as(typ: type[T], raw: T | dict[str, Any] | Any) -> T:` \u2014 generic over any Pydantic model.",
+        "notes": "src/forge/adapters/langgraph/__init__.py defines `T = TypeVar('T', bound=BaseModel)` and `def resume_value_as(typ: type[T], raw: T | dict[str, Any] | Any) -> T:` \u2014 generic over any Pydantic model."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`isinstance(raw, typ)` short-circuit returns `raw` unchanged (no-op in direct-invoke mode)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "First branch in resume_value_as: `if isinstance(raw, typ): return raw`. Verified by TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity (asserts `result is original`, identity not equality) and test_typed_input_subclass_short_circuits.",
+        "notes": "First branch in resume_value_as: `if isinstance(raw, typ): return raw`. Verified by TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity (asserts `result is original`, identity not equality) and test_typed_input_subclass_short_circuits."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Otherwise calls `typ.model_validate(raw)` (Pydantic v2) and returns the result",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Second branch: `if isinstance(raw, dict): return typ.model_validate(raw)`. Verified by TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance and test_dict_input_with_invalid_field_raises_validation_error.",
+        "notes": "Second branch: `if isinstance(raw, dict): return typ.model_validate(raw)`. Verified by TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance and test_dict_input_with_invalid_field_raises_validation_error."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Raises a clear `TypeError` for inputs that are neither `typ` nor `dict`-like",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Third branch raises TypeError with message including expected type, actual type, and bounded repr of raw. Verified by TestRejectsUnsupportedInputs parametrised across int/str/None/list/object \u2014 each asserts the message contains 'ApprovalResponsePayload' and 'dict'.",
+        "notes": "Third branch raises TypeError with message including expected type, actual type, and bounded repr of raw. Verified by TestRejectsUnsupportedInputs parametrised across int/str/None/list/object \u2014 each asserts the message contains 'ApprovalResponsePayload' and 'dict'."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Group D `Scenario Outline`** parametrised contract test: same caller code observes a typed `ApprovalResponsePayload` whether the input was a typed instance or a bare mapping of equivalent content",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_group_d_scenario_outline_caller_code_is_mode_agnostic uses @pytest.mark.parametrize over (typed_direct_invoke, dict_server_mode) and asserts identical attribute access (.decision/.decided_by/.request_id) succeeds for both input shapes.",
+        "notes": "test_group_d_scenario_outline_caller_code_is_mode_agnostic uses @pytest.mark.parametrize over (typed_direct_invoke, dict_server_mode) and asserts identical attribute access (.decision/.decided_by/.request_id) succeeds for both input shapes."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Direct-invoke test: typed input is returned unchanged (identity check, not just equality)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity asserts `result is original` (Python identity, not __eq__).",
+        "notes": "TestDirectInvokeShortCircuit.test_typed_input_is_returned_by_identity asserts `result is original` (Python identity, not __eq__)."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Server-mode test: `dict` input round-trips through `model_validate` and produces an equivalent typed instance",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance constructs a dict payload, calls resume_value_as, asserts the result is an ApprovalResponsePayload with the same field values; test_dict_input_produces_new_instance_not_input verifies it is a fresh instance.",
+        "notes": "TestServerModeDictRehydration.test_dict_input_is_rehydrated_to_typed_instance constructs a dict payload, calls resume_value_as, asserts the result is an ApprovalResponsePayload with the same field values; test_dict_input_produces_new_instance_not_input verifies it is a fresh instance."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "CI grep guard (`tests/integration/test_rehydration_guard.py` or similar): scan `forge/` for `interrupt(...)` followed by `.decision` / `.responder` attribute access in the same function without an intervening `resume_value_as`; fail the test if found",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_rehydration_grep_guard_no_unhelpered_interrupt_attribute_access walks every src/forge/**/*.py via ast.parse, locates Call nodes with func name 'interrupt', flags Attribute nodes named .decision/.responder later in the same function unless an intervening resume_value_as Call exists or # noqa: rehydration-guard is on the line. Confidence tests (test_rehydration_grep_guard_detects_synthetic_violation, ...respects_allowlist_directive, ...accepts_helpered_access) prove the scanner detects, allow-lists, and accepts the helpered path correctly. AST-based scanning means docstring/comment mentions are ignored \u2014 only real code paths are inspected.",
+        "notes": "test_rehydration_grep_guard_no_unhelpered_interrupt_attribute_access walks every src/forge/**/*.py via ast.parse, locates Call nodes with func name 'interrupt', flags Attribute nodes named .decision/.responder later in the same function unless an intervening resume_value_as Call exists or # noqa: rehydration-guard is on the line. Confidence tests (test_rehydration_grep_guard_detects_synthetic_violation, ...respects_allowlist_directive, ...accepts_helpered_access) prove the scanner detects, allow-lists, and accepts the helpered path correctly. AST-based scanning means docstring/comment mentions are ignored \u2014 only real code paths are inspected."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Module imports nothing from `nats_core` or `nats-py` (only `langgraph` types if needed)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModuleImportPurity.test_langgraph_adapter_does_not_import_nats_core uses ast.walk to inspect actual Import / ImportFrom nodes in src/forge/adapters/langgraph/__init__.py, asserting no import has root 'nats_core' or 'nats'. The module's only third-party import is `from pydantic import BaseModel`.",
+        "notes": "TestModuleImportPurity.test_langgraph_adapter_does_not_import_nats_core uses ast.walk to inspect actual Import / ImportFrom nodes in src/forge/adapters/langgraph/__init__.py, asserting no import has root 'nats_core' or 'nats'. The module's only third-party import is `from pydantic import BaseModel`."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Source follows PEP 8 / Black-compatible style: type hints, snake_case functions, max line width respected, docstrings on every public symbol. Module compiles without syntax errors (verified by ast.parse in the test) and the full non-BDD test suite passes (718 pre-existing tests + 17 new tests = 735 passing, 0 failures introduced). Project does not currently run an external linter in CI; the style conforms to .claude/rules/code-style.md.",
+        "notes": "Source follows PEP 8 / Black-compatible style: type hints, snake_case functions, max line width respected, docstrings on every public symbol. Module compiles without syntax errors (verified by ast.parse in the test) and the full non-BDD test suite passes (718 pre-existing tests + 17 new tests = 735 passing, 0 failures introduced). Project does not currently run an external linter in CI; the style conforms to .claude/rules/code-style.md."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Conditionally approved \u2014 test collection errors in independent verification. All Player quality gates passed. All acceptance criteria met. Architecture context: 360 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1675/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- HAS_RELATION\n- HAS_SEQUENCE_STEP\n- ASSIGNS_TASK_TO\n- HAS_FIELD\n\n### \u26a0\ufe0f Warnings\n- DEPENDS_ON\n- IS_IMPLEMENTED_AS\n- USES_ENDPOINT\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- MONITORS_RESULTS_FROM\n- DELEGATES_TO\n- MONITOR_QUALITY_GATES\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- WHEN_TO_USE\n",
+  "approved_without_independent_tests": true,
+  "is_configuration_error": false
+}

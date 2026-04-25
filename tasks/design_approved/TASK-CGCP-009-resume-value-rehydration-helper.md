@@ -1,28 +1,28 @@
 ---
-id: TASK-CGCP-009
-title: 'Wire resume_value_as helper at every interrupt() consumer (DDR-002)'
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 3
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-005
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-009
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - langgraph
 - adapter
 - rehydration
 - ddr-002
 - contract-test
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire resume_value_as helper at every interrupt() consumer (DDR-002)
+updated: 2026-04-25 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Wire resume_value_as helper at every interrupt() consumer (DDR-002)

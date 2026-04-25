@@ -1,20 +1,30 @@
 ---
-id: TASK-CGCP-007
-title: 'Implement approval_subscriber with short-TTL dedup buffer (first-response-wins)'
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 3
-implementation_mode: task-work
 complexity: 6
+consumer_context:
+- consumes: request_id derivation
+  driver: forge.gating.identity
+  format_note: request_id is deterministic over (build_id, stage_label, attempt_count);
+    the dedup set keys directly on the literal request_id string the responder echoes
+    back. Subscriber MUST NOT re-derive — it MUST trust the echoed value.
+  framework: pure-Python helper (forge.gating.identity.derive_request_id)
+  task: TASK-CGCP-003
+- consumes: ApprovalConfig.max_wait_seconds
+  driver: pyyaml + pydantic
+  format_note: ApprovalConfig.max_wait_seconds caps total wait (default 3600). Subscriber
+    refresh-loop logic refreshes within this ceiling per API §7.
+  framework: Pydantic v2 BaseModel (forge.config.models)
+  task: TASK-CGCP-002
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-005
 - TASK-CGCP-002
 - TASK-CGCP-003
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-007
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - nats
 - adapter
@@ -22,21 +32,14 @@ tags:
 - approval
 - idempotency
 - concurrency
-consumer_context:
-- task: TASK-CGCP-003
-  consumes: request_id derivation
-  framework: pure-Python helper (forge.gating.identity.derive_request_id)
-  driver: forge.gating.identity
-  format_note: request_id is deterministic over (build_id, stage_label, attempt_count); the dedup set keys directly on the literal request_id string the responder echoes back. Subscriber MUST NOT re-derive — it MUST trust the echoed value.
-- task: TASK-CGCP-002
-  consumes: ApprovalConfig.max_wait_seconds
-  framework: Pydantic v2 BaseModel (forge.config.models)
-  driver: pyyaml + pydantic
-  format_note: ApprovalConfig.max_wait_seconds caps total wait (default 3600). Subscriber refresh-loop logic refreshes within this ceiling per API §7.
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement approval_subscriber with short-TTL dedup buffer (first-response-wins)
+updated: 2026-04-25 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement approval_subscriber with short-TTL dedup buffer (first-response-wins)

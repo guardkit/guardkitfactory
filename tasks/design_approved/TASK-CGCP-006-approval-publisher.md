@@ -1,40 +1,44 @@
 ---
-id: TASK-CGCP-006
-title: 'Implement approval_publisher (publish ApprovalRequestPayload + details builder)'
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-CG44
-feature_id: FEAT-FORGE-004
-wave: 3
-implementation_mode: task-work
 complexity: 5
+consumer_context:
+- consumes: GateDecision
+  driver: forge.gating.evaluate_gate
+  format_note: GateDecision per DM-gating.md §1; populates the `details` dict per
+    API-nats-approval-protocol.md §3.2 with eight documented keys (build_id, feature_id,
+    stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings,
+    rationale, evidence_priors, artefact_paths, resume_options).
+  framework: Pydantic v2 BaseModel (forge.gating.models)
+  task: TASK-CGCP-005
+- consumes: ApprovalConfig.default_wait_seconds
+  driver: pyyaml + pydantic
+  format_note: ApprovalConfig.default_wait_seconds is non-negative int (default 300);
+    passed verbatim into ApprovalRequestPayload.timeout_seconds.
+  framework: Pydantic v2 BaseModel (forge.config.models)
+  task: TASK-CGCP-002
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-CGCP-005
 - TASK-CGCP-002
+feature_id: FEAT-FORGE-004
+id: TASK-CGCP-006
+implementation_mode: task-work
+parent_review: TASK-REV-CG44
+priority: high
+status: design_approved
 tags:
 - nats
 - adapter
 - publisher
 - approval
 - data-integrity
-consumer_context:
-- task: TASK-CGCP-005
-  consumes: GateDecision
-  framework: Pydantic v2 BaseModel (forge.gating.models)
-  driver: forge.gating.evaluate_gate
-  format_note: GateDecision per DM-gating.md §1; populates the `details` dict per API-nats-approval-protocol.md §3.2 with eight documented keys (build_id, feature_id, stage_label, gate_mode, coach_score, criterion_breakdown, detection_findings, rationale, evidence_priors, artefact_paths, resume_options).
-- task: TASK-CGCP-002
-  consumes: ApprovalConfig.default_wait_seconds
-  framework: Pydantic v2 BaseModel (forge.config.models)
-  driver: pyyaml + pydantic
-  format_note: ApprovalConfig.default_wait_seconds is non-negative int (default 300); passed verbatim into ApprovalRequestPayload.timeout_seconds.
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement approval_publisher (publish ApprovalRequestPayload + details builder)
+updated: 2026-04-25 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement approval_publisher (publish ApprovalRequestPayload + details builder)
