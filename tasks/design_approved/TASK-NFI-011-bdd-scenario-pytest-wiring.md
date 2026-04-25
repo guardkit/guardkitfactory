@@ -1,28 +1,32 @@
 ---
-id: TASK-NFI-011
-title: "BDD @smoke + @key-example pytest wiring (33 scenarios → tagged tests)"
-task_type: testing
-status: backlog
-priority: normal
-created: 2026-04-24T00:00:00Z
-updated: 2026-04-24T00:00:00Z
-parent_review: TASK-REV-NF20
-feature_id: FEAT-FORGE-002
-wave: 5
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-24 00:00:00+00:00
 dependencies:
-  - TASK-NFI-004
-  - TASK-NFI-005
-  - TASK-NFI-006
-  - TASK-NFI-007
-  - TASK-NFI-008
-  - TASK-NFI-009
-tags: [testing, bdd, scenarios, r2-oracle]
+- TASK-NFI-004
+- TASK-NFI-005
+- TASK-NFI-006
+- TASK-NFI-007
+- TASK-NFI-008
+- TASK-NFI-009
+feature_id: FEAT-FORGE-002
+id: TASK-NFI-011
+implementation_mode: task-work
+parent_review: TASK-REV-NF20
+priority: normal
+status: design_approved
+tags:
+- testing
+- bdd
+- scenarios
+- r2-oracle
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: BDD @smoke + @key-example pytest wiring (33 scenarios → tagged tests)
+updated: 2026-04-24 00:00:00+00:00
+wave: 5
 ---
 
 # Task: BDD @smoke + @key-example pytest wiring
