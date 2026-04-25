@@ -1,0 +1,45 @@
+{
+  "tests_run": 32,
+  "tests_failed": 0,
+  "coverage_pct": 85.0,
+  "output_summary": "32/32 integration tests passed (tests/integration/) with 85.0% line coverage across FEAT-FORGE-004 target modules (gating + approval adapters).",
+  "quality_gates_passed": true,
+  "runner": "pytest",
+  "command": "PYTHONPATH=src pytest tests/integration/ --cov=src/forge --cov-report=term -v",
+  "scope": "tests/integration/",
+  "in_scope_modules": [
+    "src/forge/adapters/langgraph/__init__.py",
+    "src/forge/adapters/nats/approval_publisher.py",
+    "src/forge/adapters/nats/approval_subscriber.py",
+    "src/forge/adapters/nats/synthetic_response_injector.py",
+    "src/forge/config/models.py",
+    "src/forge/gating/constitutional.py",
+    "src/forge/gating/identity.py",
+    "src/forge/gating/models.py",
+    "src/forge/gating/reasoning.py",
+    "src/forge/gating/wrappers.py"
+  ],
+  "in_scope_coverage": {
+    "statements": 664,
+    "missed": 101,
+    "covered": 563,
+    "pct": 84.79
+  },
+  "global_coverage_pct": 31.0,
+  "global_coverage_note": "Global src/forge coverage is 31% because the integration suite only exercises FEAT-FORGE-004 modules; out-of-scope modules (pipeline, dispatch, discovery, fleet_watcher, pipeline_consumer, specialist_dispatch, agent) are covered by other suites or are out of scope for this task.",
+  "test_results_by_file": {
+    "test_approval_round_trip.py": {"passed": 5, "failed": 0},
+    "test_cli_synthetic_responses.py": {"passed": 4, "failed": 0},
+    "test_concurrent_responses.py": {"passed": 2, "failed": 0},
+    "test_constitutional_regression.py": {"passed": 5, "failed": 0},
+    "test_crash_recovery_re_emit.py": {"passed": 3, "failed": 0},
+    "test_durable_decision_on_publish_failure.py": {"passed": 3, "failed": 0},
+    "test_pause_and_publish_atomicity.py": {"passed": 2, "failed": 0},
+    "test_per_build_routing.py": {"passed": 2, "failed": 0},
+    "test_rehydration_guard.py": {"passed": 5, "failed": 0},
+    "test_unrecognised_responder.py": {"passed": 1, "failed": 0}
+  },
+  "duration_seconds": 0.25,
+  "task_id": "TASK-CGCP-011",
+  "phase": "phase_4_testing"
+}
