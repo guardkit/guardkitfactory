@@ -124,6 +124,25 @@ class FakeClock:
         self._now += float(seconds)
 
 
+class AdvancingClock:
+    """Auto-advancing monotonic clock — each :meth:`monotonic` returns the
+    previous value and then advances by ``step`` seconds.
+
+    Used in refresh-loop tests so the production code's
+    ``while remaining > 0`` exits in a bounded number of iterations
+    without resorting to a real wall clock.
+    """
+
+    def __init__(self, *, step: float = 0.5, start: float = 0.0) -> None:
+        self._now = float(start)
+        self._step = float(step)
+
+    def monotonic(self) -> float:
+        v = self._now
+        self._now += self._step
+        return v
+
+
 def _make_envelope(
     *,
     request_id: str,
@@ -161,13 +180,20 @@ def _make_deps(
     clock: Any = None,
     dedup_ttl_seconds: int = 300,
 ) -> ApprovalSubscriberDeps:
+    """Build :class:`ApprovalSubscriberDeps` with safe test defaults.
+
+    Note: when ``clock`` is omitted, the helper uses the production
+    :class:`_MonotonicClock` so time advances naturally. Tests that
+    need to drive TTL eviction deterministically pass an explicit
+    :class:`FakeClock`.
+    """
     return ApprovalSubscriberDeps(
         nats_client=nats_client or FakeNATSClient(),
         config=config or ApprovalConfig(),
         publish_refresh=publish_refresh,
         expected_approver=expected_approver,
         project=project,
-        clock=clock or FakeClock(),
+        clock=clock if clock is not None else sub_module._MonotonicClock(),
         dedup_ttl_seconds=dedup_ttl_seconds,
     )
 
@@ -671,14 +697,16 @@ class TestRefreshOnTimeout:
     @pytest.mark.asyncio
     async def test_refresh_publishes_with_incremented_attempt(self) -> None:
         publish_refresh = AsyncMock()
+        # AdvancingClock guarantees the loop terminates in a bounded
+        # number of iterations without burning a real wall-clock second.
         deps = _make_deps(
             config=ApprovalConfig(
                 default_wait_seconds=1, max_wait_seconds=2
             ),
             publish_refresh=publish_refresh,
+            clock=AdvancingClock(step=0.5),
         )
         sub = ApprovalSubscriber(deps)
-        # Total budget 2s, per-attempt 1s → expect at least one refresh.
         result = await sub.await_response(
             BUILD_ID,
             stage_label=STAGE_LABEL,
@@ -708,6 +736,7 @@ class TestRefreshOnTimeout:
                 default_wait_seconds=0, max_wait_seconds=1
             ),
             publish_refresh=publish_refresh,
+            clock=AdvancingClock(step=0.25),
         )
         sub = ApprovalSubscriber(deps)
         result = await sub.await_response(
