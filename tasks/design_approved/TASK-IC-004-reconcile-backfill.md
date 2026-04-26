@@ -1,19 +1,24 @@
 ---
-id: TASK-IC-004
-title: "Reconcile backfill at build start"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
-priority: high
-task_type: feature
-tags: [memory, reconciliation, durability]
 complexity: 6
-parent_review: TASK-REV-IC8B
-feature_id: FEAT-FORGE-006
-wave: 4
-implementation_mode: task-work
-dependencies: [TASK-IC-002, TASK-IC-003]
+created: 2026-04-25 14:36:00+00:00
+dependencies:
+- TASK-IC-002
+- TASK-IC-003
 estimated_minutes: 150
+feature_id: FEAT-FORGE-006
+id: TASK-IC-004
+implementation_mode: task-work
+parent_review: TASK-REV-IC8B
+priority: high
+status: design_approved
+tags:
+- memory
+- reconciliation
+- durability
+task_type: feature
+title: Reconcile backfill at build start
+updated: 2026-04-25 14:36:00+00:00
+wave: 4
 ---
 
 # Task: Reconcile backfill at build start

@@ -1,19 +1,25 @@
 ---
-id: TASK-IC-007
-title: "SessionOutcome writer with ordering and idempotency"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
-priority: high
-task_type: feature
-tags: [memory, ordering, idempotency, terminal-state]
 complexity: 5
-parent_review: TASK-REV-IC8B
-feature_id: FEAT-FORGE-006
-wave: 4
-implementation_mode: task-work
-dependencies: [TASK-IC-001, TASK-IC-003]
+created: 2026-04-25 14:36:00+00:00
+dependencies:
+- TASK-IC-001
+- TASK-IC-003
 estimated_minutes: 90
+feature_id: FEAT-FORGE-006
+id: TASK-IC-007
+implementation_mode: task-work
+parent_review: TASK-REV-IC8B
+priority: high
+status: design_approved
+tags:
+- memory
+- ordering
+- idempotency
+- terminal-state
+task_type: feature
+title: SessionOutcome writer with ordering and idempotency
+updated: 2026-04-25 14:36:00+00:00
+wave: 4
 ---
 
 # Task: SessionOutcome writer with ordering and idempotency
