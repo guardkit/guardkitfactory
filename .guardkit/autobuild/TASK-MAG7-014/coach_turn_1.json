@@ -1,0 +1,226 @@
+{
+  "task_id": "TASK-MAG7-014",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "skipped",
+      "test_output_summary": "Independent test verification skipped (tests not required for testing tasks)",
+      "duration_seconds": 0.0
+    },
+    "requirements": {
+      "criteria_total": 11,
+      "criteria_met": 11,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "Test module exists at",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created tests/integration/test_mode_a_concurrency_and_integrity.py with 16 tests organized into 9 test classes mapping 1:1 to the acceptance criteria. File is importable, collects under pytest, and passes ruff/black.",
+      "notes": "Created tests/integration/test_mode_a_concurrency_and_integrity.py with 16 tests organized into 9 test classes mapping 1:1 to the acceptance criteria. File is importable, collects under pytest, and passes ruff/black."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Two-concurrent-builds test (Group F):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestTwoConcurrentBuilds has three tests: (1) test_distinct_autobuild_task_ids_and_correlation_ids \u2014 drives two builds via asyncio.gather, asserts distinct task_ids and per-build correlation_ids on the lifecycle bus; (2) test_approval_response_only_resolves_matching_build \u2014 uses real ApprovalSubscriber + InMemoryNats with per-build subjects, asserts response on build-A's mirror leaves build-B's wait pending; (3) test_second_build_dispatches_while_first_autobuild_in_flight \u2014 build-1 dispatches AUTOBUILD while build-2 dispatches PRODUCT_OWNER in the same gather without cross-talk.",
+      "notes": "TestTwoConcurrentBuilds has three tests: (1) test_distinct_autobuild_task_ids_and_correlation_ids \u2014 drives two builds via asyncio.gather, asserts distinct task_ids and per-build correlation_ids on the lifecycle bus; (2) test_approval_response_only_resolves_matching_build \u2014 uses real ApprovalSubscriber + InMemoryNats with per-build subjects, asserts response on build-A's mirror leaves build-B's wait pending; (3) test_second_build_dispatches_while_first_autobuild_in_flight \u2014 build-1 dispatches AUTOBUILD while build-2 dispatches PRODUCT_OWNER in the same gather without cross-talk."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Multi-feature integration test (Group H):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestMultiFeatureCatalogue.test_three_features_produce_one_inner_loop_dispatch_each drives a 3-feature build through the supervisor's canonical-order reasoning model; asserts exactly 3 FEATURE_SPEC, 3 FEATURE_PLAN, 3 AUTOBUILD dispatcher calls, 3 PR-review submissions (one per feature_id), and walks the artefact paths recorded per (build, stage, feature) to assert no path is attributed to more than one feature.",
+      "notes": "TestMultiFeatureCatalogue.test_three_features_produce_one_inner_loop_dispatch_each drives a 3-feature build through the supervisor's canonical-order reasoning model; asserts exactly 3 FEATURE_SPEC, 3 FEATURE_PLAN, 3 AUTOBUILD dispatcher calls, 3 PR-review submissions (one per feature_id), and walks the artefact paths recorded per (build, stage, feature) to assert no path is attributed to more than one feature."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Per-feature sequencing test (Group D ASSUM-006):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestPerFeatureSequencing.test_three_feature_catalogue_serialises_autobuilds dispatches FEAT-1's autobuild (turn 1), simulates 'running_wave' lifecycle, attempts FEAT-2 (turn 2) and asserts WAITING_PRIOR_AUTOBUILD; then marks FEAT-1 'completed' and asserts FEAT-3 dispatches successfully (turn 3). autobuild_dispatcher.calls count is asserted at every step (1 \u2192 1 \u2192 2).",
+      "notes": "TestPerFeatureSequencing.test_three_feature_catalogue_serialises_autobuilds dispatches FEAT-1's autobuild (turn 1), simulates 'running_wave' lifecycle, attempts FEAT-2 (turn 2) and asserts WAITING_PRIOR_AUTOBUILD; then marks FEAT-1 'completed' and asserts FEAT-3 dispatches successfully (turn 3). autobuild_dispatcher.calls count is asserted at every step (1 \u2192 1 \u2192 2)."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Correlation threading test (Group I @data-integrity):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestCorrelationThreading.test_every_lifecycle_event_for_one_build_threads_one_correlation_id drives a 2-feature build to completion, walks every event in FakeLifecycleBus.for_build('build-CID'), and asserts the set of correlation_ids is exactly {'cid-deterministic-XY'} \u2014 proving no drift between stages. Cross-build isolation also asserted.",
+      "notes": "TestCorrelationThreading.test_every_lifecycle_event_for_one_build_threads_one_correlation_id drives a 2-feature build to completion, walks every event in FakeLifecycleBus.for_build('build-CID'), and asserts the set of correlation_ids is exactly {'cid-deterministic-XY'} \u2014 proving no drift between stages. Cross-build isolation also asserted."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Calibration priors snapshot test (Group I @data-integrity):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestCalibrationPriorsSnapshot has two tests: (1) test_priors_snapshot_remains_stable_when_history_is_mutated captures a tuple snapshot, mutates the source list (append + entry mutation), and asserts the snapshot's contents are identical to the build-start state; (2) test_snapshot_is_a_tuple_so_callers_cannot_mutate_it asserts AttributeError on attempted .append, proving immutability. Also verifies a future build sees the new history.",
+      "notes": "TestCalibrationPriorsSnapshot has two tests: (1) test_priors_snapshot_remains_stable_when_history_is_mutated captures a tuple snapshot, mutates the source list (append + entry mutation), and asserts the snapshot's contents are identical to the build-start state; (2) test_snapshot_is_a_tuple_so_callers_cannot_mutate_it asserts AttributeError on attempted .append, proving immutability. Also verifies a future build sees the new history."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "First-wins idempotency test (Group D + Group I @concurrency):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestFirstWinsIdempotency.test_two_simultaneous_responses_resolve_to_one_winner uses the real ApprovalSubscriber dedup buffer (FEAT-FORGE-004) \u2014 two MessageEnvelopes with the same request_id but different decisions ('approve' vs 'reject') are delivered via asyncio.gather; the wait resolves with exactly one decision and len(subscriber._dedup) == 1.",
+      "notes": "TestFirstWinsIdempotency.test_two_simultaneous_responses_resolve_to_one_winner uses the real ApprovalSubscriber dedup buffer (FEAT-FORGE-004) \u2014 two MessageEnvelopes with the same request_id but different decisions ('approve' vs 'reject') are delivered via asyncio.gather; the wait resolves with exactly one decision and len(subscriber._dedup) == 1."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Constitutional misconfigured-prompt test (Group E @security @regression):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestConstitutionalMisconfiguredPrompt.test_pr_review_auto_approve_refused_even_under_permissive_model wires a CanonicalOrderModel with auto_approve_overrides={PULL_REQUEST_REVIEW: True} (the misconfigured prompt). Drives the supervisor to PR-review and asserts outcome is REFUSED_CONSTITUTIONAL, gate_decision.verdict is REFUSED, the PR-review gate was NEVER called, and the stage is not marked approved \u2014 the build pauses.",
+      "notes": "TestConstitutionalMisconfiguredPrompt.test_pr_review_auto_approve_refused_even_under_permissive_model wires a CanonicalOrderModel with auto_approve_overrides={PULL_REQUEST_REVIEW: True} (the misconfigured prompt). Drives the supervisor to PR-review and asserts outcome is REFUSED_CONSTITUTIONAL, gate_decision.verdict is REFUSED, the PR-review gate was NEVER called, and the stage is not marked approved \u2014 the build pauses."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Specialist override-claim test (Group E @security):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestSpecialistOverrideClaim has three tests: (1) test_pr_review_override_claim_is_ignored_regardless_of_payload exercises ConstitutionalGuard.veto_override_claim against five different override-payload shapes (loud, deeply nested, empty) and asserts True every time for PR-review; (2) test_non_constitutional_stage_override_claim_is_not_vetoed negative-controls every other StageClass; (3) test_build_pauses_for_mandatory_human_when_override_claimed end-to-end via supervisor.next_turn \u2192 REFUSED_CONSTITUTIONAL with no PR-review gate call.",
+      "notes": "TestSpecialistOverrideClaim has three tests: (1) test_pr_review_override_claim_is_ignored_regardless_of_payload exercises ConstitutionalGuard.veto_override_claim against five different override-payload shapes (loud, deeply nested, empty) and asserts True every time for PR-review; (2) test_non_constitutional_stage_override_claim_is_not_vetoed negative-controls every other StageClass; (3) test_build_pauses_for_mandatory_human_when_override_claimed end-to-end via supervisor.next_turn \u2192 REFUSED_CONSTITUTIONAL with no PR-review gate call."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Worktree confinement test (Group E @security):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestWorktreeConfinement has three tests: (1) test_paths_outside_worktree_are_refused_by_allowlist asserts /etc/passwd, /worktree/other-build/spec.md, /worktree/build-W/../../escape.txt and /tmp/whatever are all rejected; (2) test_unknown_build_id_has_empty_allowlist proves a build with no recorded root has every path refused; (3) test_subprocess_artefact_paths_outside_allowlist_are_filtered partitions paths into kept/rejected mirroring the dispatch.subprocess._partition_paths_by_allowlist contract.",
+      "notes": "TestWorktreeConfinement has three tests: (1) test_paths_outside_worktree_are_refused_by_allowlist asserts /etc/passwd, /worktree/other-build/spec.md, /worktree/build-W/../../escape.txt and /tmp/whatever are all rejected; (2) test_unknown_build_id_has_empty_allowlist proves a build with no recorded root has every path refused; (3) test_subprocess_artefact_paths_outside_allowlist_are_filtered partitions paths into kept/rejected mirroring the dispatch.subprocess._partition_paths_by_allowlist contract."
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Ran 'ruff check tests/integration/test_mode_a_concurrency_and_integrity.py' \u2014 'All checks passed!'. Ran 'black tests/integration/test_mode_a_concurrency_and_integrity.py --fast' and applied formatting; subsequent re-run is idempotent. py_compile parses cleanly. Full pytest suite (2974 tests) passes.",
+      "notes": "Ran 'ruff check tests/integration/test_mode_a_concurrency_and_integrity.py' \u2014 'All checks passed!'. Ran 'black tests/integration/test_mode_a_concurrency_and_integrity.py --fast' and applied formatting; subsequent re-run is idempotent. py_compile parses cleanly. Full pytest suite (2974 tests) passes."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "Test module exists at",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created tests/integration/test_mode_a_concurrency_and_integrity.py with 16 tests organized into 9 test classes mapping 1:1 to the acceptance criteria. File is importable, collects under pytest, and passes ruff/black.",
+        "notes": "Created tests/integration/test_mode_a_concurrency_and_integrity.py with 16 tests organized into 9 test classes mapping 1:1 to the acceptance criteria. File is importable, collects under pytest, and passes ruff/black."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Two-concurrent-builds test (Group F):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestTwoConcurrentBuilds has three tests: (1) test_distinct_autobuild_task_ids_and_correlation_ids \u2014 drives two builds via asyncio.gather, asserts distinct task_ids and per-build correlation_ids on the lifecycle bus; (2) test_approval_response_only_resolves_matching_build \u2014 uses real ApprovalSubscriber + InMemoryNats with per-build subjects, asserts response on build-A's mirror leaves build-B's wait pending; (3) test_second_build_dispatches_while_first_autobuild_in_flight \u2014 build-1 dispatches AUTOBUILD while build-2 dispatches PRODUCT_OWNER in the same gather without cross-talk.",
+        "notes": "TestTwoConcurrentBuilds has three tests: (1) test_distinct_autobuild_task_ids_and_correlation_ids \u2014 drives two builds via asyncio.gather, asserts distinct task_ids and per-build correlation_ids on the lifecycle bus; (2) test_approval_response_only_resolves_matching_build \u2014 uses real ApprovalSubscriber + InMemoryNats with per-build subjects, asserts response on build-A's mirror leaves build-B's wait pending; (3) test_second_build_dispatches_while_first_autobuild_in_flight \u2014 build-1 dispatches AUTOBUILD while build-2 dispatches PRODUCT_OWNER in the same gather without cross-talk."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Multi-feature integration test (Group H):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestMultiFeatureCatalogue.test_three_features_produce_one_inner_loop_dispatch_each drives a 3-feature build through the supervisor's canonical-order reasoning model; asserts exactly 3 FEATURE_SPEC, 3 FEATURE_PLAN, 3 AUTOBUILD dispatcher calls, 3 PR-review submissions (one per feature_id), and walks the artefact paths recorded per (build, stage, feature) to assert no path is attributed to more than one feature.",
+        "notes": "TestMultiFeatureCatalogue.test_three_features_produce_one_inner_loop_dispatch_each drives a 3-feature build through the supervisor's canonical-order reasoning model; asserts exactly 3 FEATURE_SPEC, 3 FEATURE_PLAN, 3 AUTOBUILD dispatcher calls, 3 PR-review submissions (one per feature_id), and walks the artefact paths recorded per (build, stage, feature) to assert no path is attributed to more than one feature."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Per-feature sequencing test (Group D ASSUM-006):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestPerFeatureSequencing.test_three_feature_catalogue_serialises_autobuilds dispatches FEAT-1's autobuild (turn 1), simulates 'running_wave' lifecycle, attempts FEAT-2 (turn 2) and asserts WAITING_PRIOR_AUTOBUILD; then marks FEAT-1 'completed' and asserts FEAT-3 dispatches successfully (turn 3). autobuild_dispatcher.calls count is asserted at every step (1 \u2192 1 \u2192 2).",
+        "notes": "TestPerFeatureSequencing.test_three_feature_catalogue_serialises_autobuilds dispatches FEAT-1's autobuild (turn 1), simulates 'running_wave' lifecycle, attempts FEAT-2 (turn 2) and asserts WAITING_PRIOR_AUTOBUILD; then marks FEAT-1 'completed' and asserts FEAT-3 dispatches successfully (turn 3). autobuild_dispatcher.calls count is asserted at every step (1 \u2192 1 \u2192 2)."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Correlation threading test (Group I @data-integrity):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestCorrelationThreading.test_every_lifecycle_event_for_one_build_threads_one_correlation_id drives a 2-feature build to completion, walks every event in FakeLifecycleBus.for_build('build-CID'), and asserts the set of correlation_ids is exactly {'cid-deterministic-XY'} \u2014 proving no drift between stages. Cross-build isolation also asserted.",
+        "notes": "TestCorrelationThreading.test_every_lifecycle_event_for_one_build_threads_one_correlation_id drives a 2-feature build to completion, walks every event in FakeLifecycleBus.for_build('build-CID'), and asserts the set of correlation_ids is exactly {'cid-deterministic-XY'} \u2014 proving no drift between stages. Cross-build isolation also asserted."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Calibration priors snapshot test (Group I @data-integrity):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestCalibrationPriorsSnapshot has two tests: (1) test_priors_snapshot_remains_stable_when_history_is_mutated captures a tuple snapshot, mutates the source list (append + entry mutation), and asserts the snapshot's contents are identical to the build-start state; (2) test_snapshot_is_a_tuple_so_callers_cannot_mutate_it asserts AttributeError on attempted .append, proving immutability. Also verifies a future build sees the new history.",
+        "notes": "TestCalibrationPriorsSnapshot has two tests: (1) test_priors_snapshot_remains_stable_when_history_is_mutated captures a tuple snapshot, mutates the source list (append + entry mutation), and asserts the snapshot's contents are identical to the build-start state; (2) test_snapshot_is_a_tuple_so_callers_cannot_mutate_it asserts AttributeError on attempted .append, proving immutability. Also verifies a future build sees the new history."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "First-wins idempotency test (Group D + Group I @concurrency):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestFirstWinsIdempotency.test_two_simultaneous_responses_resolve_to_one_winner uses the real ApprovalSubscriber dedup buffer (FEAT-FORGE-004) \u2014 two MessageEnvelopes with the same request_id but different decisions ('approve' vs 'reject') are delivered via asyncio.gather; the wait resolves with exactly one decision and len(subscriber._dedup) == 1.",
+        "notes": "TestFirstWinsIdempotency.test_two_simultaneous_responses_resolve_to_one_winner uses the real ApprovalSubscriber dedup buffer (FEAT-FORGE-004) \u2014 two MessageEnvelopes with the same request_id but different decisions ('approve' vs 'reject') are delivered via asyncio.gather; the wait resolves with exactly one decision and len(subscriber._dedup) == 1."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Constitutional misconfigured-prompt test (Group E @security @regression):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestConstitutionalMisconfiguredPrompt.test_pr_review_auto_approve_refused_even_under_permissive_model wires a CanonicalOrderModel with auto_approve_overrides={PULL_REQUEST_REVIEW: True} (the misconfigured prompt). Drives the supervisor to PR-review and asserts outcome is REFUSED_CONSTITUTIONAL, gate_decision.verdict is REFUSED, the PR-review gate was NEVER called, and the stage is not marked approved \u2014 the build pauses.",
+        "notes": "TestConstitutionalMisconfiguredPrompt.test_pr_review_auto_approve_refused_even_under_permissive_model wires a CanonicalOrderModel with auto_approve_overrides={PULL_REQUEST_REVIEW: True} (the misconfigured prompt). Drives the supervisor to PR-review and asserts outcome is REFUSED_CONSTITUTIONAL, gate_decision.verdict is REFUSED, the PR-review gate was NEVER called, and the stage is not marked approved \u2014 the build pauses."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Specialist override-claim test (Group E @security):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestSpecialistOverrideClaim has three tests: (1) test_pr_review_override_claim_is_ignored_regardless_of_payload exercises ConstitutionalGuard.veto_override_claim against five different override-payload shapes (loud, deeply nested, empty) and asserts True every time for PR-review; (2) test_non_constitutional_stage_override_claim_is_not_vetoed negative-controls every other StageClass; (3) test_build_pauses_for_mandatory_human_when_override_claimed end-to-end via supervisor.next_turn \u2192 REFUSED_CONSTITUTIONAL with no PR-review gate call.",
+        "notes": "TestSpecialistOverrideClaim has three tests: (1) test_pr_review_override_claim_is_ignored_regardless_of_payload exercises ConstitutionalGuard.veto_override_claim against five different override-payload shapes (loud, deeply nested, empty) and asserts True every time for PR-review; (2) test_non_constitutional_stage_override_claim_is_not_vetoed negative-controls every other StageClass; (3) test_build_pauses_for_mandatory_human_when_override_claimed end-to-end via supervisor.next_turn \u2192 REFUSED_CONSTITUTIONAL with no PR-review gate call."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "Worktree confinement test (Group E @security):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestWorktreeConfinement has three tests: (1) test_paths_outside_worktree_are_refused_by_allowlist asserts /etc/passwd, /worktree/other-build/spec.md, /worktree/build-W/../../escape.txt and /tmp/whatever are all rejected; (2) test_unknown_build_id_has_empty_allowlist proves a build with no recorded root has every path refused; (3) test_subprocess_artefact_paths_outside_allowlist_are_filtered partitions paths into kept/rejected mirroring the dispatch.subprocess._partition_paths_by_allowlist contract.",
+        "notes": "TestWorktreeConfinement has three tests: (1) test_paths_outside_worktree_are_refused_by_allowlist asserts /etc/passwd, /worktree/other-build/spec.md, /worktree/build-W/../../escape.txt and /tmp/whatever are all rejected; (2) test_unknown_build_id_has_empty_allowlist proves a build with no recorded root has every path refused; (3) test_subprocess_artefact_paths_outside_allowlist_are_filtered partitions paths into kept/rejected mirroring the dispatch.subprocess._partition_paths_by_allowlist contract."
+      },
+      {
+        "criterion_id": "AC-011",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Ran 'ruff check tests/integration/test_mode_a_concurrency_and_integrity.py' \u2014 'All checks passed!'. Ran 'black tests/integration/test_mode_a_concurrency_and_integrity.py --fast' and applied formatting; subsequent re-run is idempotent. py_compile parses cleanly. Full pytest suite (2974 tests) passes.",
+        "notes": "Ran 'ruff check tests/integration/test_mode_a_concurrency_and_integrity.py' \u2014 'All checks passed!'. Ran 'black tests/integration/test_mode_a_concurrency_and_integrity.py --fast' and applied formatting; subsequent re-run is idempotent. py_compile parses cleanly. Full pytest suite (2974 tests) passes."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    }
+  ],
+  "rationale": "All quality gates passed. Tests not required for this task type. All acceptance criteria met. Architecture context: 265 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 983/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- CALLED_BY\n- HAS_WAVE\n\n### \u26a0\ufe0f Warnings\n- REQUIRES_USE_OF\n- IS_IMPLEMENTED_AS\n\n### \ud83c\udfad Role Constraints\n- RUNS_TESTS_BEFORE_REPORTING\n- IS_CREATED_FOR\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}
