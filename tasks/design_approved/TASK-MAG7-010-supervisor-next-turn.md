@@ -1,38 +1,49 @@
 ---
-id: TASK-MAG7-010
-title: Wire Supervisor.next_turn dispatch loop
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-MAG7
-feature_id: FEAT-FORGE-007
-wave: 4
-implementation_mode: task-work
 complexity: 7
-dependencies: [TASK-MAG7-003, TASK-MAG7-004, TASK-MAG7-005, TASK-MAG7-007, TASK-MAG7-008, TASK-MAG7-009]
-tags: [supervisor, reasoning-loop, langgraph, feat-forge-007]
 consumer_context:
-  - task: TASK-MAG7-003
-    consumes: stage_ordering_decision
-    framework: "Python forge.pipeline.stage_ordering_guard"
-    driver: "StageOrderingGuard"
-    format_note: "Calls next_dispatchable() to get permitted set; refuses to act outside the set"
-  - task: TASK-MAG7-004
-    consumes: constitutional_decision
-    framework: "Python forge.pipeline.constitutional_guard"
-    driver: "ConstitutionalGuard"
-    format_note: "Calls veto_auto_approve / veto_skip on PR-review stage"
-  - task: TASK-MAG7-005
-    consumes: per_feature_sequencing_decision
-    framework: "Python forge.pipeline.per_feature_sequencer"
-    driver: "PerFeatureLoopSequencer"
-    format_note: "Calls may_start_autobuild before dispatching second feature's autobuild"
+- consumes: stage_ordering_decision
+  driver: StageOrderingGuard
+  format_note: Calls next_dispatchable() to get permitted set; refuses to act outside
+    the set
+  framework: Python forge.pipeline.stage_ordering_guard
+  task: TASK-MAG7-003
+- consumes: constitutional_decision
+  driver: ConstitutionalGuard
+  format_note: Calls veto_auto_approve / veto_skip on PR-review stage
+  framework: Python forge.pipeline.constitutional_guard
+  task: TASK-MAG7-004
+- consumes: per_feature_sequencing_decision
+  driver: PerFeatureLoopSequencer
+  format_note: Calls may_start_autobuild before dispatching second feature's autobuild
+  framework: Python forge.pipeline.per_feature_sequencer
+  task: TASK-MAG7-005
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-MAG7-003
+- TASK-MAG7-004
+- TASK-MAG7-005
+- TASK-MAG7-007
+- TASK-MAG7-008
+- TASK-MAG7-009
+feature_id: FEAT-FORGE-007
+id: TASK-MAG7-010
+implementation_mode: task-work
+parent_review: TASK-REV-MAG7
+priority: high
+status: design_approved
+tags:
+- supervisor
+- reasoning-loop
+- langgraph
+- feat-forge-007
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire Supervisor.next_turn dispatch loop
+updated: 2026-04-25 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Wire Supervisor.next_turn dispatch loop
