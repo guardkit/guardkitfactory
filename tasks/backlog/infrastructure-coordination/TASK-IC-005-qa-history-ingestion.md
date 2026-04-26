@@ -1,19 +1,39 @@
 ---
 id: TASK-IC-005
-title: "Q&A history ingestion pipeline"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
+title: Q&A history ingestion pipeline
+status: in_review
+created: 2026-04-25 14:36:00+00:00
+updated: 2026-04-25 14:36:00+00:00
 priority: high
 task_type: feature
-tags: [memory, ingestion, idempotency]
+tags:
+- memory
+- ingestion
+- idempotency
 complexity: 5
 parent_review: TASK-REV-IC8B
 feature_id: FEAT-FORGE-006
 wave: 3
 implementation_mode: task-work
-dependencies: [TASK-IC-002]
+dependencies:
+- TASK-IC-002
 estimated_minutes: 120
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-8D10
+  base_branch: main
+  started_at: '2026-04-26T14:27:53.379714'
+  last_updated: '2026-04-26T14:41:07.976472'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T14:27:53.379714'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Q&A history ingestion pipeline

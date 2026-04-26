@@ -1,19 +1,44 @@
 ---
 id: TASK-IC-003
-title: "Write-ordering guard (SQLite-first, Graphiti-second)"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
+title: Write-ordering guard (SQLite-first, Graphiti-second)
+status: in_review
+created: 2026-04-25 14:36:00+00:00
+updated: 2026-04-25 14:36:00+00:00
 priority: high
 task_type: feature
-tags: [memory, ordering, idempotency]
+tags:
+- memory
+- ordering
+- idempotency
 complexity: 3
 parent_review: TASK-REV-IC8B
 feature_id: FEAT-FORGE-006
 wave: 3
 implementation_mode: direct
-dependencies: [TASK-IC-002]
+dependencies:
+- TASK-IC-002
 estimated_minutes: 45
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-8D10
+  base_branch: main
+  started_at: '2026-04-26T14:27:53.374302'
+  last_updated: '2026-04-26T14:32:44.345900'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T14:27:53.374302'
+    player_summary: 'Added forge/memory/ordering.py with a single thin coordinator
+      record_stage_event(persist_to_sqlite, group_id) that (1) invokes the SQLite
+      persistence callable synchronously, (2) only on success calls fire_and_forget_write(entity,
+      group_id), and (3) returns the persisted entity. SQLite exceptions propagate
+      verbatim; Graphiti failures are absorbed by fire_and_forget_write. Re-exported
+      the helper from forge.memory.__init__ so stage hooks import the canonical seam
+      from the package root (closing the '
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Write-ordering guard (SQLite-first, Graphiti-second)

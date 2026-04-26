@@ -1,25 +1,47 @@
 ---
 id: TASK-IC-006
-title: "Priors retrieval and prose injection"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
+title: Priors retrieval and prose injection
+status: in_review
+created: 2026-04-25 14:36:00+00:00
+updated: 2026-04-25 14:36:00+00:00
 priority: high
 task_type: feature
-tags: [memory, priors, prompt-injection]
+tags:
+- memory
+- priors
+- prompt-injection
 complexity: 5
 parent_review: TASK-REV-IC8B
 feature_id: FEAT-FORGE-006
 wave: 3
 implementation_mode: task-work
-dependencies: [TASK-IC-002]
+dependencies:
+- TASK-IC-002
 estimated_minutes: 120
 consumer_context:
-  - task: TASK-IC-002
-    consumes: priors_prose_injection_schema
-    framework: "DeepAgents reasoning model system prompt (str.format with {domain_prompt})"
-    driver: "domain_context_injection_specialist pattern"
-    format_note: "Four named prose sections: recent_similar_builds, recent_override_behaviour, approved_calibration_adjustments, qa_priors. Empty sections render as '(none)' marker — never omitted."
+- task: TASK-IC-002
+  consumes: priors_prose_injection_schema
+  framework: DeepAgents reasoning model system prompt (str.format with {domain_prompt})
+  driver: domain_context_injection_specialist pattern
+  format_note: "Four named prose sections: recent_similar_builds, recent_override_behaviour,\
+    \ approved_calibration_adjustments, qa_priors. Empty sections render as '(none)'\
+    \ marker \u2014 never omitted."
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-8D10
+  base_branch: main
+  started_at: '2026-04-26T14:27:53.373573'
+  last_updated: '2026-04-26T14:41:28.016043'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T14:27:53.373573'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Priors retrieval and prose injection

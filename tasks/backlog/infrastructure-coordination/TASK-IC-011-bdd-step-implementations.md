@@ -1,29 +1,48 @@
 ---
 id: TASK-IC-011
-title: "BDD step implementations for all 43 scenarios"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
+title: BDD step implementations for all 43 scenarios
+status: in_review
+created: 2026-04-25 14:36:00+00:00
+updated: 2026-04-25 14:36:00+00:00
 priority: high
 task_type: testing
-tags: [bdd, testing, integration]
+tags:
+- bdd
+- testing
+- integration
 complexity: 6
 parent_review: TASK-REV-IC8B
 feature_id: FEAT-FORGE-006
 wave: 5
 implementation_mode: task-work
 dependencies:
-  - TASK-IC-001
-  - TASK-IC-002
-  - TASK-IC-003
-  - TASK-IC-004
-  - TASK-IC-005
-  - TASK-IC-006
-  - TASK-IC-007
-  - TASK-IC-008
-  - TASK-IC-009
-  - TASK-IC-010
+- TASK-IC-001
+- TASK-IC-002
+- TASK-IC-003
+- TASK-IC-004
+- TASK-IC-005
+- TASK-IC-006
+- TASK-IC-007
+- TASK-IC-008
+- TASK-IC-009
+- TASK-IC-010
 estimated_minutes: 240
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-8D10
+  base_branch: main
+  started_at: '2026-04-26T14:56:21.716531'
+  last_updated: '2026-04-26T15:20:17.419238'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T14:56:21.716531'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: BDD step implementations for all 43 scenarios

@@ -1,19 +1,39 @@
 ---
 id: TASK-IC-008
-title: "Supersession-cycle detection for CalibrationAdjustment"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
+title: Supersession-cycle detection for CalibrationAdjustment
+status: in_review
+created: 2026-04-25 14:36:00+00:00
+updated: 2026-04-25 14:36:00+00:00
 priority: high
 task_type: feature
-tags: [memory, data-integrity, cycle-detection]
+tags:
+- memory
+- data-integrity
+- cycle-detection
 complexity: 4
 parent_review: TASK-REV-IC8B
 feature_id: FEAT-FORGE-006
 wave: 2
 implementation_mode: task-work
-dependencies: [TASK-IC-001]
+dependencies:
+- TASK-IC-001
 estimated_minutes: 75
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-8D10
+  base_branch: main
+  started_at: '2026-04-26T14:14:04.746136'
+  last_updated: '2026-04-26T14:21:13.526558'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T14:14:04.746136'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Supersession-cycle detection for CalibrationAdjustment
