@@ -1,19 +1,24 @@
 ---
-id: TASK-IC-012
-title: "Security and concurrency scenario hardening"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
-priority: high
-task_type: testing
-tags: [security, concurrency, data-integrity, hardening]
 complexity: 4
-parent_review: TASK-REV-IC8B
-feature_id: FEAT-FORGE-006
-wave: 6
-implementation_mode: task-work
-dependencies: [TASK-IC-011]
+created: 2026-04-25 14:36:00+00:00
+dependencies:
+- TASK-IC-011
 estimated_minutes: 90
+feature_id: FEAT-FORGE-006
+id: TASK-IC-012
+implementation_mode: task-work
+parent_review: TASK-REV-IC8B
+priority: high
+status: design_approved
+tags:
+- security
+- concurrency
+- data-integrity
+- hardening
+task_type: testing
+title: Security and concurrency scenario hardening
+updated: 2026-04-25 14:36:00+00:00
+wave: 6
 ---
 
 # Task: Security and concurrency scenario hardening

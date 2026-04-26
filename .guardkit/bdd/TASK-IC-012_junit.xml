@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="1" failures="0" skipped="0" tests="1" time="0.136" timestamp="2026-04-26T15:32:07.730714+01:00" hostname="promaxgb10-41b1"><testcase classname="" name="tests.bdd" time="0.000"><error message="collection failure">/usr/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+&lt;frozen importlib._bootstrap&gt;:1387: in _gcd_import
+    ???
+&lt;frozen importlib._bootstrap&gt;:1360: in _find_and_load
+    ???
+&lt;frozen importlib._bootstrap&gt;:1331: in _find_and_load_unlocked
+    ???
+&lt;frozen importlib._bootstrap&gt;:935: in _load_unlocked
+    ???
+../../../../../../.local/lib/python3.12/site-packages/_pytest/assertion/rewrite.py:197: in exec_module
+    exec(co, module.__dict__)
+tests/bdd/conftest.py:59: in &lt;module&gt;
+    from forge.adapters.nats.fleet_publisher import AGENT_ID, AgentStatus
+E   ModuleNotFoundError: No module named 'forge'</error></testcase></testsuite></testsuites>
