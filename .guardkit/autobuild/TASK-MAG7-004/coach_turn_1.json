@@ -1,0 +1,199 @@
+{
+  "task_id": "TASK-MAG7-004",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_constitutional_guard.py tests/forge/test_per_feature_sequencer.py tests/forge/test_stage_ordering_guard.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_stage_ordering_guard.py::TestPureFunctionProperty::test_guard_only_calls_protocol_methods PASSED [ 98%]\ntests/forge/test_stage_ordering_guard.py::test_seven_prerequisite_rows_align_with_taxonomy PASSED [100%]\ntests/forge/test_stage_ordering_guard.py:76\n/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_stage_ordering_guard.py:76: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n======================== 75 passed, 1 warning in 0.13s =========================",
+      "duration_seconds": 0.5411887168884277
+    },
+    "requirements": {
+      "criteria_total": 9,
+      "criteria_met": 9,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`ConstitutionalGuard` class exists at",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/pipeline/constitutional_guard.py defining class ConstitutionalGuard. TestClassLocation verifies the class is importable and lives in forge.pipeline (parent dir name == 'pipeline', file stem == 'constitutional_guard').",
+      "notes": "Created src/forge/pipeline/constitutional_guard.py defining class ConstitutionalGuard. TestClassLocation verifies the class is importable and lives in forge.pipeline (parent dir name == 'pipeline', file stem == 'constitutional_guard')."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Method `veto_auto_approve(stage: StageClass) -> AutoApproveDecision`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented ConstitutionalGuard.veto_auto_approve() that branches on `stage in self.constitutional_stages` and returns AutoApproveDecision(verdict=AutoApproveVerdict.REFUSED, ...). The signature accepts only the stage \u2014 there is no Coach-score parameter, so a max-score signal cannot be smuggled through. TestVetoAutoApprove (parametrised over CONSTITUTIONAL_STAGES) and TestGroupCNegativeRegression.test_max_coach_score_does_not_bypass_auto_approve_refusal verify the property.",
+      "notes": "Implemented ConstitutionalGuard.veto_auto_approve() that branches on `stage in self.constitutional_stages` and returns AutoApproveDecision(verdict=AutoApproveVerdict.REFUSED, ...). The signature accepts only the stage \u2014 there is no Coach-score parameter, so a max-score signal cannot be smuggled through. TestVetoAutoApprove (parametrised over CONSTITUTIONAL_STAGES) and TestGroupCNegativeRegression.test_max_coach_score_does_not_bypass_auto_approve_refusal verify the property."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Method `veto_skip(stage: StageClass) -> SkipDecision`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented ConstitutionalGuard.veto_skip() returning SkipDecision(verdict=SkipVerdict.REFUSED_CONSTITUTIONAL, ...) for constitutional stages. TestVetoSkip.test_constitutional_stage_returns_refused_constitutional_verdict (parametrised) and TestGroupCNegativeRegression.test_skip_directive_refused_for_constitutional_stage verify the verdict.",
+      "notes": "Implemented ConstitutionalGuard.veto_skip() returning SkipDecision(verdict=SkipVerdict.REFUSED_CONSTITUTIONAL, ...) for constitutional stages. TestVetoSkip.test_constitutional_stage_returns_refused_constitutional_verdict (parametrised) and TestGroupCNegativeRegression.test_skip_directive_refused_for_constitutional_stage verify the verdict."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Method `veto_override_claim(stage: StageClass, claim: dict) -> bool`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented ConstitutionalGuard.veto_override_claim() \u2014 the body executes `del claim` then returns `stage in self.constitutional_stages`, making the claim payload definitionally irrelevant. TestVetoOverrideClaim.test_constitutional_stage_ignores_override_claim passes a forged authority claim ({specialist, authority='override', signed=True, ...}) and asserts the result is True. TestGroupESecurityRegression.test_specialist_override_claim_ignored repeats with a richer claim to pin the security canary.",
+      "notes": "Implemented ConstitutionalGuard.veto_override_claim() \u2014 the body executes `del claim` then returns `stage in self.constitutional_stages`, making the claim payload definitionally irrelevant. TestVetoOverrideClaim.test_constitutional_stage_ignores_override_claim passes a forged authority claim ({specialist, authority='override', signed=True, ...}) and asserts the result is True. TestGroupESecurityRegression.test_specialist_override_claim_ignored repeats with a richer claim to pin the security canary."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Returns include a structured rationale string suitable for recording in",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "AutoApproveDecision and SkipDecision are frozen dataclasses with a non-optional `rationale: str` field. Module-level templates _AUTO_APPROVE_REFUSED_RATIONALE, _SKIP_REFUSED_RATIONALE, etc. format the stage into a structured citation referencing 'ADR-ARCH-026 belt-and-braces'. TestVetoAutoApprove.test_decision_includes_structured_rationale_string and the SkipDecision counterpart assert isinstance(rationale, str), non-empty, and 'ADR-ARCH-026' substring.",
+      "notes": "AutoApproveDecision and SkipDecision are frozen dataclasses with a non-optional `rationale: str` field. Module-level templates _AUTO_APPROVE_REFUSED_RATIONALE, _SKIP_REFUSED_RATIONALE, etc. format the stage into a structured citation referencing 'ADR-ARCH-026 belt-and-braces'. TestVetoAutoApprove.test_decision_includes_structured_rationale_string and the SkipDecision counterpart assert isinstance(rationale, str), non-empty, and 'ADR-ARCH-026' substring."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Unit tests cover Group C @negative @regression scenarios:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestGroupCNegativeRegression contains test_max_coach_score_does_not_bypass_auto_approve_refusal (loops every CONSTITUTIONAL_STAGES entry and asserts is_refused), test_skip_directive_refused_for_constitutional_stage (likewise for skip), and test_idempotent_repeated_calls_return_equal_decisions (pins idempotency so a stateful regression cannot 'cool off' refusal).",
+      "notes": "TestGroupCNegativeRegression contains test_max_coach_score_does_not_bypass_auto_approve_refusal (loops every CONSTITUTIONAL_STAGES entry and asserts is_refused), test_skip_directive_refused_for_constitutional_stage (likewise for skip), and test_idempotent_repeated_calls_return_equal_decisions (pins idempotency so a stateful regression cannot 'cool off' refusal)."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Unit tests cover Group E @security @regression scenarios:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestGroupESecurityRegression contains test_holds_against_misconfigured_prompt (no prompt is wired into the executor-layer guard at all \u2014 the guard refuses on stage alone), test_specialist_override_claim_ignored (forged authority claim ignored), and test_belt_and_braces_layer_independent_of_constitutional_stages_set (constructs ConstitutionalGuard(frozenset()) to prove there is no hard-coded fallback that could survive a CONSTITUTIONAL_STAGES drift).",
+      "notes": "TestGroupESecurityRegression contains test_holds_against_misconfigured_prompt (no prompt is wired into the executor-layer guard at all \u2014 the guard refuses on stage alone), test_specialist_override_claim_ignored (forged authority claim ignored), and test_belt_and_braces_layer_independent_of_constitutional_stages_set (constructs ConstitutionalGuard(frozenset()) to prove there is no hard-coded fallback that could survive a CONSTITUTIONAL_STAGES drift)."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Pure function \u2014 no I/O, no async",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Module imports only stdlib (dataclasses, enum, typing) and forge.pipeline.stage_taxonomy. No async def, no awaitables. TestPureFunction.test_methods_are_synchronous parametrises over the three veto methods and asserts asyncio.iscoroutinefunction is False. TestPureFunction.test_module_imports_no_io_libraries reads the module source and asserts forbidden tokens (import os/io/socket/requests/httpx/asyncio/aiohttp, from pathlib, open() ) are absent.",
+      "notes": "Module imports only stdlib (dataclasses, enum, typing) and forge.pipeline.stage_taxonomy. No async def, no awaitables. TestPureFunction.test_methods_are_synchronous parametrises over the three veto methods and asserts asyncio.iscoroutinefunction is False. TestPureFunction.test_module_imports_no_io_libraries reads the module source and asserts forbidden tokens (import os/io/socket/requests/httpx/asyncio/aiohttp, from pathlib, open() ) are absent."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Both files pass python3 -m py_compile cleanly and ast.parse cleanly. No line exceeds Black's 88-char limit (verified via awk length check producing zero output). Code follows project conventions: from __future__ import annotations, type hints, snake_case functions/vars, PascalCase classes, UPPER_CASE constants, frozen=True dataclasses, slots, enum.StrEnum.",
+      "notes": "Both files pass python3 -m py_compile cleanly and ast.parse cleanly. No line exceeds Black's 88-char limit (verified via awk length check producing zero output). Code follows project conventions: from __future__ import annotations, type hints, snake_case functions/vars, PascalCase classes, UPPER_CASE constants, frozen=True dataclasses, slots, enum.StrEnum."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`ConstitutionalGuard` class exists at",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/pipeline/constitutional_guard.py defining class ConstitutionalGuard. TestClassLocation verifies the class is importable and lives in forge.pipeline (parent dir name == 'pipeline', file stem == 'constitutional_guard').",
+        "notes": "Created src/forge/pipeline/constitutional_guard.py defining class ConstitutionalGuard. TestClassLocation verifies the class is importable and lives in forge.pipeline (parent dir name == 'pipeline', file stem == 'constitutional_guard')."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Method `veto_auto_approve(stage: StageClass) -> AutoApproveDecision`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented ConstitutionalGuard.veto_auto_approve() that branches on `stage in self.constitutional_stages` and returns AutoApproveDecision(verdict=AutoApproveVerdict.REFUSED, ...). The signature accepts only the stage \u2014 there is no Coach-score parameter, so a max-score signal cannot be smuggled through. TestVetoAutoApprove (parametrised over CONSTITUTIONAL_STAGES) and TestGroupCNegativeRegression.test_max_coach_score_does_not_bypass_auto_approve_refusal verify the property.",
+        "notes": "Implemented ConstitutionalGuard.veto_auto_approve() that branches on `stage in self.constitutional_stages` and returns AutoApproveDecision(verdict=AutoApproveVerdict.REFUSED, ...). The signature accepts only the stage \u2014 there is no Coach-score parameter, so a max-score signal cannot be smuggled through. TestVetoAutoApprove (parametrised over CONSTITUTIONAL_STAGES) and TestGroupCNegativeRegression.test_max_coach_score_does_not_bypass_auto_approve_refusal verify the property."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Method `veto_skip(stage: StageClass) -> SkipDecision`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented ConstitutionalGuard.veto_skip() returning SkipDecision(verdict=SkipVerdict.REFUSED_CONSTITUTIONAL, ...) for constitutional stages. TestVetoSkip.test_constitutional_stage_returns_refused_constitutional_verdict (parametrised) and TestGroupCNegativeRegression.test_skip_directive_refused_for_constitutional_stage verify the verdict.",
+        "notes": "Implemented ConstitutionalGuard.veto_skip() returning SkipDecision(verdict=SkipVerdict.REFUSED_CONSTITUTIONAL, ...) for constitutional stages. TestVetoSkip.test_constitutional_stage_returns_refused_constitutional_verdict (parametrised) and TestGroupCNegativeRegression.test_skip_directive_refused_for_constitutional_stage verify the verdict."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Method `veto_override_claim(stage: StageClass, claim: dict) -> bool`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented ConstitutionalGuard.veto_override_claim() \u2014 the body executes `del claim` then returns `stage in self.constitutional_stages`, making the claim payload definitionally irrelevant. TestVetoOverrideClaim.test_constitutional_stage_ignores_override_claim passes a forged authority claim ({specialist, authority='override', signed=True, ...}) and asserts the result is True. TestGroupESecurityRegression.test_specialist_override_claim_ignored repeats with a richer claim to pin the security canary.",
+        "notes": "Implemented ConstitutionalGuard.veto_override_claim() \u2014 the body executes `del claim` then returns `stage in self.constitutional_stages`, making the claim payload definitionally irrelevant. TestVetoOverrideClaim.test_constitutional_stage_ignores_override_claim passes a forged authority claim ({specialist, authority='override', signed=True, ...}) and asserts the result is True. TestGroupESecurityRegression.test_specialist_override_claim_ignored repeats with a richer claim to pin the security canary."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Returns include a structured rationale string suitable for recording in",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "AutoApproveDecision and SkipDecision are frozen dataclasses with a non-optional `rationale: str` field. Module-level templates _AUTO_APPROVE_REFUSED_RATIONALE, _SKIP_REFUSED_RATIONALE, etc. format the stage into a structured citation referencing 'ADR-ARCH-026 belt-and-braces'. TestVetoAutoApprove.test_decision_includes_structured_rationale_string and the SkipDecision counterpart assert isinstance(rationale, str), non-empty, and 'ADR-ARCH-026' substring.",
+        "notes": "AutoApproveDecision and SkipDecision are frozen dataclasses with a non-optional `rationale: str` field. Module-level templates _AUTO_APPROVE_REFUSED_RATIONALE, _SKIP_REFUSED_RATIONALE, etc. format the stage into a structured citation referencing 'ADR-ARCH-026 belt-and-braces'. TestVetoAutoApprove.test_decision_includes_structured_rationale_string and the SkipDecision counterpart assert isinstance(rationale, str), non-empty, and 'ADR-ARCH-026' substring."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Unit tests cover Group C @negative @regression scenarios:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestGroupCNegativeRegression contains test_max_coach_score_does_not_bypass_auto_approve_refusal (loops every CONSTITUTIONAL_STAGES entry and asserts is_refused), test_skip_directive_refused_for_constitutional_stage (likewise for skip), and test_idempotent_repeated_calls_return_equal_decisions (pins idempotency so a stateful regression cannot 'cool off' refusal).",
+        "notes": "TestGroupCNegativeRegression contains test_max_coach_score_does_not_bypass_auto_approve_refusal (loops every CONSTITUTIONAL_STAGES entry and asserts is_refused), test_skip_directive_refused_for_constitutional_stage (likewise for skip), and test_idempotent_repeated_calls_return_equal_decisions (pins idempotency so a stateful regression cannot 'cool off' refusal)."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Unit tests cover Group E @security @regression scenarios:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestGroupESecurityRegression contains test_holds_against_misconfigured_prompt (no prompt is wired into the executor-layer guard at all \u2014 the guard refuses on stage alone), test_specialist_override_claim_ignored (forged authority claim ignored), and test_belt_and_braces_layer_independent_of_constitutional_stages_set (constructs ConstitutionalGuard(frozenset()) to prove there is no hard-coded fallback that could survive a CONSTITUTIONAL_STAGES drift).",
+        "notes": "TestGroupESecurityRegression contains test_holds_against_misconfigured_prompt (no prompt is wired into the executor-layer guard at all \u2014 the guard refuses on stage alone), test_specialist_override_claim_ignored (forged authority claim ignored), and test_belt_and_braces_layer_independent_of_constitutional_stages_set (constructs ConstitutionalGuard(frozenset()) to prove there is no hard-coded fallback that could survive a CONSTITUTIONAL_STAGES drift)."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Pure function \u2014 no I/O, no async",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Module imports only stdlib (dataclasses, enum, typing) and forge.pipeline.stage_taxonomy. No async def, no awaitables. TestPureFunction.test_methods_are_synchronous parametrises over the three veto methods and asserts asyncio.iscoroutinefunction is False. TestPureFunction.test_module_imports_no_io_libraries reads the module source and asserts forbidden tokens (import os/io/socket/requests/httpx/asyncio/aiohttp, from pathlib, open() ) are absent.",
+        "notes": "Module imports only stdlib (dataclasses, enum, typing) and forge.pipeline.stage_taxonomy. No async def, no awaitables. TestPureFunction.test_methods_are_synchronous parametrises over the three veto methods and asserts asyncio.iscoroutinefunction is False. TestPureFunction.test_module_imports_no_io_libraries reads the module source and asserts forbidden tokens (import os/io/socket/requests/httpx/asyncio/aiohttp, from pathlib, open() ) are absent."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Both files pass python3 -m py_compile cleanly and ast.parse cleanly. No line exceeds Black's 88-char limit (verified via awk length check producing zero output). Code follows project conventions: from __future__ import annotations, type hints, snake_case functions/vars, PascalCase classes, UPPER_CASE constants, frozen=True dataclasses, slots, enum.StrEnum.",
+        "notes": "Both files pass python3 -m py_compile cleanly and ast.parse cleanly. No line exceeds Black's 88-char limit (verified via awk length check producing zero output). Code follows project conventions: from __future__ import annotations, type hints, snake_case functions/vars, PascalCase classes, UPPER_CASE constants, frozen=True dataclasses, slots, enum.StrEnum."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 299 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 958/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- HAS_FIELD_TYPE\n- HAS_FIELD_TYPE\n\n### \u26a0\ufe0f Warnings\n- OBSERVED_IN_PROJECT\n- ALTERNATIVE_TO\n\n### \ud83c\udfad Role Constraints\n- MONITOR_QUALITY_GATES\n- MUST_CONSULT_BEFORE_MODIFYING\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- HAS_IMPLEMENTATION_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

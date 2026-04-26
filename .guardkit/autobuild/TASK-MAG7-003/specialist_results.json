@@ -1,0 +1,12 @@
+{
+  "phase_4": {
+    "status": "passed",
+    "duration_seconds": 63.91732176399091,
+    "error": null,
+    "tests_run": 29,
+    "tests_failed": 0,
+    "coverage_pct": 100.0,
+    "output_summary": "pytest tests/forge/test_stage_ordering_guard.py: 29 passed, 0 failed; coverage on src/forge/pipeline/stage_ordering_guard.py = 100% (35/35 stmts).",
+    "quality_gates_passed": true
+  }
+}

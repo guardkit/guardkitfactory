@@ -1,28 +1,34 @@
 ---
-id: TASK-MAG7-004
-title: Implement ConstitutionalGuard for PR-review enforcement
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-MAG7
-feature_id: FEAT-FORGE-007
-wave: 2
-implementation_mode: task-work
 complexity: 4
-dependencies: [TASK-MAG7-001]
-tags: [guard, constitutional, security, belt-and-braces, feat-forge-007]
 consumer_context:
-  - task: TASK-MAG7-001
-    consumes: stage_taxonomy
-    framework: "Python forge.pipeline.stage_taxonomy"
-    driver: "StrEnum"
-    format_note: "Imports StageClass and CONSTITUTIONAL_STAGES from forge.pipeline.stage_taxonomy"
+- consumes: stage_taxonomy
+  driver: StrEnum
+  format_note: Imports StageClass and CONSTITUTIONAL_STAGES from forge.pipeline.stage_taxonomy
+  framework: Python forge.pipeline.stage_taxonomy
+  task: TASK-MAG7-001
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-MAG7-001
+feature_id: FEAT-FORGE-007
+id: TASK-MAG7-004
+implementation_mode: task-work
+parent_review: TASK-REV-MAG7
+priority: high
+status: design_approved
+tags:
+- guard
+- constitutional
+- security
+- belt-and-braces
+- feat-forge-007
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement ConstitutionalGuard for PR-review enforcement
+updated: 2026-04-25 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement ConstitutionalGuard for PR-review enforcement
