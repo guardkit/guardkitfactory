@@ -126,8 +126,7 @@ def redact_credentials(text: str) -> str:
     """
     if not isinstance(text, str):
         raise TypeError(
-            "redact_credentials expected str, got "
-            f"{type(text).__name__}"
+            "redact_credentials expected str, got " f"{type(text).__name__}"
         )
 
     # Order matters — see module docstring. Most-specific GitHub prefixes

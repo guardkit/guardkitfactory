@@ -33,7 +33,9 @@ _HEX_ALPHABET = string.hexdigits  # 0-9 a-f A-F
 
 
 def _alpha_num(length: int, *, rng: random.Random) -> str:
-    return "".join(rng.choice(string.ascii_letters + string.digits) for _ in range(length))
+    return "".join(
+        rng.choice(string.ascii_letters + string.digits) for _ in range(length)
+    )
 
 
 def _alpha_num_underscore(length: int, *, rng: random.Random) -> str:
@@ -77,9 +79,9 @@ class TestBearerPattern:
         assert jwt not in result
         # The literal segments must not survive in any form.
         for segment in jwt.split("."):
-            assert segment not in result, (
-                f"JWT segment {segment!r} leaked into redacted output: {result!r}"
-            )
+            assert (
+                segment not in result
+            ), f"JWT segment {segment!r} leaked into redacted output: {result!r}"
         assert "Bearer ***REDACTED***" in result
 
 
@@ -211,9 +213,9 @@ class TestHexFuzz:
             length = rng.randint(40, 200)
             blob = _hex(length, rng=rng)
             result = redact_credentials(blob)
-            assert blob not in result, (
-                f"long hex blob (len={length}) leaked into output"
-            )
+            assert (
+                blob not in result
+            ), f"long hex blob (len={length}) leaked into output"
             assert result == "***REDACTED-HEX***", (
                 f"long hex blob must reduce to the redaction marker; "
                 f"got {result!r} for length {length}"
@@ -225,9 +227,9 @@ class TestHexFuzz:
             length = rng.randint(1, 39)
             blob = _hex(length, rng=rng)
             result = redact_credentials(blob)
-            assert result == blob, (
-                f"short hex blob (len={length}) was incorrectly redacted: {result!r}"
-            )
+            assert (
+                result == blob
+            ), f"short hex blob (len={length}) was incorrectly redacted: {result!r}"
 
     def test_random_hex_inside_prose_round_trips_around_redaction(self) -> None:
         rng = random.Random(_FUZZ_SEED + 2)
@@ -278,11 +280,7 @@ class TestOverlappingMatches:
         # Running the function twice on the same input must produce the same
         # output as running it once. This guards against pattern interactions
         # that could re-process the redaction markers themselves.
-        text = (
-            "ghp_" + "A" * 36 + " "
-            "Bearer abcdef0123456789abcdef "
-            + "f" * 50
-        )
+        text = "ghp_" + "A" * 36 + " " "Bearer abcdef0123456789abcdef " + "f" * 50
         once = redact_credentials(text)
         twice = redact_credentials(once)
         assert once == twice
@@ -302,10 +300,14 @@ class TestOverlappingMatches:
         for original in creds:
             # The "Bearer " prefix is intentionally retained by the bearer
             # rule, so we only assert on the token portion of that one.
-            needle = original[len("Bearer ") :] if original.startswith("Bearer ") else original
-            assert needle not in result, (
-                f"original credential value leaked: {needle!r} in {result!r}"
+            needle = (
+                original[len("Bearer ") :]
+                if original.startswith("Bearer ")
+                else original
             )
+            assert (
+                needle not in result
+            ), f"original credential value leaked: {needle!r} in {result!r}"
         assert result.endswith(" | trailer")
 
 
@@ -361,7 +363,9 @@ class TestPurityAndApi:
             with pytest.raises(TypeError):
                 redact_credentials(bad)  # type: ignore[arg-type]
 
-    def test_function_does_not_log_original_text(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_function_does_not_log_original_text(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
         # The purity contract forbids the function from logging the input.
         # We assert nothing is emitted at any level during a redaction call.
         token = "ghp_" + "Z" * 36
@@ -384,9 +388,9 @@ class TestPurityAndApi:
             "Bearer",
             "Hex",  # hex section title — module uses "Long hex strings"
         ):
-            assert needle.lower() in doc.lower(), (
-                f"module docstring is missing pattern justification for {needle!r}"
-            )
+            assert (
+                needle.lower() in doc.lower()
+            ), f"module docstring is missing pattern justification for {needle!r}"
 
     def test_module_imports_are_stdlib_only(self) -> None:
         # The function is pure-stdlib (re-only). Guard against silent
@@ -395,6 +399,6 @@ class TestPurityAndApi:
         forbidden = ("requests", "httpx", "boto3", "logging", "asyncio")
         for needle in forbidden:
             # ``logging`` is intentionally forbidden — see purity contract.
-            assert f"import {needle}" not in source, (
-                f"redaction module must not import {needle!r}"
-            )
+            assert (
+                f"import {needle}" not in source
+            ), f"redaction module must not import {needle!r}"

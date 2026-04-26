@@ -109,13 +109,13 @@ class TestPydanticV2BaseModel:
         config = getattr(model_cls, "model_config", None)
 
         # Assert
-        assert config is not None, (
-            f"{model_cls.__name__} is missing pydantic v2 ``model_config``"
-        )
+        assert (
+            config is not None
+        ), f"{model_cls.__name__} is missing pydantic v2 ``model_config``"
         # v2 also exposes ``model_fields`` on the class itself.
-        assert hasattr(model_cls, "model_fields"), (
-            f"{model_cls.__name__} does not expose v2 ``model_fields``"
-        )
+        assert hasattr(
+            model_cls, "model_fields"
+        ), f"{model_cls.__name__} does not expose v2 ``model_fields``"
 
     def test_all_six_models_exported_from_module(self) -> None:
         # Arrange
@@ -471,9 +471,9 @@ class TestModuleSmoke:
     """Quick smoke checks: docstring presence, public-symbol stability."""
 
     def test_module_has_docstring(self) -> None:
-        assert (models_module.__doc__ or "").strip(), (
-            "forge.memory.models must have a module docstring"
-        )
+        assert (
+            models_module.__doc__ or ""
+        ).strip(), "forge.memory.models must have a module docstring"
 
     def test_module_does_not_import_io_layers(self) -> None:
         # Pure-schema modules must not transitively pull in network/db
