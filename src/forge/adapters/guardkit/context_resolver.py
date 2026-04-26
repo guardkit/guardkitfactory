@@ -145,9 +145,7 @@ def resolve_context_flags(
 
     allowed_categories: set[str] = _COMMAND_CATEGORY_FILTER[subcommand]
     origin_root: Path = repo_path.resolve(strict=False)
-    allowlist_resolved: list[Path] = [
-        p.resolve(strict=False) for p in read_allowlist
-    ]
+    allowlist_resolved: list[Path] = [p.resolve(strict=False) for p in read_allowlist]
 
     warnings: list[GuardKitWarning] = []
 
@@ -196,9 +194,7 @@ def resolve_context_flags(
     # chain* (not a global visited set) so cycle detection is per-chain
     # — diamond imports stay legal, true cycles are broken safely.
     queue: deque[tuple[dict[str, Any], Path, frozenset[Path], int]] = deque()
-    queue.append(
-        (origin_manifest, origin_root, frozenset({origin_manifest_path}), 0)
-    )
+    queue.append((origin_manifest, origin_root, frozenset({origin_manifest_path}), 0))
 
     while queue:
         manifest_data, manifest_root, chain, depth = queue.popleft()

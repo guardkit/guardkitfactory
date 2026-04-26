@@ -1,34 +1,41 @@
-"""Pytest-bdd wiring for FEAT-FORGE-005 / TASK-GCI-007 scenarios.
+"""Pytest-bdd wiring for FEAT-FORGE-005 / TASK-GCI-005 + TASK-GCI-007 scenarios.
 
 This module is the executable surface for the BDD oracle of the
-gh-adapter task. It binds the two ``@task:TASK-GCI-007`` Gherkin
-scenarios in
+gh-adapter (TASK-GCI-007) and progress-stream-subscriber (TASK-GCI-005)
+tasks. Scenarios in
 ``features/guardkit-command-invocation-engine/guardkit-command-invocation-engine.feature``
-to step functions that drive the real
-:func:`forge.adapters.gh.operations.create_pr` adapter through a mocked
-subprocess seam (``operations._execute``) — no ``gh`` binary is invoked
-and no network call is made.
+are bound here to step functions that drive the real adapters through
+hand-rolled fakes (no ``gh`` binary invocation, no live NATS).
 
 Scope
 -----
 
 Wired here:
 
-- ``@key-example`` — *Forge opens a pull request for the build through
-  the version-control adapter*. Drives ``create_pr`` with ``GH_TOKEN``
-  set, asserts the returned :class:`PRResult` is ``status="success"``
-  with ``pr_url`` populated and that the subprocess command targeted the
-  configured base branch.
-- ``@negative`` — *A pull-request creation without GitHub credentials
-  returns a structured error*. Drives ``create_pr`` with ``GH_TOKEN``
-  unset, asserts the returned :class:`PRResult` carries
-  ``error_code="missing_credentials"`` and that ``operations._execute``
-  was never invoked (i.e. no pull request was ever created).
+- ``@key-example`` (TASK-GCI-007) — *Forge opens a pull request for the
+  build through the version-control adapter*.
+- ``@negative`` (TASK-GCI-007) — *A pull-request creation without
+  GitHub credentials returns a structured error*.
+- ``@key-example`` (TASK-GCI-005) — *GuardKit progress is streamed on
+  the bus while the subprocess is still running*. Drives
+  :func:`forge.adapters.guardkit.progress_subscriber.subscribe_progress`
+  against a fake NATS client, asserts the sink observes each emitted
+  :class:`GuardKitProgressEvent` and the simulated blocking invocation
+  returns its authoritative result only after the subprocess exits.
+- ``@edge-case`` (TASK-GCI-005) — *The authoritative result still
+  returns when progress streaming is unavailable*. Drives
+  ``subscribe_progress`` with ``nats_client=None`` and asserts a
+  structured ``progress_stream_unavailable`` warning is recorded while
+  the simulated invocation still returns a parsed
+  :class:`GuardKitResult` with artefacts.
+- ``@edge-case`` (TASK-GCI-005) — *Progress events emitted faster than
+  Forge consumes them are still observable for live status*. Drives
+  ``subscribe_progress`` with a producer-faster-than-sink workload and
+  asserts the most recent event is preserved on the bounded sink.
 
 Other ``@task:TASK-GCI-XXX`` scenarios in the same feature file belong
-to sibling tasks (TASK-GCI-003 / 004 / 005 / 006 / 008 / 009 / 010);
-their step bindings live with those tasks. Only the TASK-GCI-007 pair
-is collected here.
+to sibling tasks (TASK-GCI-003 / 004 / 006 / 008 / 009 / 010); their
+step bindings live with those tasks.
 
 Background steps
 ----------------
@@ -43,15 +50,25 @@ scenario without Background-step errors.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 from unittest.mock import AsyncMock
 
 import pytest
+from nats_core.envelope import EventType, MessageEnvelope
 from pytest_bdd import given, scenario, then, when
 
 from forge.adapters.gh import operations
 from forge.adapters.git.models import PRResult
+from forge.adapters.guardkit.models import GuardKitResult
+from forge.adapters.guardkit.progress import GuardKitProgressEvent
+from forge.adapters.guardkit.progress_subscriber import (
+    PROGRESS_STREAM_UNAVAILABLE,
+    ProgressSink,
+    subject_for,
+    subscribe_progress,
+)
 
 
 FEATURE_FILE = (
@@ -230,3 +247,334 @@ def _then_no_pr_created(gci_world: dict[str, Any]) -> None:
     # seam — gh is never invoked, so no PR can have been created.
     execute_mock.assert_not_called()
     execute_mock.assert_not_awaited()
+
+
+# ===========================================================================
+# TASK-GCI-005 — progress-stream subscriber scenarios
+# ===========================================================================
+#
+# The wiring below drives the real
+# :func:`forge.adapters.guardkit.progress_subscriber.subscribe_progress`
+# context manager against a hand-rolled fake NATS client. The
+# "subprocess" is simulated as an ``async def`` whose return value
+# stands in for the authoritative :class:`GuardKitResult` that
+# ``forge.adapters.guardkit.run()`` will eventually deliver
+# (TASK-GCI-008 composes both).
+# ---------------------------------------------------------------------------
+
+
+_GCI005_BUILD_ID = "B-bdd-005"
+_GCI005_SUBCOMMAND = "/feature-spec"
+
+
+class _BDDFakeSubscription:
+    """Minimal ``Subscription``-shaped fake exposing :meth:`unsubscribe`."""
+
+    def __init__(self) -> None:
+        self.unsubscribed = False
+
+    async def unsubscribe(self) -> None:
+        self.unsubscribed = True
+
+
+class _BDDFakeNATSClient:
+    """Captures subscribe calls and exposes the registered callback.
+
+    Mirrors the shape used by :class:`forge.adapters.nats.client.NATSClient`
+    so the production :func:`subscribe_progress` accepts it without any
+    monkey-patching.
+    """
+
+    def __init__(self) -> None:
+        self._subs: dict[
+            str,
+            list[
+                tuple[
+                    _BDDFakeSubscription,
+                    Callable[[MessageEnvelope], Awaitable[None]],
+                ]
+            ],
+        ] = {}
+
+    async def subscribe(
+        self,
+        topic: str,
+        callback: Callable[[MessageEnvelope], Awaitable[None]],
+    ) -> _BDDFakeSubscription:
+        sub = _BDDFakeSubscription()
+        self._subs.setdefault(topic, []).append((sub, callback))
+        return sub
+
+    async def deliver(self, topic: str, envelope: MessageEnvelope) -> None:
+        for _sub, cb in list(self._subs.get(topic, [])):
+            await cb(envelope)
+
+
+def _bdd_make_event(
+    *,
+    seq: int,
+    stage_label: str,
+    build_id: str = _GCI005_BUILD_ID,
+    subcommand: str = _GCI005_SUBCOMMAND,
+) -> GuardKitProgressEvent:
+    return GuardKitProgressEvent(
+        build_id=build_id,
+        subcommand=subcommand,
+        stage_label=stage_label,
+        seq=seq,
+        timestamp=f"2026-04-26T08:30:{seq:02d}+00:00",
+    )
+
+
+def _bdd_envelope_for(event: GuardKitProgressEvent) -> MessageEnvelope:
+    return MessageEnvelope(
+        event_type=EventType.STAGE_COMPLETE,
+        source_id="guardkit",
+        payload=event.model_dump(),
+    )
+
+
+def _bdd_simulated_result() -> GuardKitResult:
+    """Stand-in for the authoritative result the GuardKit subprocess emits."""
+    return GuardKitResult(
+        status="success",
+        subcommand=_GCI005_SUBCOMMAND,
+        artefacts=["docs/specs/example.md"],
+        duration_secs=0.01,
+        stdout_tail="",
+        exit_code=0,
+    )
+
+
+# ---------------------------------------------------------------------------
+# @key-example: GuardKit progress is streamed on the bus while the
+#               subprocess is still running
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.key_example
+@scenario(
+    FEATURE_FILE,
+    "GuardKit progress is streamed on the bus while the subprocess is still running",
+)
+def test_key_example_progress_streamed_while_running() -> None:
+    """@key-example — TASK-GCI-005 live-telemetry happy path."""
+
+
+# ---------------------------------------------------------------------------
+# @edge-case: The authoritative result still returns when progress
+#             streaming is unavailable
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.edge_case
+@scenario(
+    FEATURE_FILE,
+    "The authoritative result still returns when progress streaming is unavailable",
+)
+def test_edge_case_authoritative_result_when_stream_unavailable() -> None:
+    """@edge-case — TASK-GCI-005 telemetry-only invariant."""
+
+
+# ---------------------------------------------------------------------------
+# @edge-case: Progress events emitted faster than Forge consumes them
+#             are still observable for live status
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.edge_case
+@scenario(
+    FEATURE_FILE,
+    "Progress events emitted faster than Forge consumes them are "
+    "still observable for live status",
+)
+def test_edge_case_back_pressure_most_recent_observable() -> None:
+    """@edge-case — TASK-GCI-005 bounded-sink back-pressure."""
+
+
+# ---------------------------------------------------------------------------
+# Step bindings — TASK-GCI-005
+# ---------------------------------------------------------------------------
+
+
+@given("the reasoning model invokes any GuardKit wrapper that supports streaming")
+def _given_streaming_wrapper_invoked(gci_world: dict[str, Any]) -> None:
+    # The wrapper invocation is simulated as a coroutine that emits N
+    # progress events through the fake client and then returns the
+    # authoritative GuardKitResult. The wrapper does NOT return until
+    # the simulated subprocess finishes, mirroring the synchronous
+    # contract of ``forge.adapters.guardkit.run()``.
+    gci_world["nats_client"] = _BDDFakeNATSClient()
+    gci_world["sink"] = ProgressSink(max_events=50)
+    gci_world["build_id"] = _GCI005_BUILD_ID
+    gci_world["subcommand"] = _GCI005_SUBCOMMAND
+    gci_world["events_to_emit"] = [
+        _bdd_make_event(seq=1, stage_label="discovery"),
+        _bdd_make_event(seq=2, stage_label="generation"),
+        _bdd_make_event(seq=3, stage_label="verification"),
+    ]
+
+
+@when("the GuardKit process emits progress events during its run")
+def _when_progress_events_emitted(gci_world: dict[str, Any]) -> None:
+    sink: ProgressSink = gci_world["sink"]
+    client: _BDDFakeNATSClient = gci_world["nats_client"]
+    build_id = gci_world["build_id"]
+    subcommand = gci_world["subcommand"]
+    events: list[GuardKitProgressEvent] = gci_world["events_to_emit"]
+
+    completion_marker: dict[str, Any] = {"completed": False}
+
+    async def _run() -> GuardKitResult:
+        async with subscribe_progress(client, build_id, subcommand, sink):
+            topic = subject_for(build_id, subcommand)
+            # Emit each progress event mid-run.
+            for ev in events:
+                await client.deliver(topic, _bdd_envelope_for(ev))
+            # Subprocess "exits" — the authoritative result is now
+            # produced and returned.
+            completion_marker["completed"] = True
+            return _bdd_simulated_result()
+
+    gci_world["result"] = asyncio.run(_run())
+    gci_world["completion_marker"] = completion_marker
+
+
+@then("Forge should observe each progress event on the pipeline progress channel")
+def _then_each_event_observed(gci_world: dict[str, Any]) -> None:
+    sink: ProgressSink = gci_world["sink"]
+    expected: list[GuardKitProgressEvent] = gci_world["events_to_emit"]
+    observed = sink.all_for(gci_world["build_id"], gci_world["subcommand"])
+    assert observed == expected, (
+        f"sink should hold every emitted event in order, got "
+        f"seqs={[e.seq for e in observed]} expected="
+        f"{[e.seq for e in expected]}"
+    )
+
+
+@then("the blocking invocation should still return only after the subprocess exits")
+def _then_invocation_returns_after_subprocess(gci_world: dict[str, Any]) -> None:
+    # The simulated wrapper sets ``completed=True`` only after every
+    # event was delivered AND just before returning the result. The
+    # caller observed the result, therefore completion happened — and
+    # critically, no event delivery raced past the wrapper return,
+    # because ``async with subscribe_progress`` is the synchronous
+    # boundary that contains every emit.
+    assert gci_world["completion_marker"]["completed"] is True
+    result: GuardKitResult = gci_world["result"]
+    assert isinstance(result, GuardKitResult)
+    assert result.status == "success"
+    assert result.exit_code == 0
+    # And every event reached the sink before the wrapper returned.
+    sink: ProgressSink = gci_world["sink"]
+    assert sink.latest(gci_world["build_id"], gci_world["subcommand"]) is not None
+
+
+@given("the progress stream channel is unavailable during a GuardKit invocation")
+def _given_progress_stream_unavailable(gci_world: dict[str, Any]) -> None:
+    # ``nats_client=None`` is the canonical no-op path for the
+    # subscriber; ``subscribe_progress`` records a structured
+    # ``progress_stream_unavailable`` warning and the caller proceeds.
+    gci_world["nats_client"] = None
+    gci_world["sink"] = ProgressSink()
+    gci_world["build_id"] = _GCI005_BUILD_ID
+    gci_world["subcommand"] = _GCI005_SUBCOMMAND
+
+
+@when("the subprocess exits cleanly")
+def _when_subprocess_exits_cleanly(gci_world: dict[str, Any]) -> None:
+    sink: ProgressSink = gci_world["sink"]
+
+    async def _run() -> GuardKitResult:
+        async with subscribe_progress(
+            gci_world["nats_client"],
+            gci_world["build_id"],
+            gci_world["subcommand"],
+            sink,
+        ):
+            # No subprocess events are emitted on the unavailable
+            # path; the wrapper still returns its authoritative
+            # result on clean exit.
+            return _bdd_simulated_result()
+
+    gci_world["result"] = asyncio.run(_run())
+
+
+@then(
+    "the invocation should still return a parsed success result with artefact paths"
+)
+def _then_returns_parsed_success_with_artefacts(gci_world: dict[str, Any]) -> None:
+    result: GuardKitResult = gci_world["result"]
+    assert isinstance(result, GuardKitResult)
+    assert result.status == "success"
+    assert result.exit_code == 0
+    assert result.artefacts, "authoritative result must carry artefact paths"
+
+
+@then("the missing progress stream should not itself fail the call")
+def _then_missing_stream_does_not_fail(gci_world: dict[str, Any]) -> None:
+    sink: ProgressSink = gci_world["sink"]
+    # Exactly one structured warning recorded with the canonical code.
+    codes = [w.code for w in sink.warnings]
+    assert PROGRESS_STREAM_UNAVAILABLE in codes
+    # And the GuardKitResult reached the caller — the call did not
+    # propagate any exception.
+    assert isinstance(gci_world["result"], GuardKitResult)
+
+
+@given("a GuardKit subprocess is emitting progress events at a high cadence")
+def _given_high_cadence_emitter(gci_world: dict[str, Any]) -> None:
+    # The bound on the sink (``max_events``) is intentionally smaller
+    # than the producer's burst so that back-pressure forces eviction.
+    gci_world["nats_client"] = _BDDFakeNATSClient()
+    gci_world["sink"] = ProgressSink(max_events=3)
+    gci_world["build_id"] = _GCI005_BUILD_ID
+    gci_world["subcommand"] = _GCI005_SUBCOMMAND
+    # Producer emits 10 events; sink retains only the most recent 3.
+    gci_world["events_to_emit"] = [
+        _bdd_make_event(seq=i, stage_label=f"stage-{i}") for i in range(1, 11)
+    ]
+
+
+@when("Forge is slower to consume than the producer is to emit")
+def _when_forge_slower_than_producer(gci_world: dict[str, Any]) -> None:
+    sink: ProgressSink = gci_world["sink"]
+    client: _BDDFakeNATSClient = gci_world["nats_client"]
+    events: list[GuardKitProgressEvent] = gci_world["events_to_emit"]
+    build_id = gci_world["build_id"]
+    subcommand = gci_world["subcommand"]
+
+    async def _run() -> GuardKitResult:
+        async with subscribe_progress(client, build_id, subcommand, sink):
+            topic = subject_for(build_id, subcommand)
+            for ev in events:
+                await client.deliver(topic, _bdd_envelope_for(ev))
+            return _bdd_simulated_result()
+
+    gci_world["result"] = asyncio.run(_run())
+
+
+@then("the live status view should still reflect the most recent progress events")
+def _then_most_recent_observable(gci_world: dict[str, Any]) -> None:
+    sink: ProgressSink = gci_world["sink"]
+    retained = sink.all_for(gci_world["build_id"], gci_world["subcommand"])
+    expected_tail = gci_world["events_to_emit"][-3:]
+    assert retained == expected_tail, (
+        f"bounded sink should retain the most recent 3 events, "
+        f"got seqs={[e.seq for e in retained]}"
+    )
+    latest = sink.latest(gci_world["build_id"], gci_world["subcommand"])
+    assert latest is not None
+    assert latest.seq == 10
+
+
+@then("the authoritative completion result should remain unaffected")
+def _then_authoritative_result_unaffected(gci_world: dict[str, Any]) -> None:
+    result: GuardKitResult = gci_world["result"]
+    assert isinstance(result, GuardKitResult)
+    assert result.status == "success"
+    assert result.exit_code == 0
+    # No telemetry-failure warnings — only back-pressure eviction
+    # happened, which is silent (the deque drops oldest on its own).
+    sink: ProgressSink = gci_world["sink"]
+    assert all(w.code != PROGRESS_STREAM_UNAVAILABLE for w in sink.warnings)

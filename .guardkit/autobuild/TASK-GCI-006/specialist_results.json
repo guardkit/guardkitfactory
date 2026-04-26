@@ -1,12 +1,12 @@
 {
   "phase_4": {
     "status": "passed",
-    "duration_seconds": 37.88689054601127,
+    "duration_seconds": 59.77615324698854,
     "error": null,
-    "tests_run": 37,
+    "tests_run": 1032,
     "tests_failed": 0,
-    "coverage_pct": 96.0,
-    "output_summary": "pytest: 37 passed, 0 failed; coverage 96% on src/forge/adapters/git/operations.py (3 missed lines: 119, 150, 266).",
+    "coverage_pct": 92.4,
+    "output_summary": "pytest (importlib mode): 1032 passed, 0 failed, 30 warnings; line coverage 92.4% on src/forge.",
     "quality_gates_passed": true
   },
   "phase_5": {

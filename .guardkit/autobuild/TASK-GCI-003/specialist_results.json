@@ -1,12 +1,12 @@
 {
   "phase_4": {
     "status": "passed",
-    "duration_seconds": 67.69299602200044,
+    "duration_seconds": 56.66840195801342,
     "error": null,
     "tests_run": 28,
     "tests_failed": 0,
     "coverage_pct": 88.0,
-    "output_summary": "28/28 tests passed for context_resolver; line coverage 88% (116 stmts, 14 miss); full guardkit suite (124 tests) green.",
+    "output_summary": "28/28 tests pass for context_resolver; line coverage 88% (116 stmts, 14 miss); full forge.adapters suite (310 tests) green.",
     "quality_gates_passed": true
   },
   "phase_5": {

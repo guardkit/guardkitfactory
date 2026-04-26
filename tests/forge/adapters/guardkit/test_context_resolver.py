@@ -41,7 +41,6 @@ from forge.adapters.guardkit.context_resolver import (
 )
 from forge.adapters.guardkit.models import GuardKitWarning
 
-
 # ---------------------------------------------------------------------------
 # Manifest fixture helpers
 # ---------------------------------------------------------------------------
@@ -79,9 +78,7 @@ def _touch(repo: Path, rel_path: str) -> Path:
 class TestResolvedContextShape:
     """AC-001 — ResolvedContext exposes flags / paths / warnings."""
 
-    def test_resolved_context_has_three_named_attributes(
-        self, tmp_path: Path
-    ) -> None:
+    def test_resolved_context_has_three_named_attributes(self, tmp_path: Path) -> None:
         # Run against a missing manifest — guarantees the shape exists
         # even on the degenerate path.
         result = resolve_context_flags(
@@ -137,9 +134,7 @@ class TestCommandCategoryFilterMatchesDDR005:
             "graphiti-prune",
         ],
     )
-    def test_graphiti_subcommands_are_absent(
-        self, graphiti_subcommand: str
-    ) -> None:
+    def test_graphiti_subcommands_are_absent(self, graphiti_subcommand: str) -> None:
         assert graphiti_subcommand not in _COMMAND_CATEGORY_FILTER
 
 
@@ -228,9 +223,7 @@ class TestAlwaysIncludePrepended:
         assert result.paths[0].endswith("docs/architecture/ARCHITECTURE.md")
         assert result.paths[1].endswith("docs/specs/dep-spec.md")
 
-    def test_always_include_added_for_uncategorised_doc(
-        self, tmp_path: Path
-    ) -> None:
+    def test_always_include_added_for_uncategorised_doc(self, tmp_path: Path) -> None:
         # A doc in always_include needs no category; it is included
         # regardless of the subcommand's filter.
         repo = _make_repo(tmp_path, "origin")
@@ -255,9 +248,7 @@ class TestAlwaysIncludePrepended:
         assert len(result.paths) == 1
         assert result.paths[0].endswith("docs/random/not_in_any_filter.md")
 
-    def test_flags_pair_each_path_with_context_argument(
-        self, tmp_path: Path
-    ) -> None:
+    def test_flags_pair_each_path_with_context_argument(self, tmp_path: Path) -> None:
         repo = _make_repo(tmp_path, "origin")
         _touch(repo, "a.md")
         _touch(repo, "b.md")
@@ -346,9 +337,7 @@ class TestDepthCapChase:
         assert any(p.endswith("r1-spec.md") for p in result.paths)
         assert any(p.endswith("r2-spec.md") for p in result.paths)
 
-    def test_depth_three_stops_with_depth_cap_warning(
-        self, tmp_path: Path
-    ) -> None:
+    def test_depth_three_stops_with_depth_cap_warning(self, tmp_path: Path) -> None:
         # Chain of 4 repos: r0→r1→r2→r3. r3-spec.md would be at depth 3 —
         # collected when its parent (r2's manifest) is BFS-visited at
         # depth 2 — but going *to* r3's manifest (depth 3) is rejected.
@@ -443,9 +432,7 @@ class TestCycleDetection:
 class TestReadAllowlistExclusion:
     """AC-007 — docs outside the read_allowlist are omitted with a warning."""
 
-    def test_doc_outside_allowlist_is_omitted_and_warned(
-        self, tmp_path: Path
-    ) -> None:
+    def test_doc_outside_allowlist_is_omitted_and_warned(self, tmp_path: Path) -> None:
         repo = _make_repo(tmp_path, "origin")
         outside = _make_repo(tmp_path, "outside")
         _touch(outside, "secret.md")
@@ -458,9 +445,7 @@ class TestReadAllowlistExclusion:
             repo,
             {
                 "repo": "origin",
-                "internal_docs": {
-                    "always_include": ["docs/specs/repo-spec.md"]
-                },
+                "internal_docs": {"always_include": ["docs/specs/repo-spec.md"]},
             },
         )
 
@@ -499,9 +484,7 @@ class TestDocPathEscapesRepoRoot:
             repo,
             {
                 "repo": "origin",
-                "internal_docs": {
-                    "always_include": ["../sibling-secret.md"]
-                },
+                "internal_docs": {"always_include": ["../sibling-secret.md"]},
             },
         )
 
@@ -513,9 +496,7 @@ class TestDocPathEscapesRepoRoot:
 
         assert result.paths == []
         escape_warnings = [
-            w
-            for w in result.warnings
-            if w.code == "context_manifest_path_outside_repo"
+            w for w in result.warnings if w.code == "context_manifest_path_outside_repo"
         ]
         assert len(escape_warnings) == 1
         assert "sibling-secret.md" in escape_warnings[0].details["path"]
@@ -634,9 +615,7 @@ class TestSymlinksFollowedBeforeAllowlistCheck:
         sys.platform == "win32",
         reason="symlinks require admin on Windows",
     )
-    def test_symlink_target_outside_allowlist_is_rejected(
-        self, tmp_path: Path
-    ) -> None:
+    def test_symlink_target_outside_allowlist_is_rejected(self, tmp_path: Path) -> None:
         repo = _make_repo(tmp_path, "origin")
         outside_dir = tmp_path / "outside_repo_target"
         outside_dir.mkdir()
@@ -667,7 +646,8 @@ class TestSymlinksFollowedBeforeAllowlistCheck:
         # so the path-outside-repo check fires first and rejects it.
         assert result.paths == []
         assert any(
-            w.code in (
+            w.code
+            in (
                 "context_manifest_path_outside_repo",
                 "context_manifest_path_outside_allowlist",
             )

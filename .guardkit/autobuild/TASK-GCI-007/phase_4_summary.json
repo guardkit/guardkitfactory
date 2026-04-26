@@ -1,7 +1,7 @@
 {
-  "tests_run": 17,
+  "tests_run": 19,
   "tests_failed": 0,
   "coverage_pct": 79.0,
-  "output_summary": "pytest tests/forge/adapters/gh/test_operations.py: 17 passed, 0 failed; coverage 79% on src/forge/adapters/gh (uncovered lines = mocked _execute body).",
+  "output_summary": "pytest tests/forge/adapters/gh + tests/bdd: 19 passed, 0 failed; gh adapter coverage 79% (operations.py 78%, __init__.py 100%).",
   "quality_gates_passed": true
 }
