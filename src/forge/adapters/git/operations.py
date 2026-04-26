@@ -116,9 +116,7 @@ async def _default_execute(
     if timeout is None:
         stdout_b, stderr_b = await proc.communicate()
     else:
-        stdout_b, stderr_b = await asyncio.wait_for(
-            proc.communicate(), timeout=timeout
-        )
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
     return ExecuteResult(
         exit_code=proc.returncode if proc.returncode is not None else -1,
         stdout=stdout_b.decode("utf-8", errors="replace"),
@@ -248,9 +246,7 @@ async def commit_all(
                 exit_code=add_res.exit_code,
             )
 
-        commit_res = await execute(
-            command=["git", "commit", "-m", message], cwd=cwd
-        )
+        commit_res = await execute(command=["git", "commit", "-m", message], cwd=cwd)
         if commit_res.exit_code != 0:
             return GitOpResult(
                 status="failed",
@@ -259,9 +255,7 @@ async def commit_all(
                 exit_code=commit_res.exit_code,
             )
 
-        sha_res = await execute(
-            command=["git", "rev-parse", "HEAD"], cwd=cwd
-        )
+        sha_res = await execute(command=["git", "rev-parse", "HEAD"], cwd=cwd)
         if sha_res.exit_code != 0:
             return GitOpResult(
                 status="failed",

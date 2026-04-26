@@ -42,7 +42,6 @@ from forge.adapters.git.operations import (
     push,
 )
 
-
 # --------------------------------------------------------------------------- #
 # Fakes & fixtures.
 # --------------------------------------------------------------------------- #
@@ -97,9 +96,7 @@ def _ok(stdout: str = "", stderr: str = "") -> ExecuteResult:
     return ExecuteResult(exit_code=0, stdout=stdout, stderr=stderr)
 
 
-def _fail(
-    exit_code: int = 1, stdout: str = "", stderr: str = "boom"
-) -> ExecuteResult:
+def _fail(exit_code: int = 1, stdout: str = "", stderr: str = "boom") -> ExecuteResult:
     return ExecuteResult(exit_code=exit_code, stdout=stdout, stderr=stderr)
 
 
@@ -133,9 +130,7 @@ class TestPrepareWorktree:
         assert len(fake.calls) == 1
 
     @pytest.mark.asyncio
-    async def test_command_is_list_tokens_and_cwd_is_repo(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_command_is_list_tokens_and_cwd_is_repo(self, tmp_path: Path) -> None:
         fake = FakeExecute(responses=[_ok()])
         repo = tmp_path / "repo"
         builds_root = tmp_path / "builds"
@@ -162,7 +157,10 @@ class TestPrepareWorktree:
         )
 
         result = await prepare_worktree(
-            "b", tmp_path / "repo", "main", execute=fake,
+            "b",
+            tmp_path / "repo",
+            "main",
+            execute=fake,
             builds_root=tmp_path / "builds",
         )
 
@@ -172,13 +170,14 @@ class TestPrepareWorktree:
         assert result.worktree_path is None
 
     @pytest.mark.asyncio
-    async def test_exception_in_execute_does_not_raise(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_in_execute_does_not_raise(self, tmp_path: Path) -> None:
         fake = FakeExecute(raise_exc=OSError("disk gone"))
 
         result = await prepare_worktree(
-            "b", tmp_path / "repo", "main", execute=fake,
+            "b",
+            tmp_path / "repo",
+            "main",
+            execute=fake,
             builds_root=tmp_path / "builds",
         )
 
@@ -197,9 +196,7 @@ class TestCommitAll:
     """AC-001 / AC-002 / AC-003 / AC-005 / AC-008 / AC-009."""
 
     @pytest.mark.asyncio
-    async def test_success_returns_sha_from_rev_parse(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_success_returns_sha_from_rev_parse(self, tmp_path: Path) -> None:
         fake = FakeExecute(
             responses=[
                 _ok(),  # git add -A
@@ -230,13 +227,9 @@ class TestCommitAll:
     ) -> None:
         # AC-009: ``;`` / ``&&`` / quotes never break out of a single argv slot.
         nasty = 'feat: pwn; rm -rf / && echo "owned"'
-        fake = FakeExecute(
-            responses=[_ok(), _ok(), _ok(stdout="deadbeef\n")]
-        )
+        fake = FakeExecute(responses=[_ok(), _ok(), _ok(stdout="deadbeef\n")])
 
-        result = await commit_all(
-            tmp_path / "wt", nasty, execute=fake
-        )
+        result = await commit_all(tmp_path / "wt", nasty, execute=fake)
 
         commit_call = fake.calls[1]
         assert commit_call.command == ["git", "commit", "-m", nasty]
@@ -283,9 +276,7 @@ class TestCommitAll:
         assert "nothing to commit" in result.stderr
 
     @pytest.mark.asyncio
-    async def test_exception_in_execute_does_not_raise(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_in_execute_does_not_raise(self, tmp_path: Path) -> None:
         fake = FakeExecute(raise_exc=RuntimeError("kaboom"))
 
         result = await commit_all(tmp_path / "wt", "msg", execute=fake)
@@ -304,9 +295,7 @@ class TestPush:
     """AC-001 / AC-002 / AC-003 / AC-006 / AC-008."""
 
     @pytest.mark.asyncio
-    async def test_success_returns_success_with_zero_exit(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_success_returns_success_with_zero_exit(self, tmp_path: Path) -> None:
         fake = FakeExecute(responses=[_ok()])
         worktree = tmp_path / "wt"
 
@@ -338,9 +327,7 @@ class TestPush:
         assert "rejected" in result.stderr
 
     @pytest.mark.asyncio
-    async def test_exception_in_execute_does_not_raise(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_exception_in_execute_does_not_raise(self, tmp_path: Path) -> None:
         fake = FakeExecute(raise_exc=ConnectionError("network down"))
 
         result = await push(tmp_path / "wt", "main", execute=fake)
@@ -382,9 +369,7 @@ class TestCleanupWorktree:
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        fake = FakeExecute(
-            responses=[_fail(exit_code=128, stderr="fatal: locked")]
-        )
+        fake = FakeExecute(responses=[_fail(exit_code=128, stderr="fatal: locked")])
         worktree = tmp_path / "builds" / "b-2"
 
         with caplog.at_level(logging.WARNING):
@@ -417,9 +402,7 @@ class TestCleanupWorktree:
         assert result.stderr == "OSError: permission denied"
         assert result.exit_code == -1
         # The exception is recorded but not re-raised.
-        assert any(
-            "cleanup_worktree exception" in r.message for r in caplog.records
-        )
+        assert any("cleanup_worktree exception" in r.message for r in caplog.records)
 
 
 # --------------------------------------------------------------------------- #
@@ -525,9 +508,7 @@ async def test_seam_prepare_worktree_and_commit_against_real_git(
         capture_output=True,
     )
 
-    commit = await commit_all(
-        worktree, "seam: add newfile", execute=_default_execute
-    )
+    commit = await commit_all(worktree, "seam: add newfile", execute=_default_execute)
     assert commit.status == "success", commit
     assert commit.sha and len(commit.sha) >= 7
 
