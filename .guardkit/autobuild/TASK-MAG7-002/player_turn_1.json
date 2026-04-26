@@ -1,0 +1,157 @@
+{
+  "task_id": "TASK-MAG7-002",
+  "turn": 1,
+  "files_modified": [],
+  "files_created": [
+    "src/forge/pipeline/forward_propagation.py",
+    "tests/forge/test_forward_propagation.py"
+  ],
+  "tests_written": [
+    "tests/forge/test_forward_propagation.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "32 tests in tests/forge/test_forward_propagation.py pass; combined run with the existing tests/forge/test_stage_taxonomy.py also green (70 passed in 0.13s).",
+  "implementation_notes": "Implemented forge.pipeline.forward_propagation as a side-effect-free declarative module. Defines a frozen Pydantic ContextRecipe(BaseModel) with the four required fields (producer_stage: StageClass, artefact_kind: Literal['text','path','path-list'], context_flag: str, description: str) and PROPAGATION_CONTRACT: dict[StageClass, ContextRecipe] with exactly seven entries \u2014 one for each non-product-owner stage \u2014 matching the task brief verbatim (ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW). A private _validate_propagation_contract() runs at import to assert (a) every contract key is present in STAGE_PREREQUISITES, (b) each recipe's producer_stage is an immediate prerequisite of the consumer, and (c) every contract key is reachable from PRODUCT_OWNER by walking the prerequisite chain \u2014 failing import loud if the contract drifts from the TASK-MAG7-001 taxonomy. The validator is dependency-injected (takes contract + prerequisites as parameters) so unit tests can exercise the rejection branches with synthetic maps. The module imports only from forge.pipeline.stage_taxonomy and pydantic, keeping it free of any other forge.pipeline.* coupling per the task implementation notes. All field validators (frozen=True, extra='forbid', min_length=1 on context_flag/description) are exercised by tests.",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010",
+    "AC-011",
+    "AC-012"
+  ],
+  "requirements_remaining": [],
+  "implementation_mode": "direct",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge.pipeline.forward_propagation` module exists at `src/forge/pipeline/forward_propagation.py`",
+      "status": "complete",
+      "evidence": "Created src/forge/pipeline/forward_propagation.py. TestModuleStructure verifies module.__name__ == 'forge.pipeline.forward_propagation' and that the file lives under src/forge/pipeline/. Importable via `from forge.pipeline.forward_propagation import ...`.",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Exports `ContextRecipe` Pydantic model with fields: `producer_stage: StageClass`, `artefact_kind: Literal['text', 'path', 'path-list']`, `context_flag: str` (e.g. `--context`), `description: str`",
+      "status": "complete",
+      "evidence": "ContextRecipe(BaseModel) is exported in __all__ with exactly the four required fields. producer_stage is annotated as StageClass; artefact_kind is the documented Literal; context_flag and description are non-empty str (min_length=1). Frozen + extra='forbid'. TestContextRecipeModel covers field set, types, Literal acceptance/rejection, and frozen/min-length validation.",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Exports `PROPAGATION_CONTRACT: dict[StageClass, ContextRecipe]` with exactly seven entries, one per non-product-owner stage",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT is exported in __all__, typed as dict[StageClass, ContextRecipe], with len == 7 and keys == StageClass members minus PRODUCT_OWNER. TestPropagationContractContents asserts cardinality, key set, value type, and that PRODUCT_OWNER is excluded.",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`ARCHITECT` \u2190 product-owner approved charter (text)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.ARCHITECT] = ContextRecipe(producer_stage=PRODUCT_OWNER, artefact_kind='text', context_flag='--context', description='product-owner approved charter'). Verified by parametrised test_each_contract_row_matches_task_brief[architect-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`SYSTEM_ARCH` \u2190 architect approved output (text)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.SYSTEM_ARCH] = ContextRecipe(producer_stage=ARCHITECT, artefact_kind='text', context_flag='--context', description='architect approved output'). Verified by parametrised test row [system-arch-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "`SYSTEM_DESIGN` \u2190 system-arch artefact paths (path-list)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.SYSTEM_DESIGN] = ContextRecipe(producer_stage=SYSTEM_ARCH, artefact_kind='path-list', context_flag='--context', description='system-arch artefact paths'). Verified by parametrised test row [system-design-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "`FEATURE_SPEC` \u2190 system-design feature catalogue entry (text)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.FEATURE_SPEC] = ContextRecipe(producer_stage=SYSTEM_DESIGN, artefact_kind='text', context_flag='--context', description='system-design feature catalogue entry'). Verified by parametrised test row [feature-spec-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "`FEATURE_PLAN` \u2190 feature-spec artefact path (path)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.FEATURE_PLAN] = ContextRecipe(producer_stage=FEATURE_SPEC, artefact_kind='path', context_flag='--context', description='feature-spec artefact path'). Verified by parametrised test row [feature-plan-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "`AUTOBUILD` \u2190 feature-plan artefact path (path)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.AUTOBUILD] = ContextRecipe(producer_stage=FEATURE_PLAN, artefact_kind='path', context_flag='--context', description='feature-plan artefact path'). Verified by parametrised test row [autobuild-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "`PULL_REQUEST_REVIEW` \u2190 autobuild branch ref + commit summary (text)",
+      "status": "complete",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.PULL_REQUEST_REVIEW] = ContextRecipe(producer_stage=AUTOBUILD, artefact_kind='text', context_flag='--context', description='autobuild branch ref + commit summary'). Verified by parametrised test row [pull-request-review-...].",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "Module passes a self-validation check at import: every key is reachable from `PRODUCT_OWNER` via the `STAGE_PREREQUISITES` chain from TASK-MAG7-001",
+      "status": "complete",
+      "evidence": "_validate_propagation_contract(PROPAGATION_CONTRACT, STAGE_PREREQUISITES) is invoked at module bottom. It asserts each consumer is in STAGE_PREREQUISITES, each recipe.producer_stage is an immediate prerequisite, and walks every consumer back to PRODUCT_OWNER via STAGE_PREREQUISITES (raises on cycles or orphaned chains). TestSelfValidationAtImport covers the canonical-pass path plus three rejection branches (unknown consumer, wrong producer, orphaned reachability) and the standalone reachability walk.",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Both new files compile under py_compile, all lines are <=88 chars (Black-compatible per .claude/rules/code-style.md), use `from __future__ import annotations`, full type hints, snake_case/PascalCase/UPPER_CASE per the style rule, and follow the AAA pattern in tests with descriptive names. No ruff/black config is declared in pyproject.toml so a tighter formatter run could not be executed; the code matches the surrounding forge.pipeline / forge.dispatch style verbatim.",
+      "test_file": "tests/forge/test_forward_propagation.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_propagation.py",
+        "tests/forge/test_forward_propagation.py"
+      ]
+    }
+  ],
+  "success": true
+}
