@@ -1,12 +1,12 @@
 {
   "phase_4": {
     "status": "passed",
-    "duration_seconds": 46.086633888975484,
+    "duration_seconds": 48.83074498298811,
     "error": null,
-    "tests_run": 1035,
+    "tests_run": 1042,
     "tests_failed": 0,
     "coverage_pct": 92.0,
-    "output_summary": "pytest 9.0.2 with pytest-cov 7.0.0: 1035 passed, 0 failed; 92% line coverage across src/forge (2552 stmts, 194 missed).",
+    "output_summary": "pytest 9.0.2 with pytest-cov: 1042 passed, 0 failed; 92% line coverage across src/forge (2552 stmts, 194 missed) in 2.43s.",
     "quality_gates_passed": true
   },
   "phase_5": {
