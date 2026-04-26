@@ -1,33 +1,43 @@
 ---
-id: TASK-MAG7-011
-title: Wire CLI steering injection (cancel, skip, mid-flight directive)
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-MAG7
-feature_id: FEAT-FORGE-007
-wave: 4
-implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-MAG7-004, TASK-MAG7-009, TASK-MAG7-010]
-tags: [cli, steering, cancel, skip, directives, feat-forge-007]
 consumer_context:
-  - task: TASK-MAG7-004
-    consumes: constitutional_decision
-    framework: "Python forge.pipeline.constitutional_guard"
-    driver: "ConstitutionalGuard"
-    format_note: "Calls veto_skip to refuse skip directive on PR-review stage"
-  - task: TASK-MAG7-009
-    consumes: autobuild_async_task_id
-    framework: "Python deepagents middleware"
-    driver: "update_async_task / cancel_async_task"
-    format_note: "Uses task_id from dispatch_autobuild_async to inject directives or cancel running autobuild"
+- consumes: constitutional_decision
+  driver: ConstitutionalGuard
+  format_note: Calls veto_skip to refuse skip directive on PR-review stage
+  framework: Python forge.pipeline.constitutional_guard
+  task: TASK-MAG7-004
+- consumes: autobuild_async_task_id
+  driver: update_async_task / cancel_async_task
+  format_note: Uses task_id from dispatch_autobuild_async to inject directives or
+    cancel running autobuild
+  framework: Python deepagents middleware
+  task: TASK-MAG7-009
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-MAG7-004
+- TASK-MAG7-009
+- TASK-MAG7-010
+feature_id: FEAT-FORGE-007
+id: TASK-MAG7-011
+implementation_mode: task-work
+parent_review: TASK-REV-MAG7
+priority: high
+status: design_approved
+tags:
+- cli
+- steering
+- cancel
+- skip
+- directives
+- feat-forge-007
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire CLI steering injection (cancel, skip, mid-flight directive)
+updated: 2026-04-25 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Wire CLI steering injection
