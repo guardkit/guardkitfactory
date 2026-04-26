@@ -1,0 +1,21 @@
+{
+  "phase_4": {
+    "status": "passed",
+    "duration_seconds": 75.73549788599485,
+    "error": null,
+    "tests_run": 12,
+    "tests_failed": 0,
+    "coverage_pct": 80.0,
+    "output_summary": "pytest tests/integration/test_mode_a_crash_recovery.py: 12 passed, 0 failed; line coverage 80% on modules under test (>=80% gate met)",
+    "quality_gates_passed": true
+  },
+  "phase_5": {
+    "status": "passed",
+    "duration_seconds": 230.33243725798093,
+    "error": null,
+    "issues": [],
+    "quality_score": 0.0,
+    "recommendations": [],
+    "output_summary": "Review completed by orchestrator-invoked code-reviewer."
+  }
+}

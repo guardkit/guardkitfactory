@@ -1,0 +1,162 @@
+{
+  "task_id": "TASK-MAG7-013",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "skipped",
+      "test_output_summary": "Independent test verification skipped (tests not required for testing tasks)",
+      "duration_seconds": 0.0
+    },
+    "requirements": {
+      "criteria_total": 7,
+      "criteria_met": 7,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "Test module exists at",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created tests/integration/test_mode_a_crash_recovery.py containing 12 passing tests covering Group D crash-recovery, ASSUM-004 durable-vs-advisory, Group G publish-failure, Group I LTM-failure, and the FakeClock canary. Verified by `pytest tests/integration/test_mode_a_crash_recovery.py -v` \u2192 12 passed.",
+      "notes": "Created tests/integration/test_mode_a_crash_recovery.py containing 12 passing tests covering Group D crash-recovery, ASSUM-004 durable-vs-advisory, Group G publish-failure, Group I LTM-failure, and the FakeClock canary. Verified by `pytest tests/integration/test_mode_a_crash_recovery.py -v` \u2192 12 passed."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Parameterised test covers all seven stage classes from the Scenario",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestCrashRecoveryAcrossSevenStages.test_retry_from_scratch_after_crash is parameterised over SEVEN_STAGES = [PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD]. For each row: (1) seeds prereqs through the target stage via _seed_prereqs_through; (2) pre-crash supervisor.next_turn dispatches the target stage (asserted DISPATCHED + chosen_stage matches); (3) crash simulated by `del sup_pre` and `state_machine.reset_to_preparing(build_id)` then asserted `BuildState.PREPARING`; (4) fresh supervisor against the same DurableStageLog + AdvisoryAsyncTaskChannel re-dispatches the same stage; (5) `durable_log.approved_count(...) == 0` proves no duplicate stage_log approval was written. Two per-turn rows recorded (pre+post), zero approval rows. All 7 parameterised rows pass.",
+      "notes": "TestCrashRecoveryAcrossSevenStages.test_retry_from_scratch_after_crash is parameterised over SEVEN_STAGES = [PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD]. For each row: (1) seeds prereqs through the target stage via _seed_prereqs_through; (2) pre-crash supervisor.next_turn dispatches the target stage (asserted DISPATCHED + chosen_stage matches); (3) crash simulated by `del sup_pre` and `state_machine.reset_to_preparing(build_id)` then asserted `BuildState.PREPARING`; (4) fresh supervisor against the same DurableStageLog + AdvisoryAsyncTaskChannel re-dispatches the same stage; (5) `durable_log.approved_count(...) == 0` proves no duplicate stage_log approval was written. Two per-turn rows recorded (pre+post), zero approval rows. All 7 parameterised rows pass."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Mid-autobuild crash test:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestMidAutobuildCrashAuthoritativeDurableHistory.test_crash_mid_running_wave_restarts_autobuild_from_scratch: (1) RecordingAutobuildDispatcher writes lifecycle='running_wave' to AdvisoryAsyncTaskChannel on dispatch (mirrors production); (2) test asserts running_wave is observed in advisory + stage_log shows AUTOBUILD NOT approved; (3) crash simulated; (4) fresh supervisor + fresh autobuild dispatcher; (5) post-crash dispatch occurs even though advisory still reports running_wave \u2014 proves durable history is authoritative; (6) post_dispatcher.calls confirms exactly one redispatch. Test passes.",
+      "notes": "TestMidAutobuildCrashAuthoritativeDurableHistory.test_crash_mid_running_wave_restarts_autobuild_from_scratch: (1) RecordingAutobuildDispatcher writes lifecycle='running_wave' to AdvisoryAsyncTaskChannel on dispatch (mirrors production); (2) test asserts running_wave is observed in advisory + stage_log shows AUTOBUILD NOT approved; (3) crash simulated; (4) fresh supervisor + fresh autobuild dispatcher; (5) post-crash dispatch occurs even though advisory still reports running_wave \u2014 proves durable history is authoritative; (6) post_dispatcher.calls confirms exactly one redispatch. Test passes."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Notification-publish-failure test (Group G @data-integrity):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestNotificationPublishFailure.test_publish_failure_does_not_roll_back_stage_log uses FailingPublisher (raises _PublishFailure as a local stand-in for forge.adapters.nats.pipeline_publisher.PublishFailure to keep this test scoped away from transport scaffolding) wired through StageLogFirstSpecialistDispatcher. After supervisor.next_turn: (1) publisher.calls == 1 and spec.publish_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True; (3) StageOrderingGuard().next_dispatchable returns ARCHITECT in the permitted set, proving ARCHITECT \u2190 PRODUCT_OWNER prerequisite is still satisfied. Test passes.",
+      "notes": "TestNotificationPublishFailure.test_publish_failure_does_not_roll_back_stage_log uses FailingPublisher (raises _PublishFailure as a local stand-in for forge.adapters.nats.pipeline_publisher.PublishFailure to keep this test scoped away from transport scaffolding) wired through StageLogFirstSpecialistDispatcher. After supervisor.next_turn: (1) publisher.calls == 1 and spec.publish_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True; (3) StageOrderingGuard().next_dispatchable returns ARCHITECT in the permitted set, proving ARCHITECT \u2190 PRODUCT_OWNER prerequisite is still satisfied. Test passes."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Long-term-memory-seeding-failure test (Group I @data-integrity):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestLongTermMemorySeedingFailure.test_ltm_seeder_failure_does_not_roll_back_stage_log uses FailingLtmSeeder (raises _LtmSeederFailure) wired through StageLogFirstLtmAwareDispatcher. After supervisor.next_turn: (1) ltm_seeder.calls == 1 and spec.ltm_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True. Test passes.",
+      "notes": "TestLongTermMemorySeedingFailure.test_ltm_seeder_failure_does_not_roll_back_stage_log uses FailingLtmSeeder (raises _LtmSeederFailure) wired through StageLogFirstLtmAwareDispatcher. After supervisor.next_turn: (1) ltm_seeder.calls == 1 and spec.ltm_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True. Test passes."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "All tests use FakeClock; no real wall-clock waits",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "FakeClock class defined in the module with fixed UTC datetime callable. TestFakeClockCanary asserts (a) sequential calls return identical times (no wall-clock movement) and (b) caller-supplied fixed times are honoured. The parameterised seven-stage test exercises FakeClock() in each row. No test calls datetime.now(), time.sleep, or any other real-clock surface. The full suite runs in 0.03s, confirming zero wall-clock waits.",
+      "notes": "FakeClock class defined in the module with fixed UTC datetime callable. TestFakeClockCanary asserts (a) sequential calls return identical times (no wall-clock movement) and (b) caller-supplied fixed times are honoured. The parameterised seven-stage test exercises FakeClock() in each row. No test calls datetime.now(), time.sleep, or any other real-clock surface. The full suite runs in 0.03s, confirming zero wall-clock waits."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Ran `python3 -m black --line-length 88 --target-version py311 tests/integration/test_mode_a_crash_recovery.py` and the file is now black-clean. `python3 -m py_compile` returns OK. The pyproject.toml does not enable any other linters in this project (no ruff/flake8/mypy declared). Re-running the suite after black formatting still shows 12 passed.",
+      "notes": "Ran `python3 -m black --line-length 88 --target-version py311 tests/integration/test_mode_a_crash_recovery.py` and the file is now black-clean. `python3 -m py_compile` returns OK. The pyproject.toml does not enable any other linters in this project (no ruff/flake8/mypy declared). Re-running the suite after black formatting still shows 12 passed."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "Test module exists at",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created tests/integration/test_mode_a_crash_recovery.py containing 12 passing tests covering Group D crash-recovery, ASSUM-004 durable-vs-advisory, Group G publish-failure, Group I LTM-failure, and the FakeClock canary. Verified by `pytest tests/integration/test_mode_a_crash_recovery.py -v` \u2192 12 passed.",
+        "notes": "Created tests/integration/test_mode_a_crash_recovery.py containing 12 passing tests covering Group D crash-recovery, ASSUM-004 durable-vs-advisory, Group G publish-failure, Group I LTM-failure, and the FakeClock canary. Verified by `pytest tests/integration/test_mode_a_crash_recovery.py -v` \u2192 12 passed."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Parameterised test covers all seven stage classes from the Scenario",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestCrashRecoveryAcrossSevenStages.test_retry_from_scratch_after_crash is parameterised over SEVEN_STAGES = [PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD]. For each row: (1) seeds prereqs through the target stage via _seed_prereqs_through; (2) pre-crash supervisor.next_turn dispatches the target stage (asserted DISPATCHED + chosen_stage matches); (3) crash simulated by `del sup_pre` and `state_machine.reset_to_preparing(build_id)` then asserted `BuildState.PREPARING`; (4) fresh supervisor against the same DurableStageLog + AdvisoryAsyncTaskChannel re-dispatches the same stage; (5) `durable_log.approved_count(...) == 0` proves no duplicate stage_log approval was written. Two per-turn rows recorded (pre+post), zero approval rows. All 7 parameterised rows pass.",
+        "notes": "TestCrashRecoveryAcrossSevenStages.test_retry_from_scratch_after_crash is parameterised over SEVEN_STAGES = [PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD]. For each row: (1) seeds prereqs through the target stage via _seed_prereqs_through; (2) pre-crash supervisor.next_turn dispatches the target stage (asserted DISPATCHED + chosen_stage matches); (3) crash simulated by `del sup_pre` and `state_machine.reset_to_preparing(build_id)` then asserted `BuildState.PREPARING`; (4) fresh supervisor against the same DurableStageLog + AdvisoryAsyncTaskChannel re-dispatches the same stage; (5) `durable_log.approved_count(...) == 0` proves no duplicate stage_log approval was written. Two per-turn rows recorded (pre+post), zero approval rows. All 7 parameterised rows pass."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Mid-autobuild crash test:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestMidAutobuildCrashAuthoritativeDurableHistory.test_crash_mid_running_wave_restarts_autobuild_from_scratch: (1) RecordingAutobuildDispatcher writes lifecycle='running_wave' to AdvisoryAsyncTaskChannel on dispatch (mirrors production); (2) test asserts running_wave is observed in advisory + stage_log shows AUTOBUILD NOT approved; (3) crash simulated; (4) fresh supervisor + fresh autobuild dispatcher; (5) post-crash dispatch occurs even though advisory still reports running_wave \u2014 proves durable history is authoritative; (6) post_dispatcher.calls confirms exactly one redispatch. Test passes.",
+        "notes": "TestMidAutobuildCrashAuthoritativeDurableHistory.test_crash_mid_running_wave_restarts_autobuild_from_scratch: (1) RecordingAutobuildDispatcher writes lifecycle='running_wave' to AdvisoryAsyncTaskChannel on dispatch (mirrors production); (2) test asserts running_wave is observed in advisory + stage_log shows AUTOBUILD NOT approved; (3) crash simulated; (4) fresh supervisor + fresh autobuild dispatcher; (5) post-crash dispatch occurs even though advisory still reports running_wave \u2014 proves durable history is authoritative; (6) post_dispatcher.calls confirms exactly one redispatch. Test passes."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Notification-publish-failure test (Group G @data-integrity):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestNotificationPublishFailure.test_publish_failure_does_not_roll_back_stage_log uses FailingPublisher (raises _PublishFailure as a local stand-in for forge.adapters.nats.pipeline_publisher.PublishFailure to keep this test scoped away from transport scaffolding) wired through StageLogFirstSpecialistDispatcher. After supervisor.next_turn: (1) publisher.calls == 1 and spec.publish_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True; (3) StageOrderingGuard().next_dispatchable returns ARCHITECT in the permitted set, proving ARCHITECT \u2190 PRODUCT_OWNER prerequisite is still satisfied. Test passes.",
+        "notes": "TestNotificationPublishFailure.test_publish_failure_does_not_roll_back_stage_log uses FailingPublisher (raises _PublishFailure as a local stand-in for forge.adapters.nats.pipeline_publisher.PublishFailure to keep this test scoped away from transport scaffolding) wired through StageLogFirstSpecialistDispatcher. After supervisor.next_turn: (1) publisher.calls == 1 and spec.publish_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True; (3) StageOrderingGuard().next_dispatchable returns ARCHITECT in the permitted set, proving ARCHITECT \u2190 PRODUCT_OWNER prerequisite is still satisfied. Test passes."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Long-term-memory-seeding-failure test (Group I @data-integrity):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestLongTermMemorySeedingFailure.test_ltm_seeder_failure_does_not_roll_back_stage_log uses FailingLtmSeeder (raises _LtmSeederFailure) wired through StageLogFirstLtmAwareDispatcher. After supervisor.next_turn: (1) ltm_seeder.calls == 1 and spec.ltm_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True. Test passes.",
+        "notes": "TestLongTermMemorySeedingFailure.test_ltm_seeder_failure_does_not_roll_back_stage_log uses FailingLtmSeeder (raises _LtmSeederFailure) wired through StageLogFirstLtmAwareDispatcher. After supervisor.next_turn: (1) ltm_seeder.calls == 1 and spec.ltm_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True. Test passes."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "All tests use FakeClock; no real wall-clock waits",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "FakeClock class defined in the module with fixed UTC datetime callable. TestFakeClockCanary asserts (a) sequential calls return identical times (no wall-clock movement) and (b) caller-supplied fixed times are honoured. The parameterised seven-stage test exercises FakeClock() in each row. No test calls datetime.now(), time.sleep, or any other real-clock surface. The full suite runs in 0.03s, confirming zero wall-clock waits.",
+        "notes": "FakeClock class defined in the module with fixed UTC datetime callable. TestFakeClockCanary asserts (a) sequential calls return identical times (no wall-clock movement) and (b) caller-supplied fixed times are honoured. The parameterised seven-stage test exercises FakeClock() in each row. No test calls datetime.now(), time.sleep, or any other real-clock surface. The full suite runs in 0.03s, confirming zero wall-clock waits."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Ran `python3 -m black --line-length 88 --target-version py311 tests/integration/test_mode_a_crash_recovery.py` and the file is now black-clean. `python3 -m py_compile` returns OK. The pyproject.toml does not enable any other linters in this project (no ruff/flake8/mypy declared). Re-running the suite after black formatting still shows 12 passed.",
+        "notes": "Ran `python3 -m black --line-length 88 --target-version py311 tests/integration/test_mode_a_crash_recovery.py` and the file is now black-clean. `python3 -m py_compile` returns OK. The pyproject.toml does not enable any other linters in this project (no ruff/flake8/mypy declared). Re-running the suite after black formatting still shows 12 passed."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    }
+  ],
+  "rationale": "All quality gates passed. Tests not required for this task type. All acceptance criteria met. Architecture context: 280 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1111/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- DEPENDS_ON\n- IS_USED_FOR\n\n### \u26a0\ufe0f Warnings\n- HAS_SYMPTOM\n- SOURCE_OF\n\n### \ud83c\udfad Role Constraints\n- HAS_ROLE_MUST_DO\n- RUNS_TESTS_BEFORE_REPORTING\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- BELONGS_TO_IMPLEMENTATION_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

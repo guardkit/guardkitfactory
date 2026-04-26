@@ -1,22 +1,29 @@
 ---
-id: TASK-MAG7-014
-title: Concurrency and multi-feature integration tests
-task_type: testing
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-MAG7
-feature_id: FEAT-FORGE-007
-wave: 5
-implementation_mode: task-work
 complexity: 7
-dependencies: [TASK-MAG7-010, TASK-MAG7-011]
-tags: [testing, concurrency, multi-feature, integration, feat-forge-007]
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-MAG7-010
+- TASK-MAG7-011
+feature_id: FEAT-FORGE-007
+id: TASK-MAG7-014
+implementation_mode: task-work
+parent_review: TASK-REV-MAG7
+priority: high
+status: design_approved
+tags:
+- testing
+- concurrency
+- multi-feature
+- integration
+- feat-forge-007
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Concurrency and multi-feature integration tests
+updated: 2026-04-25 00:00:00+00:00
+wave: 5
 ---
 
 # Task: Concurrency and multi-feature integration tests

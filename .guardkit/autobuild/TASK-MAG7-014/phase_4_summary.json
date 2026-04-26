@@ -1,0 +1,7 @@
+{
+  "tests_run": 16,
+  "tests_failed": 0,
+  "coverage_pct": 85.0,
+  "output_summary": "16/16 passed in tests/integration/test_mode_a_concurrency_and_integrity.py; 85% line coverage on exercised pipeline + nats + gating modules.",
+  "quality_gates_passed": true
+}

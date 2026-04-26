@@ -1,0 +1,160 @@
+{
+  "task_id": "TASK-MAG7-012",
+  "timestamp": "2026-04-26T19:52:46.161913",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 14,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_smoke.py",
+    "tasks/backlog/TASK-MAG7-012-smoke-greenfield-e2e.md",
+    "tasks/backlog/TASK-MAG7-013-crash-recovery-integration.md",
+    "tasks/backlog/TASK-MAG7-014-concurrency-multifeature-integration.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-012-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-013-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-014-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-011/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-012/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-012/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-012/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-013/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-013/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-013/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-014/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-012_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-013_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-012/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_smoke.py",
+    "tasks/design_approved/TASK-MAG7-012-smoke-greenfield-e2e.md",
+    "tasks/design_approved/TASK-MAG7-013-crash-recovery-integration.md",
+    "tasks/design_approved/TASK-MAG7-014-concurrency-multifeature-integration.md",
+    "tests/integration/test_mode_a_concurrency_and_integrity.py",
+    "tests/integration/test_mode_a_crash_recovery.py",
+    "tests/integration/test_mode_a_smoke.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_smoke.py"
+  ],
+  "summary": "14 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 61,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 1,
+    "missing_phases": [
+      "4",
+      "5"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 1 completed invocations\n\nMissing phases:\n  - Phase 4 (Testing)\n  - Phase 5 (Code Review)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 3 (Phase 3): Implementation (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "Test module exists at `tests/integration/test_mode_a_smoke.py`",
+      "status": "complete",
+      "evidence": "Created tests/integration/test_mode_a_smoke.py with 14 passing tests organized into TestModuleExists / TestGreenfieldBriefPipelineFixture / TestMinimalGreenfieldSmoke / TestNoSpecialistsDegradedPath classes. The TestModuleExists.test_module_path_matches_acceptance_criterion test asserts the module's __name__ ends with 'test_mode_a_smoke'.",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Test fixture `greenfield_brief_pipeline` brings up: a fake specialist registry pre-populated with healthy product-owner + architect specialists, a fake GuardKit subprocess engine returning canned approved artefacts, an in-memory SQLite, and a stub approval channel that auto-approves",
+      "status": "complete",
+      "evidence": "Implemented `greenfield_brief_pipeline` pytest fixture that assembles a `GreenfieldBriefPipeline` harness composing: FakeSpecialistRegistry pre-populated with PRODUCT_OWNER + ARCHITECT specialists, FakeGuardkitSubprocessEngine with canned artefact paths for system-arch/system-design/feature-spec/feature-plan, FakeStageLogStore as the in-memory SQLite-shaped store implementing the three reader Protocols (StageOrderingGuard.StageLogReader, PerFeatureLoopSequencer.StageLogReader, Supervisor.StageLogTurnRecorder), and FakeApprovalChannel(auto_approve=True). TestGreenfieldBriefPipelineFixture verifies each collaborator is wired correctly.",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Smoke test: queue one-line brief, drive supervisor turns until terminal, assert build is paused at PR-review with mandatory_human gate mode, PR URL recorded in `stage_log`",
+      "status": "complete",
+      "evidence": "TestMinimalGreenfieldSmoke.test_smoke_pauses_at_pull_request_review drives drive_until_paused on a single-feature catalogue and asserts the final TurnReport's chosen_stage is PULL_REQUEST_REVIEW. test_smoke_records_mandatory_human_gate_mode_and_pr_url asserts the terminal chronology row carries gate_mode='mandatory_human' and a populated pr_url field beginning with 'https://github.com/example/forge/pull/'. SMOKE_BRIEF is a one-line string ('Build a small greeting CLI...') and test_smoke_one_line_brief_is_threaded_through_harness asserts no newline in the brief.",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Smoke test asserts `stage_log` contains the eight-stage chain in canonical order (Group G @data-integrity scenario covered as part of smoke)",
+      "status": "complete",
+      "evidence": "TestMinimalGreenfieldSmoke.test_smoke_chronology_lists_eight_canonical_stages_in_order extracts chosen_stage from every DISPATCHED chronology row and asserts equality with CANONICAL_STAGE_ORDER tuple (PRODUCT_OWNER \u2192 ARCHITECT \u2192 SYSTEM_ARCH \u2192 SYSTEM_DESIGN \u2192 FEATURE_SPEC \u2192 FEATURE_PLAN \u2192 AUTOBUILD \u2192 PULL_REQUEST_REVIEW). test_smoke_dispatches_each_dispatcher_exactly_once additionally verifies each dispatcher was called exactly the expected number of times (2 specialist + 4 subprocess + 1 autobuild + 1 PR-review).",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Degraded test: same harness with empty specialist registry; assert build is flagged for review at product-owner stage with degraded rationale, no architect dispatch occurred",
+      "status": "complete",
+      "evidence": "TestNoSpecialistsDegradedPath has three tests using the same `greenfield_brief_pipeline` fixture but mutating registry.healthy.clear() before driving. test_degraded_flags_product_owner_for_review asserts dispatch_result['status']=='flagged_for_review' for the product-owner turn. test_degraded_records_flag_for_review_with_degraded_rationale asserts the chronology row carries gate_mode='flag_for_review' and the rationale contains 'degraded'. test_degraded_does_not_dispatch_architect asserts specialist_dispatcher.calls is exactly [PRODUCT_OWNER] (never ARCHITECT) and subprocess/autobuild/pr_review_gate were never invoked.",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Tests use the existing `FakeClock` pattern from `src/forge/pipeline.py` for deterministic timing",
+      "status": "complete",
+      "evidence": "Module imports `FakeClock` directly from `forge.pipeline` (re-exported from `src/forge/pipeline/__init__.py`). The `greenfield_brief_pipeline` fixture instantiates a FakeClock() and threads it onto the harness via `clock=FakeClock()`. TestGreenfieldBriefPipelineFixture.test_fake_clock_pattern_is_wired asserts `isinstance(pipeline.clock, FakeClock)` and `pipeline.clock.now() == 0.0`, demonstrating the canonical pattern is wired and ready for downstream timing-sensitive integrations.",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran `ruff check tests/integration/test_mode_a_smoke.py` \u2192 'All checks passed!' (zero errors). Ran `black --line-length 88 --target-version py312 tests/integration/test_mode_a_smoke.py` to apply canonical formatting (idempotent on subsequent runs). All 14 tests in the new module pass. All 104 supervisor/guard unit tests still pass. All 74 integration tests pass \u2014 no regressions.",
+      "test_file": "tests/integration/test_mode_a_smoke.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_smoke.py"
+      ]
+    }
+  ]
+}
