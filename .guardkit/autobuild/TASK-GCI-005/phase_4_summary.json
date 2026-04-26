@@ -1,7 +1,7 @@
 {
-  "tests_run": 129,
+  "tests_run": 1042,
   "tests_failed": 0,
-  "coverage_pct": 100.0,
-  "output_summary": "22 progress_subscriber unit tests + 5 BDD scenarios + 102 sibling guardkit tests passed; 100% line coverage on src/forge/adapters/guardkit/progress_subscriber.py",
+  "coverage_pct": 92.0,
+  "output_summary": "pytest: 1042 passed, 0 failed, 57 warnings; coverage 92% (2552 stmts, 194 missed) on src/forge",
   "quality_gates_passed": true
 }
