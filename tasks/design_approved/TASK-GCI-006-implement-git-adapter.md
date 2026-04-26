@@ -1,73 +1,73 @@
 ---
-id: TASK-GCI-006
-title: Implement forge.adapters.git (worktree, commit, push, cleanup)
-task_type: feature
-status: blocked
-priority: high
-created: 2026-04-25 00:00:00+00:00
-updated: 2026-04-25 00:00:00+00:00
-parent_review: TASK-REV-GCI0
-feature_id: FEAT-FORGE-005
-wave: 2
-implementation_mode: task-work
+autobuild_state:
+  base_branch: main
+  current_turn: 3
+  last_updated: '2026-04-26T08:37:29.409413'
+  max_turns: 30
+  started_at: '2026-04-26T08:37:22.106347'
+  turns:
+  - coach_success: true
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3
+      expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),
+      5 (Code Review). Consider invoking these agents via the Task tool to strengthen
+      stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n-
+      Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n-
+      Independent test verification failed:\n  SDK API error: authentication_failed"
+    player_success: true
+    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
+      authentication_failed'
+    timestamp: '2026-04-26T08:37:22.106347'
+    turn: 1
+  - coach_success: true
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3
+      expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),
+      5 (Code Review). Consider invoking these agents via the Task tool to strengthen
+      stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n-
+      Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n-
+      Independent test verification failed:\n  SDK API error: authentication_failed"
+    player_success: true
+    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
+      authentication_failed'
+    timestamp: '2026-04-26T08:37:26.196113'
+    turn: 2
+  - coach_success: true
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3
+      expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),
+      5 (Code Review). Consider invoking these agents via the Task tool to strengthen
+      stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n-
+      Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n-
+      Independent test verification failed:\n  SDK API error: authentication_failed"
+    player_success: true
+    player_summary: '[RECOVERED via git_only] Original error: SDK agent error: authentication_failed'
+    timestamp: '2026-04-26T08:37:27.955471'
+    turn: 3
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-005
 complexity: 5
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-GCI-002
+feature_id: FEAT-FORGE-005
+id: TASK-GCI-006
+implementation_mode: task-work
+parent_review: TASK-REV-GCI0
+priority: high
+status: design_approved
 tags:
 - git
 - adapter
 - worktree
 - subprocess
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
-autobuild_state:
-  current_turn: 3
-  max_turns: 30
-  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-005
-  base_branch: main
-  started_at: '2026-04-26T08:37:22.106347'
-  last_updated: '2026-04-26T08:37:29.409413'
-  turns:
-  - turn: 1
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),\
-      \ 5 (Code Review). Consider invoking these agents via the Task tool to strengthen\
-      \ stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n\
-      - Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n\
-      - Independent test verification failed:\n  SDK API error: authentication_failed"
-    timestamp: '2026-04-26T08:37:22.106347'
-    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
-      authentication_failed'
-    player_success: true
-    coach_success: true
-  - turn: 2
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),\
-      \ 5 (Code Review). Consider invoking these agents via the Task tool to strengthen\
-      \ stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n\
-      - Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n\
-      - Independent test verification failed:\n  SDK API error: authentication_failed"
-    timestamp: '2026-04-26T08:37:26.196113'
-    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
-      authentication_failed'
-    player_success: true
-    coach_success: true
-  - turn: 3
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),\
-      \ 5 (Code Review). Consider invoking these agents via the Task tool to strengthen\
-      \ stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n\
-      - Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n\
-      - Independent test verification failed:\n  SDK API error: authentication_failed"
-    timestamp: '2026-04-26T08:37:27.955471'
-    player_summary: '[RECOVERED via git_only] Original error: SDK agent error: authentication_failed'
-    player_success: true
-    coach_success: true
+  status: pending
+title: Implement forge.adapters.git (worktree, commit, push, cleanup)
+updated: 2026-04-25 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement forge.adapters.git (worktree, commit, push, cleanup)

@@ -1,78 +1,77 @@
 ---
-id: TASK-GCI-003
-title: Implement context_resolver.resolve_context_flags() (DDR-005)
-task_type: feature
-status: blocked
-priority: high
-created: 2026-04-25 00:00:00+00:00
-updated: 2026-04-25 00:00:00+00:00
-parent_review: TASK-REV-GCI0
-feature_id: FEAT-FORGE-005
-wave: 2
-implementation_mode: task-work
+autobuild_state:
+  base_branch: main
+  current_turn: 3
+  last_updated: '2026-04-26T08:37:30.141178'
+  max_turns: 30
+  started_at: '2026-04-26T08:37:22.117871'
+  turns:
+  - coach_success: true
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3
+      expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),
+      5 (Code Review). Consider invoking these agents via the Task tool to strengthen
+      stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n-
+      Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n-
+      Independent test verification failed:\n  SDK API error: authentication_failed"
+    player_success: true
+    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
+      authentication_failed'
+    timestamp: '2026-04-26T08:37:22.117871'
+    turn: 1
+  - coach_success: true
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3
+      expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),
+      5 (Code Review). Consider invoking these agents via the Task tool to strengthen
+      stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n-
+      Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n-
+      Not all acceptance criteria met:\n  • `_COMMAND_CATEGORY_FILTER` matches DDR-005
+      verbatim (9 entries — Graphiti\n  • Missing manifest → returns empty `flags`,
+      single\n  • `internal_docs.always_include` paths are prepended to the flag list\n
+      \ • Dependency chase follows manifests up to depth 2 then stops with\n  • Cycle
+      detection: a manifest already visited in the current chain is not\n  (7 more)"
+    player_success: true
+    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
+      authentication_failed'
+    timestamp: '2026-04-26T08:37:26.062537'
+    turn: 2
+  - coach_success: true
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3
+      expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),
+      5 (Code Review). Consider invoking these agents via the Task tool to strengthen
+      stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n-
+      Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n-
+      Independent test verification failed:\n  SDK API error: authentication_failed"
+    player_success: true
+    player_summary: '[RECOVERED via git_only] Original error: SDK agent error: authentication_failed'
+    timestamp: '2026-04-26T08:37:28.711658'
+    turn: 3
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-005
 complexity: 6
+created: 2026-04-25 00:00:00+00:00
 dependencies:
 - TASK-GCI-001
+feature_id: FEAT-FORGE-005
+id: TASK-GCI-003
+implementation_mode: task-work
+parent_review: TASK-REV-GCI0
+priority: high
+status: design_approved
 tags:
 - guardkit
 - adapter
 - context-manifest
 - resolver
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
-autobuild_state:
-  current_turn: 3
-  max_turns: 30
-  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-005
-  base_branch: main
-  started_at: '2026-04-26T08:37:22.117871'
-  last_updated: '2026-04-26T08:37:30.141178'
-  turns:
-  - turn: 1
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),\
-      \ 5 (Code Review). Consider invoking these agents via the Task tool to strengthen\
-      \ stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n\
-      - Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n\
-      - Independent test verification failed:\n  SDK API error: authentication_failed"
-    timestamp: '2026-04-26T08:37:22.117871'
-    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
-      authentication_failed'
-    player_success: true
-    coach_success: true
-  - turn: 2
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),\
-      \ 5 (Code Review). Consider invoking these agents via the Task tool to strengthen\
-      \ stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n\
-      - Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n\
-      - Not all acceptance criteria met:\n  \u2022 `_COMMAND_CATEGORY_FILTER` matches\
-      \ DDR-005 verbatim (9 entries \u2014 Graphiti\n  \u2022 Missing manifest \u2192\
-      \ returns empty `flags`, single\n  \u2022 `internal_docs.always_include` paths\
-      \ are prepended to the flag list\n  \u2022 Dependency chase follows manifests\
-      \ up to depth 2 then stops with\n  \u2022 Cycle detection: a manifest already\
-      \ visited in the current chain is not\n  (7 more)"
-    timestamp: '2026-04-26T08:37:26.062537'
-    player_summary: '[RECOVERED via player_report] Original error: SDK agent error:
-      authentication_failed'
-    player_success: true
-    coach_success: true
-  - turn: 3
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 0 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation), 4 (Testing),\
-      \ 5 (Code Review). Consider invoking these agents via the Task tool to strengthen\
-      \ stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n\
-      - Phase 4: `test-orchestrator` (Testing)\n- Phase 5: `code-reviewer` (Code Review)\n\
-      - Independent test verification failed:\n  SDK API error: authentication_failed"
-    timestamp: '2026-04-26T08:37:28.711658'
-    player_summary: '[RECOVERED via git_only] Original error: SDK agent error: authentication_failed'
-    player_success: true
-    coach_success: true
+  status: pending
+title: Implement context_resolver.resolve_context_flags() (DDR-005)
+updated: 2026-04-25 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement context_resolver.resolve_context_flags() (DDR-005)
