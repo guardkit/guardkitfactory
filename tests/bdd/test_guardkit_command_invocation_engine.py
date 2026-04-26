@@ -872,7 +872,6 @@ from forge.adapters.guardkit.parser import (  # noqa: E402
     parse_guardkit_output,
 )
 
-
 _GCI004_SUBCOMMAND = "feature-spec"
 
 
@@ -1043,15 +1042,13 @@ def _when_clean_exit_unknown_shape(gci_world: dict[str, Any]) -> None:
     # decides whether the stage produced useful work.
     gci_world["exit_code"] = 0
     gci_world["stdout"] = (
-        "??? not a guardkit output ???\n"
-        "<<< binary noise + freeform prose >>>\n"
+        "??? not a guardkit output ???\n" "<<< binary noise + freeform prose >>>\n"
     )
     _gci004_invoke_parser(gci_world)
 
 
 @given(
-    "a GuardKit subprocess that prints fewer than four kilobytes "
-    "to standard output"
+    "a GuardKit subprocess that prints fewer than four kilobytes " "to standard output"
 )
 def _given_compact_stdout(gci_world: dict[str, Any]) -> None:
     # Ten lines of recognisable output, well under the 4 KB cap. The
@@ -1069,9 +1066,7 @@ def _given_compact_stdout(gci_world: dict[str, Any]) -> None:
     assert len(gci_world["stdout"].encode("utf-8")) < _STDOUT_TAIL_BYTES
 
 
-@given(
-    "a GuardKit subprocess that prints far more than the captured tail size"
-)
+@given("a GuardKit subprocess that prints far more than the captured tail size")
 def _given_oversize_stdout(gci_world: dict[str, Any]) -> None:
     # 10_000 ASCII bytes is comfortably above the 4 KB tail cap. We use
     # distinguishable head/tail markers so the Then-step can assert we
@@ -1183,7 +1178,9 @@ def _then_full_stdout_in_result(gci_world: dict[str, Any]) -> None:
     assert result.status == "success"
 
 
-@then("the returned result should include only the most recent slice of standard output")
+@then(
+    "the returned result should include only the most recent slice of standard output"
+)
 def _then_only_most_recent_slice(gci_world: dict[str, Any]) -> None:
     result: GuardKitResult = gci_world["result"]
     # The truncation must keep the END of stdout, not the start.
