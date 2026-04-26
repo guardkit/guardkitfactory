@@ -1,28 +1,37 @@
 ---
-id: TASK-MAG7-009
-title: Wire dispatch_autobuild_async via start_async_task
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-MAG7
-feature_id: FEAT-FORGE-007
-wave: 3
-implementation_mode: task-work
 complexity: 6
-dependencies: [TASK-MAG7-001, TASK-MAG7-006]
-tags: [dispatcher, async-subagent, autobuild, feat-forge-005, ddr-006, feat-forge-007]
 consumer_context:
-  - task: TASK-MAG7-006
-    consumes: forward_context
-    framework: "Python forge.pipeline.forward_context_builder"
-    driver: "Internal call"
-    format_note: "Receives list[ContextEntry] (specifically the approved feature-plan artefact path for the feature) and threads into autobuild dispatch payload"
+- consumes: forward_context
+  driver: Internal call
+  format_note: Receives list[ContextEntry] (specifically the approved feature-plan
+    artefact path for the feature) and threads into autobuild dispatch payload
+  framework: Python forge.pipeline.forward_context_builder
+  task: TASK-MAG7-006
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-MAG7-001
+- TASK-MAG7-006
+feature_id: FEAT-FORGE-007
+id: TASK-MAG7-009
+implementation_mode: task-work
+parent_review: TASK-REV-MAG7
+priority: high
+status: design_approved
+tags:
+- dispatcher
+- async-subagent
+- autobuild
+- feat-forge-005
+- ddr-006
+- feat-forge-007
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire dispatch_autobuild_async via start_async_task
+updated: 2026-04-25 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Wire dispatch_autobuild_async via start_async_task

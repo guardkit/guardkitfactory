@@ -1,0 +1,7 @@
+{
+  "tests_run": 24,
+  "tests_failed": 0,
+  "coverage_pct": 95.0,
+  "output_summary": "24 tests passed, 0 failed; subprocess dispatcher line coverage 95% (142 stmts / 7 missed) via pytest-cov.",
+  "quality_gates_passed": true
+}
