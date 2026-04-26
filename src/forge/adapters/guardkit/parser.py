@@ -136,9 +136,7 @@ def parse_guardkit_output(
         try:
             criterion_breakdown = _extract_criterion_breakdown(stdout)
         except Exception as exc:  # pragma: no cover — defensive
-            warnings.append(
-                _unrecognised_shape_warning(exc, "criterion_breakdown")
-            )
+            warnings.append(_unrecognised_shape_warning(exc, "criterion_breakdown"))
             criterion_breakdown = None
 
         try:
@@ -146,9 +144,7 @@ def parse_guardkit_output(
         except Exception as exc:
             # Malformed JSON is the canonical case here — surface it as a
             # warning rather than a raise. AC-008.
-            warnings.append(
-                _unrecognised_shape_warning(exc, "detection_findings")
-            )
+            warnings.append(_unrecognised_shape_warning(exc, "detection_findings"))
             detection_findings = None
 
     return GuardKitResult(
@@ -245,9 +241,7 @@ def _extract_detection_findings(stdout: str) -> list[dict[str, Any]] | None:
     return None
 
 
-def _unrecognised_shape_warning(
-    exc: BaseException, context: str
-) -> GuardKitWarning:
+def _unrecognised_shape_warning(exc: BaseException, context: str) -> GuardKitWarning:
     """Build the canonical warning for an internal parse failure."""
     return GuardKitWarning(
         code="parser_unrecognised_shape",

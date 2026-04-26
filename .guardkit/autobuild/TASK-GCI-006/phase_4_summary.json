@@ -1,0 +1,7 @@
+{
+  "tests_run": 37,
+  "tests_failed": 0,
+  "coverage_pct": 96.0,
+  "output_summary": "pytest: 37 passed, 0 failed; coverage 96% on src/forge/adapters/git/operations.py (3 missed lines: 119, 150, 266).",
+  "quality_gates_passed": true
+}

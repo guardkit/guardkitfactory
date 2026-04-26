@@ -69,10 +69,7 @@ class TestParserModuleSurface:
         assert module_file.endswith("forge/adapters/guardkit/parser.py")
 
     def test_parse_function_is_defined_in_parser_module(self) -> None:
-        assert (
-            parse_guardkit_output.__module__
-            == "forge.adapters.guardkit.parser"
-        )
+        assert parse_guardkit_output.__module__ == "forge.adapters.guardkit.parser"
 
     def test_parser_module_does_not_import_subprocess_wrapper(self) -> None:
         # The parser must be a pure function on its inputs (Implementation
@@ -86,13 +83,12 @@ class TestParserModuleSurface:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
-                    assert "subprocess" not in alias.name.split("."), (
-                        f"parser must not import {alias.name}"
-                    )
+                    assert "subprocess" not in alias.name.split(
+                        "."
+                    ), f"parser must not import {alias.name}"
             elif isinstance(node, ast.ImportFrom):
-                assert (
-                    node.module is None
-                    or "subprocess" not in node.module.split(".")
+                assert node.module is None or "subprocess" not in node.module.split(
+                    "."
                 ), f"parser must not import from {node.module}"
 
 
@@ -100,9 +96,7 @@ class TestTimeoutTakesPrecedenceOverExitCode:
     """AC-002 — ``timed_out=True`` → ``status="timeout"`` regardless of exit."""
 
     @pytest.mark.parametrize("exit_code", [0, 1, -9, 124])
-    def test_timed_out_true_always_yields_timeout(
-        self, exit_code: int
-    ) -> None:
+    def test_timed_out_true_always_yields_timeout(self, exit_code: int) -> None:
         result = _call(
             subcommand="feature-spec",
             stdout="some-output",
@@ -209,10 +203,7 @@ class TestRecognisedShapeYieldsSuccessWithArtefacts:
             {"rule": "R2", "severity": "low"},
         ]
         stdout = (
-            "## Detection Findings\n"
-            "```json\n"
-            f"{json.dumps(findings)}\n"
-            "```\n"
+            "## Detection Findings\n" "```json\n" f"{json.dumps(findings)}\n" "```\n"
         )
         result = _call(stdout=stdout)
         assert result.status == "success"
@@ -238,9 +229,7 @@ class TestRecognisedShapeYieldsSuccessWithArtefacts:
         assert result.artefacts == ["/var/forge/builds/zzz/out.md"]
         assert result.coach_score == pytest.approx(0.91)
         assert result.criterion_breakdown == {"precision": 0.9}
-        assert result.detection_findings == [
-            {"rule": "R3", "severity": "medium"}
-        ]
+        assert result.detection_findings == [{"rule": "R3", "severity": "medium"}]
 
 
 class TestUnrecognisedShapeDegradesToSuccessEmpty:
@@ -320,9 +309,7 @@ class TestStdoutTailTruncation:
         # Every surviving character must be the em-dash — i.e. no
         # mojibake from the boundary.
         for ch in result.stdout_tail:
-            assert ch == em_dash, (
-                "boundary slice produced corrupt characters"
-            )
+            assert ch == em_dash, "boundary slice produced corrupt characters"
 
     def test_exactly_4096_byte_stdout_preserved_verbatim(self) -> None:
         stdout = "Z" * 4096
@@ -336,12 +323,7 @@ class TestInternalErrorsBecomeWarningsNotRaises:
     def test_malformed_json_in_detection_findings_yields_warning(
         self,
     ) -> None:
-        stdout = (
-            "## Detection Findings\n"
-            "```json\n"
-            "{not valid json,\n"
-            "```\n"
-        )
+        stdout = "## Detection Findings\n" "```json\n" "{not valid json,\n" "```\n"
         result = _call(stdout=stdout)
         # Status still success — tolerant by design.
         assert result.status == "success"
@@ -357,9 +339,7 @@ class TestInternalErrorsBecomeWarningsNotRaises:
         # GuardKitResult — never re-raise.
         target = "forge.adapters.guardkit.parser._extract_artefacts"
         try:
-            with mock.patch(
-                target, side_effect=RuntimeError("boom")
-            ):
+            with mock.patch(target, side_effect=RuntimeError("boom")):
                 result = _call(stdout="## Artefacts\n- /tmp/x\n")
         except AttributeError:
             pytest.skip(
@@ -367,25 +347,17 @@ class TestInternalErrorsBecomeWarningsNotRaises:
                 "covered indirectly by malformed-JSON test"
             )
         except RuntimeError:
-            pytest.fail(
-                "parser must catch internal exceptions, not re-raise"
-            )
+            pytest.fail("parser must catch internal exceptions, not re-raise")
         assert isinstance(result, GuardKitResult)
         assert result.status == "success"
         codes = [w.code for w in result.warnings]
         assert "parser_unrecognised_shape" in codes
 
     def test_warning_includes_exception_message_in_details(self) -> None:
-        stdout = (
-            "## Detection Findings\n"
-            "```json\n"
-            "{not valid json,\n"
-            "```\n"
-        )
+        stdout = "## Detection Findings\n" "```json\n" "{not valid json,\n" "```\n"
         result = _call(stdout=stdout)
         unrecognised: list[GuardKitWarning] = [
-            w for w in result.warnings
-            if w.code == "parser_unrecognised_shape"
+            w for w in result.warnings if w.code == "parser_unrecognised_shape"
         ]
         assert unrecognised, "expected parser_unrecognised_shape warning"
         # Either the message or details should describe the failure.
