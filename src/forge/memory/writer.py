@@ -286,8 +286,7 @@ async def _write_via_cli(
     if proc.returncode != 0:
         stderr_text = stderr_bytes.decode(errors="replace").strip()
         raise GraphitiCLIError(
-            f"guardkit graphiti add-context exited "
-            f"{proc.returncode}: {stderr_text}"
+            f"guardkit graphiti add-context exited " f"{proc.returncode}: {stderr_text}"
         )
 
 
@@ -359,9 +358,7 @@ async def write_entity(entity: PipelineHistoryEntity, group_id: str) -> None:
     await _dispatch_write(payload, group_id, episode_name)
 
 
-def fire_and_forget_write(
-    entity: PipelineHistoryEntity, group_id: str
-) -> None:
+def fire_and_forget_write(entity: PipelineHistoryEntity, group_id: str) -> None:
     """Schedule :func:`write_entity` and return immediately.
 
     The "resilience" variant — the function never raises to the
@@ -404,9 +401,7 @@ def fire_and_forget_write(
 
     if loop is not None:
         try:
-            future = asyncio.ensure_future(
-                write_entity(entity, group_id), loop=loop
-            )
+            future = asyncio.ensure_future(write_entity(entity, group_id), loop=loop)
         except Exception as exc:  # noqa: BLE001 — boundary swallow
             # ``ensure_future`` itself can raise (e.g. if ``entity``
             # is the wrong type and ``write_entity`` raises before

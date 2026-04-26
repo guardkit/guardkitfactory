@@ -226,9 +226,7 @@ class TestWriteEntityBackendSelection:
             patch.object(writer_module, "_write_via_mcp", fake_mcp),
             patch.object(writer_module, "_write_via_cli", fake_cli),
         ):
-            asyncio.run(
-                write_entity(_make_gate_decision(), "forge_pipeline_history")
-            )
+            asyncio.run(write_entity(_make_gate_decision(), "forge_pipeline_history"))
 
         assert called["backend"] == "mcp"
         assert called["group_id"] == "forge_pipeline_history"
@@ -248,9 +246,7 @@ class TestWriteEntityBackendSelection:
             patch.object(writer_module, "_cli_backend_available", return_value=True),
             patch.object(writer_module, "_write_via_cli", fake_cli),
         ):
-            asyncio.run(
-                write_entity(_make_gate_decision(), "forge_pipeline_history")
-            )
+            asyncio.run(write_entity(_make_gate_decision(), "forge_pipeline_history"))
 
         assert called["backend"] == "cli"
         # Episode name follows the documented "<EntityType>:<entity_id>" shape.
@@ -264,9 +260,7 @@ class TestWriteEntityBackendSelection:
         ):
             with pytest.raises(GraphitiUnavailableError):
                 asyncio.run(
-                    write_entity(
-                        _make_gate_decision(), "forge_pipeline_history"
-                    )
+                    write_entity(_make_gate_decision(), "forge_pipeline_history")
                 )
 
     def test_cli_non_zero_exit_raises_graphiti_cli_error(self) -> None:
@@ -284,15 +278,11 @@ class TestWriteEntityBackendSelection:
         with (
             patch.object(writer_module, "_mcp_backend_available", return_value=False),
             patch.object(writer_module, "_cli_backend_available", return_value=True),
-            patch(
-                "asyncio.create_subprocess_exec", side_effect=fake_create
-            ),
+            patch("asyncio.create_subprocess_exec", side_effect=fake_create),
         ):
             with pytest.raises(GraphitiCLIError) as ei:
                 asyncio.run(
-                    write_entity(
-                        _make_gate_decision(), "forge_pipeline_history"
-                    )
+                    write_entity(_make_gate_decision(), "forge_pipeline_history")
                 )
         assert "server unreachable" in str(ei.value)
 
@@ -316,9 +306,7 @@ class TestFireAndForgetReturnsSync:
         async def driver() -> float:
             with patch.object(writer_module, "_dispatch_write", slow_write):
                 start = time.monotonic()
-                fire_and_forget_write(
-                    _make_gate_decision(), "forge_pipeline_history"
-                )
+                fire_and_forget_write(_make_gate_decision(), "forge_pipeline_history")
                 elapsed = time.monotonic() - start
                 # Yield control so the scheduled task actually runs.
                 await asyncio.sleep(0.1)
@@ -344,9 +332,7 @@ class TestFireAndForgetReturnsSync:
         # thread-pool branch.
         with patch.object(writer_module, "_dispatch_write", fake_dispatch):
             start = time.monotonic()
-            fire_and_forget_write(
-                _make_gate_decision(), "forge_pipeline_history"
-            )
+            fire_and_forget_write(_make_gate_decision(), "forge_pipeline_history")
             elapsed = time.monotonic() - start
 
             # The call must return synchronously, well before the
@@ -354,9 +340,7 @@ class TestFireAndForgetReturnsSync:
             # and run the coroutine. A 200ms wait then confirms the
             # background thread *did* run.
             assert elapsed < 0.05
-            assert completed.wait(timeout=2.0), (
-                "background dispatch never completed"
-            )
+            assert completed.wait(timeout=2.0), "background dispatch never completed"
 
 
 # ---------------------------------------------------------------------------
@@ -378,9 +362,7 @@ class TestFireAndForgetSwallowsErrors:
         async def driver() -> None:
             with patch.object(writer_module, "_dispatch_write", failing):
                 # The call itself must not raise.
-                fire_and_forget_write(
-                    _make_gate_decision(), "forge_pipeline_history"
-                )
+                fire_and_forget_write(_make_gate_decision(), "forge_pipeline_history")
                 # Yield control so the done-callback runs.
                 await asyncio.sleep(0.05)
 
@@ -407,9 +389,7 @@ class TestFireAndForgetSwallowsErrors:
 
         caplog.set_level(logging.ERROR, logger="forge.memory.writer")
         with patch.object(writer_module, "_dispatch_write", failing):
-            fire_and_forget_write(
-                _make_gate_decision(), "forge_pipeline_history"
-            )
+            fire_and_forget_write(_make_gate_decision(), "forge_pipeline_history")
             assert done.wait(2.0)
             # Give the logger a moment to flush from the daemon thread.
             time.sleep(0.05)
@@ -438,9 +418,7 @@ class TestFireAndForgetSwallowsErrors:
             caplog.set_level(logging.ERROR, logger="forge.memory.writer")
 
             async def driver() -> bool:
-                fire_and_forget_write(
-                    _make_gate_decision(), "forge_pipeline_history"
-                )
+                fire_and_forget_write(_make_gate_decision(), "forge_pipeline_history")
                 # Allow the scheduled future to settle.
                 await asyncio.sleep(0.05)
                 return True  # simulates "the pipeline kept going"
@@ -518,9 +496,7 @@ class TestWriteEntityRaisesOnFailure:
         with patch.object(writer_module, "_dispatch_write", failing):
             with pytest.raises(RuntimeError) as ei:
                 asyncio.run(
-                    write_entity(
-                        _make_gate_decision(), "forge_pipeline_history"
-                    )
+                    write_entity(_make_gate_decision(), "forge_pipeline_history")
                 )
         assert ei.value is boom
 
@@ -567,9 +543,9 @@ class TestSeamPipelineHistoryEntityIdContract:
             "GateDecision.entity_id must equal the SQLite row UUID, "
             "not be regenerated"
         )
-        assert isinstance(gate.entity_id, UUID), (
-            "Pipeline-history entity_ids are typed UUID, not str"
-        )
+        assert isinstance(
+            gate.entity_id, UUID
+        ), "Pipeline-history entity_ids are typed UUID, not str"
 
     def test_calibration_event_entity_id_is_deterministic_str(self) -> None:
         """CalibrationEvent uses a deterministic str hash, NOT a UUID."""
@@ -582,8 +558,7 @@ class TestSeamPipelineHistoryEntityIdContract:
             partial=False,
         )
         assert isinstance(cal.entity_id, str), (
-            "CalibrationEvent.entity_id is a deterministic hash str, "
-            "not a UUID"
+            "CalibrationEvent.entity_id is a deterministic hash str, " "not a UUID"
         )
 
     def test_writer_accepts_every_pipeline_history_entity_type(self) -> None:
