@@ -1,25 +1,31 @@
 ---
-id: TASK-IC-006
-title: "Priors retrieval and prose injection"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
-priority: high
-task_type: feature
-tags: [memory, priors, prompt-injection]
 complexity: 5
-parent_review: TASK-REV-IC8B
-feature_id: FEAT-FORGE-006
-wave: 3
-implementation_mode: task-work
-dependencies: [TASK-IC-002]
-estimated_minutes: 120
 consumer_context:
-  - task: TASK-IC-002
-    consumes: priors_prose_injection_schema
-    framework: "DeepAgents reasoning model system prompt (str.format with {domain_prompt})"
-    driver: "domain_context_injection_specialist pattern"
-    format_note: "Four named prose sections: recent_similar_builds, recent_override_behaviour, approved_calibration_adjustments, qa_priors. Empty sections render as '(none)' marker — never omitted."
+- consumes: priors_prose_injection_schema
+  driver: domain_context_injection_specialist pattern
+  format_note: 'Four named prose sections: recent_similar_builds, recent_override_behaviour,
+    approved_calibration_adjustments, qa_priors. Empty sections render as ''(none)''
+    marker — never omitted.'
+  framework: DeepAgents reasoning model system prompt (str.format with {domain_prompt})
+  task: TASK-IC-002
+created: 2026-04-25 14:36:00+00:00
+dependencies:
+- TASK-IC-002
+estimated_minutes: 120
+feature_id: FEAT-FORGE-006
+id: TASK-IC-006
+implementation_mode: task-work
+parent_review: TASK-REV-IC8B
+priority: high
+status: design_approved
+tags:
+- memory
+- priors
+- prompt-injection
+task_type: feature
+title: Priors retrieval and prose injection
+updated: 2026-04-25 14:36:00+00:00
+wave: 3
 ---
 
 # Task: Priors retrieval and prose injection

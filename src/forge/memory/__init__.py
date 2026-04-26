@@ -28,6 +28,7 @@ from .models import (
     SessionOutcome,
     SessionOutcomeKind,
 )
+from .ordering import record_stage_event
 from .redaction import redact_credentials
 
 __all__ = [
@@ -38,5 +39,6 @@ __all__ = [
     "OverrideEvent",
     "SessionOutcome",
     "SessionOutcomeKind",
+    "record_stage_event",
     "redact_credentials",
 ]

@@ -1,19 +1,23 @@
 ---
-id: TASK-IC-005
-title: "Q&A history ingestion pipeline"
-status: backlog
-created: 2026-04-25T14:36:00Z
-updated: 2026-04-25T14:36:00Z
-priority: high
-task_type: feature
-tags: [memory, ingestion, idempotency]
 complexity: 5
-parent_review: TASK-REV-IC8B
-feature_id: FEAT-FORGE-006
-wave: 3
-implementation_mode: task-work
-dependencies: [TASK-IC-002]
+created: 2026-04-25 14:36:00+00:00
+dependencies:
+- TASK-IC-002
 estimated_minutes: 120
+feature_id: FEAT-FORGE-006
+id: TASK-IC-005
+implementation_mode: task-work
+parent_review: TASK-REV-IC8B
+priority: high
+status: design_approved
+tags:
+- memory
+- ingestion
+- idempotency
+task_type: feature
+title: Q&A history ingestion pipeline
+updated: 2026-04-25 14:36:00+00:00
+wave: 3
 ---
 
 # Task: Q&A history ingestion pipeline
