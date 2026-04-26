@@ -1,28 +1,35 @@
 ---
-id: TASK-MAG7-006
-title: Implement ForwardContextBuilder
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
-parent_review: TASK-REV-MAG7
-feature_id: FEAT-FORGE-007
-wave: 3
-implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-MAG7-001, TASK-MAG7-002, TASK-MAG7-003]
-tags: [context-builder, forward-propagation, feat-forge-007]
 consumer_context:
-  - task: TASK-MAG7-002
-    consumes: forward_propagation_map
-    framework: "Python forge.pipeline.forward_propagation"
-    driver: "Pydantic ContextRecipe"
-    format_note: "Reads PROPAGATION_CONTRACT to know which stage_log artefact_path values to thread into --context flags for each stage"
+- consumes: forward_propagation_map
+  driver: Pydantic ContextRecipe
+  format_note: Reads PROPAGATION_CONTRACT to know which stage_log artefact_path values
+    to thread into --context flags for each stage
+  framework: Python forge.pipeline.forward_propagation
+  task: TASK-MAG7-002
+created: 2026-04-25 00:00:00+00:00
+dependencies:
+- TASK-MAG7-001
+- TASK-MAG7-002
+- TASK-MAG7-003
+feature_id: FEAT-FORGE-007
+id: TASK-MAG7-006
+implementation_mode: task-work
+parent_review: TASK-REV-MAG7
+priority: high
+status: design_approved
+tags:
+- context-builder
+- forward-propagation
+- feat-forge-007
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement ForwardContextBuilder
+updated: 2026-04-25 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement ForwardContextBuilder

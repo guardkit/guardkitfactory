@@ -1,0 +1,139 @@
+{
+  "task_id": "TASK-MAG7-006",
+  "turn": 1,
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "tasks/backlog/TASK-MAG7-006-forward-context-builder.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-006-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-005/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-006/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-006/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-006/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-006_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-006/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/src/forge/pipeline/forward_context_builder.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_forward_context_builder.py",
+    "src/forge/pipeline/forward_context_builder.py",
+    "tasks/design_approved/TASK-MAG7-006-forward-context-builder.md",
+    "tests/forge/test_forward_context_builder.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_forward_context_builder.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001 \u2014 module path src/forge/pipeline/forward_context_builder.py with ForwardContextBuilder class",
+    "AC-002 \u2014 build_for signature returning list[ContextEntry] for text/path/path-list recipes",
+    "AC-003 \u2014 approved-only reads enforced by StageLogReader Protocol contract",
+    "AC-004 \u2014 WorktreeAllowlist filtering with structured WARNING log",
+    "AC-005 \u2014 per-feature consumer scoping with missing-feature_id safe default",
+    "AC-006 \u2014 parametrised coverage of all 7 PROPAGATION_CONTRACT rows",
+    "AC-007 \u2014 in-progress prior \u2192 empty context",
+    "AC-008 \u2014 outside-allowlist path filtered with structured warning",
+    "AC-009 \u2014 black-formatted, no lint errors, all 1220 prior tests still pass"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 39,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 24,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "ForwardContextBuilder class exists at src/forge/pipeline/forward_context_builder.py",
+      "status": "complete",
+      "evidence": "Created src/forge/pipeline/forward_context_builder.py exporting ForwardContextBuilder class. Verified by TestForwardContextBuilderExists class (3 tests) covering module path, file location, and instantiability with the two reader Protocols.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Method build_for(stage: StageClass, build_id: str, feature_id: str | None) -> list[ContextEntry] returns the context entries (path or text) to thread into the next stage's dispatch",
+      "status": "complete",
+      "evidence": "ForwardContextBuilder.build_for has the documented signature and returns list[ContextEntry]. ContextEntry is a frozen dataclass with flag, value, and kind fields ('text' or 'path'). Covered by TestBuildForReturnsContextEntries (3 tests across text, path, and path-list recipes).",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Reads stage_log rows scoped by build_id, optionally feature_id, with gate_decision='approved' only \u2014 never reads in-progress or flagged-for-review entries",
+      "status": "complete",
+      "evidence": "StageLogReader Protocol's get_approved_stage_entry method is approved-only by contract: there is no flag for the builder to widen the filter. Covered by TestApprovedOnly (3 tests) including no-prior-entry, in-progress (returns None by Protocol contract), and a check that the builder does not bypass the filter.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Refuses to return any entry whose underlying artefact path falls outside the build's worktree allowlist (defence-in-depth alongside FEAT-FORGE-005)",
+      "status": "complete",
+      "evidence": "_build_path_entries calls WorktreeAllowlist.is_allowed for every path; rejects are filtered out individually with a structured WARNING log line including build_id, path, and recipe description. Covered by TestAllowlistEnforcement (3 tests) including allowed-vs-denied mix, text-bypasses-allowlist, and single-path-rejected.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "For per-feature stages, scopes the lookup to that feature's prior stage entry only",
+      "status": "complete",
+      "evidence": "build_for forwards feature_id into the StageLogReader call when the producer is in PER_FEATURE_STAGES; per-feature consumer + missing feature_id yields an empty list (safe-default). Covered by TestPerFeatureScoping (3 tests) including FEAT-1/FEAT-2 isolation, per-feature-consumer-with-non-per-feature-producer, and missing-feature_id misuse.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Unit tests cover all seven PROPAGATION_CONTRACT rows",
+      "status": "complete",
+      "evidence": "TestAllSevenPropagationContractRows.test_each_contract_row_produces_at_least_one_entry is parametrised across list(PROPAGATION_CONTRACT.keys()) \u2014 7 rows: ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW. Each shapes a synthetic ApprovedStageEntry matching the recipe's artefact_kind and asserts the resulting entries match the recipe's flag.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Unit test: in-progress prior stage \u2192 empty context (must wait until approved)",
+      "status": "complete",
+      "evidence": "TestApprovedOnly.test_in_progress_prior_stage_returns_empty_context exercises the case where no approved row exists; the StageLogReader returns None and build_for returns []. The Protocol's approved-only contract is what makes 'in-progress' invisible to the builder.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit test: artefact path outside allowlist is filtered out with a structured warning",
+      "status": "complete",
+      "evidence": "TestAllowlistEnforcement.test_path_outside_allowlist_is_filtered_out asserts the rejected path is dropped, the allowed path survives, and a WARNING-level log record is emitted by logger 'forge.pipeline.forward_context_builder' containing both the offending path and the build_id.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Both files were formatted with `python3 -m black --target-version py312`. Black reports 'All done!' with zero reformat actions on a re-check. No syntax errors; module imports cleanly via existing test suite (1220 prior tests still pass).",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py",
+        "tests/forge/test_forward_context_builder.py"
+      ]
+    }
+  ]
+}

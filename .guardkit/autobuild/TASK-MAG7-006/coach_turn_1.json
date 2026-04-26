@@ -1,0 +1,199 @@
+{
+  "task_id": "TASK-MAG7-006",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_forward_context_builder.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_forward_context_builder.py::TestAllSevenPropagationContractRows::test_each_contract_row_produces_at_least_one_entry[autobuild] PASSED [ 87%]\ntests/forge/test_forward_context_builder.py::TestAllSevenPropagationContractRows::test_each_contract_row_produces_at_least_one_entry[pull-request-review] PASSED [ 91%]\ntests/forge/test_forward_context_builder.py::TestModuleExports::test_module_exports_required_public_symbols PASSED [ 95%]\ntests/forge/test_forward_context_builder.py::TestModuleExports::test_protocols_are_runtime_checkable PASSED [100%]\n============================== 24 passed in 0.11s ==============================",
+      "duration_seconds": 0.5213050842285156
+    },
+    "requirements": {
+      "criteria_total": 9,
+      "criteria_met": 9,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`ForwardContextBuilder` class exists at",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/pipeline/forward_context_builder.py exporting ForwardContextBuilder class. Verified by TestForwardContextBuilderExists class (3 tests) covering module path, file location, and instantiability with the two reader Protocols.",
+      "notes": "Created src/forge/pipeline/forward_context_builder.py exporting ForwardContextBuilder class. Verified by TestForwardContextBuilderExists class (3 tests) covering module path, file location, and instantiability with the two reader Protocols."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Method `build_for(stage: StageClass, build_id: str, feature_id: str | None) -> list[ContextEntry]`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ForwardContextBuilder.build_for has the documented signature and returns list[ContextEntry]. ContextEntry is a frozen dataclass with flag, value, and kind fields ('text' or 'path'). Covered by TestBuildForReturnsContextEntries (3 tests across text, path, and path-list recipes).",
+      "notes": "ForwardContextBuilder.build_for has the documented signature and returns list[ContextEntry]. ContextEntry is a frozen dataclass with flag, value, and kind fields ('text' or 'path'). Covered by TestBuildForReturnsContextEntries (3 tests across text, path, and path-list recipes)."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Reads `stage_log` rows scoped by `build_id`, optionally `feature_id`,",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "StageLogReader Protocol's get_approved_stage_entry method is approved-only by contract: there is no flag for the builder to widen the filter. Covered by TestApprovedOnly (3 tests) including no-prior-entry, in-progress (returns None by Protocol contract), and a check that the builder does not bypass the filter.",
+      "notes": "StageLogReader Protocol's get_approved_stage_entry method is approved-only by contract: there is no flag for the builder to widen the filter. Covered by TestApprovedOnly (3 tests) including no-prior-entry, in-progress (returns None by Protocol contract), and a check that the builder does not bypass the filter."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Refuses to return any entry whose underlying artefact path falls",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_build_path_entries calls WorktreeAllowlist.is_allowed for every path; rejects are filtered out individually with a structured WARNING log line including build_id, path, and recipe description. Covered by TestAllowlistEnforcement (3 tests) including allowed-vs-denied mix, text-bypasses-allowlist, and single-path-rejected.",
+      "notes": "_build_path_entries calls WorktreeAllowlist.is_allowed for every path; rejects are filtered out individually with a structured WARNING log line including build_id, path, and recipe description. Covered by TestAllowlistEnforcement (3 tests) including allowed-vs-denied mix, text-bypasses-allowlist, and single-path-rejected."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "For per-feature stages, scopes the lookup to that feature's prior",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "build_for forwards feature_id into the StageLogReader call when the producer is in PER_FEATURE_STAGES; per-feature consumer + missing feature_id yields an empty list (safe-default). Covered by TestPerFeatureScoping (3 tests) including FEAT-1/FEAT-2 isolation, per-feature-consumer-with-non-per-feature-producer, and missing-feature_id misuse.",
+      "notes": "build_for forwards feature_id into the StageLogReader call when the producer is in PER_FEATURE_STAGES; per-feature consumer + missing feature_id yields an empty list (safe-default). Covered by TestPerFeatureScoping (3 tests) including FEAT-1/FEAT-2 isolation, per-feature-consumer-with-non-per-feature-producer, and missing-feature_id misuse."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Unit tests cover all seven `PROPAGATION_CONTRACT` rows",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestAllSevenPropagationContractRows.test_each_contract_row_produces_at_least_one_entry is parametrised across list(PROPAGATION_CONTRACT.keys()) \u2014 7 rows: ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW. Each shapes a synthetic ApprovedStageEntry matching the recipe's artefact_kind and asserts the resulting entries match the recipe's flag.",
+      "notes": "TestAllSevenPropagationContractRows.test_each_contract_row_produces_at_least_one_entry is parametrised across list(PROPAGATION_CONTRACT.keys()) \u2014 7 rows: ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW. Each shapes a synthetic ApprovedStageEntry matching the recipe's artefact_kind and asserts the resulting entries match the recipe's flag."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Unit test: in-progress prior stage \u2192 empty context (must wait until",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestApprovedOnly.test_in_progress_prior_stage_returns_empty_context exercises the case where no approved row exists; the StageLogReader returns None and build_for returns []. The Protocol's approved-only contract is what makes 'in-progress' invisible to the builder.",
+      "notes": "TestApprovedOnly.test_in_progress_prior_stage_returns_empty_context exercises the case where no approved row exists; the StageLogReader returns None and build_for returns []. The Protocol's approved-only contract is what makes 'in-progress' invisible to the builder."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit test: artefact path outside allowlist is filtered out with a",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestAllowlistEnforcement.test_path_outside_allowlist_is_filtered_out asserts the rejected path is dropped, the allowed path survives, and a WARNING-level log record is emitted by logger 'forge.pipeline.forward_context_builder' containing both the offending path and the build_id.",
+      "notes": "TestAllowlistEnforcement.test_path_outside_allowlist_is_filtered_out asserts the rejected path is dropped, the allowed path survives, and a WARNING-level log record is emitted by logger 'forge.pipeline.forward_context_builder' containing both the offending path and the build_id."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Both files were formatted with `python3 -m black --target-version py312`. Black reports 'All done!' with zero reformat actions on a re-check. No syntax errors; module imports cleanly via existing test suite (1220 prior tests still pass).",
+      "notes": "Both files were formatted with `python3 -m black --target-version py312`. Black reports 'All done!' with zero reformat actions on a re-check. No syntax errors; module imports cleanly via existing test suite (1220 prior tests still pass)."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`ForwardContextBuilder` class exists at",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/pipeline/forward_context_builder.py exporting ForwardContextBuilder class. Verified by TestForwardContextBuilderExists class (3 tests) covering module path, file location, and instantiability with the two reader Protocols.",
+        "notes": "Created src/forge/pipeline/forward_context_builder.py exporting ForwardContextBuilder class. Verified by TestForwardContextBuilderExists class (3 tests) covering module path, file location, and instantiability with the two reader Protocols."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Method `build_for(stage: StageClass, build_id: str, feature_id: str | None) -> list[ContextEntry]`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ForwardContextBuilder.build_for has the documented signature and returns list[ContextEntry]. ContextEntry is a frozen dataclass with flag, value, and kind fields ('text' or 'path'). Covered by TestBuildForReturnsContextEntries (3 tests across text, path, and path-list recipes).",
+        "notes": "ForwardContextBuilder.build_for has the documented signature and returns list[ContextEntry]. ContextEntry is a frozen dataclass with flag, value, and kind fields ('text' or 'path'). Covered by TestBuildForReturnsContextEntries (3 tests across text, path, and path-list recipes)."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Reads `stage_log` rows scoped by `build_id`, optionally `feature_id`,",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "StageLogReader Protocol's get_approved_stage_entry method is approved-only by contract: there is no flag for the builder to widen the filter. Covered by TestApprovedOnly (3 tests) including no-prior-entry, in-progress (returns None by Protocol contract), and a check that the builder does not bypass the filter.",
+        "notes": "StageLogReader Protocol's get_approved_stage_entry method is approved-only by contract: there is no flag for the builder to widen the filter. Covered by TestApprovedOnly (3 tests) including no-prior-entry, in-progress (returns None by Protocol contract), and a check that the builder does not bypass the filter."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Refuses to return any entry whose underlying artefact path falls",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_build_path_entries calls WorktreeAllowlist.is_allowed for every path; rejects are filtered out individually with a structured WARNING log line including build_id, path, and recipe description. Covered by TestAllowlistEnforcement (3 tests) including allowed-vs-denied mix, text-bypasses-allowlist, and single-path-rejected.",
+        "notes": "_build_path_entries calls WorktreeAllowlist.is_allowed for every path; rejects are filtered out individually with a structured WARNING log line including build_id, path, and recipe description. Covered by TestAllowlistEnforcement (3 tests) including allowed-vs-denied mix, text-bypasses-allowlist, and single-path-rejected."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "For per-feature stages, scopes the lookup to that feature's prior",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "build_for forwards feature_id into the StageLogReader call when the producer is in PER_FEATURE_STAGES; per-feature consumer + missing feature_id yields an empty list (safe-default). Covered by TestPerFeatureScoping (3 tests) including FEAT-1/FEAT-2 isolation, per-feature-consumer-with-non-per-feature-producer, and missing-feature_id misuse.",
+        "notes": "build_for forwards feature_id into the StageLogReader call when the producer is in PER_FEATURE_STAGES; per-feature consumer + missing feature_id yields an empty list (safe-default). Covered by TestPerFeatureScoping (3 tests) including FEAT-1/FEAT-2 isolation, per-feature-consumer-with-non-per-feature-producer, and missing-feature_id misuse."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Unit tests cover all seven `PROPAGATION_CONTRACT` rows",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestAllSevenPropagationContractRows.test_each_contract_row_produces_at_least_one_entry is parametrised across list(PROPAGATION_CONTRACT.keys()) \u2014 7 rows: ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW. Each shapes a synthetic ApprovedStageEntry matching the recipe's artefact_kind and asserts the resulting entries match the recipe's flag.",
+        "notes": "TestAllSevenPropagationContractRows.test_each_contract_row_produces_at_least_one_entry is parametrised across list(PROPAGATION_CONTRACT.keys()) \u2014 7 rows: ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW. Each shapes a synthetic ApprovedStageEntry matching the recipe's artefact_kind and asserts the resulting entries match the recipe's flag."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Unit test: in-progress prior stage \u2192 empty context (must wait until",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestApprovedOnly.test_in_progress_prior_stage_returns_empty_context exercises the case where no approved row exists; the StageLogReader returns None and build_for returns []. The Protocol's approved-only contract is what makes 'in-progress' invisible to the builder.",
+        "notes": "TestApprovedOnly.test_in_progress_prior_stage_returns_empty_context exercises the case where no approved row exists; the StageLogReader returns None and build_for returns []. The Protocol's approved-only contract is what makes 'in-progress' invisible to the builder."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Unit test: artefact path outside allowlist is filtered out with a",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestAllowlistEnforcement.test_path_outside_allowlist_is_filtered_out asserts the rejected path is dropped, the allowed path survives, and a WARNING-level log record is emitted by logger 'forge.pipeline.forward_context_builder' containing both the offending path and the build_id.",
+        "notes": "TestAllowlistEnforcement.test_path_outside_allowlist_is_filtered_out asserts the rejected path is dropped, the allowed path survives, and a WARNING-level log record is emitted by logger 'forge.pipeline.forward_context_builder' containing both the offending path and the build_id."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Both files were formatted with `python3 -m black --target-version py312`. Black reports 'All done!' with zero reformat actions on a re-check. No syntax errors; module imports cleanly via existing test suite (1220 prior tests still pass).",
+        "notes": "Both files were formatted with `python3 -m black --target-version py312`. Black reports 'All done!' with zero reformat actions on a re-check. No syntax errors; module imports cleanly via existing test suite (1220 prior tests still pass)."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 270 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 980/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- SOURCE_OF_PATTERN\n- CREATED_AT_PATTERN_VERSION\n\n### \u26a0\ufe0f Warnings\n- CREATES\n- USES_ENDPOINT\n\n### \ud83c\udfad Role Constraints\n- DELEGATES_TO\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLICABLE_TO_TASK\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}
