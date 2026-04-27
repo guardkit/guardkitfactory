@@ -2958,20 +2958,110 @@ Ready to run autobuild:
 guardkit autobuild feature FEAT-FORGE-001
 
 
-
-
-
-
-
-
-
-
-
-
 GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-001 --verbose --max-turns 30
 
+════════════════════════════════════════════════════════════
+FEATURE RESULT: SUCCESS
+════════════════════════════════════════════════════════════
+
+Feature: FEAT-FORGE-001 - Pipeline State Machine and Configuration
+Status: COMPLETED
+Tasks: 13/13 completed
+Total Turns: 15
+Duration: 104m 16s
+
+                                  Wave Summary                                   
+╭────────┬──────────┬────────────┬──────────┬──────────┬──────────┬─────────────╮
+│  Wave  │  Tasks   │   Status   │  Passed  │  Failed  │  Turns   │  Recovered  │
+├────────┼──────────┼────────────┼──────────┼──────────┼──────────┼─────────────┤
+│   1    │    3     │   ✓ PASS   │    3     │    -     │    3     │      -      │
+│   2    │    1     │   ✓ PASS   │    1     │    -     │    1     │      -      │
+│   3    │    1     │   ✓ PASS   │    1     │    -     │    2     │      -      │
+│   4    │    6     │   ✓ PASS   │    6     │    -     │    7     │      -      │
+│   5    │    2     │   ✓ PASS   │    2     │    -     │    2     │      -      │
+╰────────┴──────────┴────────────┴──────────┴──────────┴──────────┴─────────────╯
+
+Execution Quality:
+  Clean executions: 13/13 (100%)
+
+SDK Turn Ceiling:
+  Invocations: 7
+  Ceiling hits: 0/7 (0%)
+
+                                  Task Details                                   
+╭──────────────────────┬────────────┬──────────┬─────────────────┬──────────────╮
+│ Task                 │ Status     │  Turns   │ Decision        │  SDK Turns   │
+├──────────────────────┼────────────┼──────────┼─────────────────┼──────────────┤
+│ TASK-PSM-001         │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-PSM-002         │ SUCCESS    │    1     │ approved        │      35      │
+│ TASK-PSM-003         │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-PSM-004         │ SUCCESS    │    1     │ approved        │      37      │
+│ TASK-PSM-005         │ SUCCESS    │    2     │ approved        │      16      │
+│ TASK-PSM-006         │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-PSM-007         │ SUCCESS    │    1     │ approved        │      51      │
+│ TASK-PSM-008         │ SUCCESS    │    1     │ approved        │      87      │
+│ TASK-PSM-009         │ SUCCESS    │    1     │ approved        │      74      │
+│ TASK-PSM-010         │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-PSM-011         │ SUCCESS    │    2     │ approved        │      -       │
+│ TASK-PSM-012         │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-PSM-013         │ SUCCESS    │    1     │ approved        │      83      │
+╰──────────────────────┴────────────┴──────────┴─────────────────┴──────────────╯
+
+Worktree: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+Branch: autobuild/FEAT-FORGE-001
+
+Next Steps:
+  1. Review: cd /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  2. Diff: git diff main
+  3. Merge: git checkout main && git merge autobuild/FEAT-FORGE-001
+  4. Cleanup: guardkit worktree cleanup FEAT-FORGE-001
+INFO:guardkit.cli.display:Final summary rendered: FEAT-FORGE-001 - completed
+INFO:guardkit.orchestrator.review_summary:Review summary written to /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/autobuild/FEAT-FORGE-001/review-summary.md
+✓ Review summary: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/autobuild/FEAT-FORGE-001/review-summary.md
+INFO:guardkit.orchestrator.feature_orchestrator:Feature orchestration complete: FEAT-FORGE-001, status=completed, completed=13/13
+richardwoollcott@promaxgb10-41b1:~/Projects/appmilla_github/forge$ 
 
 
+guardkit feature-spec FEAT-FORGE-008 \
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end.feature \
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end_summary.md \
+  --context forge/docs/design/contracts/API-cli.md \
+  --context forge/docs/design/contracts/API-nats-approval-protocol.md \
+  --context forge/docs/design/models/DM-build-lifecycle.md
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FEATURE SPEC COMPLETE: Mode B Feature & Mode C Review-Fix
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Files written:
+  features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature
+  features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix_assumptions.yaml
+  features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix_summary.md
+
+Scenarios: 56 total
+  @key-example: 9    @boundary: 6
+  @negative: 8       @edge-case: 11
+  @smoke: 6          @regression: 5
+  @security: 4       @concurrency: 4
+  @data-integrity: 7 @integration: 6
+  @mode-b: 39        @mode-c: 28
+
+Assumptions: 17 total
+  high: 10  (auto-proceed)
+  medium: 7 (Coach review recommended; all traceable to inherited FEAT-FORGE-007 patterns or natural inferences from the build plan)
+  low: 0    (no human re-verification required)
+
+Deferred: 0 scenario groups
+
+Next steps:
+  Review: features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature
+  Update build plan: replace `<feat-forge-008-slug>` placeholder with
+    `mode-b-feature-and-mode-c-review-fix` in docs/research/ideas/forge-build-plan.md
+  Pass to feature-plan:
+    /feature-plan "Mode B Feature & Mode C Review-Fix" \
+      --context features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix_summary.md
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
 
