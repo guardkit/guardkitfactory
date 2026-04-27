@@ -99,9 +99,7 @@ def build_cli_runtime(
         async_task_canceller=AsyncTaskCanceller(
             async_task_canceller or _noop_async_call
         ),
-        async_task_updater=AsyncTaskUpdater(
-            async_task_updater or _noop_async_call
-        ),
+        async_task_updater=AsyncTaskUpdater(async_task_updater or _noop_async_call),
         build_canceller=SqliteBuildCanceller(persistence),
         skip_recorder=SqliteStageSkipRecorder(persistence),
         build_resumer=SqliteBuildResumer(persistence),

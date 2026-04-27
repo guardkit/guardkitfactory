@@ -49,7 +49,6 @@ from forge.pipeline.constitutional_guard import (
 )
 from forge.pipeline.stage_taxonomy import StageClass
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
@@ -165,9 +164,7 @@ def _patch_runtime(
         cli_steering_handler=handler,  # type: ignore[arg-type]
     )
     monkeypatch.setattr(cli_runtime, "build_cli_runtime", lambda *_a, **_kw: fake)
-    monkeypatch.setattr(
-        cancel_module, "build_cli_runtime", lambda *_a, **_kw: fake
-    )
+    monkeypatch.setattr(cancel_module, "build_cli_runtime", lambda *_a, **_kw: fake)
     monkeypatch.setattr(skip_module, "build_cli_runtime", lambda *_a, **_kw: fake)
 
 

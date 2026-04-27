@@ -1,0 +1,42 @@
+{
+  "id": "TURN-FEAT-FORGE-001-2",
+  "feature_id": "FEAT-FORGE-001",
+  "task_id": "TASK-PSM-011",
+  "turn_number": 2,
+  "player_summary": "Implementation attempt",
+  "player_decision": "approve",
+  "coach_decision": "approve",
+  "coach_feedback": null,
+  "mode": "continuing_work",
+  "blockers_found": [],
+  "progress_summary": "Turn 2: approve",
+  "acceptance_criteria_status": {
+    "AC-001": "verified",
+    "AC-002": "verified",
+    "AC-003": "verified",
+    "AC-004": "verified",
+    "AC-005": "verified",
+    "AC-006": "verified",
+    "AC-007": "verified",
+    "AC-008": "verified",
+    "AC-009": "verified"
+  },
+  "files_modified": [
+    "src/forge/pipeline/cli_steering.py",
+    "src/forge/cli/main.py",
+    "src/forge/cli/cancel.py",
+    "src/forge/cli/skip.py",
+    "src/forge/cli/runtime.py",
+    "tests/forge/test_cli_cancel_skip.py",
+    "tests/bdd/test_pipeline_state_machine_cancel_skip.py"
+  ],
+  "tests_passed": null,
+  "tests_failed": null,
+  "coverage": null,
+  "arch_score": null,
+  "started_at": "2026-04-27T14:04:39.770969",
+  "completed_at": "2026-04-27T14:04:39.770969",
+  "duration_seconds": null,
+  "lessons_from_turn": [],
+  "what_to_try_next": null
+}

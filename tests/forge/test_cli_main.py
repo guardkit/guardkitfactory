@@ -441,7 +441,7 @@ class TestPublishFailureLeavesRowIntact:
                 "--config",
                 str(config_path),
                 "queue",
-                "FEAT-PUB-FAIL",
+                "FEAT-PUBFAIL",
                 "--repo",
                 str(repo_dir),
                 "--feature-yaml",
@@ -562,7 +562,7 @@ class TestExitCodeMatrix:
                 "--config",
                 str(config_path),
                 "queue",
-                "FEAT-OK",
+                "FEAT-HAPPY",
                 "--repo",
                 str(repo_dir),
                 "--feature-yaml",
@@ -573,7 +573,7 @@ class TestExitCodeMatrix:
         assert "correlation_id=" in result.output
         assert len(captured_publish) == 1
         subject, body = captured_publish[0]
-        assert subject == "pipeline.build-queued.FEAT-OK"
+        assert subject == "pipeline.build-queued.FEAT-HAPPY"
         envelope = json.loads(body.decode("utf-8"))
         assert envelope["source_id"] == "forge-cli"
         assert envelope["event_type"] == "build_queued"
@@ -606,10 +606,17 @@ class TestImportDiscipline:
         if not candidate.exists():
             pytest.skip(f"{module_name} not yet scaffolded by its owning task")
         source = candidate.read_text(encoding="utf-8")
-        assert "forge.adapters.nats" not in source, (
-            f"{module_name} must not import from forge.adapters.nats; "
-            f"see TASK-PSM-008 / TASK-PSM-010 import discipline"
-        )
+        # Only fail on actual *import statements*; docstring references
+        # to the discipline ("must not import forge.adapters.nats") are
+        # part of the rule, not a violation of it.
+        for raw_line in source.splitlines():
+            stripped = raw_line.strip()
+            if not stripped.startswith(("import ", "from ")):
+                continue
+            assert "forge.adapters.nats" not in stripped, (
+                f"{module_name} top-level import violates discipline: "
+                f"{stripped!r}"
+            )
 
 
 # ---------------------------------------------------------------------------

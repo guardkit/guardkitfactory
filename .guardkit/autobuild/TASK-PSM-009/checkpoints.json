@@ -1,0 +1,15 @@
+{
+  "task_id": "TASK-PSM-009",
+  "checkpoints": [
+    {
+      "turn": 1,
+      "commit_hash": "17295d7fd6ec8087afe63fed39c082a9b69ccadd",
+      "timestamp": "2026-04-27T14:01:08.550508",
+      "tests_passed": true,
+      "test_count": 0,
+      "message": "[guardkit-checkpoint] Turn 1 complete (tests: pass)",
+      "from_prior_run": false
+    }
+  ],
+  "last_updated": "2026-04-27T14:01:08.550698"
+}

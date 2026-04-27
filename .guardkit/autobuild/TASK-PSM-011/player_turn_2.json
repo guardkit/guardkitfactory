@@ -1,38 +1,28 @@
 {
   "task_id": "TASK-PSM-011",
-  "timestamp": "2026-04-27T14:04:32.090649",
-  "completed": true,
-  "success": true,
-  "implementation_mode": "direct",
-  "phases": {
-    "phase_3": {
-      "detected": true,
-      "completed": true
-    }
-  },
-  "quality_gates": {
-    "tests_passing": true,
-    "tests_passed": 2,
-    "tests_failed": 0,
-    "coverage": null,
-    "coverage_met": true,
-    "quality_gates_relaxed": true,
-    "all_passed": true
-  },
+  "turn": 2,
   "files_modified": [
-    "src/forge/cli/main.py",
-    "src/forge/pipeline/cli_steering.py"
+    "src/forge/pipeline/cli_steering.py",
+    "src/forge/cli/main.py"
   ],
   "files_created": [
     "src/forge/cli/cancel.py",
-    "src/forge/cli/runtime.py",
     "src/forge/cli/skip.py",
-    "tests/bdd/test_pipeline_state_machine_cancel_skip.py",
-    "tests/forge/test_cli_cancel_skip.py"
+    "src/forge/cli/runtime.py",
+    "tests/forge/test_cli_cancel_skip.py",
+    "tests/bdd/test_pipeline_state_machine_cancel_skip.py"
   ],
   "tests_written": [
-    "tests/bdd/test_pipeline_state_machine_cancel_skip.py",
-    "tests/forge/test_cli_cancel_skip.py"
+    "tests/forge/test_cli_cancel_skip.py",
+    "tests/bdd/test_pipeline_state_machine_cancel_skip.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "62 tests pass: 13 unit tests in test_cli_cancel_skip.py covering AC-001..AC-007, 4 BDD scenarios in test_pipeline_state_machine_cancel_skip.py for Group C (cancel-unknown, skip-non-paused) and Group D (cancel-paused, skip-flagged-stage), and 45 pre-existing cli_steering tests still green after the optional reason/responder kwargs were added to handle_cancel/handle_skip. ruff and black pass on all five new/modified files; the only ruff finding (unused typing.Mapping in cli_steering.py) is pre-existing and unrelated.",
+  "implementation_notes": "Created src/forge/cli/cancel.py (55 lines) and src/forge/cli/skip.py (50 lines) \u2014 both are intentionally thin Click wrappers that resolve the operator-supplied identifier via SqliteLifecyclePersistence.find_active_or_recent and delegate to CliSteeringHandler.handle_cancel/handle_skip with responder=os.getlogin(). Extracted the runtime wiring (CliRuntime + build_cli_runtime) into a new src/forge/cli/runtime.py to avoid a circular import between cli/main.py and the cancel/skip subcommand modules. Both wrappers register on the existing forge.cli.main:main Click group. Added optional reason/responder kwargs to CliSteeringHandler.handle_cancel and handle_skip (with a _annotate_rationale helper) so the wrappers' Group E audit-trail invariant flows into the rationale string without redesigning the handler's four-branch behavioural logic. The cancel-unknown path exits with code 2; the skip-on-non-paused path exits with code 3; the constitutional-refusal path exits with code 4. BDD scenarios are bound via @scenario decorators against the four PSM-011 Gherkin scenarios in features/pipeline-state-machine-and-configuration.feature; each step uses an in-memory FakeCliRuntime injected via monkeypatch on cli.runtime.build_cli_runtime so the suite needs no SQLite/NATS/LangGraph runtime.",
+  "concerns": [
+    "Pre-existing test tests/forge/test_approval_publisher.py::TestSingleOwnership and the test_cli_main.py suite (TASK-PSM-008 territory) remain failing; neither is in scope for TASK-PSM-011.",
+    "CliSteeringHandler signature change is additive (optional kwargs with defaults) so existing call sites continue to work \u2014 verified by the 45 pre-existing tests in test_cli_steering.py."
   ],
   "requirements_addressed": [
     "AC-001",
@@ -45,18 +35,8 @@
     "AC-008",
     "AC-009"
   ],
-  "requirements_met": [
-    "AC-001",
-    "AC-002",
-    "AC-003",
-    "AC-004",
-    "AC-005",
-    "AC-006",
-    "AC-007",
-    "AC-008",
-    "AC-009"
-  ],
-  "summary": "Direct mode implementation completed successfully",
+  "requirements_remaining": [],
+  "implementation_mode": "direct",
   "completion_promises": [
     {
       "criterion_id": "AC-001",
@@ -159,5 +139,6 @@
         "tests/bdd/test_pipeline_state_machine_cancel_skip.py"
       ]
     }
-  ]
+  ],
+  "success": true
 }

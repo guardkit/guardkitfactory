@@ -1,10 +1,4 @@
-"""``forge skip`` — thin wrapper over :class:`CliSteeringHandler` (TASK-PSM-011).
-
-Resolves the identifier via ``find_active_or_recent``, refuses when the
-build is not paused at a flag-for-review gate (Group C
-"skip on non-paused"), then delegates to
-:meth:`CliSteeringHandler.handle_skip` with ``responder=os.getlogin()``.
-"""
+"""``forge skip`` — thin wrapper over :class:`CliSteeringHandler` (TASK-PSM-011)."""
 
 from __future__ import annotations
 
@@ -34,24 +28,22 @@ def skip_cmd(identifier: str, reason: str, db_path: Path) -> None:
             f"forge skip: no active or recent build for {identifier!r}", err=True
         )
         sys.exit(2)
-    snapshot = runtime.cli_steering_handler.snapshot_reader.get_snapshot(
-        build.build_id
-    )
-    if snapshot.lifecycle is not BuildLifecycle.PAUSED_AT_GATE:
+    snap = runtime.cli_steering_handler.snapshot_reader.get_snapshot(build.build_id)
+    if snap.lifecycle is not BuildLifecycle.PAUSED_AT_GATE:
         click.echo(
             f"forge skip: REFUSED — skip not allowed unless paused "
-            f"(build {build.build_id!r} lifecycle={snapshot.lifecycle.value})",
+            f"(build {build.build_id!r} lifecycle={snap.lifecycle.value})",
             err=True,
         )
         sys.exit(3)
     outcome = runtime.cli_steering_handler.handle_skip(
-        build_id=build.build_id, stage=snapshot.paused_stage,
+        build_id=build.build_id, stage=snap.paused_stage,
         reason=reason, responder=os.getlogin(),
     )
     if outcome.status is SkipStatus.REFUSED_CONSTITUTIONAL:
         click.echo(f"forge skip: REFUSED — {outcome.rationale}", err=True)
         sys.exit(4)
-    click.echo(f"Skipped {build.build_id} stage={snapshot.paused_stage.value}")
+    click.echo(f"Skipped {build.build_id} stage={snap.paused_stage.value}")
     click.echo(outcome.rationale)
 
 

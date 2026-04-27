@@ -305,6 +305,39 @@ def _path_in_allowlist(repo: Path, allowlist: list[Path]) -> bool:
     return False
 
 
+#: Permitted characters in a slug segment after sanitisation. Mirrors the
+#: ``REPO_PATTERN`` in :mod:`nats_core.events._pipeline` so the derived
+#: ``BuildQueuedPayload.repo`` value never trips the upstream validator.
+_REPO_SEGMENT_FORBIDDEN_CHARS = " /\\:;,'\""
+
+
+def _sanitise_segment(segment: str) -> str:
+    """Replace any character outside ``[A-Za-z0-9._-]`` with ``_``."""
+    return "".join(c if c.isalnum() or c in "._-" else "_" for c in segment)
+
+
+def _path_to_repo_slug(repo: Path) -> str:
+    """Derive an ``org/name`` slug for :class:`BuildQueuedPayload.repo`.
+
+    The CLI's ``--repo`` flag is a filesystem path (it has to be — we
+    need to allowlist-check it and pass it to GuardKit), but the wire
+    payload requires an ``org/name`` GitHub-shaped slug
+    (``REPO_PATTERN`` in :mod:`nats_core.events._pipeline`). We bridge
+    the two by taking the resolved path's last two components and
+    sanitising any character outside ``[A-Za-z0-9._-]`` to ``_``.
+
+    A single-component path (e.g. ``/tmp``) is mapped to ``local/{name}``
+    so the slug is always a valid two-segment string.
+    """
+    resolved = Path(repo).expanduser().resolve()
+    name = _sanitise_segment(resolved.name) or "repo"
+    parent = resolved.parent.name
+    org = _sanitise_segment(parent) if parent else "local"
+    if not org:
+        org = "local"
+    return f"{org}/{name}"
+
+
 def _envelope_bytes(payload: Any, correlation_id: str) -> bytes:
     """Wrap ``payload`` in :class:`MessageEnvelope` and serialise to bytes.
 
@@ -447,12 +480,13 @@ def queue_cmd(
     now = datetime.now(UTC)
     payload = BuildQueuedPayload(
         feature_id=feature_id,
-        repo=str(repo_path),
+        repo=_path_to_repo_slug(repo_path),
         branch=branch,
         feature_yaml_path=str(Path(feature_yaml)),
         max_turns=effective_max_turns,
         sdk_timeout_seconds=effective_timeout,
         triggered_by="cli",
+        originating_adapter="cli-wrapper",
         originating_user=_resolve_originating_user(),
         correlation_id=effective_correlation_id,
         requested_at=now,
