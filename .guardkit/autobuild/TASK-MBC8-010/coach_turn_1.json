@@ -1,0 +1,146 @@
+{
+  "task_id": "TASK-MBC8-010",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "skipped",
+      "test_output_summary": "Independent test verification skipped (tests not required for testing tasks)",
+      "duration_seconds": 0.0
+    },
+    "requirements": {
+      "criteria_total": 6,
+      "criteria_met": 6,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`tests/integration/test_mode_b_smoke_e2e.py` enqueues a Mode B build,",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBChainShape.test_chain_has_exactly_four_canonical_stages_in_order asserts that the chronology recorded by the supervisor's turn_recorder matches MODE_B_CANONICAL_ORDER == (FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW) exactly.",
+      "notes": "TestModeBChainShape.test_chain_has_exactly_four_canonical_stages_in_order asserts that the chronology recorded by the supervisor's turn_recorder matches MODE_B_CANONICAL_ORDER == (FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW) exactly."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Forward-propagation assertions:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBChainShape.test_no_product_owner_or_architect_or_system_stage_dispatched asserts that the chronology stages and the subprocess dispatcher's call list never intersect MODE_B_FORBIDDEN_HISTORY_STAGES (PRODUCT_OWNER/ARCHITECT/SYSTEM_ARCH/SYSTEM_DESIGN). The harness also wires _unreachable_specialist_dispatcher which raises AssertionError if any specialist dispatch is attempted under Mode B.",
+      "notes": "TestModeBChainShape.test_no_product_owner_or_architect_or_system_stage_dispatched asserts that the chronology stages and the subprocess dispatcher's call list never intersect MODE_B_FORBIDDEN_HISTORY_STAGES (PRODUCT_OWNER/ARCHITECT/SYSTEM_ARCH/SYSTEM_DESIGN). The harness also wires _unreachable_specialist_dispatcher which raises AssertionError if any specialist dispatch is attempted under Mode B."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Asynchronous dispatch assertions:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBChainShape.test_no_degraded_specialist_rationale_in_history walks every chronology row's rationale and asserts the substring 'degraded' is absent. TestModeBChainShape.test_reasoning_model_is_never_consulted_in_mode_b also confirms the reasoning model port (which would emit degraded-mode rationales) records zero calls.",
+      "notes": "TestModeBChainShape.test_no_degraded_specialist_rationale_in_history walks every chronology row's rationale and asserts the substring 'degraded' is absent. TestModeBChainShape.test_reasoning_model_is_never_consulted_in_mode_b also confirms the reasoning model port (which would emit degraded-mode rationales) records zero calls."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "CLI steering assertions:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBPullRequestPause.test_pauses_at_pull_request_review asserts the final TurnReport is DISPATCHED with chosen_stage == PULL_REQUEST_REVIEW. test_records_mandatory_human_gate_mode_and_pr_url asserts the chronology row carries gate_mode == 'MANDATORY_HUMAN_APPROVAL'. test_pr_review_gate_received_auto_approve_false confirms the gate submission was made with auto_approve=False (operator approves per ASSUM-011).",
+      "notes": "TestModeBPullRequestPause.test_pauses_at_pull_request_review asserts the final TurnReport is DISPATCHED with chosen_stage == PULL_REQUEST_REVIEW. test_records_mandatory_human_gate_mode_and_pr_url asserts the chronology row carries gate_mode == 'MANDATORY_HUMAN_APPROVAL'. test_pr_review_gate_received_auto_approve_false confirms the gate submission was made with auto_approve=False (operator approves per ASSUM-011)."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Test runs in under 30 seconds with all dispatchers stubbed",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBPullRequestPause.test_records_mandatory_human_gate_mode_and_pr_url asserts the terminal chronology row carries a non-empty pr_url that begins with 'https://github.com/example/forge/pull/'. The FakePRReviewGate mints monotonically increasing PR numbers so the URL is unique per submission.",
+      "notes": "TestModeBPullRequestPause.test_records_mandatory_human_gate_mode_and_pr_url asserts the terminal chronology row carries a non-empty pr_url that begins with 'https://github.com/example/forge/pull/'. The FakePRReviewGate mints monotonically increasing PR numbers so the URL is unique per submission."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBForwardPropagation.test_feature_plan_dispatch_carries_feature_spec_artefact_paths drives the smoke and inspects the forward_context list captured by FakeSubprocessDispatcher on the FEATURE_PLAN call. The dispatcher consults a real ForwardContextBuilder configured against the same stage_log + worktree allowlist the supervisor uses, so the assertion exercises the production MODE_B_PROPAGATION_CONTRACT row (FEATURE_PLAN <- FEATURE_SPEC, kind='path').",
+      "notes": "TestModeBForwardPropagation.test_feature_plan_dispatch_carries_feature_spec_artefact_paths drives the smoke and inspects the forward_context list captured by FakeSubprocessDispatcher on the FEATURE_PLAN call. The dispatcher consults a real ForwardContextBuilder configured against the same stage_log + worktree allowlist the supervisor uses, so the assertion exercises the production MODE_B_PROPAGATION_CONTRACT row (FEATURE_PLAN <- FEATURE_SPEC, kind='path')."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`tests/integration/test_mode_b_smoke_e2e.py` enqueues a Mode B build,",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBChainShape.test_chain_has_exactly_four_canonical_stages_in_order asserts that the chronology recorded by the supervisor's turn_recorder matches MODE_B_CANONICAL_ORDER == (FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW) exactly.",
+        "notes": "TestModeBChainShape.test_chain_has_exactly_four_canonical_stages_in_order asserts that the chronology recorded by the supervisor's turn_recorder matches MODE_B_CANONICAL_ORDER == (FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW) exactly."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Forward-propagation assertions:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBChainShape.test_no_product_owner_or_architect_or_system_stage_dispatched asserts that the chronology stages and the subprocess dispatcher's call list never intersect MODE_B_FORBIDDEN_HISTORY_STAGES (PRODUCT_OWNER/ARCHITECT/SYSTEM_ARCH/SYSTEM_DESIGN). The harness also wires _unreachable_specialist_dispatcher which raises AssertionError if any specialist dispatch is attempted under Mode B.",
+        "notes": "TestModeBChainShape.test_no_product_owner_or_architect_or_system_stage_dispatched asserts that the chronology stages and the subprocess dispatcher's call list never intersect MODE_B_FORBIDDEN_HISTORY_STAGES (PRODUCT_OWNER/ARCHITECT/SYSTEM_ARCH/SYSTEM_DESIGN). The harness also wires _unreachable_specialist_dispatcher which raises AssertionError if any specialist dispatch is attempted under Mode B."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Asynchronous dispatch assertions:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBChainShape.test_no_degraded_specialist_rationale_in_history walks every chronology row's rationale and asserts the substring 'degraded' is absent. TestModeBChainShape.test_reasoning_model_is_never_consulted_in_mode_b also confirms the reasoning model port (which would emit degraded-mode rationales) records zero calls.",
+        "notes": "TestModeBChainShape.test_no_degraded_specialist_rationale_in_history walks every chronology row's rationale and asserts the substring 'degraded' is absent. TestModeBChainShape.test_reasoning_model_is_never_consulted_in_mode_b also confirms the reasoning model port (which would emit degraded-mode rationales) records zero calls."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "CLI steering assertions:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBPullRequestPause.test_pauses_at_pull_request_review asserts the final TurnReport is DISPATCHED with chosen_stage == PULL_REQUEST_REVIEW. test_records_mandatory_human_gate_mode_and_pr_url asserts the chronology row carries gate_mode == 'MANDATORY_HUMAN_APPROVAL'. test_pr_review_gate_received_auto_approve_false confirms the gate submission was made with auto_approve=False (operator approves per ASSUM-011).",
+        "notes": "TestModeBPullRequestPause.test_pauses_at_pull_request_review asserts the final TurnReport is DISPATCHED with chosen_stage == PULL_REQUEST_REVIEW. test_records_mandatory_human_gate_mode_and_pr_url asserts the chronology row carries gate_mode == 'MANDATORY_HUMAN_APPROVAL'. test_pr_review_gate_received_auto_approve_false confirms the gate submission was made with auto_approve=False (operator approves per ASSUM-011)."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Test runs in under 30 seconds with all dispatchers stubbed",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBPullRequestPause.test_records_mandatory_human_gate_mode_and_pr_url asserts the terminal chronology row carries a non-empty pr_url that begins with 'https://github.com/example/forge/pull/'. The FakePRReviewGate mints monotonically increasing PR numbers so the URL is unique per submission.",
+        "notes": "TestModeBPullRequestPause.test_records_mandatory_human_gate_mode_and_pr_url asserts the terminal chronology row carries a non-empty pr_url that begins with 'https://github.com/example/forge/pull/'. The FakePRReviewGate mints monotonically increasing PR numbers so the URL is unique per submission."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBForwardPropagation.test_feature_plan_dispatch_carries_feature_spec_artefact_paths drives the smoke and inspects the forward_context list captured by FakeSubprocessDispatcher on the FEATURE_PLAN call. The dispatcher consults a real ForwardContextBuilder configured against the same stage_log + worktree allowlist the supervisor uses, so the assertion exercises the production MODE_B_PROPAGATION_CONTRACT row (FEATURE_PLAN <- FEATURE_SPEC, kind='path').",
+        "notes": "TestModeBForwardPropagation.test_feature_plan_dispatch_carries_feature_spec_artefact_paths drives the smoke and inspects the forward_context list captured by FakeSubprocessDispatcher on the FEATURE_PLAN call. The dispatcher consults a real ForwardContextBuilder configured against the same stage_log + worktree allowlist the supervisor uses, so the assertion exercises the production MODE_B_PROPAGATION_CONTRACT row (FEATURE_PLAN <- FEATURE_SPEC, kind='path')."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    }
+  ],
+  "rationale": "All quality gates passed. Tests not required for this task type. All acceptance criteria met. Architecture context: 390 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1661/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ASSIGNS_TASK_TO\n- USES_ATTRIBUTE\n- INSTRUCTS_USER_TO_START\n- SETS_FIELD\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- IS_IMPLEMENTED_AS\n- USES_ENDPOINT\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- MONITORS_RESULTS_FROM\n- MONITOR_QUALITY_GATES\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- IMPLEMENTATION_MODE_HAS_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}
