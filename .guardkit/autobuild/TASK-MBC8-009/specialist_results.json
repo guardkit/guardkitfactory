@@ -1,17 +1,17 @@
 {
   "phase_4": {
     "status": "passed",
-    "duration_seconds": 96.02515999204479,
+    "duration_seconds": 126.46111958898837,
     "error": null,
-    "tests_run": 1926,
-    "tests_failed": 2,
-    "coverage_pct": 87.0,
-    "output_summary": "1924 passed, 2 failed (both pre-existing on branch, unrelated to TASK-MBC8-009); 24/24 new test_cli_mode_flag.py tests pass; coverage 87% on changed cli/lifecycle modules.",
+    "tests_run": 3629,
+    "tests_failed": 4,
+    "coverage_pct": 86.0,
+    "output_summary": "3625 passed, 4 failed (all pre-existing on branch \u2014 verified by reverting TASK-MBC8-009 edits; same 4 fail). 24/24 new test_cli_mode_flag.py tests pass; 86% coverage on changed cli + persistence modules.",
     "quality_gates_passed": false
   },
   "phase_5": {
     "status": "passed",
-    "duration_seconds": 237.20768311998108,
+    "duration_seconds": 253.5892558369669,
     "error": null,
     "issues": [],
     "quality_score": 0.0,
