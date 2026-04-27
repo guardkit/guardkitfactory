@@ -1,23 +1,28 @@
 ---
-id: TASK-PSM-004
-title: "State machine — transition table and invariants"
-task_type: feature
-parent_review: TASK-REV-3EEE
-feature_id: FEAT-FORGE-001
-wave: 2
-implementation_mode: task-work
 complexity: 6
-estimated_minutes: 90
-status: pending
-dependencies:
-  - TASK-PSM-002
 consumer_context:
-  - task: TASK-PSM-002
-    consumes: SCHEMA_INITIALIZED
-    framework: "sqlite3 (stdlib)"
-    driver: "stdlib"
-    format_note: "STRICT tables; WAL/STRICT pragmas applied per-connection; build state column constrained to enum values; schema_version=1 row seeded on first apply"
-tags: [lifecycle, state-machine, transition-table, invariants]
+- consumes: SCHEMA_INITIALIZED
+  driver: stdlib
+  format_note: STRICT tables; WAL/STRICT pragmas applied per-connection; build state
+    column constrained to enum values; schema_version=1 row seeded on first apply
+  framework: sqlite3 (stdlib)
+  task: TASK-PSM-002
+dependencies:
+- TASK-PSM-002
+estimated_minutes: 90
+feature_id: FEAT-FORGE-001
+id: TASK-PSM-004
+implementation_mode: task-work
+parent_review: TASK-REV-3EEE
+status: design_approved
+tags:
+- lifecycle
+- state-machine
+- transition-table
+- invariants
+task_type: feature
+title: State machine — transition table and invariants
+wave: 2
 ---
 
 # Task: State machine — transition table and invariants

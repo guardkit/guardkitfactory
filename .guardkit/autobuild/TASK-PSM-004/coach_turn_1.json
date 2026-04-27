@@ -1,0 +1,215 @@
+{
+  "task_id": "TASK-PSM-004",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_state_machine.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_state_machine.py::TestPausedApprovalCarryForward::test_complete_transition_can_carry_pr_url PASSED [ 96%]\ntests/forge/test_state_machine.py::TestPausedApprovalCarryForward::test_unknown_field_is_rejected PASSED [ 97%]\ntests/forge/test_state_machine.py::TestSingleStatusWriter::test_single_status_writer_in_src PASSED [ 98%]\ntests/forge/test_state_machine.py::TestSingleStatusWriter::test_grep_is_consistent_with_python_walk PASSED [100%]\n============================== 87 passed in 0.16s ==============================",
+      "duration_seconds": 0.5560956001281738
+    },
+    "requirements": {
+      "criteria_total": 10,
+      "criteria_met": 10,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`BuildState` enum re-exported (single source of truth \u2014 the",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "src/forge/lifecycle/state_machine.py imports BuildState from forge.pipeline.supervisor and re-exports it via __all__. No parallel definition exists. The TestBuildStateReExport::test_enum_is_re_exported_from_supervisor test uses `assert sm.BuildState is supervisor.BuildState` \u2014 identity check proves they are the same object. Missing lifecycle states (QUEUED, INTERRUPTED, SKIPPED) were added to the supervisor enum (the single source of truth) rather than being re-defined elsewhere.",
+      "notes": "src/forge/lifecycle/state_machine.py imports BuildState from forge.pipeline.supervisor and re-exports it via __all__. No parallel definition exists. The TestBuildStateReExport::test_enum_is_re_exported_from_supervisor test uses `assert sm.BuildState is supervisor.BuildState` \u2014 identity check proves they are the same object. Missing lifecycle states (QUEUED, INTERRUPTED, SKIPPED) were added to the supervisor enum (the single source of truth) rather than being re-defined elsewhere."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`TRANSITION_TABLE` defined as a frozen mapping; immutable at runtime",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TRANSITION_TABLE is declared with typing.Final and every value is a frozenset (cannot be mutated). TestTransitionTable::test_target_sets_are_frozen and test_terminal_rows_are_empty enforce this. test_every_state_has_a_row enforces full coverage of the BuildState enum.",
+      "notes": "TRANSITION_TABLE is declared with typing.Final and every value is a frozenset (cannot be mutated). TestTransitionTable::test_target_sets_are_frozen and test_terminal_rows_are_empty enforce this. test_every_state_has_a_row enforces full coverage of the BuildState enum."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`transition(build, to_state, **fields)` returns a `Transition` value",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "transition() builds a Pydantic Transition with frozen=True and extra='forbid'. TestTransitionHappyPath::test_every_allowed_transition_succeeds parametrises all 29 allowed transitions and confirms a Transition is returned with correct from/to/build_id/occurred_at fields.",
+      "notes": "transition() builds a Pydantic Transition with frozen=True and extra='forbid'. TestTransitionHappyPath::test_every_allowed_transition_succeeds parametrises all 29 allowed transitions and confirms a Transition is returned with correct from/to/build_id/occurred_at fields."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`transition()` raises `InvalidTransitionError(build_id, from_state,",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "InvalidTransitionError subclasses ValueError and exposes build_id, from_state, to_state attributes. TestInvalidTransitions::test_invalid_jump_raises asserts a QUEUED\u2192COMPLETE attempt raises with correct fields; test_error_message_includes_state_names asserts the message format; test_error_is_a_valueerror confirms inheritance.",
+      "notes": "InvalidTransitionError subclasses ValueError and exposes build_id, from_state, to_state attributes. TestInvalidTransitions::test_invalid_jump_raises asserts a QUEUED\u2192COMPLETE attempt raises with correct fields; test_error_message_includes_state_names asserts the message format; test_error_is_a_valueerror confirms inheritance."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Terminal-state transitions set `completed_at` automatically if not",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "transition() detects to_state in TERMINAL_STATES and populates completed_at = now if the caller did not pass one. TestCompletedAtInvariant::test_completed_at_auto_populated covers all four terminal states (COMPLETE, FAILED, CANCELLED, SKIPPED). test_explicit_completed_at_is_preserved confirms caller overrides are honoured. test_non_terminal_transition_does_not_set_completed_at confirms non-terminal transitions leave completed_at=None.",
+      "notes": "transition() detects to_state in TERMINAL_STATES and populates completed_at = now if the caller did not pass one. TestCompletedAtInvariant::test_completed_at_auto_populated covers all four terminal states (COMPLETE, FAILED, CANCELLED, SKIPPED). test_explicit_completed_at_is_preserved confirms caller overrides are honoured. test_non_terminal_transition_does_not_set_completed_at confirms non-terminal transitions leave completed_at=None."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "PAUSED transitions accept and carry forward",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Transition has the optional pending_approval_request_id field. TestPausedApprovalCarryForward::test_paused_transition_carries_request_id passes a request id through transition(_build(RUNNING), PAUSED, pending_approval_request_id='req-abc-123') and asserts it lands on the value object. test_resume_from_paused_can_clear_the_id confirms the field defaults to None when omitted (so persistence can clear the column on RUNNING resume).",
+      "notes": "Transition has the optional pending_approval_request_id field. TestPausedApprovalCarryForward::test_paused_transition_carries_request_id passes a request id through transition(_build(RUNNING), PAUSED, pending_approval_request_id='req-abc-123') and asserts it lands on the value object. test_resume_from_paused_can_clear_the_id confirms the field defaults to None when omitted (so persistence can clear the column on RUNNING resume)."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Property test: every state has a documented transition row; every",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestTransitionTable::test_every_state_has_a_row asserts set(TRANSITION_TABLE.keys()) == set(BuildState). TestTransitionHappyPath::test_every_allowed_transition_succeeds is parametrised over every (from, to) cell in the spec table \u2014 all 29 cells are covered as parametrised test cases (the unit-test counterpart of the BDD scenarios). The matrix-coverage property (one test per cell) is enforced structurally.",
+      "notes": "TestTransitionTable::test_every_state_has_a_row asserts set(TRANSITION_TABLE.keys()) == set(BuildState). TestTransitionHappyPath::test_every_allowed_transition_succeeds is parametrised over every (from, to) cell in the spec table \u2014 all 29 cells are covered as parametrised test cases (the unit-test counterpart of the BDD scenarios). The matrix-coverage property (one test per cell) is enforced structurally."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Property test: no transition out of a terminal state succeeds",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestTerminalNoEscape::test_no_transition_out_of_terminal is parametrised over all 4 terminal states \u00d7 all 10 BuildState targets = 40 cases. Each asserts transition() raises InvalidTransitionError. The terminal rows in TRANSITION_TABLE are also asserted empty by test_terminal_rows_are_empty.",
+      "notes": "TestTerminalNoEscape::test_no_transition_out_of_terminal is parametrised over all 4 terminal states \u00d7 all 10 BuildState targets = 40 cases. Each asserts transition() raises InvalidTransitionError. The terminal rows in TRANSITION_TABLE are also asserted empty by test_terminal_rows_are_empty."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Static-analysis test (Coach should run this): `grep -r",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestSingleStatusWriter::test_single_status_writer_in_src walks src/ for the regex and asserts at most one occurrence; if present it must live under a 'persistence' path. test_grep_is_consistent_with_python_walk shells out to grep -r as the AC literally specifies. TASK-PSM-005 has not landed yet, so the current count is 0 \u2014 the assertion `<= 1` is meaningful in both pre- and post-PSM-005 worlds. The test is wired so it tightens automatically when persistence.apply_transition is added.",
+      "notes": "TestSingleStatusWriter::test_single_status_writer_in_src walks src/ for the regex and asserts at most one occurrence; if present it must live under a 'persistence' path. test_grep_is_consistent_with_python_walk shells out to grep -r as the AC literally specifies. TASK-PSM-005 has not landed yet, so the current count is 0 \u2014 the assertion `<= 1` is meaningful in both pre- and post-PSM-005 worlds. The test is wired so it tightens automatically when persistence.apply_transition is added."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Files follow Black 88-char line length, PEP 8, type hints throughout, and `from __future__ import annotations`. The full pytest suite (3081 tests excluding the pre-existing-broken tests/unit/test_git_operations.py and bdd) passes with 22 warnings (pre-existing seam-mark warnings unrelated to this task).",
+      "notes": "Files follow Black 88-char line length, PEP 8, type hints throughout, and `from __future__ import annotations`. The full pytest suite (3081 tests excluding the pre-existing-broken tests/unit/test_git_operations.py and bdd) passes with 22 warnings (pre-existing seam-mark warnings unrelated to this task)."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`BuildState` enum re-exported (single source of truth \u2014 the",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "src/forge/lifecycle/state_machine.py imports BuildState from forge.pipeline.supervisor and re-exports it via __all__. No parallel definition exists. The TestBuildStateReExport::test_enum_is_re_exported_from_supervisor test uses `assert sm.BuildState is supervisor.BuildState` \u2014 identity check proves they are the same object. Missing lifecycle states (QUEUED, INTERRUPTED, SKIPPED) were added to the supervisor enum (the single source of truth) rather than being re-defined elsewhere.",
+        "notes": "src/forge/lifecycle/state_machine.py imports BuildState from forge.pipeline.supervisor and re-exports it via __all__. No parallel definition exists. The TestBuildStateReExport::test_enum_is_re_exported_from_supervisor test uses `assert sm.BuildState is supervisor.BuildState` \u2014 identity check proves they are the same object. Missing lifecycle states (QUEUED, INTERRUPTED, SKIPPED) were added to the supervisor enum (the single source of truth) rather than being re-defined elsewhere."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`TRANSITION_TABLE` defined as a frozen mapping; immutable at runtime",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TRANSITION_TABLE is declared with typing.Final and every value is a frozenset (cannot be mutated). TestTransitionTable::test_target_sets_are_frozen and test_terminal_rows_are_empty enforce this. test_every_state_has_a_row enforces full coverage of the BuildState enum.",
+        "notes": "TRANSITION_TABLE is declared with typing.Final and every value is a frozenset (cannot be mutated). TestTransitionTable::test_target_sets_are_frozen and test_terminal_rows_are_empty enforce this. test_every_state_has_a_row enforces full coverage of the BuildState enum."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`transition(build, to_state, **fields)` returns a `Transition` value",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "transition() builds a Pydantic Transition with frozen=True and extra='forbid'. TestTransitionHappyPath::test_every_allowed_transition_succeeds parametrises all 29 allowed transitions and confirms a Transition is returned with correct from/to/build_id/occurred_at fields.",
+        "notes": "transition() builds a Pydantic Transition with frozen=True and extra='forbid'. TestTransitionHappyPath::test_every_allowed_transition_succeeds parametrises all 29 allowed transitions and confirms a Transition is returned with correct from/to/build_id/occurred_at fields."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`transition()` raises `InvalidTransitionError(build_id, from_state,",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "InvalidTransitionError subclasses ValueError and exposes build_id, from_state, to_state attributes. TestInvalidTransitions::test_invalid_jump_raises asserts a QUEUED\u2192COMPLETE attempt raises with correct fields; test_error_message_includes_state_names asserts the message format; test_error_is_a_valueerror confirms inheritance.",
+        "notes": "InvalidTransitionError subclasses ValueError and exposes build_id, from_state, to_state attributes. TestInvalidTransitions::test_invalid_jump_raises asserts a QUEUED\u2192COMPLETE attempt raises with correct fields; test_error_message_includes_state_names asserts the message format; test_error_is_a_valueerror confirms inheritance."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Terminal-state transitions set `completed_at` automatically if not",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "transition() detects to_state in TERMINAL_STATES and populates completed_at = now if the caller did not pass one. TestCompletedAtInvariant::test_completed_at_auto_populated covers all four terminal states (COMPLETE, FAILED, CANCELLED, SKIPPED). test_explicit_completed_at_is_preserved confirms caller overrides are honoured. test_non_terminal_transition_does_not_set_completed_at confirms non-terminal transitions leave completed_at=None.",
+        "notes": "transition() detects to_state in TERMINAL_STATES and populates completed_at = now if the caller did not pass one. TestCompletedAtInvariant::test_completed_at_auto_populated covers all four terminal states (COMPLETE, FAILED, CANCELLED, SKIPPED). test_explicit_completed_at_is_preserved confirms caller overrides are honoured. test_non_terminal_transition_does_not_set_completed_at confirms non-terminal transitions leave completed_at=None."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "PAUSED transitions accept and carry forward",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Transition has the optional pending_approval_request_id field. TestPausedApprovalCarryForward::test_paused_transition_carries_request_id passes a request id through transition(_build(RUNNING), PAUSED, pending_approval_request_id='req-abc-123') and asserts it lands on the value object. test_resume_from_paused_can_clear_the_id confirms the field defaults to None when omitted (so persistence can clear the column on RUNNING resume).",
+        "notes": "Transition has the optional pending_approval_request_id field. TestPausedApprovalCarryForward::test_paused_transition_carries_request_id passes a request id through transition(_build(RUNNING), PAUSED, pending_approval_request_id='req-abc-123') and asserts it lands on the value object. test_resume_from_paused_can_clear_the_id confirms the field defaults to None when omitted (so persistence can clear the column on RUNNING resume)."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Property test: every state has a documented transition row; every",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestTransitionTable::test_every_state_has_a_row asserts set(TRANSITION_TABLE.keys()) == set(BuildState). TestTransitionHappyPath::test_every_allowed_transition_succeeds is parametrised over every (from, to) cell in the spec table \u2014 all 29 cells are covered as parametrised test cases (the unit-test counterpart of the BDD scenarios). The matrix-coverage property (one test per cell) is enforced structurally.",
+        "notes": "TestTransitionTable::test_every_state_has_a_row asserts set(TRANSITION_TABLE.keys()) == set(BuildState). TestTransitionHappyPath::test_every_allowed_transition_succeeds is parametrised over every (from, to) cell in the spec table \u2014 all 29 cells are covered as parametrised test cases (the unit-test counterpart of the BDD scenarios). The matrix-coverage property (one test per cell) is enforced structurally."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Property test: no transition out of a terminal state succeeds",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestTerminalNoEscape::test_no_transition_out_of_terminal is parametrised over all 4 terminal states \u00d7 all 10 BuildState targets = 40 cases. Each asserts transition() raises InvalidTransitionError. The terminal rows in TRANSITION_TABLE are also asserted empty by test_terminal_rows_are_empty.",
+        "notes": "TestTerminalNoEscape::test_no_transition_out_of_terminal is parametrised over all 4 terminal states \u00d7 all 10 BuildState targets = 40 cases. Each asserts transition() raises InvalidTransitionError. The terminal rows in TRANSITION_TABLE are also asserted empty by test_terminal_rows_are_empty."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Static-analysis test (Coach should run this): `grep -r",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestSingleStatusWriter::test_single_status_writer_in_src walks src/ for the regex and asserts at most one occurrence; if present it must live under a 'persistence' path. test_grep_is_consistent_with_python_walk shells out to grep -r as the AC literally specifies. TASK-PSM-005 has not landed yet, so the current count is 0 \u2014 the assertion `<= 1` is meaningful in both pre- and post-PSM-005 worlds. The test is wired so it tightens automatically when persistence.apply_transition is added.",
+        "notes": "TestSingleStatusWriter::test_single_status_writer_in_src walks src/ for the regex and asserts at most one occurrence; if present it must live under a 'persistence' path. test_grep_is_consistent_with_python_walk shells out to grep -r as the AC literally specifies. TASK-PSM-005 has not landed yet, so the current count is 0 \u2014 the assertion `<= 1` is meaningful in both pre- and post-PSM-005 worlds. The test is wired so it tightens automatically when persistence.apply_transition is added."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Files follow Black 88-char line length, PEP 8, type hints throughout, and `from __future__ import annotations`. The full pytest suite (3081 tests excluding the pre-existing-broken tests/unit/test_git_operations.py and bdd) passes with 22 warnings (pre-existing seam-mark warnings unrelated to this task).",
+        "notes": "Files follow Black 88-char line length, PEP 8, type hints throughout, and `from __future__ import annotations`. The full pytest suite (3081 tests excluding the pre-existing-broken tests/unit/test_git_operations.py and bdd) passes with 22 warnings (pre-existing seam-mark warnings unrelated to this task)."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 374 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1703/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ASSIGNS_TASK_TO\n- IS_USED_FOR\n- INSTRUCTS_USER_TO_START\n- LOADS_SERIALIZED_STATE_INTO\n\n### \u26a0\ufe0f Warnings\n- DEPENDS_ON\n- REQUIRES_USE_OF\n- ERROR_CAUSE_OF\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- IS_CREATED_FOR\n- MONITOR_QUALITY_GATES\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

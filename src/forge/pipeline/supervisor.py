@@ -154,27 +154,46 @@ class TurnOutcome(StrEnum):
 class BuildState(StrEnum):
     """Coarse state-machine states the supervisor reasons about.
 
-    Mirrors the FEAT-FORGE-001 ``Build.state`` literal; only the four
-    states the supervisor needs to *branch on* are enumerated. Anything
-    else is treated as "running" by default — the supervisor never
-    decides terminal-vs-not on its own; it asks the state machine.
+    Mirrors the FEAT-FORGE-001 ``Build.state`` literal — the full
+    lifecycle vocabulary the schema's ``builds.status CHECK`` enforces
+    (see ``forge/lifecycle/schema.sql``). The supervisor only branches
+    on a handful of these (PREPARING / RUNNING / PAUSED / FINALISING /
+    terminals); the rest are owned by the lifecycle state machine
+    (TASK-PSM-004) and the queue / recovery code paths.
+
+    This enum is the **single source of truth** for build states. The
+    transition table that governs *which* states can flow into which
+    others lives in :mod:`forge.lifecycle.state_machine` — that module
+    re-exports :class:`BuildState` so callers never define a parallel
+    enum. Adding a state here without adding a row to the transition
+    table is a bug; the property tests in ``test_state_machine.py``
+    enforce that invariant.
     """
 
+    QUEUED = "QUEUED"
     PREPARING = "PREPARING"
     RUNNING = "RUNNING"
     PAUSED = "PAUSED"
     FINALISING = "FINALISING"
     COMPLETE = "COMPLETE"
     FAILED = "FAILED"
+    INTERRUPTED = "INTERRUPTED"
     CANCELLED = "CANCELLED"
+    SKIPPED = "SKIPPED"
 
     @property
     def is_terminal(self) -> bool:
-        """Return ``True`` for terminal states (COMPLETE / FAILED / CANCELLED)."""
+        """Return ``True`` for terminal states.
+
+        Terminal states are COMPLETE / FAILED / CANCELLED / SKIPPED — no
+        transition out of any of these is permitted by the lifecycle
+        transition table (TASK-PSM-004).
+        """
         return self in (
             BuildState.COMPLETE,
             BuildState.FAILED,
             BuildState.CANCELLED,
+            BuildState.SKIPPED,
         )
 
 
