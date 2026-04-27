@@ -40,6 +40,7 @@ import click
 
 from forge.adapters.sqlite import read_only_connect
 from forge.config.models import ForgeConfig, QueueConfig
+from forge.lifecycle.modes import BuildMode
 from forge.lifecycle.persistence import (
     BuildRow,
     SqliteLifecyclePersistence,
@@ -108,6 +109,45 @@ def _filter_since(rows: Iterable[BuildRow], since: datetime | None) -> list[Buil
     return [row for row in rows if row.queued_at >= since]
 
 
+def _filter_mode(
+    rows: Iterable[BuildRow], mode: BuildMode | None
+) -> list[BuildRow]:
+    """Return only rows whose ``mode`` matches (no-op when ``mode`` is None).
+
+    Mirrors :func:`_filter_since` — Python-side filtering keeps the
+    persistence layer's read API stable while still satisfying the
+    FEAT-FORGE-008 acceptance criterion that ``forge history --mode b``
+    and ``--mode c`` filter the history view by mode.
+    """
+    if mode is None:
+        return list(rows)
+    return [row for row in rows if row.mode is mode]
+
+
+def resolve_mode_flag(value: str | None) -> BuildMode | None:
+    """Translate a ``--mode {a|b|c}`` flag into a :class:`BuildMode` or ``None``.
+
+    Accepts the same short single-character form used by ``forge queue``
+    plus the full enum-string form, so operators have one shared mental
+    model across queue/status/history. ``None`` means "no filter" — the
+    default (AC: "default is no filter").
+    """
+    if value is None:
+        return None
+    candidate = value.strip().lower()
+    if not candidate:
+        return None
+    short_map = {"a": BuildMode.MODE_A, "b": BuildMode.MODE_B, "c": BuildMode.MODE_C}
+    if candidate in short_map:
+        return short_map[candidate]
+    try:
+        return BuildMode(candidate)
+    except ValueError as exc:
+        raise click.BadParameter(
+            f"--mode must be one of 'a'/'b'/'c'; got {value!r}"
+        ) from exc
+
+
 def fetch_history(
     persistence: SqliteLifecyclePersistence,
     *,
@@ -115,6 +155,7 @@ def fetch_history(
     feature_id: str | None,
     since: datetime | None,
     include_stages: bool,
+    mode: BuildMode | None = None,
 ) -> list[tuple[BuildRow, list[StageLogEntry]]]:
     """Return ``(BuildRow, stage_log)`` pairs ordered newest-first.
 
@@ -123,11 +164,16 @@ def fetch_history(
     need them when ``--feature`` is supplied or when the user asked for
     ``--format md`` (stage list is part of §5.3's structure).
 
+    ``mode`` filters by :class:`BuildMode`; ``None`` means "no filter"
+    (AC: "default is no filter"). Filtering happens in Python so the
+    persistence layer's ``read_history`` signature stays stable.
+
     The returned list preserves ``queued_at DESC`` ordering from
     :meth:`SqliteLifecyclePersistence.read_history`.
     """
     rows = persistence.read_history(limit=limit, feature_id=feature_id)
     rows = _filter_since(rows, since)
+    rows = _filter_mode(rows, mode)
     if not include_stages:
         return [(row, []) for row in rows]
     return [(row, persistence.read_stages(row.build_id)) for row in rows]
@@ -273,12 +319,17 @@ def run_history(
     limit: int | None,
     since: str | None,
     output_format: str,
+    mode: str | BuildMode | None = None,
 ) -> str:
     """Execute the history command and return the rendered string.
 
     This is the seam unit tests drive directly, bypassing Click. It opens
     a read-only SQLite connection against ``db_path``, fetches the
     history, and renders it in the requested format.
+
+    ``mode`` accepts the short flag form (``"a"``/``"b"``/``"c"``), the
+    full enum-string form (``"mode-a"``/...), or a :class:`BuildMode`
+    instance. ``None`` means "no filter" (FEAT-FORGE-008 default).
     """
     if output_format not in SUPPORTED_FORMATS:
         raise click.BadParameter(
@@ -292,6 +343,11 @@ def run_history(
         raise click.BadParameter("--limit must be a positive integer")
 
     parsed_since = parse_since(since) if since else None
+
+    if isinstance(mode, BuildMode):
+        parsed_mode: BuildMode | None = mode
+    else:
+        parsed_mode = resolve_mode_flag(mode)
 
     connection = read_only_connect(db_path)
     try:
@@ -307,6 +363,7 @@ def run_history(
             feature_id=feature_id,
             since=parsed_since,
             include_stages=include_stages,
+            mode=parsed_mode,
         )
     finally:
         connection.close()
@@ -347,6 +404,16 @@ def run_history(
     help="Filter to builds with queued_at >= ISO date (e.g. 2026-04-20).",
 )
 @click.option(
+    "--mode",
+    "mode_flag",
+    type=click.Choice(["a", "b", "c"], case_sensitive=False),
+    default=None,
+    help=(
+        "Filter to builds whose pipeline mode is Mode A / B / C "
+        "(FEAT-FORGE-008). Default is no filter — every mode is returned."
+    ),
+)
+@click.option(
     "--format",
     "output_format",
     type=click.Choice(SUPPORTED_FORMATS, case_sensitive=False),
@@ -367,6 +434,7 @@ def history_cmd(
     feature_id: str | None,
     limit: int | None,
     since: str | None,
+    mode_flag: str | None,
     output_format: str,
     db_path: Path,
 ) -> None:
@@ -382,6 +450,7 @@ def history_cmd(
         limit=limit,
         since=since,
         output_format=output_format.lower(),
+        mode=mode_flag,
     )
     click.echo(rendered, nl=False)
 
@@ -394,5 +463,6 @@ __all__ = [
     "render_json",
     "render_markdown",
     "render_table",
+    "resolve_mode_flag",
     "run_history",
 ]

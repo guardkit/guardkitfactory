@@ -1,0 +1,7 @@
+{
+  "tests_run": 1926,
+  "tests_failed": 2,
+  "coverage_pct": 87.0,
+  "output_summary": "1924 passed, 2 failed (both pre-existing on branch, unrelated to TASK-MBC8-009); 24/24 new test_cli_mode_flag.py tests pass; coverage 87% on changed cli/lifecycle modules.",
+  "quality_gates_passed": false
+}

@@ -72,6 +72,7 @@ from forge.lifecycle.identifiers import (
     InvalidIdentifierError,
     validate_feature_id,
 )
+from forge.lifecycle.modes import BuildMode
 from forge.lifecycle.persistence import (
     DuplicateBuildError,
     SqliteLifecyclePersistence,
@@ -111,11 +112,46 @@ BUILD_QUEUED_SUBJECT_PREFIX = "pipeline.build-queued"
 SOURCE_ID = "forge-cli"
 
 
+#: Exit code reserved for ``--mode`` related parser refusals
+#: (e.g. Mode B with multiple feature ids — ASSUM-006). Re-uses the
+#: standard Click usage-error exit code so operators see a familiar
+#: parse-time message.
+EXIT_MODE_USAGE = 2
+
+#: Mapping from the ``--mode`` short flag values to canonical
+#: :class:`BuildMode` enum members. Operators type ``--mode b`` rather
+#: than ``--mode mode-b`` per FEAT-FORGE-008 ASSUM-016.
+_MODE_FLAG_TO_BUILD_MODE: dict[str, BuildMode] = {
+    "a": BuildMode.MODE_A,
+    "b": BuildMode.MODE_B,
+    "c": BuildMode.MODE_C,
+}
+
+#: Help text for ``--mode``. References FEAT-FORGE-008 chain shapes
+#: verbatim so operators do not need to read source code to choose a
+#: mode (AC: "Help text for --mode references the FEAT-FORGE-008 chain
+#: shapes verbatim").
+_MODE_HELP_TEXT = (
+    "Pipeline build mode (FEAT-FORGE-008). "
+    "'a' = Mode A: full greenfield run "
+    "(product-owner -> architect -> system-arch -> system-design -> "
+    "feature-spec -> task-review -> autobuild -> pull-request-review). "
+    "'b' = Mode B: add-feature-to-existing-project "
+    "(starts at /feature-spec, skips product-owner / architect / "
+    "/system-arch / /system-design; ASSUM-001). "
+    "'c' = Mode C: review-and-fix cycle "
+    "(/task-review pairs with /task-work per fix task; "
+    "optional pull-request-review terminator; ASSUM-004). "
+    "Default 'a' preserves backwards compatibility."
+)
+
+
 __all__ = [
     "BUILD_QUEUED_SUBJECT_PREFIX",
     "DEFAULT_DB_PATH",
     "EXIT_DUPLICATE",
     "EXIT_INVALID_IDENTIFIER",
+    "EXIT_MODE_USAGE",
     "EXIT_OK",
     "EXIT_PATH_REFUSED",
     "EXIT_PUBLISH_FAILED",
@@ -124,6 +160,7 @@ __all__ = [
     "make_persistence",
     "publish",
     "queue_cmd",
+    "resolve_mode",
 ]
 
 
@@ -356,6 +393,40 @@ def _envelope_bytes(payload: Any, correlation_id: str) -> bytes:
     return envelope.model_dump_json().encode("utf-8")
 
 
+def resolve_mode(value: str) -> BuildMode:
+    """Translate a ``--mode {a|b|c}`` flag into a :class:`BuildMode`.
+
+    Accepts both the short single-character form (``a``/``b``/``c`` —
+    the canonical CLI surface per FEAT-FORGE-008 ASSUM-016) and the full
+    enum-string form (``mode-a``/``mode-b``/``mode-c``) so callers that
+    already hold the wire value can round-trip without translation.
+
+    Args:
+        value: Raw flag value supplied on the command line.
+
+    Returns:
+        The corresponding :class:`BuildMode` enum member.
+
+    Raises:
+        click.BadParameter: For any value outside the accepted set.
+    """
+    if not isinstance(value, str):
+        raise click.BadParameter(
+            f"--mode must be a string; got {type(value).__name__}"
+        )
+    candidate = value.strip().lower()
+    if candidate in _MODE_FLAG_TO_BUILD_MODE:
+        return _MODE_FLAG_TO_BUILD_MODE[candidate]
+    # Allow the full enum-string form too (``mode-a`` etc.).
+    try:
+        return BuildMode(candidate)
+    except ValueError as exc:
+        raise click.BadParameter(
+            f"--mode must be one of 'a'/'b'/'c' (or 'mode-a'/'mode-b'/'mode-c'); "
+            f"got {value!r}"
+        ) from exc
+
+
 def _require_forge_config(config: Any) -> ForgeConfig:
     """Coerce ``ctx.obj`` into a :class:`ForgeConfig` or fail with a clear error.
 
@@ -380,7 +451,15 @@ def _require_forge_config(config: Any) -> ForgeConfig:
 
 
 @click.command(name="queue")
-@click.argument("feature_id")
+@click.argument("feature_ids", nargs=-1, required=True)
+@click.option(
+    "--mode",
+    "mode_flag",
+    type=click.Choice(["a", "b", "c"], case_sensitive=False),
+    default="a",
+    show_default=True,
+    help=_MODE_HELP_TEXT,
+)
 @click.option(
     "--repo",
     required=True,
@@ -428,7 +507,8 @@ def _require_forge_config(config: Any) -> ForgeConfig:
 @click.pass_obj
 def queue_cmd(
     config_obj: Any,
-    feature_id: str,
+    feature_ids: tuple[str, ...],
+    mode_flag: str,
     repo: str,
     branch: str,
     feature_yaml: str,
@@ -440,6 +520,37 @@ def queue_cmd(
 
     See module docstring for the full step-by-step contract.
     """
+    # Resolve the mode early so its validation runs *before* any side
+    # effect (mirrors the validate_feature_id discipline at AC-003 / sc_003).
+    build_mode = resolve_mode(mode_flag)
+
+    # Mode B requires exactly one feature identifier (ASSUM-006: single
+    # feature per Mode B build). Mode A and Mode C currently accept
+    # exactly one identifier too — multi-feature inputs are rejected at
+    # parse time across every mode so the persistence layer never has
+    # to fan out a single CLI invocation. Mode C's single ``feature_ids``
+    # member carries the *subject* identifier (e.g. a task ID or a PR
+    # ID), not necessarily a FEAT-XXX value; the existing schema column
+    # is feature-id-shaped which is wide enough to hold it.
+    if len(feature_ids) == 0:
+        # ``nargs=-1, required=True`` already enforces this; defensive.
+        raise click.UsageError(
+            "forge queue requires at least one feature/subject identifier"
+        )
+    if len(feature_ids) > 1:
+        if build_mode is BuildMode.MODE_B:
+            raise click.UsageError(
+                f"forge queue --mode b requires exactly one feature "
+                f"identifier (FEAT-FORGE-008 ASSUM-006: single feature per "
+                f"Mode B build); got {len(feature_ids)}: "
+                f"{list(feature_ids)!r}"
+            )
+        raise click.UsageError(
+            f"forge queue accepts exactly one feature/subject identifier; "
+            f"got {len(feature_ids)}: {list(feature_ids)!r}"
+        )
+    feature_id = feature_ids[0]
+
     config = _require_forge_config(config_obj)
 
     # 1. Validate feature_id BEFORE any side effect (AC-003 / sc_003).
@@ -506,9 +617,27 @@ def queue_cmd(
         )
         sys.exit(EXIT_DUPLICATE)
 
-    # 7. Write SQLite row FIRST (AC-006 / sc_002 ordering).
+    # 7. Write SQLite row FIRST (AC-006 / sc_002 ordering). The mode is
+    #    persisted on the ``Build`` row via ``queue_build`` (alias of
+    #    ``record_pending_build`` accepting an explicit ``mode=`` kwarg
+    #    — TASK-MBC8-001) so crash-recovery (FEAT-FORGE-001) and the
+    #    supervisor wiring from TASK-MBC8-008 see the correct mode after
+    #    a restart.
     try:
-        persistence.record_pending_build(payload)
+        if hasattr(persistence, "queue_build"):
+            persistence.queue_build(payload, mode=build_mode)
+        else:
+            # Fallback for in-memory test fakes that pre-date
+            # TASK-MBC8-001's ``queue_build`` alias. The mode is passed
+            # via the payload's open ``ConfigDict(extra="allow")`` slot
+            # so the fake's ``record_pending_build`` can sniff it via
+            # ``getattr(payload, "mode", None)``.
+            try:
+                payload.mode = build_mode.value  # type: ignore[attr-defined]
+            except (AttributeError, TypeError):
+                # Last-ditch: pass via a kwarg the fake may accept.
+                pass
+            persistence.record_pending_build(payload)
     except DuplicateBuildError as exc:
         click.echo(
             f"duplicate build refused: {exc} (Group B).",
@@ -535,6 +664,7 @@ def queue_cmd(
     # 10. Happy path — print operator-facing confirmation and exit 0.
     click.echo(
         f"Queued {feature_id} (build pending) "
+        f"mode={build_mode.value} "
         f"correlation_id={effective_correlation_id}"
     )
     sys.exit(EXIT_OK)

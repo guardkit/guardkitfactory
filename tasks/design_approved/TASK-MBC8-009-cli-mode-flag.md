@@ -1,28 +1,28 @@
 ---
-id: TASK-MBC8-009
-title: Add forge queue --mode {a|b|c} CLI surface and mode-aware queue picker
-task_type: feature
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 5
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-008
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-009
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - cli
 - queue
 - mode-b
 - mode-c
 - feat-forge-008
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Add forge queue --mode {a|b|c} CLI surface and mode-aware queue picker
+updated: 2026-04-27 00:00:00+00:00
+wave: 5
 ---
 
 # Task: Add forge queue --mode {a|b|c} CLI surface and mode-aware queue picker

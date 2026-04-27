@@ -719,6 +719,52 @@ class SqliteLifecyclePersistence:
         return build_id
 
     # ------------------------------------------------------------------
+    # Read API — pick_next_pending (TASK-MBC8-009)
+    # ------------------------------------------------------------------
+
+    def pick_next_pending(
+        self, project: str | None = None
+    ) -> BuildRow | None:
+        """Return the oldest QUEUED build for ``project`` in FIFO order.
+
+        TASK-MBC8-009 / FEAT-FORGE-008 acceptance criterion: the queue
+        picker returns builds in their **original FIFO order regardless
+        of mode**. There is no mode-based priority — every queued build
+        is its own lifecycle (ASSUM-016) and a Mode A build queued at
+        ``T0`` is picked before a Mode B build queued at ``T1`` even
+        though the Mode B chain is shorter.
+
+        This method is the canonical spelling referenced by the
+        FEAT-FORGE-008 task brief; it composes
+        :class:`forge.lifecycle.queue.SqliteSequentialQueuePicker`
+        which already implements the correct ``ORDER BY queued_at ASC``
+        semantics. The wrapper exists so callers asking for "the queue
+        picker" via the persistence facade have one entrypoint instead
+        of having to import a sibling module.
+
+        The picker still respects sequential discipline (per-project
+        blocking states from :data:`BLOCKING_STATES`); it never returns
+        a row when an in-flight build for the same project is occupying
+        the slot. ``project=None`` is the fleet-wide scope and uses
+        ``IS NULL`` SQLite semantics — see
+        :class:`SqliteSequentialQueuePicker` for the full contract.
+
+        Args:
+            project: Project name (``None`` = fleet-wide scope).
+
+        Returns:
+            The oldest QUEUED :class:`BuildRow` for ``project``, or
+            ``None`` if the project is busy or has nothing queued.
+        """
+        # Local import to avoid a top-level circular import between
+        # ``persistence`` (which queue.py composes) and ``queue`` (which
+        # imports this module's facade).
+        from forge.lifecycle.queue import SqliteSequentialQueuePicker
+
+        picker = SqliteSequentialQueuePicker(self)
+        return picker.next_build_to_pick(project)
+
+    # ------------------------------------------------------------------
     # Write API — queue_build (TASK-MBC8-001)
     # ------------------------------------------------------------------
 
