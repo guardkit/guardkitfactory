@@ -144,14 +144,10 @@ def _row_to_status_view(row: sqlite3.Row) -> BuildStatusView:
         status=BuildState(row["status"]),
         queued_at=datetime.fromisoformat(row["queued_at"]),
         started_at=(
-            datetime.fromisoformat(row["started_at"])
-            if row["started_at"]
-            else None
+            datetime.fromisoformat(row["started_at"]) if row["started_at"] else None
         ),
         completed_at=(
-            datetime.fromisoformat(row["completed_at"])
-            if row["completed_at"]
-            else None
+            datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None
         ),
         pr_url=row["pr_url"],
         error=row["error"],
@@ -306,8 +302,7 @@ def _read_full_payload(
     try:
         views = _query_status_views(cx, feature_id)
         return [
-            (v, _query_recent_stages(cx, v.build_id, _FULL_STAGE_LIMIT))
-            for v in views
+            (v, _query_recent_stages(cx, v.build_id, _FULL_STAGE_LIMIT)) for v in views
         ]
     finally:
         cx.close()

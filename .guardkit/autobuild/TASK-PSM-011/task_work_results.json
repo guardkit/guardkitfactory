@@ -1,0 +1,192 @@
+{
+  "task_id": "TASK-PSM-011",
+  "timestamp": "2026-04-27T13:58:48.274980",
+  "completed": true,
+  "success": true,
+  "implementation_mode": "direct",
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": null,
+    "tests_passed": 0,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": true,
+    "quality_gates_relaxed": true,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".claude/task-plans/TASK-PSM-007-implementation-plan.md",
+    ".claude/task-plans/TASK-PSM-008-implementation-plan.md",
+    ".claude/task-plans/TASK-PSM-009-implementation-plan.md",
+    ".guardkit/autobuild/TASK-PSM-005/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-006/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-006/coach_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-006/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-006/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-006/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-006/turn_state_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-007/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-008/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-009/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-010/coach_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-010/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-010/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-010/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-010/turn_state_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-011/turn_context.json",
+    ".guardkit/bootstrap_state.json",
+    "src/forge/cli/__init__.py",
+    "src/forge/cli/history.py",
+    "src/forge/cli/main.py",
+    "src/forge/cli/status.py",
+    "src/forge/lifecycle/persistence.py",
+    "src/forge/lifecycle/queue.py",
+    "src/forge/lifecycle/recovery.py",
+    "src/forge/pipeline/cli_steering.py",
+    "tasks/design_approved/TASK-PSM-007-crash-recovery-reconciliation.md",
+    "tasks/design_approved/TASK-PSM-008-cli-scaffold-and-forge-queue.md",
+    "tasks/design_approved/TASK-PSM-009-forge-status-command.md",
+    "tests/forge/test_cli_history.py",
+    "tests/forge/test_cli_main.py",
+    "tests/forge/test_cli_status.py",
+    "tests/forge/test_lifecycle_queue.py",
+    "tests/forge/test_lifecycle_recovery.py"
+  ],
+  "files_created": [
+    ".guardkit/autobuild/TASK-PSM-007/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-PSM-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-007/specialist_results.json",
+    ".guardkit/autobuild/TASK-PSM-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-009/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-PSM-009/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-009/specialist_results.json",
+    ".guardkit/autobuild/TASK-PSM-009/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-010/checkpoints.json",
+    ".guardkit/bdd/TASK-PSM-007_junit.xml",
+    ".guardkit/bdd/TASK-PSM-009_junit.xml",
+    "src/forge/cli/cancel.py",
+    "src/forge/cli/runtime.py",
+    "src/forge/cli/skip.py",
+    "tests/forge/test_cli_cancel_skip.py"
+  ],
+  "tests_written": [
+    "tests/forge/test_cli_cancel_skip.py",
+    "tests/forge/test_cli_history.py",
+    "tests/forge/test_cli_main.py",
+    "tests/forge/test_cli_status.py",
+    "tests/forge/test_lifecycle_queue.py",
+    "tests/forge/test_lifecycle_recovery.py"
+  ],
+  "requirements_addressed": [
+    "`cli/cancel.py` exports `cancel_cmd` (Click command)",
+    "`cli/skip.py` exports `skip_cmd` (Click command)",
+    "Both register with `cli/main.py`",
+    "`forge cancel` resolves feature_id \u2192 build_id via",
+    "`forge skip` exits non-zero with REFUSED message when handler",
+    "Both pass `responder=os.getlogin()` to the handler \u2014 Group E",
+    "Both wrappers are < 60 lines each (this task is intentionally thin",
+    "BDD scenarios for Group C (cancel-unknown, skip-non-paused) and",
+    "All modified files pass project-configured lint/format checks with"
+  ],
+  "requirements_met": [
+    "`cli/cancel.py` exports `cancel_cmd` (Click command)",
+    "`cli/skip.py` exports `skip_cmd` (Click command)",
+    "Both register with `cli/main.py`",
+    "`forge cancel` resolves feature_id \u2192 build_id via",
+    "`forge skip` exits non-zero with REFUSED message when handler",
+    "Both pass `responder=os.getlogin()` to the handler \u2014 Group E",
+    "Both wrappers are < 60 lines each (this task is intentionally thin",
+    "BDD scenarios for Group C (cancel-unknown, skip-non-paused) and",
+    "All modified files pass project-configured lint/format checks with"
+  ],
+  "summary": "Direct mode implementation completed successfully",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`cli/cancel.py` exports `cancel_cmd` (Click command)",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Patterns found: def:cancel_cmd; Keywords matched: exports, cancel_cmd, cancel, click, command",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": [
+        "src/forge/cli/cancel.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`cli/skip.py` exports `skip_cmd` (Click command)",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Patterns found: def:skip_cmd; Keywords matched: exports, skip, click, command, skip_cmd",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": [
+        "src/forge/cli/skip.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Both register with `cli/main.py`",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Patterns found: def:main, def:main; Keywords matched: register, main",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": [
+        "src/forge/cli/main.py",
+        "tasks/design_approved/TASK-PSM-008-cli-scaffold-and-forge-queue.md"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`forge cancel` resolves feature_id \u2192 build_id via",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Patterns found: class:Build; Keywords matched: forge, resolves, cancel, feature_id, build_id",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`forge skip` exits non-zero with REFUSED message when handler",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Keywords matched: forge, skip, handler, message, exits",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": []
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Both pass `responder=os.getlogin()` to the handler \u2014 Group E",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Keywords matched: getlogin, group, handler, responder, pass",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": []
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Both wrappers are < 60 lines each (this task is intentionally thin",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Keywords matched: lines, thin, wrappers, task",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": []
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "BDD scenarios for Group C (cancel-unknown, skip-non-paused) and",
+      "status": "partial",
+      "evidence": "Code-pattern analysis: Keywords matched: group, cancel, skip, paused, unknown",
+      "evidence_type": "code_pattern",
+      "confidence": 0.6,
+      "contributing_files": []
+    }
+  ],
+  "_synthetic": true
+}

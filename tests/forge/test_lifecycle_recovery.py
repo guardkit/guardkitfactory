@@ -54,7 +54,6 @@ from forge.lifecycle.state_machine import (
     transition as compose_transition,
 )
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -233,9 +232,7 @@ def _read_error(persistence: SqliteLifecyclePersistence, build_id: str) -> str |
 class TestPerStateRecoveryMatrix:
     """AC-001 / AC-005 / AC-010 — exercise every row of API-sqlite-schema.md §6."""
 
-    def test_queued_is_no_op(
-        self, persistence: SqliteLifecyclePersistence
-    ) -> None:
+    def test_queued_is_no_op(self, persistence: SqliteLifecyclePersistence) -> None:
         build_id = _seed_build_in_state(
             persistence,
             feature_id="FEAT-Q-001",
@@ -245,9 +242,7 @@ class TestPerStateRecoveryMatrix:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         assert _read_status(persistence, build_id) == "QUEUED"
         assert publisher.published_failed == []
@@ -267,9 +262,7 @@ class TestPerStateRecoveryMatrix:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         assert _read_status(persistence, build_id) == "INTERRUPTED"
         assert len(publisher.published_failed) == 1
@@ -291,18 +284,14 @@ class TestPerStateRecoveryMatrix:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         assert _read_status(persistence, build_id) == "INTERRUPTED"
         # RUNNING does not emit build-failed — re-pickup is via NACK.
         assert publisher.published_failed == []
         assert report.interrupted_count == 1
 
-    def test_terminal_no_op(
-        self, persistence: SqliteLifecyclePersistence
-    ) -> None:
+    def test_terminal_no_op(self, persistence: SqliteLifecyclePersistence) -> None:
         # Seed a COMPLETE build so the terminal-filter is exercised.
         payload = _make_payload(feature_id="FEAT-T-001", correlation_id="corr-t")
         build_id = persistence.record_pending_build(payload)
@@ -317,17 +306,17 @@ class TestPerStateRecoveryMatrix:
                 compose_transition(
                     Build(build_id=build_id, status=from_state),
                     to_state,
-                    pr_url="https://github.com/x/y/pull/1"
-                    if to_state is BuildState.COMPLETE
-                    else None,
+                    pr_url=(
+                        "https://github.com/x/y/pull/1"
+                        if to_state is BuildState.COMPLETE
+                        else None
+                    ),
                 )
             )
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         # Terminal builds are filtered out before the per-state matrix runs.
         assert _read_status(persistence, build_id) == "COMPLETE"
@@ -349,9 +338,7 @@ class TestPerStateRecoveryMatrix:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         assert _read_status(persistence, build_id) == "INTERRUPTED"
         assert publisher.published_failed == []
@@ -381,9 +368,7 @@ class TestPausedRequestIdVerbatim:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         # State stays PAUSED — re-publish is a wire action, not a transition.
         assert _read_status(persistence, build_id) == "PAUSED"
@@ -431,9 +416,7 @@ class TestPausedRequestIdVerbatim:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         # The handler raises — the failure is recorded, not propagated.
         assert report.paused_reissued_count == 0
@@ -512,9 +495,7 @@ class TestFinalisingWarning:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         assert _read_status(persistence, build_id) == "INTERRUPTED"
         err = _read_error(persistence, build_id)
@@ -541,15 +522,12 @@ class TestFinalisingWarning:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         err = _read_error(persistence, build_id)
         assert err == "finalising-interrupted: PR creation status unknown"
         assert any(
-            "PR creation status unknown" in w
-            for w in report.finalising_warnings
+            "PR creation status unknown" in w for w in report.finalising_warnings
         )
 
 
@@ -611,9 +589,7 @@ class TestIdempotency:
         }
 
         # Second run.
-        report2 = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report2 = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         # Statuses are unchanged (the AC's "no additional state changes").
         for seed, build_id in seeded.items():
@@ -657,9 +633,7 @@ class TestFailureIsolation:
         publisher = _FailingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         # PREPARING handler raised on the publish step — but the SQL
         # transition committed first, so the row is INTERRUPTED.
@@ -725,9 +699,7 @@ class TestRecoveryReport:
         publisher = _RecordingPipelinePublisher()
         approval = _RecordingApprovalPublisher()
 
-        report = asyncio.run(
-            reconcile_on_boot(persistence, publisher, approval)
-        )
+        report = asyncio.run(reconcile_on_boot(persistence, publisher, approval))
 
         # RUNNING + FINALISING become INTERRUPTED → 2.
         assert report.interrupted_count == 2

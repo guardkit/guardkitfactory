@@ -180,7 +180,9 @@ class PipelineFailurePublisher(Protocol):
     the unit test surface free of NATS plumbing.
     """
 
-    async def publish_build_failed(self, payload: Any) -> None:  # pragma: no cover - protocol stub
+    async def publish_build_failed(
+        self, payload: Any
+    ) -> None:  # pragma: no cover - protocol stub
         """Publish ``pipeline.build-failed.{feature_id}`` for ``payload``."""
         ...
 
@@ -197,7 +199,9 @@ class ApprovalRepublisher(Protocol):
     is the **verbatim** ``builds.pending_approval_request_id`` (sc_004).
     """
 
-    async def publish_request(self, envelope: Any) -> None:  # pragma: no cover - protocol stub
+    async def publish_request(
+        self, envelope: Any
+    ) -> None:  # pragma: no cover - protocol stub
         """Publish the approval request carried by ``envelope``."""
         ...
 

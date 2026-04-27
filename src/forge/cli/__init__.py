@@ -10,9 +10,13 @@ from ``forge.adapters.nats.*``. Those modules are added by TASK-PSM-009 /
 TASK-PSM-010; the present scaffold (TASK-PSM-008) intentionally only ships
 the ``main`` group entry point and the write-path ``queue`` subcommand.
 
-The package is deliberately *thin*: nothing is re-exported here so that
+The package is deliberately *thin*: only the read-side ``history_cmd`` is
+re-exported here for backward compatibility with TASK-PSM-010 callers.
 ``forge.cli.main:main`` (the entry point referenced by ``pyproject.toml``)
-can be imported without dragging in optional NATS dependencies at import
-time. Tests assert on this import discipline.
+can still be imported without dragging in optional NATS dependencies at
+import time. Tests assert on this import discipline.
 """
 
+from forge.cli.history import history_cmd
+
+__all__ = ["history_cmd"]

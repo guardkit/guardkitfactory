@@ -48,7 +48,6 @@ from forge.cli.status import (
 )
 from forge.lifecycle import migrations
 from forge.lifecycle.persistence import (
-    ACTIVE_STATES,
     BuildStatusView,
     SqliteLifecyclePersistence,
     StageLogEntry,
@@ -56,7 +55,6 @@ from forge.lifecycle.persistence import (
 from forge.lifecycle.state_machine import BuildState
 from forge.lifecycle.state_machine import transition as compose_transition
 from forge.lifecycle.persistence import Build
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -240,8 +238,7 @@ class TestNoNatsImports:
             value = getattr(status_mod, name, None)
             module_name = getattr(value, "__module__", "") or ""
             assert not module_name.startswith("forge.adapters.nats"), (
-                f"forge.cli.status pulled in nats module via {name}: "
-                f"{module_name}"
+                f"forge.cli.status pulled in nats module via {name}: " f"{module_name}"
             )
 
 
@@ -287,9 +284,7 @@ class TestDefaultView:
         views = _read_status_views(db_path, feature_id=None)
         assert len(views) == 2 + _RECENT_TERMINAL_LIMIT
         # Sorted newest-first.
-        assert views == sorted(
-            views, key=lambda v: v.queued_at, reverse=True
-        )
+        assert views == sorted(views, key=lambda v: v.queued_at, reverse=True)
 
     def test_default_view_renders_table(
         self,
@@ -372,9 +367,7 @@ class TestFeatureFilter:
             queued_at=base,
         )
         runner = CliRunner()
-        result = runner.invoke(
-            status_cmd, ["FEAT-Q", "--db-path", str(db_path)]
-        )
+        result = runner.invoke(status_cmd, ["FEAT-Q", "--db-path", str(db_path)])
         assert result.exit_code == 0, result.output
         assert "FEAT-Q" in result.output
         assert "FEAT-Z" not in result.output
@@ -402,9 +395,7 @@ class TestJsonOutput:
             queued_at=base,
         )
         runner = CliRunner()
-        result = runner.invoke(
-            status_cmd, ["--json", "--db-path", str(db_path)]
-        )
+        result = runner.invoke(status_cmd, ["--json", "--db-path", str(db_path)])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
         assert isinstance(payload, list)
@@ -420,9 +411,7 @@ class TestJsonOutput:
         db_path: Path,
     ) -> None:
         runner = CliRunner()
-        result = runner.invoke(
-            status_cmd, ["--json", "--db-path", str(db_path)]
-        )
+        result = runner.invoke(status_cmd, ["--json", "--db-path", str(db_path)])
         assert result.exit_code == 0, result.output
         payload = json.loads(result.output)
         assert payload == []
@@ -450,9 +439,7 @@ class TestFullView:
             queued_at=base,
         )
         # 8 stages — only the last 5 must appear.
-        _seed_stage_log(
-            persistence, build_id=build_id, count=8, base_time=base
-        )
+        _seed_stage_log(persistence, build_id=build_id, count=8, base_time=base)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -467,9 +454,7 @@ class TestFullView:
         assert len(stages) == _FULL_STAGE_LIMIT
         # Should be the LAST 5 stages (indices 3..7).
         labels = [s["stage_label"] for s in stages]
-        assert labels == [
-            f"stage-{i:02d}" for i in range(8 - _FULL_STAGE_LIMIT, 8)
-        ]
+        assert labels == [f"stage-{i:02d}" for i in range(8 - _FULL_STAGE_LIMIT, 8)]
 
     def test_full_view_with_fewer_than_five_stages(
         self,
@@ -484,9 +469,7 @@ class TestFullView:
             target_state=BuildState.RUNNING,
             queued_at=base,
         )
-        _seed_stage_log(
-            persistence, build_id=build_id, count=2, base_time=base
-        )
+        _seed_stage_log(persistence, build_id=build_id, count=2, base_time=base)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -594,9 +577,7 @@ class TestNatsUnreachable:
         class _ForbiddenFinder:
             def find_module(self, name: str, path: Any = None) -> Any:
                 if name.startswith("forge.adapters.nats"):
-                    raise ImportError(
-                        f"NATS adapters are unreachable: {name}"
-                    )
+                    raise ImportError(f"NATS adapters are unreachable: {name}")
                 return None
 
         monkeypatch.setattr(sys, "meta_path", [_ForbiddenFinder()] + sys.meta_path)
@@ -615,9 +596,7 @@ class TestNatsUnreachable:
         import forge.cli.status as reimport
 
         runner = CliRunner()
-        result = runner.invoke(
-            reimport.status_cmd, ["--db-path", str(db_path)]
-        )
+        result = runner.invoke(reimport.status_cmd, ["--db-path", str(db_path)])
         assert result.exit_code == 0, result.output
         assert "FEAT-NATS-DOWN" in result.output
 
@@ -685,6 +664,6 @@ class TestStatusCommandShape:
         result = runner.invoke(status_cmd, ["--help"])
         assert result.exit_code == 0
         for flag in ("--watch", "--full", "--json"):
-            assert flag in result.output, (
-                f"--help output missing {flag}: {result.output!r}"
-            )
+            assert (
+                flag in result.output
+            ), f"--help output missing {flag}: {result.output!r}"
