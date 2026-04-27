@@ -2,21 +2,46 @@
 id: TASK-MAG7-002
 title: Define forward-propagation contract map
 task_type: declarative
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 1
 implementation_mode: direct
 complexity: 2
 dependencies: []
-tags: [forward-propagation, declarative, context-flags, feat-forge-007]
+tags:
+- forward-propagation
+- declarative
+- context-flags
+- feat-forge-007
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T18:34:29.575232'
+  last_updated: '2026-04-26T18:40:20.100084'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T18:34:29.575232'
+    player_summary: "Implemented forge.pipeline.forward_propagation as a side-effect-free\
+      \ declarative module. Defines a frozen Pydantic ContextRecipe(BaseModel) with\
+      \ the four required fields (producer_stage: StageClass, artefact_kind: Literal['text','path','path-list'],\
+      \ context_flag: str, description: str) and PROPAGATION_CONTRACT: dict[StageClass,\
+      \ ContextRecipe] with exactly seven entries \u2014 one for each non-product-owner\
+      \ stage \u2014 matching the task brief verbatim (ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN,\
+      \ FEATURE_SPEC, "
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Define forward-propagation contract map

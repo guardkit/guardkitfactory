@@ -2,21 +2,44 @@
 id: TASK-MAG7-013
 title: Crash-recovery integration tests across all seven non-terminal stages
 task_type: testing
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 5
 implementation_mode: task-work
 complexity: 6
-dependencies: [TASK-MAG7-010, TASK-MAG7-011]
-tags: [testing, crash-recovery, durable-history, integration, feat-forge-007]
+dependencies:
+- TASK-MAG7-010
+- TASK-MAG7-011
+tags:
+- testing
+- crash-recovery
+- durable-history
+- integration
+- feat-forge-007
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T19:42:54.851441'
+  last_updated: '2026-04-26T19:57:01.631187'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T19:42:54.851441'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Crash-recovery integration tests across all seven non-terminal stages

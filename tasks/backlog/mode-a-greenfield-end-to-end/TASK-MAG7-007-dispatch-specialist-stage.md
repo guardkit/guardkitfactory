@@ -2,27 +2,50 @@
 id: TASK-MAG7-007
 title: Wire dispatch_specialist_stage for product-owner and architect
 task_type: feature
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 3
 implementation_mode: task-work
 complexity: 4
-dependencies: [TASK-MAG7-001, TASK-MAG7-006]
-tags: [dispatcher, specialist, feat-forge-003, feat-forge-007]
+dependencies:
+- TASK-MAG7-001
+- TASK-MAG7-006
+tags:
+- dispatcher
+- specialist
+- feat-forge-003
+- feat-forge-007
 consumer_context:
-  - task: TASK-MAG7-006
-    consumes: forward_context
-    framework: "Python forge.pipeline.forward_context_builder"
-    driver: "Internal call"
-    format_note: "Receives list[ContextEntry] from ForwardContextBuilder.build_for() and threads into specialist dispatch payload"
+- task: TASK-MAG7-006
+  consumes: forward_context
+  framework: Python forge.pipeline.forward_context_builder
+  driver: Internal call
+  format_note: Receives list[ContextEntry] from ForwardContextBuilder.build_for()
+    and threads into specialist dispatch payload
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T19:00:26.626158'
+  last_updated: '2026-04-26T19:13:50.553297'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T19:00:26.626158'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Wire dispatch_specialist_stage for product-owner and architect

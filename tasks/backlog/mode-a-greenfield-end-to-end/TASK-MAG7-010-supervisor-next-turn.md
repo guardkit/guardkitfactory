@@ -2,37 +2,64 @@
 id: TASK-MAG7-010
 title: Wire Supervisor.next_turn dispatch loop
 task_type: feature
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 4
 implementation_mode: task-work
 complexity: 7
-dependencies: [TASK-MAG7-003, TASK-MAG7-004, TASK-MAG7-005, TASK-MAG7-007, TASK-MAG7-008, TASK-MAG7-009]
-tags: [supervisor, reasoning-loop, langgraph, feat-forge-007]
+dependencies:
+- TASK-MAG7-003
+- TASK-MAG7-004
+- TASK-MAG7-005
+- TASK-MAG7-007
+- TASK-MAG7-008
+- TASK-MAG7-009
+tags:
+- supervisor
+- reasoning-loop
+- langgraph
+- feat-forge-007
 consumer_context:
-  - task: TASK-MAG7-003
-    consumes: stage_ordering_decision
-    framework: "Python forge.pipeline.stage_ordering_guard"
-    driver: "StageOrderingGuard"
-    format_note: "Calls next_dispatchable() to get permitted set; refuses to act outside the set"
-  - task: TASK-MAG7-004
-    consumes: constitutional_decision
-    framework: "Python forge.pipeline.constitutional_guard"
-    driver: "ConstitutionalGuard"
-    format_note: "Calls veto_auto_approve / veto_skip on PR-review stage"
-  - task: TASK-MAG7-005
-    consumes: per_feature_sequencing_decision
-    framework: "Python forge.pipeline.per_feature_sequencer"
-    driver: "PerFeatureLoopSequencer"
-    format_note: "Calls may_start_autobuild before dispatching second feature's autobuild"
+- task: TASK-MAG7-003
+  consumes: stage_ordering_decision
+  framework: Python forge.pipeline.stage_ordering_guard
+  driver: StageOrderingGuard
+  format_note: Calls next_dispatchable() to get permitted set; refuses to act outside
+    the set
+- task: TASK-MAG7-004
+  consumes: constitutional_decision
+  framework: Python forge.pipeline.constitutional_guard
+  driver: ConstitutionalGuard
+  format_note: Calls veto_auto_approve / veto_skip on PR-review stage
+- task: TASK-MAG7-005
+  consumes: per_feature_sequencing_decision
+  framework: Python forge.pipeline.per_feature_sequencer
+  driver: PerFeatureLoopSequencer
+  format_note: Calls may_start_autobuild before dispatching second feature's autobuild
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T19:15:17.712403'
+  last_updated: '2026-04-26T19:29:42.122093'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T19:15:17.712403'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Wire Supervisor.next_turn dispatch loop

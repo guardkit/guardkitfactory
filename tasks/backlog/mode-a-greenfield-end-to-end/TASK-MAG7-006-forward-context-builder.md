@@ -2,27 +2,50 @@
 id: TASK-MAG7-006
 title: Implement ForwardContextBuilder
 task_type: feature
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 3
 implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-MAG7-001, TASK-MAG7-002, TASK-MAG7-003]
-tags: [context-builder, forward-propagation, feat-forge-007]
+dependencies:
+- TASK-MAG7-001
+- TASK-MAG7-002
+- TASK-MAG7-003
+tags:
+- context-builder
+- forward-propagation
+- feat-forge-007
 consumer_context:
-  - task: TASK-MAG7-002
-    consumes: forward_propagation_map
-    framework: "Python forge.pipeline.forward_propagation"
-    driver: "Pydantic ContextRecipe"
-    format_note: "Reads PROPAGATION_CONTRACT to know which stage_log artefact_path values to thread into --context flags for each stage"
+- task: TASK-MAG7-002
+  consumes: forward_propagation_map
+  framework: Python forge.pipeline.forward_propagation
+  driver: Pydantic ContextRecipe
+  format_note: Reads PROPAGATION_CONTRACT to know which stage_log artefact_path values
+    to thread into --context flags for each stage
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T18:50:36.051497'
+  last_updated: '2026-04-26T19:00:24.322143'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T18:50:36.051497'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Implement ForwardContextBuilder

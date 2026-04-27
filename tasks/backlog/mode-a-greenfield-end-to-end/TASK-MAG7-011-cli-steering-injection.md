@@ -2,32 +2,58 @@
 id: TASK-MAG7-011
 title: Wire CLI steering injection (cancel, skip, mid-flight directive)
 task_type: feature
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 4
 implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-MAG7-004, TASK-MAG7-009, TASK-MAG7-010]
-tags: [cli, steering, cancel, skip, directives, feat-forge-007]
+dependencies:
+- TASK-MAG7-004
+- TASK-MAG7-009
+- TASK-MAG7-010
+tags:
+- cli
+- steering
+- cancel
+- skip
+- directives
+- feat-forge-007
 consumer_context:
-  - task: TASK-MAG7-004
-    consumes: constitutional_decision
-    framework: "Python forge.pipeline.constitutional_guard"
-    driver: "ConstitutionalGuard"
-    format_note: "Calls veto_skip to refuse skip directive on PR-review stage"
-  - task: TASK-MAG7-009
-    consumes: autobuild_async_task_id
-    framework: "Python deepagents middleware"
-    driver: "update_async_task / cancel_async_task"
-    format_note: "Uses task_id from dispatch_autobuild_async to inject directives or cancel running autobuild"
+- task: TASK-MAG7-004
+  consumes: constitutional_decision
+  framework: Python forge.pipeline.constitutional_guard
+  driver: ConstitutionalGuard
+  format_note: Calls veto_skip to refuse skip directive on PR-review stage
+- task: TASK-MAG7-009
+  consumes: autobuild_async_task_id
+  framework: Python deepagents middleware
+  driver: update_async_task / cancel_async_task
+  format_note: Uses task_id from dispatch_autobuild_async to inject directives or
+    cancel running autobuild
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T19:29:44.096202'
+  last_updated: '2026-04-26T19:42:52.600441'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T19:29:44.096202'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Wire CLI steering injection

@@ -7,7 +7,7 @@ description: 'Capstone composition feature: drives a one-line product brief thro
   belt-and-braces PR review, crash-recovery via durable history, CLI steering, pause
   isolation, and idempotent first-wins approval handling.'
 created: '2026-04-25T16:02:32.486906'
-status: planned
+status: completed
 complexity: 7
 estimated_tasks: 14
 tasks:
@@ -16,49 +16,89 @@ tasks:
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-001-define-stage-taxonomy.md
   complexity: 2
   dependencies: []
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: direct
   estimated_minutes: 22
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T18:34:29.551087'
+  completed_at: '2026-04-26T18:40:20.103047'
 - id: TASK-MAG7-002
   name: Define forward-propagation contract map
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-002-define-forward-propagation-map.md
   complexity: 2
   dependencies: []
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: direct
   estimated_minutes: 22
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T18:34:29.558057'
+  completed_at: '2026-04-26T18:40:20.107052'
 - id: TASK-MAG7-003
   name: Implement StageOrderingGuard
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-003-stage-ordering-guard.md
   complexity: 5
   dependencies:
   - TASK-MAG7-001
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T18:40:21.937276'
+  completed_at: '2026-04-26T18:50:33.803245'
 - id: TASK-MAG7-004
   name: Implement ConstitutionalGuard for PR-review
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-004-constitutional-guard.md
   complexity: 4
   dependencies:
   - TASK-MAG7-001
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T18:40:21.940938'
+  completed_at: '2026-04-26T18:50:33.811280'
 - id: TASK-MAG7-005
   name: Implement PerFeatureLoopSequencer
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-005-per-feature-loop-sequencer.md
   complexity: 4
   dependencies:
   - TASK-MAG7-001
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T18:40:21.944473'
+  completed_at: '2026-04-26T18:50:33.819047'
 - id: TASK-MAG7-006
   name: Implement ForwardContextBuilder
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-006-forward-context-builder.md
@@ -67,10 +107,18 @@ tasks:
   - TASK-MAG7-001
   - TASK-MAG7-002
   - TASK-MAG7-003
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T18:50:36.044169'
+  completed_at: '2026-04-26T19:00:24.324866'
 - id: TASK-MAG7-007
   name: Wire dispatch_specialist_stage
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-007-dispatch-specialist-stage.md
@@ -78,10 +126,18 @@ tasks:
   dependencies:
   - TASK-MAG7-001
   - TASK-MAG7-006
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:00:26.596558'
+  completed_at: '2026-04-26T19:15:15.723756'
 - id: TASK-MAG7-008
   name: Wire dispatch_subprocess_stage
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-008-dispatch-subprocess-stage.md
@@ -89,10 +145,18 @@ tasks:
   dependencies:
   - TASK-MAG7-001
   - TASK-MAG7-006
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:00:26.604165'
+  completed_at: '2026-04-26T19:15:15.732206'
 - id: TASK-MAG7-009
   name: Wire dispatch_autobuild_async
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-009-dispatch-autobuild-async.md
@@ -100,10 +164,18 @@ tasks:
   dependencies:
   - TASK-MAG7-001
   - TASK-MAG7-006
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:00:26.611897'
+  completed_at: '2026-04-26T19:15:15.740189'
 - id: TASK-MAG7-010
   name: Wire Supervisor.next_turn dispatch loop
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-010-supervisor-next-turn.md
@@ -115,10 +187,18 @@ tasks:
   - TASK-MAG7-007
   - TASK-MAG7-008
   - TASK-MAG7-009
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 170
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:15:17.704392'
+  completed_at: '2026-04-26T19:29:42.124234'
 - id: TASK-MAG7-011
   name: Wire CLI steering injection
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-011-cli-steering-injection.md
@@ -127,10 +207,18 @@ tasks:
   - TASK-MAG7-004
   - TASK-MAG7-009
   - TASK-MAG7-010
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:29:44.081555'
+  completed_at: '2026-04-26T19:42:52.602462'
 - id: TASK-MAG7-012
   name: Smoke greenfield E2E to PR-awaiting-review
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-012-smoke-greenfield-e2e.md
@@ -138,10 +226,18 @@ tasks:
   dependencies:
   - TASK-MAG7-010
   - TASK-MAG7-011
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:42:54.811060'
+  completed_at: '2026-04-26T19:57:46.827142'
 - id: TASK-MAG7-013
   name: Crash-recovery integration tests
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-013-crash-recovery-integration.md
@@ -149,10 +245,18 @@ tasks:
   dependencies:
   - TASK-MAG7-010
   - TASK-MAG7-011
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:42:54.819429'
+  completed_at: '2026-04-26T19:57:46.835793'
 - id: TASK-MAG7-014
   name: Concurrency and multi-feature integration tests
   file_path: tasks/backlog/mode-a-greenfield-end-to-end/TASK-MAG7-014-concurrency-multifeature-integration.md
@@ -160,10 +264,18 @@ tasks:
   dependencies:
   - TASK-MAG7-010
   - TASK-MAG7-011
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 170
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-26T19:42:54.827615'
+  completed_at: '2026-04-26T19:57:46.844375'
 orchestration:
   parallel_groups:
   - - TASK-MAG7-001
@@ -182,3 +294,22 @@ orchestration:
     - TASK-MAG7-014
   estimated_duration_minutes: 1135
   recommended_parallel: 3
+execution:
+  started_at: '2026-04-26T18:34:29.525411'
+  completed_at: '2026-04-26T19:57:46.858773'
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  total_turns: 14
+  tasks_completed: 14
+  tasks_failed: 0
+  current_wave: 7
+  completed_waves:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  last_updated: '2026-04-26T19:57:46.853344'
+  archived_at: null
+  archived_to: null

@@ -2,21 +2,46 @@
 id: TASK-MAG7-001
 title: Define StageClass enum and stage prerequisite map
 task_type: declarative
-status: backlog
+status: in_review
 priority: high
-created: 2026-04-25T00:00:00Z
-updated: 2026-04-25T00:00:00Z
+created: 2026-04-25 00:00:00+00:00
+updated: 2026-04-25 00:00:00+00:00
 parent_review: TASK-REV-MAG7
 feature_id: FEAT-FORGE-007
 wave: 1
 implementation_mode: direct
 complexity: 2
 dependencies: []
-tags: [taxonomy, declarative, stage-ordering, feat-forge-007]
+tags:
+- taxonomy
+- declarative
+- stage-ordering
+- feat-forge-007
 test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE
+  base_branch: main
+  started_at: '2026-04-26T18:34:29.575475'
+  last_updated: '2026-04-26T18:39:22.809372'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-26T18:34:29.575475'
+    player_summary: "Converted the existing top-level src/forge/pipeline.py module\
+      \ into a package by moving its contents to src/forge/pipeline/__init__.py \u2014\
+      \ this preserves all `from forge.pipeline import ...` callers (BuildContext,\
+      \ FakeClock, PipelineLifecycleEmitter, State, attach_correlation_id) verified\
+      \ across tests/forge/test_pipeline_lifecycle.py and tests/forge/test_contract_and_seam.py.\
+      \ Then added the new declarative submodule src/forge/pipeline/stage_taxonomy.py\
+      \ exporting StageClass(StrEnum) with the eight M"
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Define StageClass enum and stage prerequisite map
