@@ -140,7 +140,7 @@ class FakeHandler:
             ),
             guard_decision=SkipDecision(
                 stage=stage,
-                verdict=SkipVerdict.PERMITTED,
+                verdict=SkipVerdict.ALLOWED,
                 rationale="permitted",
             ),
         )

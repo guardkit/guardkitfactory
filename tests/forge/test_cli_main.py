@@ -24,7 +24,7 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from forge.cli import main as cli_main
+from forge.cli import queue as cli_queue
 from forge.lifecycle.persistence import DuplicateBuildError
 
 
@@ -127,7 +127,7 @@ class _FakePersistence:
 @pytest.fixture
 def fake_persistence(monkeypatch: pytest.MonkeyPatch) -> _FakePersistence:
     fake = _FakePersistence()
-    monkeypatch.setattr(cli_main, "make_persistence", lambda config: fake)
+    monkeypatch.setattr(cli_queue, "make_persistence", lambda config: fake)
     return fake
 
 
@@ -145,7 +145,7 @@ def captured_publish(
         # publish happened *after* ``record_pending_build``.
         fake_persistence.calls.append(("publish", subject))
 
-    monkeypatch.setattr(cli_main, "publish", _capture)
+    monkeypatch.setattr(cli_queue, "publish", _capture)
     return captured
 
 
@@ -430,9 +430,9 @@ class TestPublishFailureLeavesRowIntact:
         from forge.cli.main import main
 
         def _exploding_publish(subject: str, body: bytes) -> None:
-            raise cli_main.PublishError("connection refused")
+            raise cli_queue.PublishError("connection refused")
 
-        monkeypatch.setattr(cli_main, "publish", _exploding_publish)
+        monkeypatch.setattr(cli_queue, "publish", _exploding_publish)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -481,7 +481,7 @@ class TestDuplicateBuildExitsThree:
         # Substitute a persistence facade that raises DuplicateBuildError
         # on record_pending_build.
         dup = _FakePersistence(raise_duplicate=True)
-        monkeypatch.setattr(cli_main, "make_persistence", lambda config: dup)
+        monkeypatch.setattr(cli_queue, "make_persistence", lambda config: dup)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -516,7 +516,7 @@ class TestDuplicateBuildExitsThree:
         from forge.cli.main import main
 
         active = _FakePersistence(active=True)
-        monkeypatch.setattr(cli_main, "make_persistence", lambda config: active)
+        monkeypatch.setattr(cli_queue, "make_persistence", lambda config: active)
 
         runner = CliRunner()
         result = runner.invoke(
@@ -633,21 +633,31 @@ class TestSourceShape:
 
         module = importlib.import_module("forge.cli.main")
         assert hasattr(module, "main")
+
+    def test_queue_module_exposes_required_seams(self) -> None:
+        # The queue subcommand module exposes the test seams used by the
+        # AutoBuild test suite — ``make_persistence``, ``publish``, and
+        # the domain ``PublishError``. Loss of any of these names is a
+        # test-discipline regression.
+        import importlib
+
+        module = importlib.import_module("forge.cli.queue")
+        assert hasattr(module, "queue_cmd")
         assert hasattr(module, "make_persistence")
         assert hasattr(module, "publish")
         assert hasattr(module, "PublishError")
 
-    def test_main_module_does_not_import_nats_adapter_at_top_level(self) -> None:
-        # The CLI may *call into* a NATS publisher seam, but importing the
-        # module must not eagerly pull in ``forge.adapters.nats.*`` — that
-        # keeps the CLI fast to start and avoids importing optional NATS
-        # client dependencies for read-only operations.
+    def test_queue_module_does_not_import_nats_adapter_at_top_level(self) -> None:
+        # The CLI may *call into* a NATS publisher seam, but importing
+        # the module must not eagerly pull in ``forge.adapters.nats.*``
+        # — keeps the CLI fast to start and avoids importing optional
+        # NATS client dependencies for read-only operations.
         cli_pkg = (
             Path(__file__).resolve().parent.parent.parent
             / "src"
             / "forge"
             / "cli"
-            / "main.py"
+            / "queue.py"
         )
         source = cli_pkg.read_text(encoding="utf-8")
         # ``import forge.adapters.nats`` or ``from forge.adapters.nats``
