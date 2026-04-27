@@ -123,10 +123,22 @@ class TestPropagationContractContents:
         assert StageClass.PRODUCT_OWNER not in PROPAGATION_CONTRACT
 
     def test_contract_keys_cover_every_non_product_owner_stage(self) -> None:
-        non_po_stages = {
-            stage for stage in StageClass if stage != StageClass.PRODUCT_OWNER
+        # The Mode A propagation contract has one entry per
+        # non-PRODUCT_OWNER Mode A stage (AC-003..AC-010 of TASK-MAG7-005).
+        # FEAT-FORGE-008 / TASK-MBC8-001 appended ``TASK_REVIEW`` and
+        # ``TASK_WORK`` to the enum for Mode C; those have their own
+        # propagation rules on the Mode C cycle planner (TASK-MBC8-005)
+        # and are intentionally not entries in this Mode A contract.
+        mode_a_non_po_stages = {
+            StageClass.ARCHITECT,
+            StageClass.SYSTEM_ARCH,
+            StageClass.SYSTEM_DESIGN,
+            StageClass.FEATURE_SPEC,
+            StageClass.FEATURE_PLAN,
+            StageClass.AUTOBUILD,
+            StageClass.PULL_REQUEST_REVIEW,
         }
-        assert set(PROPAGATION_CONTRACT.keys()) == non_po_stages
+        assert set(PROPAGATION_CONTRACT.keys()) == mode_a_non_po_stages
 
     @pytest.mark.parametrize(
         ("consumer", "producer", "kind", "description"),

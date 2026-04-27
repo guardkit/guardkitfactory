@@ -30,7 +30,11 @@ class TestStageClassEnum:
         assert issubclass(StageClass, StrEnum)
 
     def test_stageclass_member_names_in_dispatch_order(self) -> None:
-        expected = [
+        # Mode A iteration order is byte-for-byte the leading eight
+        # members of the enum. FEAT-FORGE-008 appends ``TASK_REVIEW`` and
+        # ``TASK_WORK`` after these for Mode C, so this test pins the
+        # Mode A prefix rather than the entire enum.
+        expected_mode_a_prefix = [
             "PRODUCT_OWNER",
             "ARCHITECT",
             "SYSTEM_ARCH",
@@ -40,10 +44,15 @@ class TestStageClassEnum:
             "AUTOBUILD",
             "PULL_REQUEST_REVIEW",
         ]
-        assert [m.name for m in StageClass] == expected
+        names = [m.name for m in StageClass]
+        assert names[:8] == expected_mode_a_prefix
 
-    def test_stageclass_has_exactly_eight_members(self) -> None:
-        assert len(list(StageClass)) == 8
+    def test_stageclass_has_at_least_eight_members(self) -> None:
+        # Mode A defines the leading eight members; Mode C (FEAT-FORGE-008)
+        # appends ``TASK_REVIEW`` and ``TASK_WORK``. The contract is that
+        # the leading eight Mode A members are pinned, not that the enum
+        # is exactly length-8.
+        assert len(list(StageClass)) >= 8
 
     @pytest.mark.parametrize(
         ("member", "value"),
@@ -68,8 +77,22 @@ class TestStageClassEnum:
 class TestStagePrerequisites:
     """AC-003 — prerequisite map encodes the seven Group B rows."""
 
-    def test_stage_prerequisites_has_exactly_seven_entries(self) -> None:
-        assert len(STAGE_PREREQUISITES) == 7
+    def test_stage_prerequisites_has_seven_mode_a_entries(self) -> None:
+        # The seven Mode A rows from FEAT-FORGE-007 Group B Scenario
+        # Outline are non-negotiable. FEAT-FORGE-008 / TASK-MBC8-001
+        # appends one more row (``TASK_WORK ← TASK_REVIEW``) for Mode C,
+        # so we pin the seven Mode A keys explicitly rather than asserting
+        # a length-7 dict.
+        mode_a_keys = {
+            StageClass.ARCHITECT,
+            StageClass.SYSTEM_ARCH,
+            StageClass.SYSTEM_DESIGN,
+            StageClass.FEATURE_SPEC,
+            StageClass.FEATURE_PLAN,
+            StageClass.AUTOBUILD,
+            StageClass.PULL_REQUEST_REVIEW,
+        }
+        assert mode_a_keys.issubset(set(STAGE_PREREQUISITES))
 
     def test_product_owner_has_no_prerequisites_entry(self) -> None:
         # PRODUCT_OWNER is the entry stage; it must NOT appear as a key.
@@ -186,12 +209,17 @@ class TestModuleStructure:
         assert stage_taxonomy.__name__ == "forge.pipeline.stage_taxonomy"
 
     def test_module_exports_all_public_symbols(self) -> None:
-        assert set(stage_taxonomy.__all__) == {
+        # The four Mode A symbols are non-negotiable; FEAT-FORGE-008 /
+        # TASK-MBC8-001 may extend ``__all__`` with Mode C symbols
+        # (e.g. ``PER_FIX_TASK_STAGES``), so we require the Mode A set
+        # as a subset rather than equality.
+        mode_a_exports = {
             "StageClass",
             "STAGE_PREREQUISITES",
             "CONSTITUTIONAL_STAGES",
             "PER_FEATURE_STAGES",
         }
+        assert mode_a_exports.issubset(set(stage_taxonomy.__all__))
 
     def test_module_has_no_forge_pipeline_internal_imports(self) -> None:
         """No cycle-risking imports from sibling ``forge.pipeline.*`` modules."""

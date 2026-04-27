@@ -59,6 +59,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from forge.adapters.sqlite.connect import read_only_connect
 from forge.lifecycle.identifiers import derive_build_id
+from forge.lifecycle.modes import BuildMode
 from forge.lifecycle.state_machine import (
     BuildState,
     Transition,
@@ -76,6 +77,7 @@ __all__ = [
     "AsyncTaskCanceller",
     "AsyncTaskUpdater",
     "Build",
+    "BuildMode",
     "BuildRow",
     "BuildStatusView",
     "DuplicateBuildError",
@@ -202,6 +204,11 @@ class BuildRow(BaseModel):
     max_turns: int = 5
     sdk_timeout_seconds: int = 1800
     pending_approval_request_id: str | None = None
+    # FEAT-FORGE-008 / TASK-MBC8-001 — pipeline build mode. Defaults to
+    # ``BuildMode.MODE_A`` so pre-FEAT-FORGE-008 callers (and historical
+    # rows that backfilled to ``"mode-a"`` via ``schema_v2.sql``) keep
+    # working unchanged.
+    mode: BuildMode = BuildMode.MODE_A
 
 
 class BuildStatusView(BaseModel):
@@ -222,6 +229,10 @@ class BuildStatusView(BaseModel):
     completed_at: datetime | None = None
     pr_url: str | None = None
     error: str | None = None
+    # FEAT-FORGE-008 / TASK-MBC8-001 — surface ``mode`` to ``forge status``
+    # so operators can see at a glance whether a build is Mode A / B / C
+    # without joining against the full ``BuildRow``.
+    mode: BuildMode = BuildMode.MODE_A
 
 
 @dataclass(frozen=True, slots=True)
@@ -233,10 +244,17 @@ class Build:
     those two fields so we can compose a :class:`Transition` for an
     existing row without needing the TASK-PSM-003 ``Build`` Pydantic
     model.
+
+    ``mode`` is added by TASK-MBC8-001 so callers that hold a ``Build``
+    value object can route through mode-aware planners without
+    re-deriving it from the SQLite row. It defaults to
+    :attr:`BuildMode.MODE_A` to keep every Mode A call site
+    backwards-compatible.
     """
 
     build_id: str
     status: BuildState
+    mode: BuildMode = BuildMode.MODE_A
 
 
 # ---------------------------------------------------------------------------
@@ -274,6 +292,7 @@ def _row_to_build_row(row: sqlite3.Row | tuple[Any, ...]) -> BuildRow:
             "max_turns",
             "sdk_timeout_seconds",
             "pending_approval_request_id",
+            "mode",
         )
         data = dict(zip(keys, row, strict=False))
 
@@ -307,11 +326,20 @@ def _row_to_build_row(row: sqlite3.Row | tuple[Any, ...]) -> BuildRow:
         max_turns=int(data.get("max_turns") or 5),
         sdk_timeout_seconds=int(data.get("sdk_timeout_seconds") or 1800),
         pending_approval_request_id=data.get("pending_approval_request_id"),
+        mode=BuildMode(data.get("mode") or BuildMode.MODE_A.value),
     )
 
 
 def _row_to_status_view(row: sqlite3.Row) -> BuildStatusView:
     """Hydrate a narrow status-projection row into :class:`BuildStatusView`."""
+    # ``sqlite3.Row`` raises IndexError for unknown keys, so we tolerate
+    # legacy rows that pre-date the ``mode`` column by falling back to
+    # MODE_A. This keeps ``forge status`` working through the upgrade
+    # window even if the additive migration has not yet run.
+    try:
+        raw_mode = row["mode"]
+    except (IndexError, KeyError):
+        raw_mode = None
     return BuildStatusView(
         build_id=row["build_id"],
         feature_id=row["feature_id"],
@@ -329,6 +357,7 @@ def _row_to_status_view(row: sqlite3.Row) -> BuildStatusView:
         ),
         pr_url=row["pr_url"],
         error=row["error"],
+        mode=BuildMode(raw_mode) if raw_mode else BuildMode.MODE_A,
     )
 
 
@@ -591,7 +620,9 @@ class SqliteLifecyclePersistence:
     # Write API — record_pending_build
     # ------------------------------------------------------------------
 
-    def record_pending_build(self, payload: Any) -> str:
+    def record_pending_build(
+        self, payload: Any, *, mode: BuildMode | str | None = None
+    ) -> str:
         """Insert a fresh ``builds`` row in state ``QUEUED``.
 
         The build_id is derived from ``payload.feature_id`` and
@@ -609,7 +640,13 @@ class SqliteLifecyclePersistence:
                 :mod:`nats_core.events`. Typed as :class:`Any` here so
                 the import does not pin the persistence layer to the
                 wire-event package — the persistence layer only reads
-                attributes and never instantiates the type.
+                attributes and never instantiates the type. If the
+                payload exposes a ``mode`` attribute and the keyword
+                argument is omitted, that value is used.
+            mode: Pipeline build mode (TASK-MBC8-001). Defaults to
+                :attr:`BuildMode.MODE_A` when neither the keyword nor
+                ``payload.mode`` carries a value, so existing Mode A
+                callers continue to work without modification.
 
         Returns:
             The derived ``build_id``.
@@ -623,6 +660,13 @@ class SqliteLifecyclePersistence:
         correlation_id: str = payload.correlation_id
         queued_at: datetime = payload.queued_at
         build_id = derive_build_id(feature_id, queued_at)
+        # Resolve the build mode: explicit kwarg wins, otherwise sniff
+        # ``payload.mode``, otherwise default to MODE_A.
+        if mode is None:
+            mode = getattr(payload, "mode", None)
+        resolved_mode: BuildMode = (
+            BuildMode(mode) if mode is not None else BuildMode.MODE_A
+        )
 
         try:
             self._cx.execute("BEGIN IMMEDIATE;")
@@ -632,9 +676,9 @@ class SqliteLifecyclePersistence:
                     build_id, feature_id, repo, branch, feature_yaml_path,
                     status, triggered_by, originating_adapter,
                     originating_user, correlation_id, parent_request_id,
-                    queued_at, max_turns, sdk_timeout_seconds
+                    queued_at, max_turns, sdk_timeout_seconds, mode
                 ) VALUES (
-                    ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )
                 """,
                 (
@@ -651,6 +695,7 @@ class SqliteLifecyclePersistence:
                     queued_at.isoformat(),
                     int(payload.max_turns),
                     int(payload.sdk_timeout_seconds),
+                    resolved_mode.value,
                 ),
             )
             self._cx.execute("COMMIT;")
@@ -672,6 +717,36 @@ class SqliteLifecyclePersistence:
             raise
 
         return build_id
+
+    # ------------------------------------------------------------------
+    # Write API — queue_build (TASK-MBC8-001)
+    # ------------------------------------------------------------------
+
+    def queue_build(
+        self, payload: Any, *, mode: BuildMode | str | None = None
+    ) -> str:
+        """Mode-aware alias of :meth:`record_pending_build`.
+
+        TASK-MBC8-001 surfaces a ``queue_build`` entry-point that accepts
+        an explicit ``mode: BuildMode`` keyword so the supervisor and
+        future Mode B / Mode C planners can opt in to a specific chain
+        shape without depending on the ``payload.mode`` sniffing
+        behaviour. The implementation forwards to
+        :meth:`record_pending_build` so there is still exactly one
+        ``INSERT INTO builds`` site (sc_001-style "single writer"
+        cohesion).
+
+        Args:
+            payload: Same duck-typed ``BuildQueuedPayload`` accepted by
+                :meth:`record_pending_build`.
+            mode: Pipeline build mode. Defaults to
+                :attr:`BuildMode.MODE_A` so omitting the keyword
+                preserves Mode A behaviour.
+
+        Returns:
+            The derived ``build_id`` string.
+        """
+        return self.record_pending_build(payload, mode=mode)
 
     # ------------------------------------------------------------------
     # Write API — record_stage
@@ -820,7 +895,7 @@ class SqliteLifecyclePersistence:
 
         active_sql = f"""
             SELECT build_id, feature_id, status, queued_at, started_at,
-                   completed_at, pr_url, error
+                   completed_at, pr_url, error, mode
               FROM builds
              WHERE status IN ({active_placeholders})
                    {feature_clause_active}
@@ -828,7 +903,7 @@ class SqliteLifecyclePersistence:
         """
         terminal_sql = f"""
             SELECT build_id, feature_id, status, queued_at, started_at,
-                   completed_at, pr_url, error
+                   completed_at, pr_url, error, mode
               FROM builds
              WHERE status IN ({terminal_placeholders})
                    {feature_clause_terminal}

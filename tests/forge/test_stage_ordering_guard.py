@@ -78,14 +78,29 @@ class FakeStageLogReader:
 def test_stage_taxonomy_contract() -> None:
     """Verify ``StageClass`` enum and ``STAGE_PREREQUISITES`` match contract.
 
-    Contract: 8 stages, 7 prerequisite rows matching Scenario Outline.
-    Producer: TASK-MAG7-001.
+    Contract: 8 Mode A stages with the seven Mode A prerequisite rows
+    matching the FEAT-FORGE-007 Scenario Outline. FEAT-FORGE-008 /
+    TASK-MBC8-001 appends ``TASK_REVIEW`` and ``TASK_WORK`` to the enum
+    and a single ``TASK_WORK ← TASK_REVIEW`` row to the prerequisite map;
+    this contract test pins the Mode A subset rather than the absolute
+    enum / map size so the Mode A contract holds across feature
+    extensions.
+    Producer: TASK-MAG7-001 (Mode A); TASK-MBC8-001 (Mode B/C extension).
     """
     from forge.pipeline.stage_taxonomy import STAGE_PREREQUISITES, StageClass
 
-    assert len(StageClass) == 8, "Must have exactly 8 stage classes"
-    assert len(STAGE_PREREQUISITES) == 7, "Must have exactly 7 prerequisite rows"
-    assert set(STAGE_PREREQUISITES.keys()) == {
+    assert len(StageClass) >= 8, "Must have at least the 8 Mode A stage classes"
+    mode_a_prereq_keys = {
+        StageClass.ARCHITECT,
+        StageClass.SYSTEM_ARCH,
+        StageClass.SYSTEM_DESIGN,
+        StageClass.FEATURE_SPEC,
+        StageClass.FEATURE_PLAN,
+        StageClass.AUTOBUILD,
+        StageClass.PULL_REQUEST_REVIEW,
+    }
+    assert mode_a_prereq_keys.issubset(set(STAGE_PREREQUISITES.keys()))
+    assert set(STAGE_PREREQUISITES.keys()) >= {
         StageClass.ARCHITECT,
         StageClass.SYSTEM_ARCH,
         StageClass.SYSTEM_DESIGN,
@@ -413,12 +428,25 @@ class TestNextDispatchable:
     """AC: ``next_dispatchable`` returns the set of dispatchable stages."""
 
     def test_empty_log_only_product_owner_dispatchable(self) -> None:
-        """With nothing approved, only ``PRODUCT_OWNER`` (no prereqs) qualifies."""
+        """With nothing approved, only the prereq-less stages qualify.
+
+        ``PRODUCT_OWNER`` is the Mode A entry stage; FEAT-FORGE-008 /
+        TASK-MBC8-001 adds ``TASK_REVIEW`` as the Mode C entry stage,
+        which also has no prerequisites. Both are correctly returned by
+        ``next_dispatchable`` on an empty log; the dispatcher selects
+        between them based on the build's ``BuildMode`` (Wave 2).
+        """
         reader = FakeStageLogReader()
         reader.set_catalogue(BUILD_ID, [])
 
         guard = StageOrderingGuard()
-        assert guard.next_dispatchable(BUILD_ID, reader) == {StageClass.PRODUCT_OWNER}
+        result = guard.next_dispatchable(BUILD_ID, reader)
+        assert StageClass.PRODUCT_OWNER in result
+        # Any other prereq-less stages (Mode C entry) are also valid here;
+        # the contract is that prereq-bearing stages are excluded.
+        assert StageClass.ARCHITECT not in result
+        assert StageClass.SYSTEM_ARCH not in result
+        assert StageClass.AUTOBUILD not in result
 
     def test_after_product_owner_approved_architect_joins_set(self) -> None:
         reader = FakeStageLogReader()
@@ -526,5 +554,21 @@ class TestPureFunctionProperty:
 
 
 def test_seven_prerequisite_rows_align_with_taxonomy() -> None:
-    """Sanity guard against drift: TASK-MAG7-001 still ships seven rows."""
-    assert len(STAGE_PREREQUISITES) == 7
+    """Sanity guard against drift: TASK-MAG7-001 still ships at least
+    the seven Mode A rows.
+
+    FEAT-FORGE-008 / TASK-MBC8-001 may append additional Mode C rows
+    (e.g. ``TASK_WORK ← TASK_REVIEW``); the Mode A invariant is that the
+    seven Mode A keys remain present and the map never shrinks.
+    """
+    mode_a_keys = {
+        StageClass.ARCHITECT,
+        StageClass.SYSTEM_ARCH,
+        StageClass.SYSTEM_DESIGN,
+        StageClass.FEATURE_SPEC,
+        StageClass.FEATURE_PLAN,
+        StageClass.AUTOBUILD,
+        StageClass.PULL_REQUEST_REVIEW,
+    }
+    assert mode_a_keys.issubset(set(STAGE_PREREQUISITES.keys()))
+    assert len(STAGE_PREREQUISITES) >= 7

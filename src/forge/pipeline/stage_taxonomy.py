@@ -1,20 +1,29 @@
-"""Canonical Mode A stage taxonomy for FEAT-FORGE-007.
+"""Canonical stage taxonomy for FEAT-FORGE-007 (Mode A) and FEAT-FORGE-008
+(Mode B / Mode C extensions).
 
-This module is the single source of truth for the eight Mode A stage classes
-and the prerequisite map that encodes the seven prerequisite rows from the
-FEAT-FORGE-007 Group B Scenario Outline ("A downstream stage is not
-dispatched before its prerequisite has reached the approved state").
+This module is the single source of truth for the canonical
+:class:`StageClass` enum and the Mode A prerequisite map that encodes the
+seven prerequisite rows from the FEAT-FORGE-007 Group B Scenario Outline
+("A downstream stage is not dispatched before its prerequisite has
+reached the approved state").
 
-Per FEAT-FORGE-007 ASSUM-001 (Mode A greenfield assumptions), the eight
-stage classes that drive Mode A are, in dispatch order:
+Per FEAT-FORGE-007 ASSUM-001 (Mode A greenfield assumptions), the first
+eight stage classes that drive Mode A are, in dispatch order:
 
     product-owner → architect → /system-arch → /system-design →
     /feature-spec → /feature-plan → autobuild → pull-request review
 
-The final ``PULL_REQUEST_REVIEW`` stage is constitutional per
+The Mode A ``PULL_REQUEST_REVIEW`` stage is constitutional per
 ADR-ARCH-026 (constitutional-rules-belt-and-braces): every Mode A run
 must terminate at a human-reviewable pull request, regardless of how
 many features are in flight.
+
+Per FEAT-FORGE-008, two additional stage classes are appended at the
+end of the enum so that Mode A's iteration-order contract is preserved
+while Mode C can refer to them by name:
+
+    /task-review → /task-work     (Mode C cyclic chain — see
+    :mod:`forge.pipeline.mode_chains_data`)
 
 This module is intentionally free of imports from any other
 ``forge.pipeline`` submodule so it can be imported from every downstream
@@ -23,12 +32,16 @@ import cycle (see TASK-MAG7-001 implementation notes).
 
 References:
     - FEAT-FORGE-007 ASSUM-001 — eight-stage taxonomy assumption.
+    - FEAT-FORGE-008 ASSUM-004 — Mode C chain
+      (``/task-review`` + ``/task-work`` cycle).
     - ADR-ARCH-026 — constitutional rules (belt-and-braces); the
       ``PULL_REQUEST_REVIEW`` stage is the constitutional gate that
       terminates every Mode A run.
     - ``features/mode-a-greenfield-end-to-end/``
       ``mode-a-greenfield-end-to-end.feature`` — Background and Group B
       Scenario Outline rows that this taxonomy mirrors verbatim.
+    - ``features/mode-b-feature-and-mode-c-review-fix/`` — Mode B / C
+      assumptions and scenario outlines.
 """
 
 from __future__ import annotations
@@ -40,6 +53,7 @@ __all__ = [
     "STAGE_PREREQUISITES",
     "CONSTITUTIONAL_STAGES",
     "PER_FEATURE_STAGES",
+    "PER_FIX_TASK_STAGES",
 ]
 
 
@@ -65,6 +79,13 @@ class StageClass(StrEnum):
     FEATURE_PLAN = "feature-plan"
     AUTOBUILD = "autobuild"
     PULL_REQUEST_REVIEW = "pull-request-review"
+    # FEAT-FORGE-008 Mode C extensions — appended at the end so the Mode A
+    # iteration order above is byte-for-byte preserved (StageOrderingGuard
+    # in TASK-MAG7-003 relies on the leading eight members staying put).
+    # The per-fix-task fan-out of TASK_WORK is handled by the cycle
+    # planner in TASK-MBC8-004, not by this enum.
+    TASK_REVIEW = "task-review"
+    TASK_WORK = "task-work"
 
 
 #: Stage prerequisite map.
@@ -95,6 +116,14 @@ STAGE_PREREQUISITES: dict[StageClass, list[StageClass]] = {
     StageClass.FEATURE_PLAN: [StageClass.FEATURE_SPEC],
     StageClass.AUTOBUILD: [StageClass.FEATURE_PLAN],
     StageClass.PULL_REQUEST_REVIEW: [StageClass.AUTOBUILD],
+    # FEAT-FORGE-008 / TASK-MBC8-001 — Mode C single-row prerequisite.
+    # Each ``/task-work`` is dispatched only after the parent
+    # ``/task-review`` has reached the approved state. The per-fix-task
+    # fan-out (one ``/task-work`` per fix-task identifier emitted by the
+    # review) is enforced by ``ModeCCyclePlanner`` in TASK-MBC8-004, not
+    # by this map — the prerequisite expressed here is the *class*-level
+    # ordering that ``StageOrderingGuard`` consumes.
+    StageClass.TASK_WORK: [StageClass.TASK_REVIEW],
 }
 
 
@@ -126,3 +155,17 @@ PER_FEATURE_STAGES: frozenset[StageClass] = frozenset(
         StageClass.PULL_REQUEST_REVIEW,
     }
 )
+
+
+#: Per-fix-task stages — stages that fan out across all fix tasks
+#: emitted by a single ``/task-review`` in Mode C (FEAT-FORGE-008
+#: ASSUM-004 review-fix cycle).
+#:
+#: ``TASK_REVIEW`` runs **once** per Mode C cycle and emits N fix-task
+#: identifiers; ``TASK_WORK`` then fans out one dispatch per fix task.
+#: Only ``TASK_WORK`` is in this set — the per-fix-task fan-out is the
+#: cycle planner's responsibility (TASK-MBC8-004), and this frozenset
+#: is the declarative tag that lets the supervisor and dispatcher
+#: distinguish per-fix-task stages from per-feature stages
+#: (:data:`PER_FEATURE_STAGES`) and pipeline-wide stages.
+PER_FIX_TASK_STAGES: frozenset[StageClass] = frozenset({StageClass.TASK_WORK})
