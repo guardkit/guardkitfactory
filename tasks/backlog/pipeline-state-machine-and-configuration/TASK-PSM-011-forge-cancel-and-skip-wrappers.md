@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-011
-title: "`forge cancel` and `forge skip` thin wrappers"
+title: '`forge cancel` and `forge skip` thin wrappers'
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,26 +8,66 @@ wave: 4
 implementation_mode: direct
 complexity: 3
 estimated_minutes: 45
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-005
+- TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-003
-    consumes: CONFIG_LOADER
-    framework: "Pydantic v2"
-    driver: "YAML + Pydantic"
-    format_note: "ForgeConfig used for connection parameters; cancel/skip route through CliSteeringHandler which is already shipped"
-  - task: TASK-PSM-005
-    consumes: PERSISTENCE_PROTOCOLS
-    framework: "Python typing.Protocol (runtime_checkable)"
-    driver: "dependency injection via constructor"
-    format_note: "Wraps SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer, SqliteStageSkipRecorder, SqlitePauseRejectResolver instances and passes them to CliSteeringHandler"
-  - task: TASK-PSM-004
-    consumes: STATE_TRANSITION_API
-    framework: "Python module import"
-    driver: "in-process call"
-    format_note: "CliSteeringHandler internally invokes state_machine.transition() via the Sqlite* persistence implementations — CLI command itself never composes Transition objects"
-tags: [cli, forge-cancel, forge-skip, click, cli-steering]
+- task: TASK-PSM-003
+  consumes: CONFIG_LOADER
+  framework: Pydantic v2
+  driver: YAML + Pydantic
+  format_note: ForgeConfig used for connection parameters; cancel/skip route through
+    CliSteeringHandler which is already shipped
+- task: TASK-PSM-005
+  consumes: PERSISTENCE_PROTOCOLS
+  framework: Python typing.Protocol (runtime_checkable)
+  driver: dependency injection via constructor
+  format_note: Wraps SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer,
+    SqliteStageSkipRecorder, SqlitePauseRejectResolver instances and passes them to
+    CliSteeringHandler
+- task: TASK-PSM-004
+  consumes: STATE_TRANSITION_API
+  framework: Python module import
+  driver: in-process call
+  format_note: "CliSteeringHandler internally invokes state_machine.transition() via\
+    \ the Sqlite* persistence implementations \u2014 CLI command itself never composes\
+    \ Transition objects"
+tags:
+- cli
+- forge-cancel
+- forge-skip
+- click
+- cli-steering
+autobuild_state:
+  current_turn: 2
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:46:01.314242'
+  last_updated: '2026-04-27T14:04:39.809518'
+  turns:
+  - turn: 1
+    decision: feedback
+    feedback: '- Quality gates reported as passed but no tests were executed (tests_passed=0,
+      coverage=null). Player may not have run tests.'
+    timestamp: '2026-04-27T13:46:01.314242'
+    player_summary: 'Direct mode SDK invocation completed (git-detected: 36 modified,
+      15 created)'
+    player_success: true
+    coach_success: true
+  - turn: 2
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:58:57.932598'
+    player_summary: "Created src/forge/cli/cancel.py (55 lines) and src/forge/cli/skip.py\
+      \ (50 lines) \u2014 both are intentionally thin Click wrappers that resolve\
+      \ the operator-supplied identifier via SqliteLifecyclePersistence.find_active_or_recent\
+      \ and delegate to CliSteeringHandler.handle_cancel/handle_skip with responder=os.getlogin().\
+      \ Extracted the runtime wiring (CliRuntime + build_cli_runtime) into a new src/forge/cli/runtime.py\
+      \ to avoid a circular import between cli/main.py and the cancel/skip subcommand\
+      \ modules. "
+    player_success: true
+    coach_success: true
 ---
 
 # Task: `forge cancel` and `forge skip` thin wrappers

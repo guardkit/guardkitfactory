@@ -4,7 +4,7 @@ description: Durable build lifecycle (state machine, SQLite history, crash recov
   sequential queue) and CLI surface (forge queue/status/history/cancel/skip). Closes
   the FEAT-FORGE-001 gap left by 002-007. 13 tasks, 5 waves, 8/10 complexity.
 created: '2026-04-27T12:20:13.826147'
-status: planned
+status: completed
 complexity: 7
 estimated_tasks: 13
 tasks:
@@ -13,38 +13,70 @@ tasks:
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-001-identifiers-and-traversal-validation.md
   complexity: 3
   dependencies: []
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: direct
   estimated_minutes: 33
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T12:54:50.505269'
+  completed_at: '2026-04-27T13:06:23.566477'
 - id: TASK-PSM-002
   name: SQLite schema and migrations
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-002-sqlite-schema-and-migrations.md
   complexity: 5
   dependencies: []
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T12:54:50.508662'
+  completed_at: '2026-04-27T13:06:23.570334'
 - id: TASK-PSM-003
   name: Config extension QueueConfig and load_config
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-003-config-extension-queue-and-loader.md
   complexity: 3
   dependencies: []
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: direct
   estimated_minutes: 33
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T12:54:50.511868'
+  completed_at: '2026-04-27T13:06:23.573776'
 - id: TASK-PSM-004
   name: State machine transition table
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-004-state-machine-transition-table.md
   complexity: 6
   dependencies:
   - TASK-PSM-002
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T13:06:25.389891'
+  completed_at: '2026-04-27T13:16:13.986817'
 - id: TASK-PSM-005
   name: Persistence protocol implementations
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-005-persistence-protocol-implementations.md
@@ -52,20 +84,36 @@ tasks:
   dependencies:
   - TASK-PSM-002
   - TASK-PSM-004
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 170
+  requires_infrastructure: []
+  result:
+    total_turns: 2
+    final_decision: approved
+    error: null
+  turns_completed: 2
+  current_turn: 0
+  started_at: '2026-04-27T13:16:15.934443'
+  completed_at: '2026-04-27T13:45:59.163547'
 - id: TASK-PSM-006
   name: Sequential queue picker
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-006-sequential-queue-picker.md
   complexity: 4
   dependencies:
   - TASK-PSM-005
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T13:46:01.240095'
+  completed_at: '2026-04-27T14:12:56.847558'
 - id: TASK-PSM-007
   name: Crash recovery reconciliation
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-007-crash-recovery-reconciliation.md
@@ -73,10 +121,18 @@ tasks:
   dependencies:
   - TASK-PSM-004
   - TASK-PSM-005
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 170
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T13:46:01.247543'
+  completed_at: '2026-04-27T14:12:56.855983'
 - id: TASK-PSM-008
   name: CLI scaffold and forge queue
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-008-cli-scaffold-and-forge-queue.md
@@ -85,40 +141,72 @@ tasks:
   - TASK-PSM-001
   - TASK-PSM-003
   - TASK-PSM-005
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T13:46:01.254997'
+  completed_at: '2026-04-27T14:12:56.863707'
 - id: TASK-PSM-009
   name: forge status command
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-009-forge-status-command.md
   complexity: 5
   dependencies:
   - TASK-PSM-005
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T13:46:01.262340'
+  completed_at: '2026-04-27T14:12:56.871690'
 - id: TASK-PSM-010
   name: forge history command
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-010-forge-history-command.md
   complexity: 4
   dependencies:
   - TASK-PSM-005
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T13:46:01.269500'
+  completed_at: '2026-04-27T14:12:56.879609'
 - id: TASK-PSM-011
   name: forge cancel and skip wrappers
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-011-forge-cancel-and-skip-wrappers.md
   complexity: 3
   dependencies:
   - TASK-PSM-005
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: direct
   estimated_minutes: 33
+  requires_infrastructure: []
+  result:
+    total_turns: 2
+    final_decision: approved
+    error: null
+  turns_completed: 2
+  current_turn: 0
+  started_at: '2026-04-27T13:46:01.276899'
+  completed_at: '2026-04-27T14:12:56.887430'
 - id: TASK-PSM-012
   name: pyproject console_scripts entry
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-012-pyproject-console-scripts-entry.md
@@ -128,10 +216,18 @@ tasks:
   - TASK-PSM-009
   - TASK-PSM-010
   - TASK-PSM-011
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: direct
   estimated_minutes: 22
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T14:12:59.283029'
+  completed_at: '2026-04-27T14:39:07.237387'
 - id: TASK-PSM-013
   name: BDD harness all 34 scenarios
   file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-013-bdd-harness-all-34-scenarios.md
@@ -148,10 +244,18 @@ tasks:
   - TASK-PSM-009
   - TASK-PSM-010
   - TASK-PSM-011
-  status: pending
-  description: ''
+  status: completed
   implementation_mode: task-work
   estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T14:12:59.286990'
+  completed_at: '2026-04-27T14:39:07.241628'
 orchestration:
   parallel_groups:
   - - TASK-PSM-001
@@ -174,3 +278,20 @@ smoke_gates:
   command: python3 .guardkit/smoke/feat-forge-001-smoke.py
   expected_exit: 0
   timeout: 60
+execution:
+  started_at: '2026-04-27T12:54:50.488431'
+  completed_at: '2026-04-27T14:39:07.278121'
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  total_turns: 15
+  tasks_completed: 13
+  tasks_failed: 0
+  current_wave: 5
+  completed_waves:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  last_updated: '2026-04-27T14:39:07.245876'
+  archived_at: null
+  archived_to: null

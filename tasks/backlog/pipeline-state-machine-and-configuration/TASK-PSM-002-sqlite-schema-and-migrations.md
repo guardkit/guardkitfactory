@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-002
-title: "SQLite schema, migrations, and connection helpers"
+title: SQLite schema, migrations, and connection helpers
 task_type: scaffolding
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,9 +8,30 @@ wave: 1
 implementation_mode: task-work
 complexity: 5
 estimated_minutes: 75
-status: pending
+status: in_review
 dependencies: []
-tags: [lifecycle, sqlite, schema, migrations, ddr-003]
+tags:
+- lifecycle
+- sqlite
+- schema
+- migrations
+- ddr-003
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T12:54:50.530860'
+  last_updated: '2026-04-27T13:06:23.564256'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T12:54:50.530860'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: SQLite schema, migrations, and connection helpers

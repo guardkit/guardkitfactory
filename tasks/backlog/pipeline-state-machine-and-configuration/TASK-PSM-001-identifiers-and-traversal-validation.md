@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-001
-title: "Identifiers and path-traversal validation"
+title: Identifiers and path-traversal validation
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,9 +8,33 @@ wave: 1
 implementation_mode: direct
 complexity: 3
 estimated_minutes: 45
-status: pending
+status: in_review
 dependencies: []
-tags: [lifecycle, security, identifiers]
+tags:
+- lifecycle
+- security
+- identifiers
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T12:54:50.533690'
+  last_updated: '2026-04-27T12:58:38.552700'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T12:54:50.533690'
+    player_summary: "Created the `forge.lifecycle` package as the security boundary\
+      \ for any string later interpolated into a worktree path or the `build_id` PRIMARY\
+      \ KEY. `validate_feature_id` performs a double `urllib.parse.unquote` (catches\
+      \ `%252F`-style double-encoded traversal), then enforces (in order): length\
+      \ 1\u201364, no `\\x00` after decode, allowlist `[A-Za-z0-9_-]+`. Allowlist\
+      \ failures are split into reason `traversal` (`..`, `/`, or `\\` after decode)\
+      \ vs. `disallowed_char`. `InvalidIdentifierError` subclasses `V"
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Identifiers and path-traversal validation

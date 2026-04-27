@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-004
-title: "State machine — transition table and invariants"
+title: "State machine \u2014 transition table and invariants"
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,16 +8,37 @@ wave: 2
 implementation_mode: task-work
 complexity: 6
 estimated_minutes: 90
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-002
+- TASK-PSM-002
 consumer_context:
-  - task: TASK-PSM-002
-    consumes: SCHEMA_INITIALIZED
-    framework: "sqlite3 (stdlib)"
-    driver: "stdlib"
-    format_note: "STRICT tables; WAL/STRICT pragmas applied per-connection; build state column constrained to enum values; schema_version=1 row seeded on first apply"
-tags: [lifecycle, state-machine, transition-table, invariants]
+- task: TASK-PSM-002
+  consumes: SCHEMA_INITIALIZED
+  framework: sqlite3 (stdlib)
+  driver: stdlib
+  format_note: STRICT tables; WAL/STRICT pragmas applied per-connection; build state
+    column constrained to enum values; schema_version=1 row seeded on first apply
+tags:
+- lifecycle
+- state-machine
+- transition-table
+- invariants
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:06:25.400260'
+  last_updated: '2026-04-27T13:16:13.985185'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:06:25.400260'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: State machine — transition table and invariants

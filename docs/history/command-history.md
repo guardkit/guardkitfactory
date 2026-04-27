@@ -2849,11 +2849,126 @@ After the plan completes, the next steps are: review the task breakdown (sanity-
 
 
 
+guardkit feature-plan "Pipeline State Machine and Configuration" \
+  --context forge/features/pipeline-state-machine-and-configuration/pipeline-state-machine-and-configuration_summary.md \
+  --context forge/docs/research/ideas/forge-001-gap-context.md \
+  --context forge/docs/design/contracts/API-cli.md \
+  --context forge/docs/design/contracts/API-sqlite-schema.md \
+  --context forge/docs/design/decisions/DDR-003-sqlite-schema-layout-wal.md
+
+
+
+All steps complete. Final summary:
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ FEATURE PLANNING COMPLETE — FEAT-FORGE-001
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 Feature folder
+   tasks/backlog/pipeline-state-machine-and-configuration/
+   ├── README.md
+   ├── IMPLEMENTATION-GUIDE.md   (4 mandatory diagrams + §4 contracts)
+   └── 13 task files (TASK-PSM-001 … TASK-PSM-013)
+
+📋 Review report
+   .claude/reviews/TASK-REV-3EEE-review-report.md
+
+🗂️  Structured YAML
+   .guardkit/features/FEAT-FORGE-001.yaml
+   • 13 tasks, 5 waves (parallel-optimised)
+   • Aggregate complexity: 8/10
+   • AC-quality review: 0 unverifiable acceptance criteria
+
+✅ Pre-flight validation passed (FeatureLoader.validate_feature)
+   Wave 1: TASK-PSM-001, 002, 003               (foundation, parallel × 3)
+   Wave 2: TASK-PSM-004                         (state machine)
+   Wave 3: TASK-PSM-005                         (persistence Protocols)
+   Wave 4: TASK-PSM-006, 007, 008, 009, 010, 011 (parallel × 6)
+   Wave 5: TASK-PSM-012, 013                    (integration + BDD harness)
+
+🔗 BDD scenario linking (Step 11) complete
+   features/pipeline-state-machine-and-configuration/...feature
+   • 35/35 scenarios tagged with @task:TASK-PSM-NNN
+   • 0 below confidence threshold (0.60)
+   • 0 already tagged
+   • R2 BDD oracle is now active for this feature
+
+🎯 Architectural invariants enforced (per review concerns)
+   sc_001  state_machine.py is sole writer of builds.state
+   sc_002  Write-then-publish: SQLite row survives NATS failure
+   sc_003  Identifier validation: decode-then-allowlist
+   sc_004  PAUSED-recovery preserves original request_id
+
+⚠️  Smoke gates not configured (R3 nudge fired)
+   The YAML has no smoke_gates: block. Between-wave smoke checks won't
+   fire during autobuild — composition failures (the PEX-014..020 pattern)
+   may slip through per-task Coach validation. Recommended additions:
+
+     smoke_gates:
+       after_wave_1:
+         - python -c "from forge.lifecycle import identifiers, migrations; from forge.config.loader import load_config"
+       after_wave_3:
+         - python -c "from forge.lifecycle.persistence import SqliteLifecyclePersistence"
+       after_wave_4:
+         - forge --help
+
+🚀 Next steps
+   guardkit autobuild feature FEAT-FORGE-001     # full autonomous build
+   /task-work TASK-PSM-001                        # individual task
+Want me to add the smoke_gates: block to .guardkit/features/FEAT-FORGE-001.yaml before you kick off autobuild?
+
+
+Smoke gates wired and validated. Final state:
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✅ SMOKE GATES CONFIGURED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 .guardkit/smoke/feat-forge-001-smoke.py     (executable, 4 checks)
+📁 .guardkit/features/FEAT-FORGE-001.yaml      (smoke_gates block added)
+
+Configuration
+   after_wave: all          (fires between every wave 1→5)
+   command:    python3 .guardkit/smoke/feat-forge-001-smoke.py
+   timeout:    60s
+   expected:   exit 0
+
+Hard invariants enforced (run after every wave, skip when N/A)
+   1. sc_001 — exactly one location in src/ may issue
+                 `UPDATE builds SET status` (state_machine + persistence
+                 boundary). Catches accidental status writes from CLI
+                 commands or recovery code.
+   2. Import discipline — cli/status.py and cli/history.py MUST NOT
+                 import from forge.adapters.nats.* (Group H resilience).
+   3. Foundation imports — every lifecycle/config module that exists
+                 must import without error (catches broken composition).
+   4. CLI smoke — once forge binary is on PATH, `forge --help` exits 0
+                 and lists all five subcommands.
+
+Smoke run today (pre-build): all four checks skip cleanly, exits 0.
+Once Wave 3 ships persistence.py, sc_001 becomes a hard invariant.
+Once Wave 4 ships cli/status.py and cli/history.py, import discipline
+becomes hard. Once Wave 5 ships console_scripts, forge --help becomes
+hard.
+Ready to run autobuild:
+
+
+guardkit autobuild feature FEAT-FORGE-001
 
 
 
 
 
+
+
+
+
+
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-001 --verbose --max-turns 30
 
 
 

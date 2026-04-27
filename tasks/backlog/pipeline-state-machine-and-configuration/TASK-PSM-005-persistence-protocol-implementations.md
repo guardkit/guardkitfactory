@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-005
-title: "Persistence — concrete cli_steering Protocol implementations"
+title: "Persistence \u2014 concrete cli_steering Protocol implementations"
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,22 +8,57 @@ wave: 2
 implementation_mode: task-work
 complexity: 7
 estimated_minutes: 105
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-002
-  - TASK-PSM-004
+- TASK-PSM-002
+- TASK-PSM-004
 consumer_context:
-  - task: TASK-PSM-002
-    consumes: SCHEMA_INITIALIZED
-    framework: "sqlite3 (stdlib)"
-    driver: "stdlib"
-    format_note: "STRICT tables; WAL+STRICT pragmas applied per-connection; UNIQUE(feature_id, correlation_id) index for duplicate detection"
-  - task: TASK-PSM-004
-    consumes: STATE_TRANSITION_API
-    framework: "Python module import"
-    driver: "in-process call"
-    format_note: "apply_transition() consumes only Transition value objects produced by state_machine.transition(); raw status kwargs are forbidden by API design"
-tags: [lifecycle, persistence, protocols, cli-steering]
+- task: TASK-PSM-002
+  consumes: SCHEMA_INITIALIZED
+  framework: sqlite3 (stdlib)
+  driver: stdlib
+  format_note: STRICT tables; WAL+STRICT pragmas applied per-connection; UNIQUE(feature_id,
+    correlation_id) index for duplicate detection
+- task: TASK-PSM-004
+  consumes: STATE_TRANSITION_API
+  framework: Python module import
+  driver: in-process call
+  format_note: apply_transition() consumes only Transition value objects produced
+    by state_machine.transition(); raw status kwargs are forbidden by API design
+tags:
+- lifecycle
+- persistence
+- protocols
+- cli-steering
+autobuild_state:
+  current_turn: 2
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:16:15.944550'
+  last_updated: '2026-04-27T13:45:59.159526'
+  turns:
+  - turn: 1
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 2 of 3\
+      \ expected agent invocations. Missing phases: 3 (Implementation). Consider invoking\
+      \ these agents via the Task tool to strengthen stack-specific quality:\n- Phase\
+      \ 3: `python-api-specialist` (Implementation)\n- Not all acceptance criteria\
+      \ met:\n  \u2022 All modified files pass project-configured lint/format checks\
+      \ with"
+    timestamp: '2026-04-27T13:16:15.944550'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
+  - turn: 2
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:36:24.437439'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Persistence — concrete cli_steering Protocol implementations

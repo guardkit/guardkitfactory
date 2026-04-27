@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-008
-title: "CLI scaffold and `forge queue` command"
+title: CLI scaffold and `forge queue` command
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,33 +8,60 @@ wave: 4
 implementation_mode: task-work
 complexity: 6
 estimated_minutes: 90
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-001
-  - TASK-PSM-003
-  - TASK-PSM-005
+- TASK-PSM-001
+- TASK-PSM-003
+- TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-001
-    consumes: IDENTIFIER_VALIDATION
-    framework: "urllib.parse + re (stdlib)"
-    driver: "stdlib"
-    format_note: "validate_feature_id(s) returns the validated string or raises InvalidIdentifierError. Call it BEFORE any SQLite write or NATS publish in the queue command — fail fast on traversal/encoded-traversal/null-byte attacks"
-  - task: TASK-PSM-003
-    consumes: CONFIG_LOADER
-    framework: "Pydantic v2"
-    driver: "YAML + Pydantic"
-    format_note: "load_config(path) returns ForgeConfig with .queue.default_max_turns/default_sdk_timeout_seconds/default_history_limit/repo_allowlist; CLI flags (--max-turns, --timeout) override defaults at the build-row write site"
-  - task: TASK-PSM-005
-    consumes: PERSISTENCE_PROTOCOLS
-    framework: "Python typing.Protocol (runtime_checkable)"
-    driver: "dependency injection via constructor"
-    format_note: "SqliteLifecyclePersistence.record_pending_build(payload) raises DuplicateBuildError on UNIQUE(feature_id, correlation_id) violation; exists_active_build(feature_id) checks Group C in-flight duplicate"
-  - task: TASK-PSM-004
-    consumes: STATE_TRANSITION_API
-    framework: "Python module import"
-    driver: "in-process call"
-    format_note: "queue command does NOT directly transition state — it only writes the QUEUED row via persistence.record_pending_build(); state transitions begin in TASK-PSM-007 (recovery) and the supervisor (within-build, owned by 002-007)"
-tags: [cli, forge-queue, click, write-then-publish]
+- task: TASK-PSM-001
+  consumes: IDENTIFIER_VALIDATION
+  framework: urllib.parse + re (stdlib)
+  driver: stdlib
+  format_note: "validate_feature_id(s) returns the validated string or raises InvalidIdentifierError.\
+    \ Call it BEFORE any SQLite write or NATS publish in the queue command \u2014\
+    \ fail fast on traversal/encoded-traversal/null-byte attacks"
+- task: TASK-PSM-003
+  consumes: CONFIG_LOADER
+  framework: Pydantic v2
+  driver: YAML + Pydantic
+  format_note: load_config(path) returns ForgeConfig with .queue.default_max_turns/default_sdk_timeout_seconds/default_history_limit/repo_allowlist;
+    CLI flags (--max-turns, --timeout) override defaults at the build-row write site
+- task: TASK-PSM-005
+  consumes: PERSISTENCE_PROTOCOLS
+  framework: Python typing.Protocol (runtime_checkable)
+  driver: dependency injection via constructor
+  format_note: SqliteLifecyclePersistence.record_pending_build(payload) raises DuplicateBuildError
+    on UNIQUE(feature_id, correlation_id) violation; exists_active_build(feature_id)
+    checks Group C in-flight duplicate
+- task: TASK-PSM-004
+  consumes: STATE_TRANSITION_API
+  framework: Python module import
+  driver: in-process call
+  format_note: "queue command does NOT directly transition state \u2014 it only writes\
+    \ the QUEUED row via persistence.record_pending_build(); state transitions begin\
+    \ in TASK-PSM-007 (recovery) and the supervisor (within-build, owned by 002-007)"
+tags:
+- cli
+- forge-queue
+- click
+- write-then-publish
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:46:01.323109'
+  last_updated: '2026-04-27T14:12:56.842980'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:46:01.323109'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: CLI scaffold and `forge queue` command

@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-009
-title: "`forge status` command (default, --watch, --full, --json)"
+title: '`forge status` command (default, --watch, --full, --json)'
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,21 +8,44 @@ wave: 4
 implementation_mode: task-work
 complexity: 5
 estimated_minutes: 75
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-005
+- TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-003
-    consumes: CONFIG_LOADER
-    framework: "Pydantic v2"
-    driver: "YAML + Pydantic"
-    format_note: "ForgeConfig.queue.default_history_limit drives the recent-terminal-builds count for the default view"
-  - task: TASK-PSM-005
-    consumes: PERSISTENCE_PROTOCOLS
-    framework: "Python typing.Protocol (runtime_checkable)"
-    driver: "dependency injection via constructor"
-    format_note: "read_status() returns active builds + last 5 terminal; read_stages(build_id) for --full; both use read_only_connect() (mode=ro URI)"
-tags: [cli, forge-status, click, watch-mode, read-path]
+- task: TASK-PSM-003
+  consumes: CONFIG_LOADER
+  framework: Pydantic v2
+  driver: YAML + Pydantic
+  format_note: ForgeConfig.queue.default_history_limit drives the recent-terminal-builds
+    count for the default view
+- task: TASK-PSM-005
+  consumes: PERSISTENCE_PROTOCOLS
+  framework: Python typing.Protocol (runtime_checkable)
+  driver: dependency injection via constructor
+  format_note: read_status() returns active builds + last 5 terminal; read_stages(build_id)
+    for --full; both use read_only_connect() (mode=ro URI)
+tags:
+- cli
+- forge-status
+- click
+- watch-mode
+- read-path
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:46:01.304914'
+  last_updated: '2026-04-27T14:01:08.560525'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:46:01.304914'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: `forge status` command (default, --watch, --full, --json)

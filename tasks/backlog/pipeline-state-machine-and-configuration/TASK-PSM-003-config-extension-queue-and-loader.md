@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-003
-title: "Config extension — QueueConfig and load_config()"
+title: "Config extension \u2014 QueueConfig and load_config()"
 task_type: declarative
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,9 +8,34 @@ wave: 1
 implementation_mode: direct
 complexity: 3
 estimated_minutes: 45
-status: pending
+status: in_review
 dependencies: []
-tags: [lifecycle, config, pydantic, declarative]
+tags:
+- lifecycle
+- config
+- pydantic
+- declarative
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T12:54:50.524785'
+  last_updated: '2026-04-27T12:59:27.587442'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T12:54:50.524785'
+    player_summary: 'Added QueueConfig (Pydantic v2, extra=''forbid'') to src/forge/config/models.py
+      with the four required fields and ge=1 validators on all integer fields, then
+      wired queue: QueueConfig = Field(default_factory=QueueConfig) into ForgeConfig.
+      Created src/forge/config/loader.py exposing load_config(path: Path) -> ForgeConfig
+      that uses yaml.safe_load on the file''s UTF-8 contents (defaulting an empty
+      document to {}) and passes the result straight to ForgeConfig.model_validate,
+      allowing pydantic.Validation'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Config extension — QueueConfig and load_config()

@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-006
-title: "Sequential per-project queue picker"
+title: Sequential per-project queue picker
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,16 +8,41 @@ wave: 3
 implementation_mode: direct
 complexity: 4
 estimated_minutes: 60
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-005
+- TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-002
-    consumes: SCHEMA_INITIALIZED
-    framework: "sqlite3 (stdlib)"
-    driver: "stdlib"
-    format_note: "STRICT tables; WAL+STRICT pragmas applied per-connection; supports BEGIN IMMEDIATE for atomic picker queries"
-tags: [lifecycle, queue, sequencing]
+- task: TASK-PSM-002
+  consumes: SCHEMA_INITIALIZED
+  framework: sqlite3 (stdlib)
+  driver: stdlib
+  format_note: STRICT tables; WAL+STRICT pragmas applied per-connection; supports
+    BEGIN IMMEDIATE for atomic picker queries
+tags:
+- lifecycle
+- queue
+- sequencing
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:46:01.323525'
+  last_updated: '2026-04-27T13:53:32.816057'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:46:01.323525'
+    player_summary: 'Created src/forge/lifecycle/queue.py with the SqliteSequentialQueuePicker
+      class and module-level next_build_to_pick/is_project_busy convenience wrappers.
+      The picker composes SqliteLifecyclePersistence (sharing the writer connection
+      that apply_transition uses, so BEGIN IMMEDIATE serialises pick attempts at the
+      SQLite engine level). next_build_to_pick wraps the decision in BEGIN IMMEDIATE
+      / COMMIT (rollback on sqlite3.Error): step 1 queries for any build in BLOCKING_STATES
+      = {PREPARING, RUNNING, P'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Sequential per-project queue picker

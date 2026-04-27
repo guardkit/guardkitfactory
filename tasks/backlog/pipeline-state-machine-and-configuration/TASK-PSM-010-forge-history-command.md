@@ -1,6 +1,6 @@
 ---
 id: TASK-PSM-010
-title: "`forge history` command (--feature, --limit, --since, --format)"
+title: '`forge history` command (--feature, --limit, --since, --format)'
 task_type: feature
 parent_review: TASK-REV-3EEE
 feature_id: FEAT-FORGE-001
@@ -8,21 +8,48 @@ wave: 4
 implementation_mode: direct
 complexity: 4
 estimated_minutes: 60
-status: pending
+status: in_review
 dependencies:
-  - TASK-PSM-005
+- TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-003
-    consumes: CONFIG_LOADER
-    framework: "Pydantic v2"
-    driver: "YAML + Pydantic"
-    format_note: "ForgeConfig.queue.default_history_limit (default 50) used when --limit is not specified"
-  - task: TASK-PSM-005
-    consumes: PERSISTENCE_PROTOCOLS
-    framework: "Python typing.Protocol (runtime_checkable)"
-    driver: "dependency injection via constructor"
-    format_note: "read_history(limit, feature_id) returns BuildRow list; read_only_connect() (mode=ro URI)"
-tags: [cli, forge-history, click, read-path]
+- task: TASK-PSM-003
+  consumes: CONFIG_LOADER
+  framework: Pydantic v2
+  driver: YAML + Pydantic
+  format_note: ForgeConfig.queue.default_history_limit (default 50) used when --limit
+    is not specified
+- task: TASK-PSM-005
+  consumes: PERSISTENCE_PROTOCOLS
+  framework: Python typing.Protocol (runtime_checkable)
+  driver: dependency injection via constructor
+  format_note: read_history(limit, feature_id) returns BuildRow list; read_only_connect()
+    (mode=ro URI)
+tags:
+- cli
+- forge-history
+- click
+- read-path
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001
+  base_branch: main
+  started_at: '2026-04-27T13:46:01.322331'
+  last_updated: '2026-04-27T13:53:43.316564'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T13:46:01.322331'
+    player_summary: "Implemented forge.cli.history per API-cli.md \xA75. The module\
+      \ exposes a Click command (history_cmd) plus a plain run_history() entry point\
+      \ so unit tests drive the rendering path without invoking Click. Three renderers\
+      \ (table/json/md), --feature filter, --since ISO-date filter (with bare-date\
+      \ promotion to midnight UTC), --limit (defaults to ForgeConfig.queue.default_history_limit).\
+      \ Reads SQLite via forge.adapters.sqlite.read_only_connect (mode=ro URI). Stage_log\
+      \ expansion happens for json + md form"
+    player_success: true
+    coach_success: true
 ---
 
 # Task: `forge history` command
