@@ -1,0 +1,174 @@
+{
+  "task_id": "TASK-PSM-001",
+  "timestamp": "2026-04-27T12:58:32.492869",
+  "completed": true,
+  "success": true,
+  "implementation_mode": "direct",
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": true,
+    "quality_gates_relaxed": true,
+    "all_passed": true
+  },
+  "files_modified": [],
+  "files_created": [
+    "src/forge/lifecycle/__init__.py",
+    "src/forge/lifecycle/identifiers.py",
+    "tests/unit/lifecycle/__init__.py",
+    "tests/unit/lifecycle/test_identifiers.py"
+  ],
+  "tests_written": [
+    "tests/unit/lifecycle/test_identifiers.py"
+  ],
+  "requirements_addressed": [
+    "AC-001: validate_feature_id('FEAT-FORGE-001') returns 'FEAT-FORGE-001'",
+    "AC-002: '../etc/passwd' raises InvalidIdentifierError(reason='traversal')",
+    "AC-003: '%2E%2E%2Fetc' raises InvalidIdentifierError(reason='traversal')",
+    "AC-004: '%252F' raises InvalidIdentifierError(reason='traversal') via double-decode",
+    "AC-005: 'FEAT\\x00' raises InvalidIdentifierError(reason='null_byte')",
+    "AC-006: 'a'*65 raises InvalidIdentifierError(reason='length')",
+    "AC-007: '' raises InvalidIdentifierError(reason='length')",
+    "AC-008: derive_build_id returns 'build-FEAT-FORGE-001-20260427123045'",
+    "AC-009: InvalidIdentifierError is a ValueError subclass with structured 'reason' attribute",
+    "AC-010: 100% line and branch coverage on the new module (49 tests, all positive+negative branches covered)",
+    "AC-011: black --check and ruff check both clean on all four new files"
+  ],
+  "requirements_met": [
+    "AC-001: validate_feature_id('FEAT-FORGE-001') returns 'FEAT-FORGE-001'",
+    "AC-002: '../etc/passwd' raises InvalidIdentifierError(reason='traversal')",
+    "AC-003: '%2E%2E%2Fetc' raises InvalidIdentifierError(reason='traversal')",
+    "AC-004: '%252F' raises InvalidIdentifierError(reason='traversal') via double-decode",
+    "AC-005: 'FEAT\\x00' raises InvalidIdentifierError(reason='null_byte')",
+    "AC-006: 'a'*65 raises InvalidIdentifierError(reason='length')",
+    "AC-007: '' raises InvalidIdentifierError(reason='length')",
+    "AC-008: derive_build_id returns 'build-FEAT-FORGE-001-20260427123045'",
+    "AC-009: InvalidIdentifierError is a ValueError subclass with structured 'reason' attribute",
+    "AC-010: 100% line and branch coverage on the new module (49 tests, all positive+negative branches covered)",
+    "AC-011: black --check and ruff check both clean on all four new files"
+  ],
+  "summary": "Direct mode implementation completed successfully",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "[ ] `validate_feature_id(\"FEAT-FORGE-001\")` returns `\"FEAT-FORGE-001\"`",
+      "status": "complete",
+      "evidence": "Implemented validate_feature_id with allowlist [A-Za-z0-9_-]+; the canonical FEAT-FORGE-001 input round-trips unchanged. Verified by TestValidateFeatureIdHappyPath::test_validate_feature_id_with_canonical_input_returns_same_string and the parametrised allowlist test (10 inputs).",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "[ ] `validate_feature_id(\"../etc/passwd\")` raises `InvalidIdentifierError`",
+      "status": "complete",
+      "evidence": "Allowlist check rejects '../etc/passwd'; '..' / '/' detection sets reason='traversal'. Verified by TestValidateFeatureIdTraversal::test_validate_feature_id_with_literal_dot_dot_slash_raises_traversal.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "[ ] `validate_feature_id(\"%2E%2E%2Fetc\")` raises `InvalidIdentifierError`",
+      "status": "complete",
+      "evidence": "First unquote pass decodes %2E%2E%2F to '../', allowlist rejection then sets reason='traversal'. Verified by TestValidateFeatureIdTraversal::test_validate_feature_id_with_url_encoded_dot_dot_slash_raises_traversal.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "[ ] `validate_feature_id(\"%252F\")` raises `InvalidIdentifierError` (double-encoded `/`)",
+      "status": "complete",
+      "evidence": "Double unquote: %252F -> %2F -> '/'; the resulting '/' fails the allowlist and is reported with reason='traversal'. Verified by TestValidateFeatureIdTraversal::test_validate_feature_id_with_double_encoded_slash_raises_traversal.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "[ ] `validate_feature_id(\"FEAT\\x00\")` raises `InvalidIdentifierError` (null byte after decode)",
+      "status": "complete",
+      "evidence": "Explicit `'\\x00' in decoded` check with reason='null_byte'. Verified by TestValidateFeatureIdNullByte::test_validate_feature_id_with_raw_null_byte_raises_null_byte and (additionally) the URL-encoded %00 variant.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "[ ] `validate_feature_id(\"a\" * 65)` raises `InvalidIdentifierError` (length cap 64)",
+      "status": "complete",
+      "evidence": "`not 1 <= len(decoded) <= 64` raises with reason='length'. Verified by TestValidateFeatureIdLength::test_validate_feature_id_with_input_above_length_cap_raises_length, and the boundary test confirms len==64 is accepted.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "[ ] `validate_feature_id(\"\")` raises `InvalidIdentifierError` (must be at least 1 character)",
+      "status": "complete",
+      "evidence": "Same length check covers empty input (len==0 fails 1<=len<=64) with reason='length'. Verified by TestValidateFeatureIdLength::test_validate_feature_id_with_empty_string_raises_length.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "[ ] `derive_build_id(\"FEAT-FORGE-001\", datetime(2026, 4, 27, 12, 30, 45, tzinfo=UTC))` returns `\"build-FEAT-FORGE-001-20260427123045\"`",
+      "status": "complete",
+      "evidence": "derive_build_id uses f-string with strftime('%Y%m%d%H%M%S'). Verified literally by TestDeriveBuildId::test_derive_build_id_with_canonical_inputs_returns_canonical_string; supplemental tests cover zero-padding, microsecond truncation, and non-UTC timezone passthrough.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "[ ] `InvalidIdentifierError` is a subclass of `ValueError` with a structured `reason` attribute (one of: `traversal`, `null_byte`, `disallowed_char`, `length`)",
+      "status": "complete",
+      "evidence": "InvalidIdentifierError(ValueError) sets self.value and self.reason in __init__. Verified by TestInvalidIdentifierErrorContract: issubclass(...,ValueError), except-ValueError catches it, reason attribute is exposed and belongs to the documented vocabulary across all four error modes.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "[ ] Unit-test coverage: every branch of the validator has at least one positive and one negative test case (\u2265 95% line coverage on this module)",
+      "status": "complete",
+      "evidence": "pytest --cov=forge.lifecycle.identifiers --cov-branch reports 100% line and 100% branch coverage (26 stmts, 0 miss; 8 branches, 0 miss). 49 tests cover happy-path, all four failure-reason branches (traversal, null_byte, disallowed_char, length), and boundary cases at len 1 and len 64.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/identifiers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "[ ] All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "`python3 -m black --check src/forge/lifecycle/ tests/unit/lifecycle/` reports '4 files would be left unchanged'. `python3 -m ruff check src/forge/lifecycle/ tests/unit/lifecycle/` reports 'All checks passed!'.",
+      "test_file": "tests/unit/lifecycle/test_identifiers.py",
+      "implementation_files": [
+        "src/forge/lifecycle/__init__.py",
+        "src/forge/lifecycle/identifiers.py",
+        "tests/unit/lifecycle/__init__.py",
+        "tests/unit/lifecycle/test_identifiers.py"
+      ]
+    }
+  ]
+}

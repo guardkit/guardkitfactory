@@ -257,13 +257,62 @@ class PermissionsConfig(BaseModel):
     )
 
 
+class QueueConfig(BaseModel):
+    """Configuration for the ``forge queue`` lifecycle (FEAT-FORGE-001 / PSM).
+
+    Defaults are anchored to the Pipeline State Machine assumptions manifest
+    (ASSUM-001 — minimum turn budget = 1). Operators may override any field
+    in ``forge.yaml`` but the defaults must continue to match the assumptions
+    manifest so this in-memory schema stays the canonical source of truth for
+    downstream consumers (TASK-PSM-008/009/010/011).
+
+    The ``ge=1`` validator on ``default_max_turns`` gives the CLI's
+    "turn budget < 1 rejected" rejection branch automatically — no extra
+    branch is required at the call site.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    default_max_turns: int = Field(
+        default=5,
+        ge=1,
+        description=(
+            "ASSUM-001 (PSM) — default per-build turn budget. Must be at "
+            "least 1; values below 1 are rejected at config-load time."
+        ),
+    )
+    default_sdk_timeout_seconds: int = Field(
+        default=1800,
+        ge=1,
+        description=(
+            "Default SDK timeout (seconds) applied to a build when the "
+            "caller does not specify one."
+        ),
+    )
+    default_history_limit: int = Field(
+        default=50,
+        ge=1,
+        description=(
+            "Default history-row limit applied when listing past builds "
+            "via ``forge queue history``."
+        ),
+    )
+    repo_allowlist: list[Path] = Field(
+        default_factory=list,
+        description=(
+            "Repository paths matched by ``forge queue --repo``. An empty "
+            "list (the default) means no repository restriction is applied."
+        ),
+    )
+
+
 class ForgeConfig(BaseModel):
     """Root model for ``forge.yaml``.
 
-    ``fleet`` and ``pipeline`` are optional with sensible defaults so that a
-    minimal ``forge.yaml`` only needs to declare the required ``permissions``
-    section. ``permissions`` itself is required because there is no safe
-    default filesystem allowlist.
+    ``fleet``, ``pipeline``, ``approval`` and ``queue`` are optional with
+    sensible defaults so that a minimal ``forge.yaml`` only needs to declare
+    the required ``permissions`` section. ``permissions`` itself is required
+    because there is no safe default filesystem allowlist.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -271,6 +320,7 @@ class ForgeConfig(BaseModel):
     fleet: FleetConfig = Field(default_factory=FleetConfig)
     pipeline: PipelineConfig = Field(default_factory=PipelineConfig)
     approval: ApprovalConfig = Field(default_factory=ApprovalConfig)
+    queue: QueueConfig = Field(default_factory=QueueConfig)
     permissions: PermissionsConfig = Field(
         ...,
         description=(
@@ -296,6 +346,7 @@ __all__ = [
     "ForgeConfig",
     "PermissionsConfig",
     "PipelineConfig",
+    "QueueConfig",
 ]
 
 

@@ -1,0 +1,133 @@
+"""Boot-time migration runner for the Forge SQLite substrate.
+
+Public surface
+==============
+
+- :func:`apply_at_boot` — execute every migration whose version exceeds
+  the highest row currently in ``schema_version``.
+
+Design notes (DDR-003 + TASK-PSM-002)
+-------------------------------------
+
+The schema is shipped as a real ``schema.sql`` file inside this
+package — see :mod:`importlib.resources`. ``CREATE TABLE IF NOT EXISTS``
+plus ``INSERT OR IGNORE INTO schema_version`` make the script safe to
+re-run on every boot, which is what gives us the *idempotent*
+acceptance criterion for free: running ``apply_at_boot`` against an
+already-migrated database is a no-op (no extra rows, no schema drift).
+
+The runner wraps the executescript in a single transaction. A failure
+inside the script rolls back the whole boot — partial schema is the
+worst possible recovery state, so we'd rather raise loudly and let the
+caller surface the error.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from importlib.resources import files
+from typing import Final
+
+
+# The current schema version baked into ``schema.sql``. When a future
+# migration bumps the schema, append a sibling ``schema_v2.sql`` (or
+# similar) and add a ``(2, "schema_v2.sql")`` entry to ``_MIGRATIONS``.
+_SCHEMA_VERSION: Final[int] = 1
+_MIGRATIONS: Final[tuple[tuple[int, str], ...]] = (
+    (_SCHEMA_VERSION, "schema.sql"),
+)
+
+
+class MigrationError(RuntimeError):
+    """Raised when the boot-time migration fails to apply.
+
+    Wraps the underlying ``sqlite3`` exception so callers can surface a
+    domain-flavoured error without needing to know the exact storage
+    backend.
+    """
+
+
+def _load_migration_sql(filename: str) -> str:
+    """Return the bundled migration SQL text.
+
+    Parameters
+    ----------
+    filename:
+        Resource name relative to the ``forge.lifecycle`` package
+        (e.g. ``"schema.sql"``).
+    """
+    resource = files("forge.lifecycle") / filename
+    return resource.read_text(encoding="utf-8")
+
+
+def _current_version(connection: sqlite3.Connection) -> int:
+    """Return the highest applied schema version, or 0 if uninitialised.
+
+    The lookup tolerates the very first boot — ``schema_version`` does
+    not exist yet — and reports version 0 so the caller applies every
+    migration in order.
+    """
+    try:
+        row = connection.execute(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version;"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        # ``schema_version`` does not exist on a brand-new DB.
+        return 0
+    if row is None:
+        return 0
+    return int(row[0])
+
+
+def apply_at_boot(connection: sqlite3.Connection) -> int:
+    """Apply every pending migration to ``connection``.
+
+    The function is **idempotent**: running it twice against the same
+    database leaves the schema unchanged because every DDL statement
+    in the bundled ``schema.sql`` uses ``IF NOT EXISTS`` and the
+    ``schema_version`` seed row uses ``INSERT OR IGNORE``.
+
+    Parameters
+    ----------
+    connection:
+        A writable ``sqlite3.Connection`` — typically the persistent
+        connection returned by
+        :func:`forge.adapters.sqlite.connect.connect_writer`.
+
+    Returns
+    -------
+    int
+        The schema version after the migrations have been applied
+        (i.e. the highest version present in ``schema_version``).
+
+    Raises
+    ------
+    MigrationError
+        If any migration script raises a SQLite error. The originating
+        exception is preserved as ``__cause__``.
+    """
+    starting_version = _current_version(connection)
+
+    pending = [m for m in _MIGRATIONS if m[0] > starting_version]
+    if not pending:
+        # Already up to date — re-running schema.sql would still be a
+        # no-op, but skipping it avoids the tiny cost on every boot.
+        return starting_version
+
+    try:
+        with connection:  # transaction: commit on success, rollback on raise
+            for _version, filename in pending:
+                sql = _load_migration_sql(filename)
+                connection.executescript(sql)
+    except sqlite3.Error as exc:
+        raise MigrationError(
+            f"failed to apply migration {filename!r}: {exc}"
+        ) from exc
+
+    return _current_version(connection)
+
+
+__all__ = [
+    "MigrationError",
+    "apply_at_boot",
+]

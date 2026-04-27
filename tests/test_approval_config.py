@@ -183,6 +183,15 @@ class TestApprovalYamlRoundTrip:
                 "default_wait_seconds": 300,
                 "max_wait_seconds": 3600,
             },
+            # ``queue`` was added by TASK-PSM-003 — the round-trip dump now
+            # always includes it, so this "all sections" test must declare
+            # the queue block explicitly to keep round-trip equality holding.
+            "queue": {
+                "default_max_turns": 5,
+                "default_sdk_timeout_seconds": 1800,
+                "default_history_limit": 50,
+                "repo_allowlist": [],
+            },
             "permissions": {
                 "filesystem": {
                     "allowlist": ["/srv/forge", "/var/data"],

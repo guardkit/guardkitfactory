@@ -1,6 +1,6 @@
 {
-  "content_hash": "de0ed359566ec16ea0e4f45e6b34f981c1bb8ae6b7a4244d398e25d453de499a",
+  "content_hash": "16f54209dbaa1fde1ca61beb67ca9a55b1147ae305c1086906b02aaa80c42dbd",
   "success": false,
-  "timestamp": "2026-04-26T19:42:54.800618",
-  "venv_python": "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/venv/bin/python"
+  "timestamp": "2026-04-27T12:54:50.487513",
+  "venv_python": "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/.guardkit/venv/bin/python"
 }
