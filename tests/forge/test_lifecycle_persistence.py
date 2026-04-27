@@ -67,7 +67,6 @@ from forge.lifecycle.persistence import (
 from forge.lifecycle.state_machine import (
     BuildState,
     InvalidTransitionError,
-    Transition,
     transition as compose_transition,
 )
 from forge.pipeline.cli_steering import (
@@ -76,7 +75,6 @@ from forge.pipeline.cli_steering import (
     BuildCanceller as BuildCancellerProto,
     BuildLifecycle,
     BuildResumer as BuildResumerProto,
-    BuildSnapshot,
     BuildSnapshotReader as BuildSnapshotReaderProto,
     PauseRejectResolver as PauseRejectResolverProto,
     StageSkipRecorder as StageSkipRecorderProto,
