@@ -1,29 +1,29 @@
 ---
-id: TASK-MBC8-012
-title: BDD step bindings for all 56 Mode B and Mode C scenarios
-task_type: testing
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 6
-implementation_mode: task-work
 complexity: 6
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-008
 - TASK-MBC8-009
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-012
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - bdd
 - testing
 - mode-b
 - mode-c
 - feat-forge-008
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: BDD step bindings for all 56 Mode B and Mode C scenarios
+updated: 2026-04-27 00:00:00+00:00
+wave: 6
 ---
 
 # Task: BDD step bindings for all 56 Mode B and Mode C scenarios

@@ -1,29 +1,29 @@
 ---
-id: TASK-MBC8-011
-title: Mode C smoke E2E (queue through clean-review and PR-awaiting-review terminals)
-task_type: testing
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 6
-implementation_mode: task-work
 complexity: 5
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-008
 - TASK-MBC8-009
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-011
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - smoke
 - e2e
 - mode-c
 - testing
 - feat-forge-008
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Mode C smoke E2E (queue through clean-review and PR-awaiting-review terminals)
+updated: 2026-04-27 00:00:00+00:00
+wave: 6
 ---
 
 # Task: Mode C smoke E2E (queue through clean-review and PR-awaiting-review terminals)

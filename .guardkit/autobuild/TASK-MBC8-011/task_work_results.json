@@ -1,0 +1,229 @@
+{
+  "task_id": "TASK-MBC8-011",
+  "timestamp": "2026-04-27T19:48:34.569603",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 17,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/autobuild/TASK-MBC8-009/checkpoints.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_mode_c_smoke_e2e.py",
+    "tasks/backlog/TASK-MBC8-010-mode-b-smoke-e2e.md",
+    "tasks/backlog/TASK-MBC8-011-mode-c-smoke-e2e.md",
+    "tasks/backlog/TASK-MBC8-012-bdd-bindings-56-scenarios.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-010-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-011-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-012-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-010/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-011/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-011/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-011/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-012/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/.guardkit/autobuild/TASK-MBC8-011/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_mode_c_smoke_e2e.py",
+    "tasks/design_approved/TASK-MBC8-010-mode-b-smoke-e2e.md",
+    "tasks/design_approved/TASK-MBC8-011-mode-c-smoke-e2e.md",
+    "tasks/design_approved/TASK-MBC8-012-bdd-bindings-56-scenarios.md",
+    "tests/integration/test_mode_b_smoke_e2e.py",
+    "tests/integration/test_mode_c_smoke_e2e.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_mode_c_smoke_e2e.py"
+  ],
+  "summary": "17 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 73,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "tests/integration/test_mode_c_smoke_e2e.py enqueues Mode C builds and asserts the three terminal shapes",
+      "status": "complete",
+      "evidence": "Created tests/integration/test_mode_c_smoke_e2e.py with three top-level test classes (TestEmptyInitialReviewTerminal, TestFixTasksNoCommitsTerminal, TestFixTasksWithCommitsReachesPRReview) each driving a Mode C build through the supervisor and asserting the terminal shape. Harness uses real ModeCCyclePlanner + ModeCTerminalHandler against in-memory dispatcher fakes.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Empty review scenario: /task-review returns zero fix tasks; no /task-work stage entry recorded; build reaches complete terminal state with clean-review rationale; no PR URL recorded",
+      "status": "complete",
+      "evidence": "TestEmptyInitialReviewTerminal contains three tests: test_empty_review_reaches_clean_review_terminal asserts TurnOutcome.TERMINAL with 'clean-review' in rationale; test_empty_review_does_not_dispatch_task_work asserts only one /task-review dispatch and zero /task-work dispatches; test_empty_review_records_no_pr_url asserts pr_review_gate.submissions == [] and zero recorded pull_request_url values on chronology rows.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "N fix tasks, no commits scenario: three fix tasks dispatched and approved; worktree commit count is zero; build reaches complete terminal state with clean-review rationale; no PR URL recorded",
+      "status": "complete",
+      "evidence": "TestFixTasksNoCommitsTerminal scripts review_outcomes=[ReviewOutcome(('FIX-1','FIX-2','FIX-3')), ReviewOutcome(())] with commit_count=0; asserts three /task-work dispatches with sorted ids matching FIX-1/2/3, TurnOutcome.TERMINAL, 'clean-review' rationale, and pr_review_gate.submissions == [].",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "N fix tasks, commits exist scenario: three fix tasks dispatched and approved; worktree has at least one commit; build pauses at pull-request-review with MANDATORY_HUMAN_APPROVAL",
+      "status": "complete",
+      "evidence": "TestFixTasksWithCommitsReachesPRReview scripts the same review pattern with commit_count=2 (and 4 in the second test); asserts TurnOutcome.DISPATCHED with chosen_stage=PULL_REQUEST_REVIEW, exactly one PR submission with auto_approve=False, gate_mode=='MANDATORY_HUMAN_APPROVAL', and pull_request_url starting with 'https://github.com/example/forge/pull/'.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "/task-review entry precedes every /task-work entry it produced (Group G ordering)",
+      "status": "complete",
+      "evidence": "TestStageHistoryShape::test_task_review_precedes_every_task_work_it_produced walks pipeline.stage_log.rows and asserts the first row is TASK_REVIEW, then iterates and asserts every TASK_WORK row has last_review_idx_seen != None and < its own index.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Each /task-work entry references exactly one fix task identifier (Group B canary)",
+      "status": "complete",
+      "evidence": "TestStageHistoryShape::test_each_task_work_references_exactly_one_fix_task_id asserts each work row has non-None fix_task_id and details['fix_task_id'] mirrors the row-level field. PlannedSubprocessDispatcher also raises AssertionError if TASK_WORK is dispatched without a FixTaskRef, providing belt-and-braces enforcement.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Per-fix-task artefact paths attribute only to the fix task that produced them (Group G no double-attribution)",
+      "status": "complete",
+      "evidence": "TestStageHistoryShape::test_artefact_paths_attribute_only_to_producing_fix_task scripts unique artefact_paths per fix task (FIX-1 -> [src/a.py, tests/a_test.py], FIX-2 -> [src/b.py], FIX-3 -> [docs/c.md]) and walks every work row asserting no path appears under two different fix_task_ids; also positively asserts attributed_per_fix_task matches the scripted lists.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Each /task-work entry carries originating_review_entry_id pointing to the /task-review entry that produced its fix task (Group L lineage)",
+      "status": "complete",
+      "evidence": "TestStageHistoryShape::test_each_task_work_carries_originating_review_entry_id captures the entry_id of the first /task-review row and asserts every /task-work row's details['originating_review_entry_id'] equals that id. The harness uses build_task_work_attribution() from forge.pipeline.terminal_handlers.mode_c to populate the lineage field via the production helper.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Failure-isolation assertion (ASSUM-008): one fix task's /task-work returns failed; sibling fix tasks still get dispatched; the failed fix task's failure is recorded against itself",
+      "status": "complete",
+      "evidence": "TestFailureIsolation::test_failed_work_does_not_block_sibling_dispatch scripts FIX-A=approved, FIX-B=failed, FIX-C=approved; asserts all three fix-task ids dispatched (sorted dispatched_ids == ['FIX-A','FIX-B','FIX-C']), per-id status map exactly matches scripted statuses (failure recorded only on FIX-B), and the cycle still terminates cleanly with TurnOutcome.TERMINAL.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Hard-stop assertion: /task-review returns a hard-stop result; no /task-work dispatch is recorded; build reaches failed terminal state (Group C)",
+      "status": "complete",
+      "evidence": "TestHardStopReview has two tests: test_hard_stop_review_reaches_failed_terminal asserts TurnOutcome.TERMINAL with rationale containing 'failed' or 'hard-stop'; test_hard_stop_review_does_not_dispatch_any_task_work asserts zero TASK_WORK dispatcher calls and zero PR submissions when ReviewOutcome carries hard_stop=True.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "Cycle-termination assertion (ASSUM-010): after N fix tasks complete, a follow-up /task-review returns no further fix tasks; no further /task-work dispatch; cycle terminates with the appropriate clean or PR terminal",
+      "status": "complete",
+      "evidence": "TestCycleTermination::test_followup_clean_review_terminates_after_fix_tasks_complete scripts review_outcomes with two reviews (first emitting FIX-X, FIX-Y; second clean) and asserts exactly two /task-review dispatches, two review rows, and the follow-up review is the last row in the stage log (no further /task-work dispatched). Reaches TurnOutcome.TERMINAL with no commits.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "Tests run in under 60 seconds with all dispatchers stubbed",
+      "status": "complete",
+      "evidence": "TestPerformanceBudget::test_three_terminal_paths_complete_under_one_second runs all three terminal paths sequentially and asserts elapsed < 1.0 second (orders of magnitude under the 60-second budget). Actual full-suite run reports '17 passed in 0.06s'. All dispatchers are in-memory stubs (PlannedSubprocessDispatcher, FakePRReviewGate, FakeCommitProbe); specialist + autobuild dispatchers raise AssertionError if invoked.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-013",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Verified `python3 -m ruff check tests/integration/test_mode_c_smoke_e2e.py` reports 'All checks passed!' and `python3 -m black --target-version py312 tests/integration/test_mode_c_smoke_e2e.py` produced no further changes after the initial format pass.",
+      "test_file": "tests/integration/test_mode_c_smoke_e2e.py",
+      "implementation_files": [
+        "tests/integration/test_mode_c_smoke_e2e.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 85.28103379404638
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 221.8363388190046
+    }
+  ]
+}
