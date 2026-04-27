@@ -1,28 +1,35 @@
 ---
-id: TASK-PSM-009
-title: "`forge status` command (default, --watch, --full, --json)"
-task_type: feature
-parent_review: TASK-REV-3EEE
-feature_id: FEAT-FORGE-001
-wave: 4
-implementation_mode: task-work
 complexity: 5
-estimated_minutes: 75
-status: pending
-dependencies:
-  - TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-003
-    consumes: CONFIG_LOADER
-    framework: "Pydantic v2"
-    driver: "YAML + Pydantic"
-    format_note: "ForgeConfig.queue.default_history_limit drives the recent-terminal-builds count for the default view"
-  - task: TASK-PSM-005
-    consumes: PERSISTENCE_PROTOCOLS
-    framework: "Python typing.Protocol (runtime_checkable)"
-    driver: "dependency injection via constructor"
-    format_note: "read_status() returns active builds + last 5 terminal; read_stages(build_id) for --full; both use read_only_connect() (mode=ro URI)"
-tags: [cli, forge-status, click, watch-mode, read-path]
+- consumes: CONFIG_LOADER
+  driver: YAML + Pydantic
+  format_note: ForgeConfig.queue.default_history_limit drives the recent-terminal-builds
+    count for the default view
+  framework: Pydantic v2
+  task: TASK-PSM-003
+- consumes: PERSISTENCE_PROTOCOLS
+  driver: dependency injection via constructor
+  format_note: read_status() returns active builds + last 5 terminal; read_stages(build_id)
+    for --full; both use read_only_connect() (mode=ro URI)
+  framework: Python typing.Protocol (runtime_checkable)
+  task: TASK-PSM-005
+dependencies:
+- TASK-PSM-005
+estimated_minutes: 75
+feature_id: FEAT-FORGE-001
+id: TASK-PSM-009
+implementation_mode: task-work
+parent_review: TASK-REV-3EEE
+status: design_approved
+tags:
+- cli
+- forge-status
+- click
+- watch-mode
+- read-path
+task_type: feature
+title: '`forge status` command (default, --watch, --full, --json)'
+wave: 4
 ---
 
 # Task: `forge status` command (default, --watch, --full, --json)

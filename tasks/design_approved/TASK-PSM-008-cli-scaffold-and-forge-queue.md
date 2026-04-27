@@ -1,40 +1,51 @@
 ---
-id: TASK-PSM-008
-title: "CLI scaffold and `forge queue` command"
-task_type: feature
-parent_review: TASK-REV-3EEE
-feature_id: FEAT-FORGE-001
-wave: 4
-implementation_mode: task-work
 complexity: 6
-estimated_minutes: 90
-status: pending
-dependencies:
-  - TASK-PSM-001
-  - TASK-PSM-003
-  - TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-001
-    consumes: IDENTIFIER_VALIDATION
-    framework: "urllib.parse + re (stdlib)"
-    driver: "stdlib"
-    format_note: "validate_feature_id(s) returns the validated string or raises InvalidIdentifierError. Call it BEFORE any SQLite write or NATS publish in the queue command — fail fast on traversal/encoded-traversal/null-byte attacks"
-  - task: TASK-PSM-003
-    consumes: CONFIG_LOADER
-    framework: "Pydantic v2"
-    driver: "YAML + Pydantic"
-    format_note: "load_config(path) returns ForgeConfig with .queue.default_max_turns/default_sdk_timeout_seconds/default_history_limit/repo_allowlist; CLI flags (--max-turns, --timeout) override defaults at the build-row write site"
-  - task: TASK-PSM-005
-    consumes: PERSISTENCE_PROTOCOLS
-    framework: "Python typing.Protocol (runtime_checkable)"
-    driver: "dependency injection via constructor"
-    format_note: "SqliteLifecyclePersistence.record_pending_build(payload) raises DuplicateBuildError on UNIQUE(feature_id, correlation_id) violation; exists_active_build(feature_id) checks Group C in-flight duplicate"
-  - task: TASK-PSM-004
-    consumes: STATE_TRANSITION_API
-    framework: "Python module import"
-    driver: "in-process call"
-    format_note: "queue command does NOT directly transition state — it only writes the QUEUED row via persistence.record_pending_build(); state transitions begin in TASK-PSM-007 (recovery) and the supervisor (within-build, owned by 002-007)"
-tags: [cli, forge-queue, click, write-then-publish]
+- consumes: IDENTIFIER_VALIDATION
+  driver: stdlib
+  format_note: validate_feature_id(s) returns the validated string or raises InvalidIdentifierError.
+    Call it BEFORE any SQLite write or NATS publish in the queue command — fail fast
+    on traversal/encoded-traversal/null-byte attacks
+  framework: urllib.parse + re (stdlib)
+  task: TASK-PSM-001
+- consumes: CONFIG_LOADER
+  driver: YAML + Pydantic
+  format_note: load_config(path) returns ForgeConfig with .queue.default_max_turns/default_sdk_timeout_seconds/default_history_limit/repo_allowlist;
+    CLI flags (--max-turns, --timeout) override defaults at the build-row write site
+  framework: Pydantic v2
+  task: TASK-PSM-003
+- consumes: PERSISTENCE_PROTOCOLS
+  driver: dependency injection via constructor
+  format_note: SqliteLifecyclePersistence.record_pending_build(payload) raises DuplicateBuildError
+    on UNIQUE(feature_id, correlation_id) violation; exists_active_build(feature_id)
+    checks Group C in-flight duplicate
+  framework: Python typing.Protocol (runtime_checkable)
+  task: TASK-PSM-005
+- consumes: STATE_TRANSITION_API
+  driver: in-process call
+  format_note: queue command does NOT directly transition state — it only writes the
+    QUEUED row via persistence.record_pending_build(); state transitions begin in
+    TASK-PSM-007 (recovery) and the supervisor (within-build, owned by 002-007)
+  framework: Python module import
+  task: TASK-PSM-004
+dependencies:
+- TASK-PSM-001
+- TASK-PSM-003
+- TASK-PSM-005
+estimated_minutes: 90
+feature_id: FEAT-FORGE-001
+id: TASK-PSM-008
+implementation_mode: task-work
+parent_review: TASK-REV-3EEE
+status: design_approved
+tags:
+- cli
+- forge-queue
+- click
+- write-then-publish
+task_type: feature
+title: CLI scaffold and `forge queue` command
+wave: 4
 ---
 
 # Task: CLI scaffold and `forge queue` command

@@ -926,6 +926,49 @@ class SqliteLifecyclePersistence:
         return [_row_to_stage_entry(r) for r in rows]
 
     # ------------------------------------------------------------------
+    # Read API — read_non_terminal_builds (TASK-PSM-007)
+    # ------------------------------------------------------------------
+
+    def read_non_terminal_builds(self) -> list[BuildRow]:
+        """Return every build whose status is **not** terminal.
+
+        Used by the boot-time crash-recovery reconciliation pass
+        (TASK-PSM-007 / :func:`forge.lifecycle.recovery.reconcile_on_boot`).
+        Terminal states (``COMPLETE``, ``FAILED``, ``CANCELLED``,
+        ``SKIPPED``) are filtered out at the SQL layer so the recovery
+        pass never iterates them. ``INTERRUPTED`` is non-terminal and is
+        included — the recovery handler treats it as a no-op (the build
+        is already awaiting re-pickup).
+
+        Rows are ordered by ``queued_at ASC`` so a deterministic
+        recovery order is preserved across runs (the oldest in-flight
+        build is reconciled first), which keeps the recovery report's
+        ``failures`` list stable across re-runs.
+
+        Returns:
+            List of :class:`BuildRow` for every non-terminal build.
+        """
+        terminal_values = tuple(
+            s.value
+            for s in (
+                BuildState.COMPLETE,
+                BuildState.FAILED,
+                BuildState.CANCELLED,
+                BuildState.SKIPPED,
+            )
+        )
+        placeholders = ",".join(["?"] * len(terminal_values))
+        sql = f"""
+            SELECT *
+              FROM builds
+             WHERE status NOT IN ({placeholders})
+             ORDER BY queued_at ASC
+        """
+        with self._reader() as cx:
+            rows = cx.execute(sql, terminal_values).fetchall()
+        return [_row_to_build_row(r) for r in rows]
+
+    # ------------------------------------------------------------------
     # Read API — exists_active_build
     # ------------------------------------------------------------------
 

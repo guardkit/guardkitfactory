@@ -259,6 +259,36 @@ DIRECTIVE_NO_AUTOBUILD_RATIONALE = (
 )
 
 
+def _annotate_rationale(
+    base: str,
+    *,
+    responder: str | None,
+    reason: str | None,
+) -> str:
+    """Append optional ``responder`` / ``reason`` audit fields to ``base``.
+
+    The CLI wrappers (``forge cancel`` / ``forge skip``) thread the
+    invoking operator (``os.getlogin()``) and the operator-supplied
+    ``--reason`` text into the structured rationale so the Group E
+    "cancelling operator recorded distinctly" invariant holds without
+    requiring a parallel audit channel. Both inputs are optional —
+    callers that omit them get the unannotated rationale, which is
+    what the legacy programmatic call sites already exercise.
+
+    Empty / whitespace-only values are treated as absent so a CLI
+    invocation that did not supply ``--reason`` does not pollute the
+    rationale with an empty trailing fragment.
+    """
+    suffix_parts: list[str] = []
+    if responder and responder.strip():
+        suffix_parts.append(f"responder={responder!r}")
+    if reason and reason.strip():
+        suffix_parts.append(f"reason={reason!r}")
+    if not suffix_parts:
+        return base
+    return f"{base} [{'; '.join(suffix_parts)}]"
+
+
 # ---------------------------------------------------------------------------
 # Outcome dataclasses — frozen + slotted so callers can compare two
 # outcomes by value (idempotency / regression tests) and the CLI cannot
@@ -609,7 +639,13 @@ class CliSteeringHandler:
     # AC-002 — handle_cancel
     # ------------------------------------------------------------------
 
-    def handle_cancel(self, build_id: str) -> CancelOutcome:
+    def handle_cancel(
+        self,
+        build_id: str,
+        *,
+        reason: str | None = None,
+        responder: str | None = None,
+    ) -> CancelOutcome:
         """Resolve a ``forge cancel`` directive against ``build_id``.
 
         Branches on the snapshot's :attr:`BuildSnapshot.lifecycle`:
@@ -632,6 +668,16 @@ class CliSteeringHandler:
             build_id: Build the cancel is directed at. Empty values are
                 refused via :class:`ValueError` — the same stance the
                 publishers and dispatchers take for their primary keys.
+            reason: Optional operator-supplied free-text reason. When
+                provided it is appended to the structured rationale so
+                ``stage_log.gate_rationale`` (and the synthetic-reject
+                ``notes`` field) carry the operator's words verbatim
+                alongside the controlling specification reference.
+            responder: Optional operator identity (typically
+                ``os.getlogin()``). When provided it is appended to the
+                rationale so the Group E "cancelling operator recorded
+                distinctly" audit-trail invariant holds even when the
+                cancelling operator differs from the originator.
 
         Returns:
             :class:`CancelOutcome` carrying the verdict, the rationale,
@@ -664,10 +710,14 @@ class CliSteeringHandler:
                     "PAUSED_AT_GATE but paused_stage is None; refusing "
                     "to resolve a synthetic reject without a stage"
                 )
-            rationale = CANCEL_REJECT_RATIONALE.format(
-                stage=stage,
-                feature_id=snapshot.paused_feature_id,
-                build_id=build_id,
+            rationale = _annotate_rationale(
+                CANCEL_REJECT_RATIONALE.format(
+                    stage=stage,
+                    feature_id=snapshot.paused_feature_id,
+                    build_id=build_id,
+                ),
+                responder=responder,
+                reason=reason,
             )
             self.pause_reject_resolver.resolve_as_reject(
                 build_id=build_id,
@@ -704,10 +754,14 @@ class CliSteeringHandler:
                     "missing; refusing to call cancel_async_task with an "
                     "empty task_id"
                 )
-            rationale = CANCEL_AUTOBUILD_RATIONALE.format(
-                build_id=build_id,
-                task_id=task_id,
-                feature_id=snapshot.active_autobuild_feature_id,
+            rationale = _annotate_rationale(
+                CANCEL_AUTOBUILD_RATIONALE.format(
+                    build_id=build_id,
+                    task_id=task_id,
+                    feature_id=snapshot.active_autobuild_feature_id,
+                ),
+                responder=responder,
+                reason=reason,
             )
             self.async_task_canceller.cancel_async_task(task_id)
             self.build_canceller.mark_cancelled(
@@ -729,9 +783,13 @@ class CliSteeringHandler:
             )
 
         if snapshot.lifecycle is BuildLifecycle.OTHER_RUNNING:
-            rationale = CANCEL_DIRECT_RATIONALE.format(
-                build_id=build_id,
-                lifecycle=snapshot.lifecycle,
+            rationale = _annotate_rationale(
+                CANCEL_DIRECT_RATIONALE.format(
+                    build_id=build_id,
+                    lifecycle=snapshot.lifecycle,
+                ),
+                responder=responder,
+                reason=reason,
             )
             self.build_canceller.mark_cancelled(
                 build_id=build_id,
@@ -749,7 +807,11 @@ class CliSteeringHandler:
             )
 
         # TERMINAL — no-op.
-        rationale = CANCEL_NOOP_TERMINAL_RATIONALE.format(build_id=build_id)
+        rationale = _annotate_rationale(
+            CANCEL_NOOP_TERMINAL_RATIONALE.format(build_id=build_id),
+            responder=responder,
+            reason=reason,
+        )
         logger.info(
             "cli_steering.handle_cancel: build_id=%s already terminal; no-op",
             build_id,
@@ -768,6 +830,9 @@ class CliSteeringHandler:
         self,
         build_id: str,
         stage: StageClass,
+        *,
+        reason: str | None = None,
+        responder: str | None = None,
     ) -> SkipOutcome:
         """Resolve a ``forge skip`` directive against ``stage``.
 
@@ -808,10 +873,14 @@ class CliSteeringHandler:
         guard_decision = self.constitutional_guard.veto_skip(stage)
 
         if guard_decision.verdict is SkipVerdict.REFUSED_CONSTITUTIONAL:
-            rationale = SKIP_REFUSED_RATIONALE.format(
-                build_id=build_id,
-                stage=stage,
-                guard_rationale=guard_decision.rationale,
+            rationale = _annotate_rationale(
+                SKIP_REFUSED_RATIONALE.format(
+                    build_id=build_id,
+                    stage=stage,
+                    guard_rationale=guard_decision.rationale,
+                ),
+                responder=responder,
+                reason=reason,
             )
             self.skip_recorder.record_skip_refused(
                 build_id=build_id,
@@ -833,9 +902,13 @@ class CliSteeringHandler:
                 guard_decision=guard_decision,
             )
 
-        rationale = SKIP_RECORDED_RATIONALE.format(
-            build_id=build_id,
-            stage=stage,
+        rationale = _annotate_rationale(
+            SKIP_RECORDED_RATIONALE.format(
+                build_id=build_id,
+                stage=stage,
+            ),
+            responder=responder,
+            reason=reason,
         )
         self.skip_recorder.record_skipped(
             build_id=build_id,

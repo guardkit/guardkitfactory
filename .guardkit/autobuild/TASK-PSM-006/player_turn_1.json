@@ -1,0 +1,127 @@
+{
+  "task_id": "TASK-PSM-006",
+  "turn": 1,
+  "files_modified": [],
+  "files_created": [
+    "src/forge/lifecycle/queue.py",
+    "tests/forge/test_lifecycle_queue.py"
+  ],
+  "tests_written": [
+    "tests/forge/test_lifecycle_queue.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "17 passed in 0.25s. Test classes: TestNextBuildBlockedByActiveBuild (5 tests, parametrized over PREPARING/RUNNING/PAUSED/FINALISING + constant-membership lock), TestNextBuildReturnsOldestQueued (4 tests covering AC-005..AC-008 plus an empty-db sanity check), TestPickerUsesBeginImmediate (2 tests: source regex + runtime trace_callback observation), TestIsProjectBusyNullScope (4 tests: NULL busy, NULL-vs-named separation, NULL-pick selectivity, IS NULL static-analysis), TestModuleLevelWrappers (2 tests for the convenience functions).",
+  "implementation_notes": "Created src/forge/lifecycle/queue.py with the SqliteSequentialQueuePicker class and module-level next_build_to_pick/is_project_busy convenience wrappers. The picker composes SqliteLifecyclePersistence (sharing the writer connection that apply_transition uses, so BEGIN IMMEDIATE serialises pick attempts at the SQLite engine level). next_build_to_pick wraps the decision in BEGIN IMMEDIATE / COMMIT (rollback on sqlite3.Error): step 1 queries for any build in BLOCKING_STATES = {PREPARING, RUNNING, PAUSED, FINALISING} for the project (returns None if found); step 2 selects the oldest QUEUED row by queued_at ASC and hydrates it via the existing _row_to_build_row helper for consistency with the persistence module. NULL handling branches on `project is None` and uses `IS NULL` predicates (never `= NULL`, which evaluates to NULL in SQLite). is_project_busy is a cheap predicate that does NOT acquire the write lock (per the task brief's 'thin module' guidance). INTERRUPTED is intentionally excluded from BLOCKING_STATES so PAUSED-recovery (TASK-PSM-007) can re-pickup builds without deadlocking the project. Module is purely query logic \u2014 no UPDATE statements are issued (verified by grep), preserving the sc_001 'single status writer' invariant in persistence.py.",
+  "concerns": [
+    "Pre-existing failure in tests/forge/test_lifecycle_persistence.py::TestSingleStatusWriter::test_single_status_writer_in_src reports 2 status writers (persistence.py + recovery.py). This is unrelated to TASK-PSM-006 \u2014 recovery.py is owned by TASK-PSM-007 and our queue.py contains zero UPDATE statements (verified via grep). No action taken.",
+    "The task spec wrote the API as bare `next_build_to_pick(project)` / `is_project_busy(project)` functions; the codebase convention is class-based facades (Sqlite* in persistence.py). Implemented both: a SqliteSequentialQueuePicker class for production wiring AND module-level wrappers that take a persistence instance, matching both the task signature and the file's stylistic norms."
+  ],
+  "requirements_addressed": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009"
+  ],
+  "requirements_remaining": [],
+  "implementation_mode": "direct",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "[ ] `next_build_to_pick(project)` returns None if any build for the project is in {QUEUED-pending-this-pick, PREPARING, RUNNING, PAUSED, FINALISING} EXCEPT the one being picked",
+      "status": "complete",
+      "evidence": "next_build_to_pick first calls _project_has_blocking_build, which queries for any row in BLOCKING_STATES = {PREPARING, RUNNING, PAUSED, FINALISING} for the project; if found, COMMITs the empty BEGIN IMMEDIATE transaction and returns None. QUEUED is excluded from BLOCKING_STATES because the candidate itself is QUEUED \u2014 the FIFO ORDER BY queued_at ASC LIMIT 1 implicitly excludes any later-queued sibling. Parametrized test test_preparing_blocks_pick exercises all four blocking states.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "[ ] `next_build_to_pick(project)` returns the oldest-by-`queued_at` QUEUED build for the project when nothing else is in flight",
+      "status": "complete",
+      "evidence": "_select_oldest_queued executes `SELECT * FROM builds WHERE project = ? AND status = 'QUEUED' ORDER BY queued_at ASC LIMIT 1` (NULL-scope variant uses IS NULL). Hydrated to BuildRow via _row_to_build_row for compatibility with the persistence module's read_history projection. test_returns_oldest_when_two_queued seeds two QUEUED rows with 30-second-apart queued_at and asserts the older one is returned.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "[ ] Picker query runs inside a `BEGIN IMMEDIATE` transaction to acquire the write lock atomically \u2014 prevents two consumer instances from both picking the same build (Group F \"two simultaneous queues\")",
+      "status": "complete",
+      "evidence": "next_build_to_pick issues `BEGIN IMMEDIATE;` before any read and `COMMIT;` (or `ROLLBACK;` on sqlite3.Error) after. Two tests guard this: test_source_contains_begin_immediate (regex over the module source) and test_begin_immediate_executed_at_runtime (uses sqlite3 set_trace_callback to record every executed SQL statement and asserts both BEGIN IMMEDIATE and COMMIT appear). The shared writer connection means a competing consumer's BEGIN IMMEDIATE blocks on the busy_timeout configured in adapters/sqlite/connect.py.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "[ ] `is_project_busy(project=None)` correctly handles the fleet-wide scope (NULL `project` column compares equal to NULL via `IS NULL` predicates, not `=`)",
+      "status": "complete",
+      "evidence": "_project_has_blocking_build branches on `if project is None:` and uses `WHERE project IS NULL` for the fleet-wide path; the named-project path uses `WHERE project = ?`. Tests test_null_scope_busy_when_null_project_running, test_null_scope_not_busy_when_only_named_projects_running, and test_null_scope_picks_only_null_queued exercise the NULL-vs-named separation. test_query_uses_is_null_predicate_in_source statically asserts the source contains `IS NULL` and contains no `= NULL`.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "[ ] Unit test: seed one PREPARING + one QUEUED for project X \u2192 `next_build_to_pick(\"X\")` returns None",
+      "status": "complete",
+      "evidence": "TestNextBuildBlockedByActiveBuild::test_preparing_blocks_pick is parametrized over [PREPARING, RUNNING, PAUSED, FINALISING]; the PREPARING parameter case seeds one PREPARING + one QUEUED for project X and asserts next_build_to_pick(\"X\") is None and is_project_busy(\"X\") is True.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "[ ] Unit test: seed one COMPLETE + one QUEUED for project X \u2192 `next_build_to_pick(\"X\")` returns the QUEUED build",
+      "status": "complete",
+      "evidence": "TestNextBuildReturnsOldestQueued::test_terminal_does_not_block seeds one COMPLETE (terminal) + one QUEUED for project X and asserts the picker returns the QUEUED row (build_id=='build-queued', status is BuildState.QUEUED).",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "[ ] Unit test: seed one RUNNING for project X + one QUEUED for project Y \u2192 `next_build_to_pick(\"Y\")` returns the QUEUED Y build (different project = unblocked)",
+      "status": "complete",
+      "evidence": "TestNextBuildReturnsOldestQueued::test_other_project_does_not_block seeds RUNNING for project X + QUEUED for project Y; asserts next_build_to_pick(\"Y\") returns build-queued-y and next_build_to_pick(\"X\") returns None. Also asserts is_project_busy(\"X\") is True and is_project_busy(\"Y\") is False.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "[ ] Unit test: seed two QUEUED for project X with different `queued_at` \u2192 picker returns the older one",
+      "status": "complete",
+      "evidence": "TestNextBuildReturnsOldestQueued::test_returns_oldest_when_two_queued seeds two QUEUED rows for project X with queued_at 30 seconds apart; asserts picker returns the older row (build_id=='build-older', queued_at == older_at).",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "[ ] All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Both files compile cleanly under `python3 -m py_compile`. All lines fit within the 88-char limit declared in .claude/rules/code-style.md (verified via `awk 'length > 88'` \u2014 zero matches). Type hints are present on every public function/method. Naming follows the repo convention (snake_case functions, PascalCase classes, UPPER_CASE constants). No project-level ruff/black/flake8 config exists in pyproject.toml so no further automated lint gate is configured at the repo level.",
+      "test_file": "tests/forge/test_lifecycle_queue.py",
+      "implementation_files": [
+        "src/forge/lifecycle/queue.py",
+        "tests/forge/test_lifecycle_queue.py"
+      ]
+    }
+  ],
+  "success": true
+}

@@ -1,34 +1,42 @@
 ---
-id: TASK-PSM-007
-title: "Crash-recovery reconciliation across all non-terminal states"
-task_type: feature
-parent_review: TASK-REV-3EEE
-feature_id: FEAT-FORGE-001
-wave: 3
-implementation_mode: task-work
 complexity: 7
-estimated_minutes: 105
-status: pending
-dependencies:
-  - TASK-PSM-004
-  - TASK-PSM-005
 consumer_context:
-  - task: TASK-PSM-002
-    consumes: SCHEMA_INITIALIZED
-    framework: "sqlite3 (stdlib)"
-    driver: "stdlib"
-    format_note: "STRICT tables, WAL pragmas, builds.pending_approval_request_id column populated when state=PAUSED"
-  - task: TASK-PSM-004
-    consumes: STATE_TRANSITION_API
-    framework: "Python module import"
-    driver: "in-process call"
-    format_note: "Use state_machine.transition() to mark INTERRUPTED; never write status directly. PAUSED→PAUSED is a no-op (no transition emitted)"
-  - task: TASK-PSM-005
-    consumes: PENDING_APPROVAL_REQUEST_ID
-    framework: "SQLite STRICT column"
-    driver: "sqlite3"
-    format_note: "builds.pending_approval_request_id is the original ApprovalRequestPayload.request_id (UUID string). Recovery MUST reuse it verbatim when re-publishing — generating a new UUID breaks responder correlation"
-tags: [lifecycle, recovery, reconciliation, crash-safety]
+- consumes: SCHEMA_INITIALIZED
+  driver: stdlib
+  format_note: STRICT tables, WAL pragmas, builds.pending_approval_request_id column
+    populated when state=PAUSED
+  framework: sqlite3 (stdlib)
+  task: TASK-PSM-002
+- consumes: STATE_TRANSITION_API
+  driver: in-process call
+  format_note: Use state_machine.transition() to mark INTERRUPTED; never write status
+    directly. PAUSED→PAUSED is a no-op (no transition emitted)
+  framework: Python module import
+  task: TASK-PSM-004
+- consumes: PENDING_APPROVAL_REQUEST_ID
+  driver: sqlite3
+  format_note: builds.pending_approval_request_id is the original ApprovalRequestPayload.request_id
+    (UUID string). Recovery MUST reuse it verbatim when re-publishing — generating
+    a new UUID breaks responder correlation
+  framework: SQLite STRICT column
+  task: TASK-PSM-005
+dependencies:
+- TASK-PSM-004
+- TASK-PSM-005
+estimated_minutes: 105
+feature_id: FEAT-FORGE-001
+id: TASK-PSM-007
+implementation_mode: task-work
+parent_review: TASK-REV-3EEE
+status: design_approved
+tags:
+- lifecycle
+- recovery
+- reconciliation
+- crash-safety
+task_type: feature
+title: Crash-recovery reconciliation across all non-terminal states
+wave: 3
 ---
 
 # Task: Crash-recovery reconciliation across all non-terminal states
