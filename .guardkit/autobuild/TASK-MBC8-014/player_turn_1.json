@@ -1,0 +1,144 @@
+{
+  "task_id": "TASK-MBC8-014",
+  "turn": 1,
+  "files_modified": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_mode_b_c_crash_recovery.py",
+    "tasks/backlog/TASK-MBC8-013-cross-mode-concurrency.md",
+    "tasks/backlog/TASK-MBC8-014-crash-recovery-mode-b-c.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-013-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-014-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-012/checkpoints.json",
+    ".guardkit/autobuild/TASK-MBC8-013/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-MBC8-013/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-013/specialist_results.json",
+    ".guardkit/autobuild/TASK-MBC8-013/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-013/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-014/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-014/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-014/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/.guardkit/autobuild/TASK-MBC8-014/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_mode_b_c_crash_recovery.py",
+    "tasks/design_approved/TASK-MBC8-013-cross-mode-concurrency.md",
+    "tasks/design_approved/TASK-MBC8-014-crash-recovery-mode-b-c.md",
+    "tests/integration/test_cross_mode_concurrency.py",
+    "tests/integration/test_mode_b_c_crash_recovery.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_mode_b_c_crash_recovery.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001: Mode B retry-from-scratch parametrised over feature-spec/feature-plan/autobuild",
+    "AC-002: Mode C retry-from-scratch for task-review and task-work",
+    "AC-003: durable history authority for Mode B autobuild + abandoned task_id recorded",
+    "AC-004: durable history authority for Mode C task-work + abandoned task_id recorded",
+    "AC-005: Mode C cycle-state preservation across crash (3rd of 5 fix tasks)",
+    "AC-006: approval-channel isolation across crash (per-build request_id routing)",
+    "AC-007: cancel during async crash recovery resolves to CANCELLED terminal without re-dispatch",
+    "AC-008: actual SQLite persistence layer used end-to-end (canary tests included)",
+    "AC-009: lint/format \u2014 no project-configured linter; py_compile clean"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 61,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 13,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "tests/integration/test_mode_b_c_crash_recovery.py covers Group D Scenario Outlines verbatim \u2014 Mode B: crash during feature-spec, feature-plan, or autobuild \u2192 restart \u2192 build re-enters preparing state \u2192 prior in-flight stage is reattempted from the start (no partial-progress replay)",
+      "status": "complete",
+      "evidence": "TestModeBRetryFromScratchAcrossNonTerminalStages parametrises over (feature-spec, feature-plan, autobuild). Each row seeds prereq stage_log rows up to but not including the in-flight stage on a real SqliteLifecyclePersistence-backed tmp_path database, drives the build through QUEUED \u2192 PREPARING \u2192 RUNNING, closes the writer connection (crash), opens a fresh connection, runs reconcile_on_boot, asserts BuildState.INTERRUPTED, drives INTERRUPTED \u2192 QUEUED \u2192 PREPARING, and runs ModeBChainPlanner against the real durable history to assert plan.next_stage equals the in-flight stage. A separate assertion confirms no duplicate \u2018approved\u2019 stage_log row was written for the re-attempted stage.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Mode C: crash during task-review or task-work \u2192 restart \u2192 build re-enters preparing state \u2192 prior in-flight stage is reattempted from the start",
+      "status": "complete",
+      "evidence": "TestModeCRetryFromScratchAcrossNonTerminalStages defines two tests: test_crash_mid_task_review_replays_initial_review (no review row pre-crash \u2192 planner returns next_stage=TASK_REVIEW with rationale \u2018initial\u2019) and test_crash_mid_task_work_replays_same_fix_task (approved review with one fix task \u2018FIX-X1\u2019 pre-crash \u2192 planner returns TASK_WORK with FixTaskRef.fix_task_id == 'FIX-X1'). Both use real SqliteLifecyclePersistence and exercise reconcile_on_boot.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Durable-history authority (ASSUM-009): asynchronous Mode B autobuild in flight \u2192 runtime crashes \u2192 on restart authoritative status read from durable history; live async_tasks state channel data is treated as advisory; the autobuild is re-dispatched as a fresh asynchronous task with a new task identifier; the previous task identifier is recorded as abandoned in stage history",
+      "status": "complete",
+      "evidence": "TestDurableHistoryAuthorityModeBAutobuild stages a Mode B build in RUNNING with FEATURE_SPEC + FEATURE_PLAN approved on real SQLite, simulates a crash + reconcile_on_boot, records the original autobuild task_id \u2018autobuild-task-1001\u2019 as abandoned via _record_abandoned_task (uses sentinel stage_label \u2018crash-recovery-abandoned-task\u2019 so planner projection skips it), drives PREPARING, asserts ModeBChainPlanner returns AUTOBUILD as next_stage, simulates a fresh dispatch with new task_id \u2018autobuild-task-2042\u2019, and asserts (a) abandoned task list equals ['autobuild-task-1001'] and (b) the only AUTOBUILD stage_log row's task_id equals the new value.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Same durable-history-authority assertion holds for an in-flight Mode C task-work",
+      "status": "complete",
+      "evidence": "TestDurableHistoryAuthorityModeCTaskWork mirrors AC-003 for Mode C: writes a TASK_REVIEW PASSED row with fix_tasks=('FIX-MC-1',), simulates the crash, records original_task_id='taskwork-task-700' as abandoned, runs ModeCCyclePlanner against real durable history, and asserts plan.next_stage is TASK_WORK with FixTaskRef.fix_task_id == 'FIX-MC-1'. Abandoned task ID is verified in stage history via _read_abandoned_task_ids.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Cycle-state preservation in Mode C: a crash during the third of five fix tasks reattempts the third fix task from the start (not the first); the prior two completed /task-work entries remain in stage history with their approved status preserved",
+      "status": "complete",
+      "evidence": "TestModeCCycleStatePreservationAcrossCrash seeds a Mode C build with TASK_REVIEW emitting fix_tasks=('FIX-1','FIX-2','FIX-3','FIX-4','FIX-5'), writes PASSED TASK_WORK rows for FIX-1 and FIX-2, leaves FIX-3 mid-flight (no row), simulates crash + recovery on real SQLite, then asserts (a) sorted approved fix_task_ids equals ['FIX-1', 'FIX-2'] (prior approvals intact) and (b) ModeCCyclePlanner.plan_next_stage returns TASK_WORK with FixTaskRef.fix_task_id == 'FIX-3' (third reattempted, not first).",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Approval-channel isolation across crash: if Build A is paused at a flagged-for-review checkpoint when the runtime crashes, the resume after restart still routes the approval response to Build A only (build-identifier routing is durable, not in-process state)",
+      "status": "complete",
+      "evidence": "TestApprovalChannelIsolationAcrossCrash creates two Mode B builds A and B in real SQLite, drives A to PAUSED with persistence.mark_paused(build_a, 'approval-req-A-DURABLE'), drives B to RUNNING, simulates crash + reconcile_on_boot with a RecordingApprovalPublisher, then asserts: (a) A remains PAUSED while B becomes INTERRUPTED, (b) report.paused_reissued_count == 1 and report.interrupted_count == 1, (c) exactly one approval envelope was published, (d) the envelope's payload.request_id equals the verbatim 'approval-req-A-DURABLE', and (e) the envelope's details.build_id equals build_a (not build_b) \u2014 proving build-identifier routing is durable.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Cancel during async crash recovery: a forge cancel issued against a build whose autobuild was interrupted by a crash resolves the build to cancelled terminal without re-dispatching the autobuild",
+      "status": "complete",
+      "evidence": "TestCancelDuringAsyncCrashRecovery stages a Mode B build with a pre-crash AUTOBUILD GATED row carrying task_id='autobuild-task-9000', simulates the crash, runs reconcile_on_boot (build \u2192 INTERRUPTED), records the abandoned task_id, then drives the cancel path INTERRUPTED \u2192 QUEUED \u2192 CANCELLED via apply_transition. Asserts (a) final BuildState.CANCELLED, (b) exactly one GATED AUTOBUILD row exists (no fresh re-dispatch), (c) that row's task_id equals the original 'autobuild-task-9000', and (d) the abandonment audit row records the original task_id.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Tests use the actual SQLite persistence layer (no in-memory shortcut) so the crash-recovery contract from FEAT-FORGE-001 is exercised end-to-end",
+      "status": "complete",
+      "evidence": "Every test in the suite opens a real on-disk SQLite database via tmp_path / 'forge.db', runs forge.lifecycle.migrations.apply_at_boot to apply schema.sql + schema_v2.sql, instantiates SqliteLifecyclePersistence, and routes every state transition through forge.lifecycle.state_machine.transition + persistence.apply_transition. Crash simulation closes the writer connection and reopens a fresh one against the same on-disk file. TestActualSqlitePersistenceLayerExercised adds two canary checks: (a) test_sqlite_persistence_facade_is_the_persisted_writer asserts the file exists and schema_version is at v2, (b) test_no_in_memory_stage_log_double_in_use asserts no DurableStageLog/AdvisoryAsyncTaskChannel/FakeStageLog classes are defined in the test module (the in-memory shortcut the AC forbids).",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "The project's pyproject.toml does not configure ruff, black, or any other lint/format tool ([tool.ruff] / [tool.black] sections are absent; the venv ships pytest only). The new file compiles cleanly via py_compile and follows the existing codebase conventions (PEP 8, type hints, docstrings, max line length ~88, snake_case helpers, PascalCase classes). No project-configured lint check exists for this run to violate.",
+      "test_file": "tests/integration/test_mode_b_c_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_b_c_crash_recovery.py"
+      ]
+    }
+  ]
+}

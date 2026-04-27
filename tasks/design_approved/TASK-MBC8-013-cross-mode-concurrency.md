@@ -1,19 +1,15 @@
 ---
-id: TASK-MBC8-013
-title: Cross-mode concurrency integration tests (Mode A + B + C in flight together)
-task_type: testing
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 7
-implementation_mode: task-work
 complexity: 6
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-010
 - TASK-MBC8-011
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-013
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - concurrency
 - integration
@@ -21,10 +17,14 @@ tags:
 - mode-b
 - mode-c
 - feat-forge-008
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Cross-mode concurrency integration tests (Mode A + B + C in flight together)
+updated: 2026-04-27 00:00:00+00:00
+wave: 7
 ---
 
 # Task: Cross-mode concurrency integration tests (Mode A + B + C in flight together)

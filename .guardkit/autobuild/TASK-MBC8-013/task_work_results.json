@@ -1,0 +1,185 @@
+{
+  "task_id": "TASK-MBC8-013",
+  "timestamp": "2026-04-27T20:10:18.771273",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "complete. Phase 5.5 plan audit:",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 19,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_cross_mode_concurrency.py",
+    "tasks/backlog/TASK-MBC8-013-cross-mode-concurrency.md",
+    "tasks/backlog/TASK-MBC8-014-crash-recovery-mode-b-c.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-013-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-014-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-012/checkpoints.json",
+    ".guardkit/autobuild/TASK-MBC8-013/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-013/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-013/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-014/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/.guardkit/autobuild/TASK-MBC8-013/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_cross_mode_concurrency.py",
+    "tasks/design_approved/TASK-MBC8-013-cross-mode-concurrency.md",
+    "tasks/design_approved/TASK-MBC8-014-crash-recovery-mode-b-c.md",
+    "tests/integration/test_cross_mode_concurrency.py",
+    "tests/integration/test_mode_b_c_crash_recovery.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/integration/test_cross_mode_concurrency.py"
+  ],
+  "summary": "19 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 52,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "tests/integration/test_cross_mode_concurrency.py covers: Two Mode B builds running simultaneously: each gets its own autobuild task ID; each pauses at its own flagged-for-review checkpoint; an approval response targeting build 1 resolves only build 1 (Group F)",
+      "status": "complete",
+      "evidence": "Implemented TestTwoModeBBuildsConcurrent with three tests: test_two_mode_b_builds_get_distinct_autobuild_task_ids (asserts autobuild dispatcher returns distinct task_ids per build via asyncio.gather), test_each_mode_b_build_pauses_at_its_own_pr_review (asserts each build pauses at PR-review with its own feature_id), and test_approval_response_targeting_build_one_resolves_only_build_one (asserts NATS per-build mirror routing isolates approvals across two paused subscribers). Single shared Supervisor instance per the task's implementation note.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Mode B + Mode C concurrent: Mode B at autobuild, Mode C at task-work; both pause at flagged-for-review; approvals route by build identifier (Group F)",
+      "status": "complete",
+      "evidence": "Implemented TestModeBAndModeCConcurrent with two tests: test_mode_b_dispatches_autobuild_while_mode_c_dispatches_task_work (drives Mode B build pre-approved at FEATURE_PLAN and Mode C build with a recorded TASK_REVIEW under asyncio.gather, asserts Mode B picks AUTOBUILD with feature scope while Mode C picks TASK_WORK with the right FixTaskRef), and test_approvals_route_by_build_identifier_for_b_and_c (delivers responses to both Mode B and Mode C mirrors via asyncio.gather; asserts each subscriber resolves only on its own build_id).",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Three-way interleave (Mode A + B + C): each build's recorded stage history reflects only its mode's stages; no cross-talk between approval channels (Group K)",
+      "status": "complete",
+      "evidence": "Implemented TestThreeWayModeInterleave with three tests: test_three_way_dispatch_under_asyncio_gather (drives one Mode A build at AUTOBUILD, one Mode B build at AUTOBUILD, and one Mode C build at TASK_WORK concurrently under one Supervisor via asyncio.gather), test_each_builds_chronology_reflects_only_its_modes_stages (asserts Mode A chronology contains only Mode A chain stages, Mode B chronology never contains the four pre-feature-spec Mode A stages, Mode C chronology contains only Mode C chain stages), test_no_cross_talk_in_dispatcher_call_attribution (asserts specialist_dispatcher only ever sees Mode A build_ids; Mode B subprocess calls only ever target FEATURE_SPEC/FEATURE_PLAN; Mode C calls only ever target TASK_REVIEW/TASK_WORK). The harness wires a single Supervisor instance with mode-aware routing through _BuildModeRouter and _CompositeStageLog.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Supervisor responsiveness during async stages: while Build 1's autobuild or task-work is in the running lifecycle, Build 2's first stage is dispatched without waiting (Group F supervisor dispatches second build's stage during first build's async stage)",
+      "status": "complete",
+      "evidence": "Implemented TestSupervisorResponsivenessDuringAsync with two tests: test_second_mode_b_dispatch_proceeds_while_first_autobuild_in_flight (one Mode B build pre-approved at FEATURE_PLAN runs autobuild dispatch concurrently with a fresh Mode B build that picks FEATURE_SPEC; asserts both turns dispatch without blocking), and test_second_build_dispatches_during_first_autobuild_running_wave (Mode A build with autobuild_lifecycle=running_wave injected on its async-task channel concurrently with a fresh Mode B build; asserts Build 2's FEATURE_SPEC dispatch is not blocked by Build 1's in-flight wave). The single-Supervisor harness exercises the supervisor's claim of no per-build mutable state.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Idempotent first-wins under concurrency (Group I): Two simultaneous approval responses for the same paused stage with different decisions resolve under exactly one decision; No second resume is applied for the duplicate response; Recorded resume event count is exactly 1",
+      "status": "complete",
+      "evidence": "Implemented TestFirstWinsIdempotencyUnderConcurrency with three tests: test_two_simultaneous_responses_resolve_to_one_winner (uses asyncio.gather over two _on_envelope calls with same request_id but different decisions; asserts await_response yields exactly one payload), test_no_second_resume_for_duplicate_response (asserts subscriber._dedup buffer holds exactly one entry after two simultaneous responses), and test_recorded_resume_event_count_is_exactly_one (asserts dedup buffer is the canonical resume-event count, exactly 1). All three reuse the FEAT-FORGE-004 ApprovalSubscriber with FakeMonotonicClock and InMemoryNats.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Calibration-priors snapshot stability (Group I, ASSUM-012): Capture a calibration-priors snapshot at the start of a Mode B build; Mutate the operator's calibration history mid-build; Assert later stages of the in-flight build still see the snapshot captured at start",
+      "status": "complete",
+      "evidence": "Implemented TestCalibrationPriorsSnapshotStability with three tests: test_priors_snapshot_remains_stable_when_history_is_mutated_mid_build (snapshot captured at build start via _capture_priors deep-copies entries; subsequent mutations to history.entries[0]['score'] and append() do not bleed into the snapshot; later stages still see the original tuple), test_snapshot_is_immutable_tuple (verifies the snapshot tuple cannot be mutated by callers), and test_a_subsequent_build_sees_the_mutated_history (sanity control proving the snapshot is a real copy, not a hidden alias). _PriorsSnapshot uses dataclass(frozen=True) with a tuple of deepcopy'd dicts to guarantee immunity.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Notification publish failure isolation (Group G): A stage approval is recorded; The outbound NATS publish for that approval fails; The stage is still recorded as approved on the build's history; the next stage's prerequisite still evaluates as satisfied",
+      "status": "complete",
+      "evidence": "Implemented TestNotificationPublishFailureIsolation with two tests: test_stage_recorded_approved_even_when_publish_raises (queues a ConnectionError on the notify subject for build_A's PRODUCT_OWNER stage; the specialist dispatcher swallows the publish error per the SQLite-before-publish contract; the stage is recorded as approved AND the next turn dispatches ARCHITECT proving the prerequisite is satisfied), and test_failed_publish_does_not_block_subsequent_dispatch (queues failures on multiple subjects; asserts both PRODUCT_OWNER and ARCHITECT dispatch and record approvals despite transport hiccups). The InMemoryNats double's publish_failures dict provides per-subject failure injection.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Tests run in under 60 seconds; concurrency uses asyncio.gather against an in-memory NATS adapter",
+      "status": "complete",
+      "evidence": "Implemented TestCrossModeConcurrencyBudget.test_three_way_drive_completes_well_under_one_second which times the three-way interleave drive and asserts elapsed < 1.0s \u2014 three orders of magnitude below the 60s AC budget, acting as a regression canary. Every concurrency assertion uses asyncio.gather (visible in nine separate gather() call sites in the file). All NATS interactions go through the InMemoryNats double from tests/integration/conftest.py \u2014 no real broker, no real I/O. Full pytest run completes in ~0.07s for all 19 tests.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Verified with `python3 -m ruff check tests/integration/test_cross_mode_concurrency.py` \u2014 output: 'All checks passed!'. Removed an initially-unused build_task_work_attribution import (F401) before the run.",
+      "test_file": "tests/integration/test_cross_mode_concurrency.py",
+      "implementation_files": [
+        "tests/integration/test_cross_mode_concurrency.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 35.23233942803927
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 345.0246426400263
+    }
+  ]
+}

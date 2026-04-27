@@ -1,0 +1,146 @@
+{
+  "task_id": "TASK-MBC8-013",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "skipped",
+      "test_output_summary": "Independent test verification skipped (tests not required for testing tasks)",
+      "duration_seconds": 0.0
+    },
+    "requirements": {
+      "criteria_total": 6,
+      "criteria_met": 6,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`tests/integration/test_cross_mode_concurrency.py` covers:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented TestTwoModeBBuildsConcurrent with three tests: test_two_mode_b_builds_get_distinct_autobuild_task_ids (asserts autobuild dispatcher returns distinct task_ids per build via asyncio.gather), test_each_mode_b_build_pauses_at_its_own_pr_review (asserts each build pauses at PR-review with its own feature_id), and test_approval_response_targeting_build_one_resolves_only_build_one (asserts NATS per-build mirror routing isolates approvals across two paused subscribers). Single shared Supervisor instance per the task's implementation note.",
+      "notes": "Implemented TestTwoModeBBuildsConcurrent with three tests: test_two_mode_b_builds_get_distinct_autobuild_task_ids (asserts autobuild dispatcher returns distinct task_ids per build via asyncio.gather), test_each_mode_b_build_pauses_at_its_own_pr_review (asserts each build pauses at PR-review with its own feature_id), and test_approval_response_targeting_build_one_resolves_only_build_one (asserts NATS per-build mirror routing isolates approvals across two paused subscribers). Single shared Supervisor instance per the task's implementation note."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Idempotent first-wins under concurrency** (Group I):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented TestModeBAndModeCConcurrent with two tests: test_mode_b_dispatches_autobuild_while_mode_c_dispatches_task_work (drives Mode B build pre-approved at FEATURE_PLAN and Mode C build with a recorded TASK_REVIEW under asyncio.gather, asserts Mode B picks AUTOBUILD with feature scope while Mode C picks TASK_WORK with the right FixTaskRef), and test_approvals_route_by_build_identifier_for_b_and_c (delivers responses to both Mode B and Mode C mirrors via asyncio.gather; asserts each subscriber resolves only on its own build_id).",
+      "notes": "Implemented TestModeBAndModeCConcurrent with two tests: test_mode_b_dispatches_autobuild_while_mode_c_dispatches_task_work (drives Mode B build pre-approved at FEATURE_PLAN and Mode C build with a recorded TASK_REVIEW under asyncio.gather, asserts Mode B picks AUTOBUILD with feature scope while Mode C picks TASK_WORK with the right FixTaskRef), and test_approvals_route_by_build_identifier_for_b_and_c (delivers responses to both Mode B and Mode C mirrors via asyncio.gather; asserts each subscriber resolves only on its own build_id)."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Calibration-priors snapshot stability** (Group I, ASSUM-012):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented TestThreeWayModeInterleave with three tests: test_three_way_dispatch_under_asyncio_gather (drives one Mode A build at AUTOBUILD, one Mode B build at AUTOBUILD, and one Mode C build at TASK_WORK concurrently under one Supervisor via asyncio.gather), test_each_builds_chronology_reflects_only_its_modes_stages (asserts Mode A chronology contains only Mode A chain stages, Mode B chronology never contains the four pre-feature-spec Mode A stages, Mode C chronology contains only Mode C chain stages), test_no_cross_talk_in_dispatcher_call_attribution (asserts specialist_dispatcher only ever sees Mode A build_ids; Mode B subprocess calls only ever target FEATURE_SPEC/FEATURE_PLAN; Mode C calls only ever target TASK_REVIEW/TASK_WORK). The harness wires a single Supervisor instance with mode-aware routing through _BuildModeRouter and _CompositeStageLog.",
+      "notes": "Implemented TestThreeWayModeInterleave with three tests: test_three_way_dispatch_under_asyncio_gather (drives one Mode A build at AUTOBUILD, one Mode B build at AUTOBUILD, and one Mode C build at TASK_WORK concurrently under one Supervisor via asyncio.gather), test_each_builds_chronology_reflects_only_its_modes_stages (asserts Mode A chronology contains only Mode A chain stages, Mode B chronology never contains the four pre-feature-spec Mode A stages, Mode C chronology contains only Mode C chain stages), test_no_cross_talk_in_dispatcher_call_attribution (asserts specialist_dispatcher only ever sees Mode A build_ids; Mode B subprocess calls only ever target FEATURE_SPEC/FEATURE_PLAN; Mode C calls only ever target TASK_REVIEW/TASK_WORK). The harness wires a single Supervisor instance with mode-aware routing through _BuildModeRouter and _CompositeStageLog."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Notification publish failure isolation** (Group G):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented TestSupervisorResponsivenessDuringAsync with two tests: test_second_mode_b_dispatch_proceeds_while_first_autobuild_in_flight (one Mode B build pre-approved at FEATURE_PLAN runs autobuild dispatch concurrently with a fresh Mode B build that picks FEATURE_SPEC; asserts both turns dispatch without blocking), and test_second_build_dispatches_during_first_autobuild_running_wave (Mode A build with autobuild_lifecycle=running_wave injected on its async-task channel concurrently with a fresh Mode B build; asserts Build 2's FEATURE_SPEC dispatch is not blocked by Build 1's in-flight wave). The single-Supervisor harness exercises the supervisor's claim of no per-build mutable state.",
+      "notes": "Implemented TestSupervisorResponsivenessDuringAsync with two tests: test_second_mode_b_dispatch_proceeds_while_first_autobuild_in_flight (one Mode B build pre-approved at FEATURE_PLAN runs autobuild dispatch concurrently with a fresh Mode B build that picks FEATURE_SPEC; asserts both turns dispatch without blocking), and test_second_build_dispatches_during_first_autobuild_running_wave (Mode A build with autobuild_lifecycle=running_wave injected on its async-task channel concurrently with a fresh Mode B build; asserts Build 2's FEATURE_SPEC dispatch is not blocked by Build 1's in-flight wave). The single-Supervisor harness exercises the supervisor's claim of no per-build mutable state."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Tests run in under 60 seconds; concurrency uses `asyncio.gather`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented TestFirstWinsIdempotencyUnderConcurrency with three tests: test_two_simultaneous_responses_resolve_to_one_winner (uses asyncio.gather over two _on_envelope calls with same request_id but different decisions; asserts await_response yields exactly one payload), test_no_second_resume_for_duplicate_response (asserts subscriber._dedup buffer holds exactly one entry after two simultaneous responses), and test_recorded_resume_event_count_is_exactly_one (asserts dedup buffer is the canonical resume-event count, exactly 1). All three reuse the FEAT-FORGE-004 ApprovalSubscriber with FakeMonotonicClock and InMemoryNats.",
+      "notes": "Implemented TestFirstWinsIdempotencyUnderConcurrency with three tests: test_two_simultaneous_responses_resolve_to_one_winner (uses asyncio.gather over two _on_envelope calls with same request_id but different decisions; asserts await_response yields exactly one payload), test_no_second_resume_for_duplicate_response (asserts subscriber._dedup buffer holds exactly one entry after two simultaneous responses), and test_recorded_resume_event_count_is_exactly_one (asserts dedup buffer is the canonical resume-event count, exactly 1). All three reuse the FEAT-FORGE-004 ApprovalSubscriber with FakeMonotonicClock and InMemoryNats."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented TestCalibrationPriorsSnapshotStability with three tests: test_priors_snapshot_remains_stable_when_history_is_mutated_mid_build (snapshot captured at build start via _capture_priors deep-copies entries; subsequent mutations to history.entries[0]['score'] and append() do not bleed into the snapshot; later stages still see the original tuple), test_snapshot_is_immutable_tuple (verifies the snapshot tuple cannot be mutated by callers), and test_a_subsequent_build_sees_the_mutated_history (sanity control proving the snapshot is a real copy, not a hidden alias). _PriorsSnapshot uses dataclass(frozen=True) with a tuple of deepcopy'd dicts to guarantee immunity.",
+      "notes": "Implemented TestCalibrationPriorsSnapshotStability with three tests: test_priors_snapshot_remains_stable_when_history_is_mutated_mid_build (snapshot captured at build start via _capture_priors deep-copies entries; subsequent mutations to history.entries[0]['score'] and append() do not bleed into the snapshot; later stages still see the original tuple), test_snapshot_is_immutable_tuple (verifies the snapshot tuple cannot be mutated by callers), and test_a_subsequent_build_sees_the_mutated_history (sanity control proving the snapshot is a real copy, not a hidden alias). _PriorsSnapshot uses dataclass(frozen=True) with a tuple of deepcopy'd dicts to guarantee immunity."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`tests/integration/test_cross_mode_concurrency.py` covers:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented TestTwoModeBBuildsConcurrent with three tests: test_two_mode_b_builds_get_distinct_autobuild_task_ids (asserts autobuild dispatcher returns distinct task_ids per build via asyncio.gather), test_each_mode_b_build_pauses_at_its_own_pr_review (asserts each build pauses at PR-review with its own feature_id), and test_approval_response_targeting_build_one_resolves_only_build_one (asserts NATS per-build mirror routing isolates approvals across two paused subscribers). Single shared Supervisor instance per the task's implementation note.",
+        "notes": "Implemented TestTwoModeBBuildsConcurrent with three tests: test_two_mode_b_builds_get_distinct_autobuild_task_ids (asserts autobuild dispatcher returns distinct task_ids per build via asyncio.gather), test_each_mode_b_build_pauses_at_its_own_pr_review (asserts each build pauses at PR-review with its own feature_id), and test_approval_response_targeting_build_one_resolves_only_build_one (asserts NATS per-build mirror routing isolates approvals across two paused subscribers). Single shared Supervisor instance per the task's implementation note."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Idempotent first-wins under concurrency** (Group I):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented TestModeBAndModeCConcurrent with two tests: test_mode_b_dispatches_autobuild_while_mode_c_dispatches_task_work (drives Mode B build pre-approved at FEATURE_PLAN and Mode C build with a recorded TASK_REVIEW under asyncio.gather, asserts Mode B picks AUTOBUILD with feature scope while Mode C picks TASK_WORK with the right FixTaskRef), and test_approvals_route_by_build_identifier_for_b_and_c (delivers responses to both Mode B and Mode C mirrors via asyncio.gather; asserts each subscriber resolves only on its own build_id).",
+        "notes": "Implemented TestModeBAndModeCConcurrent with two tests: test_mode_b_dispatches_autobuild_while_mode_c_dispatches_task_work (drives Mode B build pre-approved at FEATURE_PLAN and Mode C build with a recorded TASK_REVIEW under asyncio.gather, asserts Mode B picks AUTOBUILD with feature scope while Mode C picks TASK_WORK with the right FixTaskRef), and test_approvals_route_by_build_identifier_for_b_and_c (delivers responses to both Mode B and Mode C mirrors via asyncio.gather; asserts each subscriber resolves only on its own build_id)."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Calibration-priors snapshot stability** (Group I, ASSUM-012):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented TestThreeWayModeInterleave with three tests: test_three_way_dispatch_under_asyncio_gather (drives one Mode A build at AUTOBUILD, one Mode B build at AUTOBUILD, and one Mode C build at TASK_WORK concurrently under one Supervisor via asyncio.gather), test_each_builds_chronology_reflects_only_its_modes_stages (asserts Mode A chronology contains only Mode A chain stages, Mode B chronology never contains the four pre-feature-spec Mode A stages, Mode C chronology contains only Mode C chain stages), test_no_cross_talk_in_dispatcher_call_attribution (asserts specialist_dispatcher only ever sees Mode A build_ids; Mode B subprocess calls only ever target FEATURE_SPEC/FEATURE_PLAN; Mode C calls only ever target TASK_REVIEW/TASK_WORK). The harness wires a single Supervisor instance with mode-aware routing through _BuildModeRouter and _CompositeStageLog.",
+        "notes": "Implemented TestThreeWayModeInterleave with three tests: test_three_way_dispatch_under_asyncio_gather (drives one Mode A build at AUTOBUILD, one Mode B build at AUTOBUILD, and one Mode C build at TASK_WORK concurrently under one Supervisor via asyncio.gather), test_each_builds_chronology_reflects_only_its_modes_stages (asserts Mode A chronology contains only Mode A chain stages, Mode B chronology never contains the four pre-feature-spec Mode A stages, Mode C chronology contains only Mode C chain stages), test_no_cross_talk_in_dispatcher_call_attribution (asserts specialist_dispatcher only ever sees Mode A build_ids; Mode B subprocess calls only ever target FEATURE_SPEC/FEATURE_PLAN; Mode C calls only ever target TASK_REVIEW/TASK_WORK). The harness wires a single Supervisor instance with mode-aware routing through _BuildModeRouter and _CompositeStageLog."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Notification publish failure isolation** (Group G):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented TestSupervisorResponsivenessDuringAsync with two tests: test_second_mode_b_dispatch_proceeds_while_first_autobuild_in_flight (one Mode B build pre-approved at FEATURE_PLAN runs autobuild dispatch concurrently with a fresh Mode B build that picks FEATURE_SPEC; asserts both turns dispatch without blocking), and test_second_build_dispatches_during_first_autobuild_running_wave (Mode A build with autobuild_lifecycle=running_wave injected on its async-task channel concurrently with a fresh Mode B build; asserts Build 2's FEATURE_SPEC dispatch is not blocked by Build 1's in-flight wave). The single-Supervisor harness exercises the supervisor's claim of no per-build mutable state.",
+        "notes": "Implemented TestSupervisorResponsivenessDuringAsync with two tests: test_second_mode_b_dispatch_proceeds_while_first_autobuild_in_flight (one Mode B build pre-approved at FEATURE_PLAN runs autobuild dispatch concurrently with a fresh Mode B build that picks FEATURE_SPEC; asserts both turns dispatch without blocking), and test_second_build_dispatches_during_first_autobuild_running_wave (Mode A build with autobuild_lifecycle=running_wave injected on its async-task channel concurrently with a fresh Mode B build; asserts Build 2's FEATURE_SPEC dispatch is not blocked by Build 1's in-flight wave). The single-Supervisor harness exercises the supervisor's claim of no per-build mutable state."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Tests run in under 60 seconds; concurrency uses `asyncio.gather`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented TestFirstWinsIdempotencyUnderConcurrency with three tests: test_two_simultaneous_responses_resolve_to_one_winner (uses asyncio.gather over two _on_envelope calls with same request_id but different decisions; asserts await_response yields exactly one payload), test_no_second_resume_for_duplicate_response (asserts subscriber._dedup buffer holds exactly one entry after two simultaneous responses), and test_recorded_resume_event_count_is_exactly_one (asserts dedup buffer is the canonical resume-event count, exactly 1). All three reuse the FEAT-FORGE-004 ApprovalSubscriber with FakeMonotonicClock and InMemoryNats.",
+        "notes": "Implemented TestFirstWinsIdempotencyUnderConcurrency with three tests: test_two_simultaneous_responses_resolve_to_one_winner (uses asyncio.gather over two _on_envelope calls with same request_id but different decisions; asserts await_response yields exactly one payload), test_no_second_resume_for_duplicate_response (asserts subscriber._dedup buffer holds exactly one entry after two simultaneous responses), and test_recorded_resume_event_count_is_exactly_one (asserts dedup buffer is the canonical resume-event count, exactly 1). All three reuse the FEAT-FORGE-004 ApprovalSubscriber with FakeMonotonicClock and InMemoryNats."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented TestCalibrationPriorsSnapshotStability with three tests: test_priors_snapshot_remains_stable_when_history_is_mutated_mid_build (snapshot captured at build start via _capture_priors deep-copies entries; subsequent mutations to history.entries[0]['score'] and append() do not bleed into the snapshot; later stages still see the original tuple), test_snapshot_is_immutable_tuple (verifies the snapshot tuple cannot be mutated by callers), and test_a_subsequent_build_sees_the_mutated_history (sanity control proving the snapshot is a real copy, not a hidden alias). _PriorsSnapshot uses dataclass(frozen=True) with a tuple of deepcopy'd dicts to guarantee immunity.",
+        "notes": "Implemented TestCalibrationPriorsSnapshotStability with three tests: test_priors_snapshot_remains_stable_when_history_is_mutated_mid_build (snapshot captured at build start via _capture_priors deep-copies entries; subsequent mutations to history.entries[0]['score'] and append() do not bleed into the snapshot; later stages still see the original tuple), test_snapshot_is_immutable_tuple (verifies the snapshot tuple cannot be mutated by callers), and test_a_subsequent_build_sees_the_mutated_history (sanity control proving the snapshot is a real copy, not a hidden alias). _PriorsSnapshot uses dataclass(frozen=True) with a tuple of deepcopy'd dicts to guarantee immunity."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    }
+  ],
+  "rationale": "All quality gates passed. Tests not required for this task type. All acceptance criteria met. Architecture context: 361 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1638/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- USES_MODULE\n- HAS_WAVE\n- ROUTES_TO\n- CALLED_BY\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- IS_IMPLEMENTED_AS\n- INCORRECT_MODE_BEHAVIOR\n\n### \ud83c\udfad Role Constraints\n- RUNS_TESTS_BEFORE_REPORTING\n- DELEGATE_TO_TASK_WORK\n- HAS_ROLE_MUST_DO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- IMPLEMENTATION_MODE_HAS_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}
