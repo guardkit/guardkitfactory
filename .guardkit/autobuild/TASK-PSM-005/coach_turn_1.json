@@ -1,0 +1,252 @@
+{
+  "task_id": "TASK-PSM-005",
+  "turn": 1,
+  "decision": "feedback",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_lifecycle_persistence.py tests/forge/test_state_machine.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_state_machine.py::TestPausedApprovalCarryForward::test_complete_transition_can_carry_pr_url PASSED [ 97%]\ntests/forge/test_state_machine.py::TestPausedApprovalCarryForward::test_unknown_field_is_rejected PASSED [ 98%]\ntests/forge/test_state_machine.py::TestSingleStatusWriter::test_single_status_writer_in_src PASSED [ 99%]\ntests/forge/test_state_machine.py::TestSingleStatusWriter::test_grep_is_consistent_with_python_walk PASSED [100%]\n============================= 147 passed in 0.43s ==============================",
+      "duration_seconds": 0.932380199432373
+    },
+    "requirements": {
+      "criteria_total": 12,
+      "criteria_met": 11,
+      "all_criteria_met": false,
+      "missing": [
+        "All modified files pass project-configured lint/format checks with"
+      ]
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "All seven Protocol classes are concrete and pass `isinstance` checks",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented seven Sqlite*/AsyncTask* classes (SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer, SqliteStageSkipRecorder, SqlitePauseRejectResolver, AsyncTaskCanceller, AsyncTaskUpdater) in src/forge/lifecycle/persistence.py. Each class exposes the methods declared on its corresponding runtime_checkable Protocol from forge.pipeline.cli_steering. Verified via TestProtocolImplementations (7 tests, each calling isinstance against the Protocol) \u2014 all pass. Confirmed at runtime by manual REPL check showing isinstance() returns True for all seven Sqlite*/AsyncTask* classes.",
+      "notes": "Implemented seven Sqlite*/AsyncTask* classes (SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer, SqliteStageSkipRecorder, SqlitePauseRejectResolver, AsyncTaskCanceller, AsyncTaskUpdater) in src/forge/lifecycle/persistence.py. Each class exposes the methods declared on its corresponding runtime_checkable Protocol from forge.pipeline.cli_steering. Verified via TestProtocolImplementations (7 tests, each calling isinstance against the Protocol) \u2014 all pass. Confirmed at runtime by manual REPL check showing isinstance() returns True for all seven Sqlite*/AsyncTask* classes."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`apply_transition(t: Transition) -> None` is the ONLY public method",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "The single 'UPDATE builds SET status = ?' SQL is inside SqliteLifecyclePersistence.apply_transition. Other state-changing methods (mark_paused, SqliteBuildCanceller.mark_cancelled, SqliteBuildResumer.resume_after_skip) compose a Transition via state_machine.transition() and route it through apply_transition rather than emitting their own UPDATE. Verified by TestSingleStatusWriter.test_single_status_writer_in_src which walks src/ for the regex and asserts exactly one hit, located in lifecycle/persistence.py. Also verified by the existing test_state_machine.py grep-based static-analysis test (still passing after a small fix to add --include=*.py to skip .pyc cache).",
+      "notes": "The single 'UPDATE builds SET status = ?' SQL is inside SqliteLifecyclePersistence.apply_transition. Other state-changing methods (mark_paused, SqliteBuildCanceller.mark_cancelled, SqliteBuildResumer.resume_after_skip) compose a Transition via state_machine.transition() and route it through apply_transition rather than emitting their own UPDATE. Verified by TestSingleStatusWriter.test_single_status_writer_in_src which walks src/ for the regex and asserts exactly one hit, located in lifecycle/persistence.py. Also verified by the existing test_state_machine.py grep-based static-analysis test (still passing after a small fix to add --include=*.py to skip .pyc cache)."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`apply_transition` rejects raw kwargs \u2014 its signature accepts only",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "apply_transition(self, transition: Transition) -> None has exactly one parameter named 'transition'. Body raises TypeError if isinstance(transition, Transition) is False. Verified by TestApplyTransitionSignature.test_signature_has_only_transition_param (introspects via inspect.signature) and test_apply_transition_rejects_non_transition (asserts TypeError for dict, str, None inputs).",
+      "notes": "apply_transition(self, transition: Transition) -> None has exactly one parameter named 'transition'. Body raises TypeError if isinstance(transition, Transition) is False. Verified by TestApplyTransitionSignature.test_signature_has_only_transition_param (introspects via inspect.signature) and test_apply_transition_rejects_non_transition (asserts TypeError for dict, str, None inputs)."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`mark_paused(build_id, request_id)` writes `pending_approval_request_id`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "mark_paused composes a Transition with pending_approval_request_id=request_id via state_machine.transition() and routes it through apply_transition. apply_transition's UPDATE statement writes both 'status = ?' and 'pending_approval_request_id = ?' in the same statement (single SQL UPDATE), guarded by BEGIN IMMEDIATE/COMMIT. Verified by TestMarkPausedAtomic.test_mark_paused_persists_request_id which checks both columns after the call.",
+      "notes": "mark_paused composes a Transition with pending_approval_request_id=request_id via state_machine.transition() and routes it through apply_transition. apply_transition's UPDATE statement writes both 'status = ?' and 'pending_approval_request_id = ?' in the same statement (single SQL UPDATE), guarded by BEGIN IMMEDIATE/COMMIT. Verified by TestMarkPausedAtomic.test_mark_paused_persists_request_id which checks both columns after the call."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`record_pending_build(payload)` writes the build row and translates",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "record_pending_build wraps the INSERT in BEGIN IMMEDIATE / COMMIT and converts sqlite3.IntegrityError to DuplicateBuildError(feature_id, correlation_id) with ROLLBACK on the failed transaction. Verified by TestRecordPendingBuildDuplicate which seeds two builds with the same (feature_id, correlation_id), asserts DuplicateBuildError is raised, and confirms only one row exists in the table after the failed second insert.",
+      "notes": "record_pending_build wraps the INSERT in BEGIN IMMEDIATE / COMMIT and converts sqlite3.IntegrityError to DuplicateBuildError(feature_id, correlation_id) with ROLLBACK on the failed transaction. Verified by TestRecordPendingBuildDuplicate which seeds two builds with the same (feature_id, correlation_id), asserts DuplicateBuildError is raised, and confirms only one row exists in the table after the failed second insert."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "`read_status` returns active builds (`QUEUED`, `PREPARING`, `RUNNING`,",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "read_status issues two SELECTs (active set and terminal LIMIT 5), concatenates and sorts the result by queued_at DESC. Verified by TestReadStatus with four cases: empty db, active-only ordering, terminal cap at five (seeded 7 cancelled, asserted 5 returned), and combined active+terminal global DESC sort.",
+      "notes": "read_status issues two SELECTs (active set and terminal LIMIT 5), concatenates and sorts the result by queued_at DESC. Verified by TestReadStatus with four cases: empty db, active-only ordering, terminal cap at five (seeded 7 cancelled, asserted 5 returned), and combined active+terminal global DESC sort."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "`read_history(limit=50)` returns at most 50 most recent builds; clamps",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "read_history clamps limit via max(0, min(limit, MAX_HISTORY_LIMIT)) where MAX_HISTORY_LIMIT=1000. Default is 50. Negative or zero limit returns []; non-int raises TypeError. Verified by TestReadHistory with four cases: default 50 (60 builds seeded \u2192 50 returned newest-first), clamp to MAX, zero/negative, type guard.",
+      "notes": "read_history clamps limit via max(0, min(limit, MAX_HISTORY_LIMIT)) where MAX_HISTORY_LIMIT=1000. Default is 50. Negative or zero limit returns []; non-int raises TypeError. Verified by TestReadHistory with four cases: default 50 (60 builds seeded \u2192 50 returned newest-first), clamp to MAX, zero/negative, type guard."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "`exists_active_build(feature_id)` returns True iff any build for that",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "exists_active_build issues SELECT 1 ... WHERE feature_id = ? AND status IN (...) LIMIT 1 against the ACTIVE_STATES frozenset (QUEUED, PREPARING, RUNNING, PAUSED, FINALISING). Verified by TestExistsActiveBuild \u2014 empty case False, QUEUED True, three terminal states (parametrized COMPLETE/FAILED/CANCELLED) False, PAUSED True.",
+      "notes": "exists_active_build issues SELECT 1 ... WHERE feature_id = ? AND status IN (...) LIMIT 1 against the ACTIVE_STATES frozenset (QUEUED, PREPARING, RUNNING, PAUSED, FINALISING). Verified by TestExistsActiveBuild \u2014 empty case False, QUEUED True, three terminal states (parametrized COMPLETE/FAILED/CANCELLED) False, PAUSED True."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All write paths use `BEGIN IMMEDIATE` to acquire the write lock",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "apply_transition, record_pending_build, and record_stage all open transactions with explicit 'BEGIN IMMEDIATE;' followed by COMMIT/ROLLBACK on the autocommit (isolation_level=None) writer connection. Verified by TestBeginImmediate.test_persistence_module_uses_begin_immediate which scans the module text for the literal 'BEGIN IMMEDIATE'. The mark_paused and Sqlite*Canceller/Resumer paths inherit this guarantee because they delegate to apply_transition.",
+      "notes": "apply_transition, record_pending_build, and record_stage all open transactions with explicit 'BEGIN IMMEDIATE;' followed by COMMIT/ROLLBACK on the autocommit (isolation_level=None) writer connection. Verified by TestBeginImmediate.test_persistence_module_uses_begin_immediate which scans the module text for the literal 'BEGIN IMMEDIATE'. The mark_paused and Sqlite*Canceller/Resumer paths inherit this guarantee because they delegate to apply_transition."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All read paths use `read_only_connect()` from",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "SqliteLifecyclePersistence._reader() context manager opens a fresh read_only_connect() against self._db_path on every read call (read_status, read_history, read_stages, exists_active_build, find_active_or_recent). For in-memory test databases (path is empty) it transparently falls back to the writer connection \u2014 file-backed production paths always use the ro helper. Verified by TestReadPathsUseReadOnlyConnect.test_reads_against_real_file_open_a_ro_connection which monkeypatches read_only_connect with a spy and asserts every read API exercises it.",
+      "notes": "SqliteLifecyclePersistence._reader() context manager opens a fresh read_only_connect() against self._db_path on every read call (read_status, read_history, read_stages, exists_active_build, find_active_or_recent). For in-memory test databases (path is empty) it transparently falls back to the writer connection \u2014 file-backed production paths always use the ro helper. Verified by TestReadPathsUseReadOnlyConnect.test_reads_against_real_file_open_a_ro_connection which monkeypatches read_only_connect with a spy and asserts every read API exercises it."
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "Unit tests cover each Protocol method against a real in-memory SQLite",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "tests/forge/test_lifecycle_persistence.py has 60 tests across 14 TestXXX classes, every Protocol method (get_snapshot, mark_cancelled, resume_after_skip, record_skipped, record_skip_refused, resolve_as_reject, cancel_async_task, update_async_task) plus the read API (read_stages via SqliteStageLogReader) is exercised against a real SQLite database (tmp_path forge.db with apply_at_boot). 60 / 60 pass; broader 1544-test suite also passes.",
+      "notes": "tests/forge/test_lifecycle_persistence.py has 60 tests across 14 TestXXX classes, every Protocol method (get_snapshot, mark_cancelled, resume_after_skip, record_skipped, record_skip_refused, resolve_as_reject, cancel_async_task, update_async_task) plus the read API (read_stages via SqliteStageLogReader) is exercised against a real SQLite database (tmp_path forge.db with apply_at_boot). 60 / 60 pass; broader 1544-test suite also passes."
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: uncertain",
+      "notes": "Promise status: uncertain"
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "All seven Protocol classes are concrete and pass `isinstance` checks",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented seven Sqlite*/AsyncTask* classes (SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer, SqliteStageSkipRecorder, SqlitePauseRejectResolver, AsyncTaskCanceller, AsyncTaskUpdater) in src/forge/lifecycle/persistence.py. Each class exposes the methods declared on its corresponding runtime_checkable Protocol from forge.pipeline.cli_steering. Verified via TestProtocolImplementations (7 tests, each calling isinstance against the Protocol) \u2014 all pass. Confirmed at runtime by manual REPL check showing isinstance() returns True for all seven Sqlite*/AsyncTask* classes.",
+        "notes": "Implemented seven Sqlite*/AsyncTask* classes (SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer, SqliteStageSkipRecorder, SqlitePauseRejectResolver, AsyncTaskCanceller, AsyncTaskUpdater) in src/forge/lifecycle/persistence.py. Each class exposes the methods declared on its corresponding runtime_checkable Protocol from forge.pipeline.cli_steering. Verified via TestProtocolImplementations (7 tests, each calling isinstance against the Protocol) \u2014 all pass. Confirmed at runtime by manual REPL check showing isinstance() returns True for all seven Sqlite*/AsyncTask* classes."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`apply_transition(t: Transition) -> None` is the ONLY public method",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "The single 'UPDATE builds SET status = ?' SQL is inside SqliteLifecyclePersistence.apply_transition. Other state-changing methods (mark_paused, SqliteBuildCanceller.mark_cancelled, SqliteBuildResumer.resume_after_skip) compose a Transition via state_machine.transition() and route it through apply_transition rather than emitting their own UPDATE. Verified by TestSingleStatusWriter.test_single_status_writer_in_src which walks src/ for the regex and asserts exactly one hit, located in lifecycle/persistence.py. Also verified by the existing test_state_machine.py grep-based static-analysis test (still passing after a small fix to add --include=*.py to skip .pyc cache).",
+        "notes": "The single 'UPDATE builds SET status = ?' SQL is inside SqliteLifecyclePersistence.apply_transition. Other state-changing methods (mark_paused, SqliteBuildCanceller.mark_cancelled, SqliteBuildResumer.resume_after_skip) compose a Transition via state_machine.transition() and route it through apply_transition rather than emitting their own UPDATE. Verified by TestSingleStatusWriter.test_single_status_writer_in_src which walks src/ for the regex and asserts exactly one hit, located in lifecycle/persistence.py. Also verified by the existing test_state_machine.py grep-based static-analysis test (still passing after a small fix to add --include=*.py to skip .pyc cache)."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`apply_transition` rejects raw kwargs \u2014 its signature accepts only",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "apply_transition(self, transition: Transition) -> None has exactly one parameter named 'transition'. Body raises TypeError if isinstance(transition, Transition) is False. Verified by TestApplyTransitionSignature.test_signature_has_only_transition_param (introspects via inspect.signature) and test_apply_transition_rejects_non_transition (asserts TypeError for dict, str, None inputs).",
+        "notes": "apply_transition(self, transition: Transition) -> None has exactly one parameter named 'transition'. Body raises TypeError if isinstance(transition, Transition) is False. Verified by TestApplyTransitionSignature.test_signature_has_only_transition_param (introspects via inspect.signature) and test_apply_transition_rejects_non_transition (asserts TypeError for dict, str, None inputs)."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`mark_paused(build_id, request_id)` writes `pending_approval_request_id`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "mark_paused composes a Transition with pending_approval_request_id=request_id via state_machine.transition() and routes it through apply_transition. apply_transition's UPDATE statement writes both 'status = ?' and 'pending_approval_request_id = ?' in the same statement (single SQL UPDATE), guarded by BEGIN IMMEDIATE/COMMIT. Verified by TestMarkPausedAtomic.test_mark_paused_persists_request_id which checks both columns after the call.",
+        "notes": "mark_paused composes a Transition with pending_approval_request_id=request_id via state_machine.transition() and routes it through apply_transition. apply_transition's UPDATE statement writes both 'status = ?' and 'pending_approval_request_id = ?' in the same statement (single SQL UPDATE), guarded by BEGIN IMMEDIATE/COMMIT. Verified by TestMarkPausedAtomic.test_mark_paused_persists_request_id which checks both columns after the call."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "`record_pending_build(payload)` writes the build row and translates",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "record_pending_build wraps the INSERT in BEGIN IMMEDIATE / COMMIT and converts sqlite3.IntegrityError to DuplicateBuildError(feature_id, correlation_id) with ROLLBACK on the failed transaction. Verified by TestRecordPendingBuildDuplicate which seeds two builds with the same (feature_id, correlation_id), asserts DuplicateBuildError is raised, and confirms only one row exists in the table after the failed second insert.",
+        "notes": "record_pending_build wraps the INSERT in BEGIN IMMEDIATE / COMMIT and converts sqlite3.IntegrityError to DuplicateBuildError(feature_id, correlation_id) with ROLLBACK on the failed transaction. Verified by TestRecordPendingBuildDuplicate which seeds two builds with the same (feature_id, correlation_id), asserts DuplicateBuildError is raised, and confirms only one row exists in the table after the failed second insert."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "`read_status` returns active builds (`QUEUED`, `PREPARING`, `RUNNING`,",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "read_status issues two SELECTs (active set and terminal LIMIT 5), concatenates and sorts the result by queued_at DESC. Verified by TestReadStatus with four cases: empty db, active-only ordering, terminal cap at five (seeded 7 cancelled, asserted 5 returned), and combined active+terminal global DESC sort.",
+        "notes": "read_status issues two SELECTs (active set and terminal LIMIT 5), concatenates and sorts the result by queued_at DESC. Verified by TestReadStatus with four cases: empty db, active-only ordering, terminal cap at five (seeded 7 cancelled, asserted 5 returned), and combined active+terminal global DESC sort."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "`read_history(limit=50)` returns at most 50 most recent builds; clamps",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "read_history clamps limit via max(0, min(limit, MAX_HISTORY_LIMIT)) where MAX_HISTORY_LIMIT=1000. Default is 50. Negative or zero limit returns []; non-int raises TypeError. Verified by TestReadHistory with four cases: default 50 (60 builds seeded \u2192 50 returned newest-first), clamp to MAX, zero/negative, type guard.",
+        "notes": "read_history clamps limit via max(0, min(limit, MAX_HISTORY_LIMIT)) where MAX_HISTORY_LIMIT=1000. Default is 50. Negative or zero limit returns []; non-int raises TypeError. Verified by TestReadHistory with four cases: default 50 (60 builds seeded \u2192 50 returned newest-first), clamp to MAX, zero/negative, type guard."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "`exists_active_build(feature_id)` returns True iff any build for that",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "exists_active_build issues SELECT 1 ... WHERE feature_id = ? AND status IN (...) LIMIT 1 against the ACTIVE_STATES frozenset (QUEUED, PREPARING, RUNNING, PAUSED, FINALISING). Verified by TestExistsActiveBuild \u2014 empty case False, QUEUED True, three terminal states (parametrized COMPLETE/FAILED/CANCELLED) False, PAUSED True.",
+        "notes": "exists_active_build issues SELECT 1 ... WHERE feature_id = ? AND status IN (...) LIMIT 1 against the ACTIVE_STATES frozenset (QUEUED, PREPARING, RUNNING, PAUSED, FINALISING). Verified by TestExistsActiveBuild \u2014 empty case False, QUEUED True, three terminal states (parametrized COMPLETE/FAILED/CANCELLED) False, PAUSED True."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "All write paths use `BEGIN IMMEDIATE` to acquire the write lock",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "apply_transition, record_pending_build, and record_stage all open transactions with explicit 'BEGIN IMMEDIATE;' followed by COMMIT/ROLLBACK on the autocommit (isolation_level=None) writer connection. Verified by TestBeginImmediate.test_persistence_module_uses_begin_immediate which scans the module text for the literal 'BEGIN IMMEDIATE'. The mark_paused and Sqlite*Canceller/Resumer paths inherit this guarantee because they delegate to apply_transition.",
+        "notes": "apply_transition, record_pending_build, and record_stage all open transactions with explicit 'BEGIN IMMEDIATE;' followed by COMMIT/ROLLBACK on the autocommit (isolation_level=None) writer connection. Verified by TestBeginImmediate.test_persistence_module_uses_begin_immediate which scans the module text for the literal 'BEGIN IMMEDIATE'. The mark_paused and Sqlite*Canceller/Resumer paths inherit this guarantee because they delegate to apply_transition."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "All read paths use `read_only_connect()` from",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "SqliteLifecyclePersistence._reader() context manager opens a fresh read_only_connect() against self._db_path on every read call (read_status, read_history, read_stages, exists_active_build, find_active_or_recent). For in-memory test databases (path is empty) it transparently falls back to the writer connection \u2014 file-backed production paths always use the ro helper. Verified by TestReadPathsUseReadOnlyConnect.test_reads_against_real_file_open_a_ro_connection which monkeypatches read_only_connect with a spy and asserts every read API exercises it.",
+        "notes": "SqliteLifecyclePersistence._reader() context manager opens a fresh read_only_connect() against self._db_path on every read call (read_status, read_history, read_stages, exists_active_build, find_active_or_recent). For in-memory test databases (path is empty) it transparently falls back to the writer connection \u2014 file-backed production paths always use the ro helper. Verified by TestReadPathsUseReadOnlyConnect.test_reads_against_real_file_open_a_ro_connection which monkeypatches read_only_connect with a spy and asserts every read API exercises it."
+      },
+      {
+        "criterion_id": "AC-011",
+        "criterion_text": "Unit tests cover each Protocol method against a real in-memory SQLite",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "tests/forge/test_lifecycle_persistence.py has 60 tests across 14 TestXXX classes, every Protocol method (get_snapshot, mark_cancelled, resume_after_skip, record_skipped, record_skip_refused, resolve_as_reject, cancel_async_task, update_async_task) plus the read API (read_stages via SqliteStageLogReader) is exercised against a real SQLite database (tmp_path forge.db with apply_at_boot). 60 / 60 pass; broader 1544-test suite also passes.",
+        "notes": "tests/forge/test_lifecycle_persistence.py has 60 tests across 14 TestXXX classes, every Protocol method (get_snapshot, mark_cancelled, resume_after_skip, record_skipped, record_skip_refused, resolve_as_reject, cancel_async_task, update_async_task) plus the read API (read_stages via SqliteStageLogReader) is exercised against a real SQLite database (tmp_path forge.db with apply_at_boot). 60 / 60 pass; broader 1544-test suite also passes."
+      },
+      {
+        "criterion_id": "AC-012",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: uncertain",
+        "notes": "Promise status: uncertain"
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "must_fix",
+      "category": "missing_requirement",
+      "description": "Not all acceptance criteria met",
+      "missing_criteria": [
+        "All modified files pass project-configured lint/format checks with"
+      ]
+    }
+  ],
+  "rationale": "Missing 1 acceptance criteria: All modified files pass project-configured lint/format checks with",
+  "context_used": "## Job-Specific Context\n\nBudget: 1571/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- SERIALIZES_TO_JSON\n- SOURCE_PATTERN\n- DESCRIBES\n- SOURCE_OF_PATTERN\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- USES_ENDPOINT\n- HAS_IMPLEMENTATION_TARGET\n\n### \ud83c\udfad Role Constraints\n- DELEGATES_TO\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- STATE_PERSISTED_USING\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

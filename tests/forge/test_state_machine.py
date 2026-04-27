@@ -411,6 +411,7 @@ class TestSingleStatusWriter:
                     "grep",
                     "-r",
                     "-l",
+                    "--include=*.py",
                     "UPDATE builds SET status",
                     str(src_root),
                 ],

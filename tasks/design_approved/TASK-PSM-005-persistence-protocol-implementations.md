@@ -1,29 +1,35 @@
 ---
-id: TASK-PSM-005
-title: "Persistence — concrete cli_steering Protocol implementations"
-task_type: feature
-parent_review: TASK-REV-3EEE
-feature_id: FEAT-FORGE-001
-wave: 2
-implementation_mode: task-work
 complexity: 7
-estimated_minutes: 105
-status: pending
-dependencies:
-  - TASK-PSM-002
-  - TASK-PSM-004
 consumer_context:
-  - task: TASK-PSM-002
-    consumes: SCHEMA_INITIALIZED
-    framework: "sqlite3 (stdlib)"
-    driver: "stdlib"
-    format_note: "STRICT tables; WAL+STRICT pragmas applied per-connection; UNIQUE(feature_id, correlation_id) index for duplicate detection"
-  - task: TASK-PSM-004
-    consumes: STATE_TRANSITION_API
-    framework: "Python module import"
-    driver: "in-process call"
-    format_note: "apply_transition() consumes only Transition value objects produced by state_machine.transition(); raw status kwargs are forbidden by API design"
-tags: [lifecycle, persistence, protocols, cli-steering]
+- consumes: SCHEMA_INITIALIZED
+  driver: stdlib
+  format_note: STRICT tables; WAL+STRICT pragmas applied per-connection; UNIQUE(feature_id,
+    correlation_id) index for duplicate detection
+  framework: sqlite3 (stdlib)
+  task: TASK-PSM-002
+- consumes: STATE_TRANSITION_API
+  driver: in-process call
+  format_note: apply_transition() consumes only Transition value objects produced
+    by state_machine.transition(); raw status kwargs are forbidden by API design
+  framework: Python module import
+  task: TASK-PSM-004
+dependencies:
+- TASK-PSM-002
+- TASK-PSM-004
+estimated_minutes: 105
+feature_id: FEAT-FORGE-001
+id: TASK-PSM-005
+implementation_mode: task-work
+parent_review: TASK-REV-3EEE
+status: design_approved
+tags:
+- lifecycle
+- persistence
+- protocols
+- cli-steering
+task_type: feature
+title: Persistence — concrete cli_steering Protocol implementations
+wave: 2
 ---
 
 # Task: Persistence — concrete cli_steering Protocol implementations
