@@ -1,0 +1,7 @@
+{
+  "tests_run": 33,
+  "tests_failed": 0,
+  "coverage_pct": 98.0,
+  "output_summary": "33/33 passed for test_terminal_handlers_mode_c.py; coverage 98% on src/forge/pipeline/terminal_handlers/mode_c.py (missing lines 382, 418).",
+  "quality_gates_passed": true
+}

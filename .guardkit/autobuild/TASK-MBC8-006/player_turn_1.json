@@ -1,0 +1,143 @@
+{
+  "task_id": "TASK-MBC8-006",
+  "turn": 1,
+  "files_modified": [
+    "tasks/backlog/TASK-MBC8-006-mode-b-no-diff-terminal.md",
+    "tasks/backlog/TASK-MBC8-007-mode-c-terminal-handlers.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-006-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-007-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-004/checkpoints.json",
+    ".guardkit/autobuild/TASK-MBC8-006/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-006/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-006/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-007/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/.guardkit/autobuild/TASK-MBC8-006/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/src/forge/pipeline/terminal_handlers.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/pipeline/test_terminal_handlers.py",
+    "src/forge/pipeline/terminal_handlers.py",
+    "src/forge/pipeline/terminal_handlers/mode_c.py",
+    "tasks/design_approved/TASK-MBC8-006-mode-b-no-diff-terminal.md",
+    "tasks/design_approved/TASK-MBC8-007-mode-c-terminal-handlers.md",
+    "tests/forge/pipeline/test_terminal_handlers.py",
+    "tests/forge/pipeline/test_terminal_handlers_mode_c.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/pipeline/test_terminal_handlers.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001 module exposes evaluate_post_autobuild with three route outcomes",
+    "AC-002 NO_OP path with rationale 'mode-b-autobuild-no-diff' (Group M)",
+    "AC-003 PR_REVIEW path advances to PULL_REQUEST_REVIEW without PR creation",
+    "AC-004 FAILED path surfaces autobuild hard-stop rationale (Group C)",
+    "AC-005 reads stage-log changed_files_count, no git diff shell-out",
+    "AC-006 PR-creation adapter never called from handler (verified via spy)",
+    "AC-007 NO_OP session outcome carries no pull_request_url, no PR gate decision",
+    "AC-008 unit tests cover Group A/C/M scenarios (24 tests)",
+    "AC-009 black + ruff clean on both new files"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 67,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 24,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "forge.pipeline.terminal_handlers.mode_b_no_diff module (or extension to existing terminal handler module) exposes evaluate_post_autobuild(build, history) -> ModeBPostAutobuild where the result is one of PR_REVIEW, NO_OP, or FAILED",
+      "status": "complete",
+      "evidence": "Created src/forge/pipeline/terminal_handlers.py exporting evaluate_post_autobuild(build, history), ModeBPostAutobuild dataclass, and the three route literals PR_REVIEW='PR_REVIEW', NO_OP='NO_OP', ROUTE_FAILED='FAILED' (renamed to ROUTE_FAILED in the module to avoid collision with mode_b_planner.FAILED stage-status literal; the string value remains 'FAILED' as required by the AC). Verified via TestModuleAndSignature::test_module_exports_handler_symbols and test_route_constants_have_distinct_string_values.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "NO_OP path: invoked when autobuild reports zero changed files vs the working branch's HEAD; recorded as a terminal complete build with rationale 'mode-b-autobuild-no-diff' (Group M scenario 'no-diff autobuild does not attempt pull-request creation')",
+      "status": "complete",
+      "evidence": "evaluate_post_autobuild returns ModeBPostAutobuild(route=NO_OP, rationale=NO_DIFF_RATIONALE='mode-b-autobuild-no-diff', session_outcome_payload={'outcome': 'complete', 'rationale': 'mode-b-autobuild-no-diff', 'pr_review_gate_decision': None}) when the AUTOBUILD entry has status APPROVED and changed_files_count == 0. Verified via TestNoOpRoute::test_approved_autobuild_with_zero_changes_routes_to_no_op, test_no_op_rationale_is_canonical_constant, and TestGroupScenarioCoverage::test_group_m_no_diff_routes_to_no_op_terminal.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "PR_REVIEW path: autobuild reports a non-empty diff; build advances to PULL_REQUEST_REVIEW (constitutional gate) \u2014 no PR creation happens here, only the routing decision",
+      "status": "complete",
+      "evidence": "evaluate_post_autobuild returns ModeBPostAutobuild(route=PR_REVIEW, rationale='...advancing to pull-request-review', session_outcome_payload={}) when AUTOBUILD entry has status APPROVED and changed_files_count > 0. The function does not invoke any PR-creation adapter \u2014 it returns a routing decision only. Verified via TestPrReviewRoute::test_approved_autobuild_with_changes_routes_to_pr_review and test_pr_review_route_does_not_invoke_pr_create_adapter (asserts GhPrCreateSpy.calls == []).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "FAILED path: autobuild reached a failed terminal lifecycle; build is recorded as failed with the autobuild's hard-stop rationale surfaced (Group C 'internal hard-stop is propagated'); no PR creation attempted",
+      "status": "complete",
+      "evidence": "evaluate_post_autobuild returns ModeBPostAutobuild(route=ROUTE_FAILED='FAILED', rationale='mode-b-autobuild-{status}: {autobuild_rationale}', session_outcome_payload={'outcome': 'failed', 'rationale': ..., 'autobuild_status': status}) when AUTOBUILD status is HARD_STOP or FAILED. The autobuild's own rationale (read from entry.details['rationale']) is surfaced into the recorded rationale string via _failure_rationale. Verified via TestFailedRoute::test_hard_stopped_autobuild_routes_to_failed, test_failed_autobuild_routes_to_failed, test_failed_route_surfaces_autobuild_hard_stop_rationale, and TestGroupScenarioCoverage::test_group_c_internal_hard_stop_routes_to_failed.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Handler reads diff status from dispatch_autobuild_async's result payload (TASK-MAG7-009 already records changed_files_count in autobuild result); no shell-out to git diff from this layer",
+      "status": "complete",
+      "evidence": "_coerce_changed_files_count reads entry.details['changed_files_count'] (the autobuild result schema field) directly off the AUTOBUILD stage_log entry. The handler imports nothing from subprocess, os.popen, or any git/gh adapter. Verified via TestNoShellOut::test_handler_does_not_invoke_subprocess (monkeypatches subprocess.run/Popen/check_output/check_call to raise AssertionError on any call) and test_handler_treats_missing_changed_files_count_as_no_diff (defensive default). The mode-b planner (TASK-MBC8-003) already consults the same row's diff field for routing \u2014 the handler reads the count directly so the recorded session-outcome carries it for auditability.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "No PR-creation call site is reachable when handler returns NO_OP or FAILED; assert via test that gh pr create adapter is not called",
+      "status": "complete",
+      "evidence": "The handler does not import or invoke any PR-creation adapter; it only returns a ModeBPostAutobuild value object. Tests inject a GhPrCreateSpy fixture and assert spy.calls == [] after each branch (NO_OP, FAILED, and even PR_REVIEW since the handler is a routing shim that defers actual PR creation to TASK-MAG7-008). Verified via test_pr_review_route_does_not_invoke_pr_create_adapter, test_no_op_route_does_not_invoke_pr_create_adapter, and test_failed_route_does_not_invoke_pr_create_adapter.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Recorded session outcome for NO_OP carries no pull_request_url and no PR-review gate decision (Group M acceptance)",
+      "status": "complete",
+      "evidence": "ModeBPostAutobuild.session_outcome_payload for the NO_OP branch is {'outcome': 'complete', 'rationale': 'mode-b-autobuild-no-diff', 'pr_review_gate_decision': None} \u2014 explicitly NO 'pull_request_url' key, and 'pr_review_gate_decision' is None. Verified via TestNoOpRoute::test_no_op_session_outcome_payload_carries_no_pr_url (asserts 'pull_request_url' not in payload AND payload.get('pr_review_gate_decision') is None) and TestGroupScenarioCoverage::test_group_m_no_diff_routes_to_no_op_terminal.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit tests cover the three Group A/C/M Mode B scenarios that hit this handler",
+      "status": "complete",
+      "evidence": "TestGroupScenarioCoverage class has one test per group: test_group_a_happy_path_with_diff_routes_to_pr_review (PR_REVIEW), test_group_c_internal_hard_stop_routes_to_failed (FAILED), test_group_m_no_diff_routes_to_no_op_terminal (NO_OP). All three exercise the canonical AUTOBUILD result row shape and assert the corresponding ModeBPostAutobuild route, rationale, and session_outcome_payload. Plus 21 additional tests covering boundary cases (empty history, missing AUTOBUILD entry, in-flight status, latest-entry selection, frozen dataclass, defensive missing-count default, no-shell-out tripwire).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "black --target-version py312 --check src/forge/pipeline/terminal_handlers.py tests/forge/pipeline/test_terminal_handlers.py reports 'All done! 2 files would be left unchanged.' and ruff check reports 'All checks passed!' for both files. The 88-char line length and snake_case/PascalCase conventions from .claude/rules/code-style.md are followed; type hints are present on all public APIs.",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers.py",
+        "tests/forge/pipeline/test_terminal_handlers.py"
+      ]
+    }
+  ]
+}

@@ -1,27 +1,27 @@
 ---
-id: TASK-MBC8-007
-title: Implement Mode C terminal handlers (empty review and no commits)
-task_type: feature
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 3
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-004
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-007
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - terminal
 - mode-c
 - clean-review
 - feat-forge-008
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement Mode C terminal handlers (empty review and no commits)
+updated: 2026-04-27 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Implement Mode C terminal handlers (empty review and no commits)
