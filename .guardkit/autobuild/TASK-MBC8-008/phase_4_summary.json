@@ -1,7 +1,7 @@
 {
-  "tests_run": 52,
-  "tests_failed": 3,
+  "tests_run": 1902,
+  "tests_failed": 2,
   "coverage_pct": 87.0,
-  "output_summary": "pytest 52 tests: 49 passed, 3 failed in supervisor_mode_dispatch (sibling-autobuild block, mode_c PR_REVIEW, mode_b PR_REVIEW); supervisor 86% / guard 100% (87% total).",
+  "output_summary": "1900 passed, 2 failed (pre-existing unrelated: sqlite_persistence idempotency, lifecycle/recovery evidence_priors); 52/52 task tests pass; changed-files cov 87% (guard 100%, supervisor 85%)",
   "quality_gates_passed": false
 }

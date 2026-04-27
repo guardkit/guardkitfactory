@@ -528,12 +528,19 @@ class TestModeBAutobuildRouting:
     def test_per_feature_sequencer_blocks_autobuild_when_sibling_in_flight(
         self,
     ) -> None:
+        # Per-feature sequencer skips ``state.feature_id == feature_id``
+        # ("a feature does not block itself"). To exercise the blocking
+        # path we record a *different* feature's autobuild in flight on
+        # the same build — defensive coverage for the rare case where
+        # async_tasks records a stale row from a sibling feature.
         supervisor, doubles = _build_supervisor()
         doubles["mode_reader"].modes["build-B4"] = BuildMode.MODE_B
         self._prime_through_feature_plan(doubles, "build-B4")
-        # Inject a sibling autobuild in flight.
+        # Inject a *different* feature's autobuild in flight — the
+        # sequencer's sibling check fires only when feature_id differs
+        # from the dispatching feature's id.
         doubles["async_task_reader"].states_by_build["build-B4"] = [
-            FakeAutobuildState(feature_id="FEAT-1"),
+            FakeAutobuildState(feature_id="FEAT-OTHER"),
         ]
 
         report = _run(supervisor.next_turn("build-B4"))

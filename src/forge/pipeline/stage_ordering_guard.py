@@ -192,10 +192,24 @@ class StageOrderingGuard:
             # TASK_REVIEW for Mode C).
             return True
 
-        # Rows 5 and 6 demand a feature scope. Refusing without one is
-        # the safe default — the alternative ("check at build scope")
-        # would silently approve cross-feature prerequisite leaks.
-        if stage in PER_FEATURE_STAGES and feature_id is None:
+        # Determine if this dispatch needs a feature scope.
+        #
+        # Mode A: every per-feature stage (FEATURE_SPEC, FEATURE_PLAN,
+        # AUTOBUILD, PULL_REQUEST_REVIEW) requires a feature_id —
+        # missing scope would silently leak across features.
+        #
+        # Per-mode (Mode B / Mode C): the stage's per-feature-ness is
+        # *prerequisite-driven*. A stage whose prereqs are all
+        # build-scoped (e.g. Mode C ``PULL_REQUEST_REVIEW`` ←
+        # ``TASK_WORK``) is itself build-scoped under that mode and
+        # does not require ``feature_id``.
+        if prerequisites is None:
+            feature_scope_required = stage in PER_FEATURE_STAGES
+        else:
+            feature_scope_required = any(
+                prereq in PER_FEATURE_STAGES for prereq in prerequisite_stages
+            )
+        if feature_scope_required and feature_id is None:
             return False
 
         for prereq in prerequisite_stages:
@@ -253,32 +267,66 @@ class StageOrderingGuard:
         # round-trip per call should not pay it eight times here.
         features = stage_log_reader.feature_catalogue(build_id)
 
+        prereq_map: Mapping[StageClass, Sequence[StageClass]] = (
+            prerequisites if prerequisites is not None else STAGE_PREREQUISITES
+        )
+
         candidate_stages: Iterable[StageClass] = (
             stages if stages is not None else list(StageClass)
         )
         for stage in candidate_stages:
-            if (
-                stage in PER_FEATURE_STAGES
-                and stage is not StageClass.PULL_REQUEST_REVIEW
-            ):
-                if features and any(
-                    self.is_dispatchable(
+            if prerequisites is None:
+                # Mode A behaviour — unchanged from TASK-MAG7-003.
+                # PULL_REQUEST_REVIEW is the build-wide fan-out gate
+                # (Group B row 7) and is checked at build scope; every
+                # other per-feature stage is iterated across the
+                # catalogue. Non-per-feature stages are checked once.
+                if (
+                    stage in PER_FEATURE_STAGES
+                    and stage is not StageClass.PULL_REQUEST_REVIEW
+                ):
+                    if features and any(
+                        self.is_dispatchable(
+                            build_id,
+                            stage,
+                            stage_log_reader,
+                            feature_id=fid,
+                        )
+                        for fid in features
+                    ):
+                        dispatchable.add(stage)
+                else:
+                    if self.is_dispatchable(
+                        build_id, stage, stage_log_reader
+                    ):
+                        dispatchable.add(stage)
+            else:
+                # Per-mode (Mode B / Mode C) behaviour — TASK-MBC8-008.
+                # Iterate features only when at least one prerequisite
+                # is per-feature; otherwise check at build scope.
+                prereq_list = list(prereq_map.get(stage, []))
+                has_per_feature_prereq = any(
+                    prereq in PER_FEATURE_STAGES for prereq in prereq_list
+                )
+                if has_per_feature_prereq:
+                    if features and any(
+                        self.is_dispatchable(
+                            build_id,
+                            stage,
+                            stage_log_reader,
+                            feature_id=fid,
+                            prerequisites=prerequisites,
+                        )
+                        for fid in features
+                    ):
+                        dispatchable.add(stage)
+                else:
+                    if self.is_dispatchable(
                         build_id,
                         stage,
                         stage_log_reader,
-                        feature_id=fid,
                         prerequisites=prerequisites,
-                    )
-                    for fid in features
-                ):
-                    dispatchable.add(stage)
-            else:
-                if self.is_dispatchable(
-                    build_id,
-                    stage,
-                    stage_log_reader,
-                    prerequisites=prerequisites,
-                ):
-                    dispatchable.add(stage)
+                    ):
+                        dispatchable.add(stage)
 
         return dispatchable
