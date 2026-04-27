@@ -1,0 +1,99 @@
+{
+  "task_id": "TASK-MBC8-008",
+  "turn": 1,
+  "files_modified": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/src/forge/pipeline/stage_ordering_guard.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/src/forge/pipeline/supervisor.py",
+    "src/forge/pipeline/stage_ordering_guard.py",
+    "src/forge/pipeline/supervisor.py",
+    "tasks/backlog/TASK-MBC8-008-supervisor-mode-aware-dispatch.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-008-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-007/checkpoints.json",
+    ".guardkit/autobuild/TASK-MBC8-008/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-008/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/test_supervisor_mode_dispatch.py",
+    "tasks/design_approved/TASK-MBC8-008-supervisor-mode-aware-dispatch.md",
+    "tests/forge/test_supervisor_mode_dispatch.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/test_supervisor_mode_dispatch.py"
+  ],
+  "tests_run": false,
+  "tests_passed": false,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [],
+  "requirements_remaining": [],
+  "sdk_turns_used": 101,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": true,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`Supervisor.next_turn` reads `build.mode` and dispatches to one of:",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Dispatch routing within each mode:",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`StageOrderingGuard` (TASK-MAG7-003) is invoked with the per-mode",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`ConstitutionalGuard` (TASK-MAG7-004) is invoked unchanged in every",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "CLI steering injection (TASK-MAG7-011) works in every mode: cancel \u2192",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "`Supervisor.next_turn` is async-safe: two concurrent Mode B builds and",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Hard-stop in any non-constitutional stage in Mode B or Mode C",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "status": "incomplete",
+      "evidence": "No file-existence evidence for this criterion",
+      "evidence_type": "file_existence",
+      "confidence": 0.0
+    }
+  ]
+}

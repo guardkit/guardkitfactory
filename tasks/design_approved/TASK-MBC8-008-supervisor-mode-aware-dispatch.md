@@ -1,32 +1,32 @@
 ---
-id: TASK-MBC8-008
-title: Wire mode-aware dispatch into Supervisor.next_turn
-task_type: feature
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 4
-implementation_mode: task-work
 complexity: 6
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-003
 - TASK-MBC8-004
 - TASK-MBC8-005
 - TASK-MBC8-006
 - TASK-MBC8-007
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-008
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - supervisor
 - dispatch
 - mode-b
 - mode-c
 - feat-forge-008
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Wire mode-aware dispatch into Supervisor.next_turn
+updated: 2026-04-27 00:00:00+00:00
+wave: 4
 ---
 
 # Task: Wire mode-aware dispatch into Supervisor.next_turn

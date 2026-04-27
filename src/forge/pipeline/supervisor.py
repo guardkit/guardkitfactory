@@ -68,14 +68,22 @@ References
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, Awaitable, Callable, Mapping, Protocol, runtime_checkable
 
+from forge.lifecycle.modes import BuildMode
 from forge.pipeline.constitutional_guard import (
     AutoApproveDecision,
     AutoApproveVerdict,
     ConstitutionalGuard,
+)
+from forge.pipeline.mode_chains_data import (
+    MODE_B_CHAIN,
+    MODE_B_PREREQUISITES,
+    MODE_C_CHAIN,
+    MODE_C_PREREQUISITES,
 )
 from forge.pipeline.per_feature_sequencer import (
     AsyncTaskReader as PerFeatureAsyncTaskReader,
@@ -90,12 +98,42 @@ from forge.pipeline.stage_ordering_guard import (
 from forge.pipeline.stage_ordering_guard import StageOrderingGuard
 from forge.pipeline.stage_taxonomy import PER_FEATURE_STAGES, StageClass
 
+# NOTE: ``forge.pipeline.mode_b_planner`` / ``mode_c_planner`` /
+# ``terminal_handlers`` import :class:`forge.lifecycle.persistence.Build`,
+# which transitively re-imports this module via
+# :mod:`forge.lifecycle.state_machine`. We import them under
+# ``TYPE_CHECKING`` and resolve concretely at the call site to avoid
+# the partially-initialised-module ImportError.
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only
+    from forge.pipeline.mode_b_planner import (
+        ModeBChainPlanner,
+        ModeBPlan,
+        StageEntry as ModeBStageEntry,
+    )
+    from forge.pipeline.mode_c_planner import (
+        ModeCCyclePlanner,
+        ModeCPlan,
+        StageEntry as ModeCStageEntry,
+    )
+    from forge.pipeline.terminal_handlers import (
+        ModeBPostAutobuild,
+    )
+    from forge.pipeline.terminal_handlers.mode_c import (
+        CommitProbe,
+        ModeCTerminalDecision,
+    )
+
 logger = logging.getLogger(__name__)
 
 
 __all__ = [
+    "BuildModeReader",
     "BuildState",
     "DispatchChoice",
+    "ModeBHistoryReader",
+    "ModeCHistoryReader",
     "PRReviewGate",
     "ReasoningModelPort",
     "StageLogTurnRecorder",
@@ -383,6 +421,71 @@ class StageLogTurnRecorder(Protocol):
 
 
 @runtime_checkable
+class BuildModeReader(Protocol):
+    """Read-side Protocol returning a build's :class:`BuildMode`.
+
+    Production wires the FEAT-FORGE-001 SQLite adapter
+    (:meth:`SqliteBuildSnapshotReader.read_snapshot`); tests inject an
+    in-memory mapping. Defaults to :attr:`BuildMode.MODE_A` when no
+    reader is provided so every TASK-MAG7-010 caller continues to work
+    without modification (TASK-MBC8-008 backwards-compat invariant).
+    """
+
+    def get_build_mode(
+        self, build_id: str
+    ) -> BuildMode:  # pragma: no cover - protocol stub
+        """Return the :class:`BuildMode` recorded for ``build_id``."""
+        ...
+
+
+@runtime_checkable
+class ModeBHistoryReader(Protocol):
+    """Read-side Protocol returning Mode B planner-shaped history.
+
+    The planner consumes a sequence of :class:`ModeBStageEntry` rows
+    (chronological order). Production projects the FEAT-FORGE-001
+    ``stage_log`` rows into this Protocol shape; tests inject simple
+    dataclass lists.
+    """
+
+    def get_mode_b_history(
+        self, build_id: str
+    ) -> Sequence[ModeBStageEntry]:  # pragma: no cover - protocol stub
+        """Return the Mode B stage history for ``build_id``."""
+        ...
+
+
+@runtime_checkable
+class ModeCHistoryReader(Protocol):
+    """Read-side Protocol returning Mode C planner-shaped history.
+
+    The cycle planner needs ``StageEntry`` rows that carry fix-task
+    payloads; production projects ``stage_log`` rows into this shape,
+    tests inject dataclass lists. The ``has_commits`` flag is supplied
+    separately so the supervisor can refresh the commit probe between
+    review iterations without re-reading the whole history.
+    """
+
+    def get_mode_c_history(
+        self, build_id: str
+    ) -> Sequence[ModeCStageEntry]:  # pragma: no cover - protocol stub
+        """Return the Mode C stage history for ``build_id``."""
+        ...
+
+    def has_commits(
+        self, build_id: str
+    ) -> bool:  # pragma: no cover - protocol stub
+        """Return ``True`` iff the build's worktree carries one or more commits.
+
+        Drives the Mode C planner's clean-follow-up-review branch
+        (ASSUM-005 / ASSUM-017): the planner advances to
+        :attr:`StageClass.PULL_REQUEST_REVIEW` when commits are present
+        and terminates with ``CLEAN_REVIEW`` when none are.
+        """
+        ...
+
+
+@runtime_checkable
 class PRReviewGate(Protocol):
     """Protocol over the FEAT-FORGE-004 pull-request-review gate.
 
@@ -483,6 +586,27 @@ class Supervisor:
     autobuild_dispatcher: AutobuildDispatcher
     pr_review_gate: PRReviewGate
     stage_hints: Mapping[StageClass, str] = field(default_factory=dict)
+    # ----- TASK-MBC8-008: mode-aware dispatch wiring -----------------
+    # Every new field defaults to ``None`` so existing TASK-MAG7-010
+    # call sites that wire only the Mode A surface continue to compose
+    # the dataclass without modification. When the build's mode is
+    # MODE_A (the default ``BuildMode`` returned when ``build_mode_reader``
+    # is ``None``) every Mode A code path runs untouched.
+    build_mode_reader: BuildModeReader | None = None
+    mode_b_planner: ModeBChainPlanner | None = None
+    mode_b_history_reader: ModeBHistoryReader | None = None
+    mode_b_post_autobuild: (
+        Callable[[Build, Sequence[ModeBStageEntry]], ModeBPostAutobuild] | None
+    ) = None
+    mode_c_planner: ModeCCyclePlanner | None = None
+    mode_c_history_reader: ModeCHistoryReader | None = None
+    mode_c_terminal_handler: (
+        Callable[..., Awaitable[ModeCTerminalDecision]] | None
+    ) = None
+    mode_c_commit_probe: CommitProbe | None = None
+    fix_task_context_builder: (
+        Callable[[str, str, Any], Mapping[str, Any]] | None
+    ) = None
 
     # Stage groupings — pre-computed once so per-turn routing is a
     # single dict lookup rather than a chain of ``in`` checks.
@@ -507,6 +631,28 @@ class Supervisor:
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+
+    def _read_build_mode(self, build_id: str) -> BuildMode:
+        """Resolve the build's :class:`BuildMode`.
+
+        Falls back to :attr:`BuildMode.MODE_A` when no
+        :class:`BuildModeReader` is wired — preserves byte-for-byte the
+        FEAT-FORGE-007 dispatch path for every existing TASK-MAG7-010
+        caller (TASK-MBC8-008 backwards-compat invariant).
+        """
+        if self.build_mode_reader is None:
+            return BuildMode.MODE_A
+        try:
+            return self.build_mode_reader.get_build_mode(build_id)
+        except Exception as exc:  # noqa: BLE001 — defensive default
+            logger.error(
+                "supervisor.next_turn: build_mode_reader raised %s: %s; "
+                "falling back to MODE_A for build_id=%s",
+                type(exc).__name__,
+                exc,
+                build_id,
+            )
+            return BuildMode.MODE_A
 
     async def next_turn(self, build_id: str) -> TurnReport:
         """Execute one supervisor reasoning turn for ``build_id``.
@@ -561,6 +707,19 @@ class Supervisor:
             )
             self._record_safe(report)
             return report
+
+        # 1a. Mode-aware branch (TASK-MBC8-008). MODE_A falls through
+        # to the existing TASK-MAG7-010 code path verbatim; MODE_B and
+        # MODE_C have their own dispatch helpers.
+        mode = self._read_build_mode(build_id)
+        if mode is BuildMode.MODE_B:
+            return await self._next_turn_mode_b(
+                build_id=build_id, build_state=build_state
+            )
+        if mode is BuildMode.MODE_C:
+            return await self._next_turn_mode_c(
+                build_id=build_id, build_state=build_state
+            )
 
         # 2. Permitted set.
         permitted_stages = frozenset(
@@ -714,6 +873,595 @@ class Supervisor:
             rationale=choice.rationale or self._default_rationale(choice),
             dispatch_result=dispatch_result,
             gate_decision=gate_decision,
+        )
+        self._record_safe(report)
+        return report
+
+    # ------------------------------------------------------------------
+    # Internal: Mode B dispatch (TASK-MBC8-008)
+    # ------------------------------------------------------------------
+
+    async def _next_turn_mode_b(
+        self,
+        *,
+        build_id: str,
+        build_state: BuildState,
+    ) -> TurnReport:
+        """Mode B dispatch turn (FEAT-FORGE-008 ASSUM-001).
+
+        Sequence:
+
+        1. Read the build's Mode B history via the injected reader.
+        2. Ask the :class:`ModeBChainPlanner` for the next stage.
+           - ``next_stage = None`` after an approved AUTOBUILD →
+             evaluate :func:`evaluate_post_autobuild` to choose between
+             :data:`MODE_B_PR_REVIEW` (advance to constitutional gate),
+             :data:`MODE_B_NO_OP` (no-diff terminal complete), or
+             :data:`MODE_B_ROUTE_FAILED` (autobuild hard-stop / failed).
+           - ``next_stage = None`` for any other reason (hard-stop,
+             empty-spec, awaiting approval) → record the planner's
+             rationale and return :attr:`TurnOutcome.WAITING`.
+        3. Belt-and-braces re-check via :class:`StageOrderingGuard` with
+           :data:`MODE_B_PREREQUISITES` and the Mode B chain. The
+           planner's choice MUST land in the resulting permitted set —
+           anything else is a planner bug and yields
+           :attr:`TurnOutcome.REFUSED_OUT_OF_BAND`.
+        4. Per-feature autobuild sequencer fires for AUTOBUILD.
+        5. Constitutional guard fires for ``PULL_REQUEST_REVIEW``.
+        6. Route to the dispatcher: subprocess for FEATURE_SPEC /
+           FEATURE_PLAN, autobuild_async for AUTOBUILD, PR-review gate
+           for PULL_REQUEST_REVIEW.
+        """
+        if self.mode_b_planner is None or self.mode_b_history_reader is None:
+            return self._mode_misconfigured(
+                build_id=build_id,
+                mode=BuildMode.MODE_B,
+                missing=(
+                    "mode_b_planner / mode_b_history_reader required for "
+                    "MODE_B dispatch (TASK-MBC8-008)"
+                ),
+            )
+
+        history = self.mode_b_history_reader.get_mode_b_history(build_id)
+        from forge.lifecycle.persistence import Build  # local: break import cycle
+
+        build = Build(
+            build_id=build_id,
+            status=build_state,
+            mode=BuildMode.MODE_B,
+        )
+        plan = self.mode_b_planner.plan_next_stage(build, history)
+
+        # next_stage = None — terminal evaluation or awaiting prerequisites.
+        if plan.next_stage is None:
+            return await self._mode_b_resolve_no_advance(
+                build_id=build_id,
+                build=build,
+                plan=plan,
+                history=history,
+            )
+
+        # Belt-and-braces ordering check with Mode B prerequisites.
+        permitted = frozenset(
+            self.ordering_guard.next_dispatchable(
+                build_id,
+                self.ordering_stage_log_reader,
+                prerequisites=MODE_B_PREREQUISITES,
+                stages=MODE_B_CHAIN,
+            )
+        )
+        chosen_stage = plan.next_stage
+        chosen_feature_id = self._mode_feature_id_for(build_id)
+        if chosen_stage not in permitted:
+            warning = (
+                "supervisor.next_turn (MODE_B): planner chose stage "
+                f"{chosen_stage.value!r} which is OUTSIDE the per-mode "
+                f"permitted set {sorted(s.value for s in permitted)} "
+                f"for build_id={build_id!r}; refusing dispatch "
+                "(ADR-ARCH-026 belt-and-braces enforcement)"
+            )
+            logger.warning(warning)
+            report = TurnReport(
+                outcome=TurnOutcome.REFUSED_OUT_OF_BAND,
+                build_id=build_id,
+                permitted_stages=permitted,
+                chosen_stage=chosen_stage,
+                chosen_feature_id=chosen_feature_id,
+                rationale=warning,
+            )
+            self._record_safe(report)
+            return report
+
+        # Per-feature sequencer for AUTOBUILD (Mode B is single-feature
+        # by ASSUM-006 but the sequencer enforces the same invariant).
+        if chosen_stage is StageClass.AUTOBUILD:
+            if chosen_feature_id is None:
+                refusal = (
+                    "MODE_B AUTOBUILD chosen without feature_id; refusing"
+                )
+                logger.warning(
+                    "supervisor.next_turn (MODE_B): %s build_id=%s",
+                    refusal,
+                    build_id,
+                )
+                report = TurnReport(
+                    outcome=TurnOutcome.REFUSED_OUT_OF_BAND,
+                    build_id=build_id,
+                    permitted_stages=permitted,
+                    chosen_stage=chosen_stage,
+                    chosen_feature_id=None,
+                    rationale=refusal,
+                )
+                self._record_safe(report)
+                return report
+
+            may_dispatch = self.per_feature_sequencer.may_start_autobuild(
+                build_id=build_id,
+                feature_id=chosen_feature_id,
+                stage_log_reader=self.per_feature_stage_log_reader,
+                async_task_reader=self.async_task_reader,
+            )
+            if not may_dispatch:
+                report = TurnReport(
+                    outcome=TurnOutcome.WAITING_PRIOR_AUTOBUILD,
+                    build_id=build_id,
+                    permitted_stages=permitted,
+                    chosen_stage=chosen_stage,
+                    chosen_feature_id=chosen_feature_id,
+                    rationale=(
+                        "per-feature sequencer refused (MODE_B): a sibling "
+                        "autobuild is still in flight"
+                    ),
+                )
+                self._record_safe(report)
+                return report
+
+        # Route to the dispatcher.
+        rationale = plan.rationale or f"MODE_B planner chose {chosen_stage.value}"
+        choice = DispatchChoice(
+            stage=chosen_stage,
+            feature_id=chosen_feature_id,
+            rationale=rationale,
+        )
+        dispatch_result = await self._dispatch(
+            build_id=build_id, choice=choice
+        )
+        report = TurnReport(
+            outcome=TurnOutcome.DISPATCHED,
+            build_id=build_id,
+            permitted_stages=permitted,
+            chosen_stage=chosen_stage,
+            chosen_feature_id=chosen_feature_id,
+            rationale=rationale,
+            dispatch_result=dispatch_result,
+        )
+        self._record_safe(report)
+        return report
+
+    async def _mode_b_resolve_no_advance(
+        self,
+        *,
+        build_id: str,
+        build: Build,
+        plan: ModeBPlan,
+        history: Sequence[ModeBStageEntry],
+    ) -> TurnReport:
+        """Resolve a Mode B plan whose ``next_stage`` is ``None``.
+
+        If the latest AUTOBUILD entry has reached a terminal lifecycle
+        we evaluate :func:`evaluate_post_autobuild` to decide between
+        the constitutional PR-review gate, the no-diff NO_OP terminal,
+        or the failed terminal. For every other reason
+        (``hard_stop`` on FEATURE_SPEC, empty-spec artefacts, awaiting
+        approval, etc.) we surface the planner's rationale and return
+        :attr:`TurnOutcome.WAITING`.
+        """
+        # Detect a terminal AUTOBUILD entry — only then is the
+        # post-autobuild handler valid.
+        latest_autobuild = next(
+            (
+                entry
+                for entry in reversed(list(history))
+                if entry.stage is StageClass.AUTOBUILD
+            ),
+            None,
+        )
+        if latest_autobuild is None:
+            # Hard-stop / empty-spec / awaiting-approval — record the
+            # planner's rationale and wait. Group C "hard-stop in any
+            # non-constitutional stage transitions to a failed terminal
+            # state" is enforced by the lifecycle state machine; the
+            # supervisor records WAITING here so the outer loop can
+            # observe the rationale.
+            report = TurnReport(
+                outcome=TurnOutcome.WAITING,
+                build_id=build_id,
+                permitted_stages=frozenset(MODE_B_CHAIN),
+                rationale=(
+                    plan.rationale
+                    or "MODE_B planner returned no next_stage; awaiting"
+                ),
+            )
+            self._record_safe(report)
+            return report
+
+        # Local import — see TYPE_CHECKING note at top of module.
+        from forge.pipeline.terminal_handlers import (
+            NO_OP as _MODE_B_NO_OP,
+            PR_REVIEW as _MODE_B_PR_REVIEW,
+            ROUTE_FAILED as _MODE_B_ROUTE_FAILED,
+            evaluate_post_autobuild as _default_mode_b_post_autobuild,
+        )
+
+        handler = self.mode_b_post_autobuild or _default_mode_b_post_autobuild
+        decision = handler(build, history)
+
+        rationale = decision.rationale
+        permitted = frozenset(MODE_B_CHAIN)
+        feature_id = decision.feature_id
+
+        if decision.route == _MODE_B_PR_REVIEW:
+            # Advance to PR-review via the existing constitutional gate
+            # path. The supervisor invokes the gate directly — Mode B's
+            # planner is authoritative; auto_approve is False (operator
+            # approves) by ASSUM-011.
+            dispatch_result = self.pr_review_gate.submit_decision(
+                build_id=build_id,
+                feature_id=feature_id or "",
+                auto_approve=False,
+                rationale=rationale,
+            )
+            report = TurnReport(
+                outcome=TurnOutcome.DISPATCHED,
+                build_id=build_id,
+                permitted_stages=permitted,
+                chosen_stage=StageClass.PULL_REQUEST_REVIEW,
+                chosen_feature_id=feature_id,
+                rationale=rationale,
+                dispatch_result=dispatch_result,
+            )
+            self._record_safe(report)
+            return report
+
+        if decision.route in (_MODE_B_NO_OP, _MODE_B_ROUTE_FAILED):
+            # Terminal — supervisor records and stops dispatching.
+            report = TurnReport(
+                outcome=TurnOutcome.TERMINAL,
+                build_id=build_id,
+                permitted_stages=permitted,
+                chosen_stage=StageClass.AUTOBUILD,
+                chosen_feature_id=feature_id,
+                rationale=rationale,
+                dispatch_result=decision,
+            )
+            self._record_safe(report)
+            return report
+
+        # Defensive — unknown route surfaces as WAITING with a warning.
+        logger.warning(
+            "supervisor.next_turn (MODE_B): unknown post-autobuild route "
+            "%r for build_id=%s; recording WAITING",
+            decision.route,
+            build_id,
+        )
+        report = TurnReport(
+            outcome=TurnOutcome.WAITING,
+            build_id=build_id,
+            permitted_stages=permitted,
+            chosen_feature_id=feature_id,
+            rationale=rationale,
+        )
+        self._record_safe(report)
+        return report
+
+    def _mode_feature_id_for(self, build_id: str) -> str | None:
+        """Resolve the single feature_id for the build's per-feature stages.
+
+        Mode B is single-feature by ASSUM-006 — the catalogue has exactly
+        one entry. We read it from the ordering reader so the supervisor
+        does not duplicate the feature-id derivation logic that lives in
+        the FEAT-FORGE-001 SQLite adapter. ``None`` means the catalogue
+        is not (yet) populated; callers treat that as a misuse.
+        """
+        try:
+            features = list(
+                self.ordering_stage_log_reader.feature_catalogue(build_id)
+            )
+        except Exception:  # noqa: BLE001 — defensive read
+            return None
+        if not features:
+            return None
+        return features[0]
+
+    # ------------------------------------------------------------------
+    # Internal: Mode C dispatch (TASK-MBC8-008)
+    # ------------------------------------------------------------------
+
+    async def _next_turn_mode_c(
+        self,
+        *,
+        build_id: str,
+        build_state: BuildState,
+    ) -> TurnReport:
+        """Mode C dispatch turn (FEAT-FORGE-008 ASSUM-004).
+
+        Sequence:
+
+        1. Read the build's Mode C history and ``has_commits`` flag via
+           the injected reader.
+        2. Ask the :class:`ModeCCyclePlanner` for the next stage. The
+           planner returns:
+           - ``next_stage = TASK_REVIEW`` for the initial review or a
+             follow-up review.
+           - ``next_stage = TASK_WORK`` plus a :class:`FixTaskRef` for
+             each fix-task dispatch.
+           - ``next_stage = PULL_REQUEST_REVIEW`` when a follow-up
+             review is clean and ``has_commits`` is true.
+           - ``next_stage = None`` for terminal cycle exit (clean
+             review with no commits, or hard-stopped review). The
+             :func:`evaluate_terminal` handler decides between
+             :data:`ModeCHandlerTerminal.PR_REVIEW`,
+             :data:`ModeCHandlerTerminal.CLEAN_REVIEW_NO_FIXES`,
+             :data:`ModeCHandlerTerminal.CLEAN_REVIEW_NO_COMMITS`, or
+             :data:`ModeCHandlerTerminal.FAILED`.
+        3. Belt-and-braces re-check via :class:`StageOrderingGuard` with
+           :data:`MODE_C_PREREQUISITES` and the Mode C chain.
+        4. Constitutional guard fires for ``PULL_REQUEST_REVIEW``.
+        5. Route to ``subprocess_dispatcher`` for TASK_REVIEW /
+           TASK_WORK; ``pr_review_gate`` for PULL_REQUEST_REVIEW.
+        """
+        if self.mode_c_planner is None or self.mode_c_history_reader is None:
+            return self._mode_misconfigured(
+                build_id=build_id,
+                mode=BuildMode.MODE_C,
+                missing=(
+                    "mode_c_planner / mode_c_history_reader required for "
+                    "MODE_C dispatch (TASK-MBC8-008)"
+                ),
+            )
+
+        history = self.mode_c_history_reader.get_mode_c_history(build_id)
+        has_commits = self.mode_c_history_reader.has_commits(build_id)
+        from forge.lifecycle.persistence import Build  # local: break import cycle
+
+        build = Build(
+            build_id=build_id,
+            status=build_state,
+            mode=BuildMode.MODE_C,
+        )
+        plan = self.mode_c_planner.plan_next_stage(
+            build, history, has_commits=has_commits
+        )
+
+        if plan.next_stage is None:
+            return await self._mode_c_resolve_terminal(
+                build_id=build_id,
+                build=build,
+                plan=plan,
+                history=history,
+            )
+
+        permitted = frozenset(
+            self.ordering_guard.next_dispatchable(
+                build_id,
+                self.ordering_stage_log_reader,
+                prerequisites=MODE_C_PREREQUISITES,
+                stages=MODE_C_CHAIN,
+            )
+        )
+        chosen_stage = plan.next_stage
+        if chosen_stage not in permitted:
+            warning = (
+                "supervisor.next_turn (MODE_C): planner chose stage "
+                f"{chosen_stage.value!r} which is OUTSIDE the per-mode "
+                f"permitted set {sorted(s.value for s in permitted)} "
+                f"for build_id={build_id!r}; refusing dispatch "
+                "(ADR-ARCH-026 belt-and-braces enforcement)"
+            )
+            logger.warning(warning)
+            report = TurnReport(
+                outcome=TurnOutcome.REFUSED_OUT_OF_BAND,
+                build_id=build_id,
+                permitted_stages=permitted,
+                chosen_stage=chosen_stage,
+                rationale=warning,
+            )
+            self._record_safe(report)
+            return report
+
+        rationale = plan.rationale or f"MODE_C planner chose {chosen_stage.value}"
+
+        if chosen_stage is StageClass.PULL_REQUEST_REVIEW:
+            # Mode C: a clean follow-up review with commits advances
+            # straight to PR-review. The constitutional guard veto
+            # applies but only on auto-approve (which the planner does
+            # not request).
+            dispatch_result = self.pr_review_gate.submit_decision(
+                build_id=build_id,
+                feature_id="",
+                auto_approve=False,
+                rationale=rationale,
+            )
+            report = TurnReport(
+                outcome=TurnOutcome.DISPATCHED,
+                build_id=build_id,
+                permitted_stages=permitted,
+                chosen_stage=chosen_stage,
+                rationale=rationale,
+                dispatch_result=dispatch_result,
+            )
+            self._record_safe(report)
+            return report
+
+        # TASK_REVIEW / TASK_WORK route through the subprocess dispatcher.
+        # TASK_WORK carries the fix-task ref; the
+        # :class:`ForwardContextBuilder` (TASK-MBC8-005) is consulted
+        # via the injected ``fix_task_context_builder`` callable so the
+        # supervisor stays decoupled from the builder's read-side I/O.
+        dispatcher_kwargs: dict[str, Any] = {
+            "stage": chosen_stage,
+            "build_id": build_id,
+            "feature_id": None,
+            "rationale": rationale,
+        }
+        if (
+            chosen_stage is StageClass.TASK_WORK
+            and plan.next_fix_task is not None
+        ):
+            dispatcher_kwargs["fix_task"] = plan.next_fix_task
+            if self.fix_task_context_builder is not None:
+                try:
+                    dispatcher_kwargs["forward_context"] = (
+                        self.fix_task_context_builder(
+                            chosen_stage,
+                            build_id,
+                            plan.next_fix_task,
+                        )
+                    )
+                except Exception as exc:  # noqa: BLE001 — defensive
+                    logger.warning(
+                        "supervisor.next_turn (MODE_C): "
+                        "fix_task_context_builder raised %s: %s for "
+                        "build_id=%s — dispatching without forward_context",
+                        type(exc).__name__,
+                        exc,
+                        build_id,
+                    )
+
+        dispatch_result = await self.subprocess_dispatcher(
+            **dispatcher_kwargs
+        )
+        report = TurnReport(
+            outcome=TurnOutcome.DISPATCHED,
+            build_id=build_id,
+            permitted_stages=permitted,
+            chosen_stage=chosen_stage,
+            rationale=rationale,
+            dispatch_result=dispatch_result,
+        )
+        self._record_safe(report)
+        return report
+
+    async def _mode_c_resolve_terminal(
+        self,
+        *,
+        build_id: str,
+        build: Build,
+        plan: ModeCPlan,
+        history: Sequence[ModeCStageEntry],
+    ) -> TurnReport:
+        """Resolve a Mode C plan whose ``next_stage`` is ``None``.
+
+        Invokes the Mode C terminal handler to classify the cycle's
+        exit (CLEAN_REVIEW_NO_FIXES / CLEAN_REVIEW_NO_COMMITS /
+        PR_REVIEW / FAILED) and converts the decision into a
+        :class:`TurnReport`. PR_REVIEW yields a DISPATCHED outcome via
+        the constitutional gate; every other outcome is TERMINAL.
+        """
+        permitted = frozenset(MODE_C_CHAIN)
+
+        # Local import — see TYPE_CHECKING note at top of module.
+        from forge.pipeline.terminal_handlers.mode_c import (
+            ModeCTerminal as _ModeCHandlerTerminal,
+            evaluate_terminal as _default_mode_c_evaluate_terminal,
+        )
+
+        # If the planner already classified the cycle as a planner-side
+        # terminal (CLEAN_REVIEW or FAILED), prefer the handler's view
+        # since it has access to the commit probe. Fall back to the
+        # planner's rationale if the handler is not wired.
+        handler = (
+            self.mode_c_terminal_handler or _default_mode_c_evaluate_terminal
+        )
+        try:
+            decision = await handler(
+                build,
+                history,
+                commit_probe=self.mode_c_commit_probe,
+            )
+        except Exception as exc:  # noqa: BLE001 — defensive
+            logger.warning(
+                "supervisor.next_turn (MODE_C): terminal handler raised "
+                "%s: %s for build_id=%s — falling back to planner "
+                "rationale",
+                type(exc).__name__,
+                exc,
+                build_id,
+            )
+            outcome = (
+                TurnOutcome.TERMINAL
+                if plan.terminal is not None
+                else TurnOutcome.WAITING
+            )
+            report = TurnReport(
+                outcome=outcome,
+                build_id=build_id,
+                permitted_stages=permitted,
+                rationale=plan.rationale or "MODE_C planner halted cycle",
+            )
+            self._record_safe(report)
+            return report
+
+        if decision.outcome is _ModeCHandlerTerminal.PR_REVIEW:
+            dispatch_result = self.pr_review_gate.submit_decision(
+                build_id=build_id,
+                feature_id="",
+                auto_approve=False,
+                rationale=decision.rationale,
+            )
+            report = TurnReport(
+                outcome=TurnOutcome.DISPATCHED,
+                build_id=build_id,
+                permitted_stages=permitted,
+                chosen_stage=StageClass.PULL_REQUEST_REVIEW,
+                rationale=decision.rationale,
+                dispatch_result=dispatch_result,
+            )
+            self._record_safe(report)
+            return report
+
+        # CLEAN_REVIEW_NO_FIXES / CLEAN_REVIEW_NO_COMMITS / FAILED → terminal.
+        report = TurnReport(
+            outcome=TurnOutcome.TERMINAL,
+            build_id=build_id,
+            permitted_stages=permitted,
+            rationale=(
+                f"{decision.outcome.value}: {decision.rationale}"
+                if decision.failure_reason is None
+                else (
+                    f"{decision.outcome.value}: {decision.rationale} "
+                    f"({decision.failure_reason})"
+                )
+            ),
+            dispatch_result=decision,
+        )
+        self._record_safe(report)
+        return report
+
+    def _mode_misconfigured(
+        self,
+        *,
+        build_id: str,
+        mode: BuildMode,
+        missing: str,
+    ) -> TurnReport:
+        """Build a structured WAITING report when Mode B/C wiring is missing.
+
+        Failing fast with REFUSED_OUT_OF_BAND would be wrong — the
+        misconfiguration is not the model's fault. We log at ERROR so
+        operators notice and return WAITING so the outer loop pauses
+        rather than spinning.
+        """
+        warning = (
+            f"supervisor.next_turn ({mode.value}): {missing}; "
+            f"build_id={build_id!r} — recording WAITING"
+        )
+        logger.error(warning)
+        report = TurnReport(
+            outcome=TurnOutcome.WAITING,
+            build_id=build_id,
+            permitted_stages=frozenset(),
+            rationale=warning,
         )
         self._record_safe(report)
         return report
