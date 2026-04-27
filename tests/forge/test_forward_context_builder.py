@@ -24,21 +24,28 @@ the FEAT-FORGE-005 allowlist subsystem.
 
 from __future__ import annotations
 
+import json
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import pytest
 
+from forge.lifecycle.modes import BuildMode
 from forge.pipeline import forward_context_builder
 from forge.pipeline.forward_context_builder import (
+    MODE_B_PROPAGATION_CONTRACT,
     ApprovedStageEntry,
     ContextEntry,
+    FixTaskRef,
     ForwardContextBuilder,
+    ModeBoundaryViolation,
     StageLogReader,
     WorktreeAllowlist,
 )
 from forge.pipeline.forward_propagation import PROPAGATION_CONTRACT
+from forge.pipeline.mode_chains_data import MODE_B_FORBIDDEN_STAGES
 from forge.pipeline.stage_taxonomy import PER_FEATURE_STAGES, StageClass
 
 # ---------------------------------------------------------------------------
@@ -55,11 +62,20 @@ class FakeStageLogReader:
     non-per-feature stages. Any lookup that does not hit a stored entry
     returns ``None`` — modelling either "no row yet" or "row present
     but not yet approved".
+
+    For Mode C's follow-up ``/task-review`` (TASK-MBC8-005 AC-005) the
+    builder also needs to enumerate every approved row for a stage
+    (typically multiple ``/task-work`` rows in a cycle). The fake stores
+    those in :attr:`multi_entries` keyed the same way; an empty / missing
+    entry yields an empty sequence.
     """
 
     entries: dict[tuple[str, StageClass, str | None], ApprovedStageEntry] = field(
         default_factory=dict
     )
+    multi_entries: dict[
+        tuple[str, StageClass, str | None], list[ApprovedStageEntry]
+    ] = field(default_factory=dict)
 
     def get_approved_stage_entry(
         self,
@@ -68,6 +84,14 @@ class FakeStageLogReader:
         feature_id: str | None = None,
     ) -> ApprovedStageEntry | None:
         return self.entries.get((build_id, stage, feature_id))
+
+    def get_all_approved_stage_entries(
+        self,
+        build_id: str,
+        stage: StageClass,
+        feature_id: str | None = None,
+    ) -> Sequence[ApprovedStageEntry]:
+        return tuple(self.multi_entries.get((build_id, stage, feature_id), ()))
 
 
 @dataclass
@@ -611,7 +635,10 @@ class TestModuleExports:
         assert set(forward_context_builder.__all__) == {
             "ApprovedStageEntry",
             "ContextEntry",
+            "FixTaskRef",
             "ForwardContextBuilder",
+            "MODE_B_PROPAGATION_CONTRACT",
+            "ModeBoundaryViolation",
             "StageLogReader",
             "WorktreeAllowlist",
         }
@@ -624,3 +651,540 @@ class TestModuleExports:
         # The fakes structurally satisfy the Protocols.
         assert isinstance(reader, StageLogReader)
         assert isinstance(allowlist, WorktreeAllowlist)
+
+
+# ---------------------------------------------------------------------------
+# TASK-MBC8-005 — Mode A backward-compat default
+# ---------------------------------------------------------------------------
+
+
+class TestModeADefaultBackwardCompat:
+    """TASK-MBC8-005 AC-001 — existing Mode A callers see no change.
+
+    The ``mode`` parameter is additive: callers that omit it continue to
+    receive the Mode A behaviour byte-for-byte, exercised here by the
+    same per-stage assertions as the Mode A test classes above but
+    without ever mentioning ``BuildMode.MODE_A`` at the callsite.
+    """
+
+    def test_mode_a_caller_default_matches_explicit_mode_a(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        # Mode A path: AUTOBUILD ← FEATURE_PLAN.
+        reader.entries[("build-1", StageClass.FEATURE_PLAN, "FEAT-1")] = (
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=("/work/build-1/plan.md",),
+                artefact_text=None,
+            )
+        )
+
+        default_entries = builder.build_for(
+            stage=StageClass.AUTOBUILD,
+            build_id="build-1",
+            feature_id="FEAT-1",
+        )
+        explicit_entries = builder.build_for(
+            stage=StageClass.AUTOBUILD,
+            build_id="build-1",
+            feature_id="FEAT-1",
+            mode=BuildMode.MODE_A,
+        )
+
+        assert default_entries == explicit_entries
+        assert default_entries == [
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/plan.md",
+                kind="path",
+            )
+        ]
+
+    def test_mode_a_default_does_not_raise_on_pre_feature_spec_stages(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """Mode A still threads context through SYSTEM_DESIGN, ARCHITECT, etc."""
+        # Sanity: the four Mode B forbidden stages are perfectly legal in
+        # Mode A and must not raise ModeBoundaryViolation when called
+        # under the default (Mode A) mode.
+        reader.entries[("build-1", StageClass.PRODUCT_OWNER, None)] = (
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=(),
+                artefact_text="charter",
+            )
+        )
+        # ARCHITECT consumes PRODUCT_OWNER — must succeed under Mode A.
+        entries = builder.build_for(
+            stage=StageClass.ARCHITECT,
+            build_id="build-1",
+            feature_id=None,
+        )
+        assert entries == [ContextEntry(flag="--context", value="charter", kind="text")]
+
+
+# ---------------------------------------------------------------------------
+# TASK-MBC8-005 AC-002 — Mode B contracts
+# ---------------------------------------------------------------------------
+
+
+class TestModeBContracts:
+    """TASK-MBC8-005 AC-002 — Mode B propagation rows.
+
+    Three contract rows per FEAT-FORGE-008 Group A:
+
+        1. FEATURE_PLAN ← FEATURE_SPEC artefact paths
+        2. AUTOBUILD    ← FEATURE_PLAN artefact paths
+        3. PR_REVIEW    ← AUTOBUILD branch ref + commit summary (text)
+
+    Mode B's pre-``feature-spec`` stages
+    (:data:`MODE_B_FORBIDDEN_STAGES`) raise :class:`ModeBoundaryViolation`.
+    """
+
+    def test_mode_b_feature_plan_receives_feature_spec_artefact_paths(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """FEATURE_PLAN consumes the approved /feature-spec artefact path."""
+        reader.entries[("build-1", StageClass.FEATURE_SPEC, "FEAT-1")] = (
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=("/work/build-1/spec.md",),
+                artefact_text=None,
+            )
+        )
+
+        entries = builder.build_for(
+            stage=StageClass.FEATURE_PLAN,
+            build_id="build-1",
+            feature_id="FEAT-1",
+            mode=BuildMode.MODE_B,
+        )
+
+        assert entries == [
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/spec.md",
+                kind="path",
+            )
+        ]
+
+    def test_mode_b_autobuild_receives_feature_plan_artefact_paths(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """AUTOBUILD consumes the approved /feature-plan artefact path."""
+        reader.entries[("build-1", StageClass.FEATURE_PLAN, "FEAT-1")] = (
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=("/work/build-1/plan.md",),
+                artefact_text=None,
+            )
+        )
+
+        entries = builder.build_for(
+            stage=StageClass.AUTOBUILD,
+            build_id="build-1",
+            feature_id="FEAT-1",
+            mode=BuildMode.MODE_B,
+        )
+
+        assert entries == [
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/plan.md",
+                kind="path",
+            )
+        ]
+
+    def test_mode_b_pull_request_review_receives_autobuild_text(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """PULL_REQUEST_REVIEW consumes AUTOBUILD's text (branch ref + summary)."""
+        reader.entries[("build-1", StageClass.AUTOBUILD, "FEAT-1")] = (
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=(),
+                artefact_text="branch=feature/FEAT-1 commits=3",
+            )
+        )
+
+        entries = builder.build_for(
+            stage=StageClass.PULL_REQUEST_REVIEW,
+            build_id="build-1",
+            feature_id="FEAT-1",
+            mode=BuildMode.MODE_B,
+        )
+
+        assert entries == [
+            ContextEntry(
+                flag="--context",
+                value="branch=feature/FEAT-1 commits=3",
+                kind="text",
+            )
+        ]
+
+    @pytest.mark.parametrize("forbidden_stage", sorted(MODE_B_FORBIDDEN_STAGES))
+    def test_mode_b_forbidden_stages_raise_mode_boundary_violation(
+        self,
+        forbidden_stage: StageClass,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """ASSUM-013/ASSUM-014: Mode B refuses to thread context for the
+        four pre-``feature-spec`` Mode A stages."""
+        with pytest.raises(ModeBoundaryViolation) as excinfo:
+            builder.build_for(
+                stage=forbidden_stage,
+                build_id="build-1",
+                feature_id=None,
+                mode=BuildMode.MODE_B,
+            )
+        assert excinfo.value.stage is forbidden_stage
+        assert excinfo.value.mode is BuildMode.MODE_B
+        # The exception message names both the stage and the mode so
+        # operators can grep the log without spelunking the traceback.
+        msg = str(excinfo.value)
+        assert forbidden_stage.value in msg
+        assert BuildMode.MODE_B.value in msg
+
+    def test_mode_b_feature_spec_entry_stage_returns_empty(
+        self,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """FEATURE_SPEC is the Mode B entry stage — no upstream to propagate."""
+        entries = builder.build_for(
+            stage=StageClass.FEATURE_SPEC,
+            build_id="build-1",
+            feature_id="FEAT-1",
+            mode=BuildMode.MODE_B,
+        )
+        assert entries == []
+
+    def test_mode_b_contract_map_is_strict_subset_of_mode_a(self) -> None:
+        """Mode B's contract is a strict subset of the Mode A suffix.
+
+        Each Mode B row's producer stage must match the matching Mode A
+        row's producer stage — the propagation shape is identical, only
+        the description differs (``(Mode B) ...`` tag for audit logs).
+        """
+        for stage, mode_b_recipe in MODE_B_PROPAGATION_CONTRACT.items():
+            assert stage in PROPAGATION_CONTRACT, (
+                f"Mode B stage {stage!r} is not in the Mode A contract — "
+                f"Mode B should be a strict subset"
+            )
+            mode_a_recipe = PROPAGATION_CONTRACT[stage]
+            assert mode_b_recipe.producer_stage == mode_a_recipe.producer_stage
+            assert mode_b_recipe.artefact_kind == mode_a_recipe.artefact_kind
+            assert mode_b_recipe.context_flag == mode_a_recipe.context_flag
+
+
+# ---------------------------------------------------------------------------
+# TASK-MBC8-005 AC-003 — Mode C contracts (TASK_WORK + follow-up TASK_REVIEW)
+# ---------------------------------------------------------------------------
+
+
+class TestModeCTaskWorkContract:
+    """TASK-MBC8-005 AC-004 — Mode C ``/task-work`` dispatch.
+
+    Each ``/task-work`` is dispatched with:
+
+    1. A ``--fix-task`` text entry carrying ``FixTaskRef.to_json()``
+       (Group A: "Each /task-work dispatch is supplied with the
+       fix-task definition produced by /task-review").
+    2. One ``--context`` path entry per allow-listed
+       ``/task-review`` artefact path (Group L lineage anchor).
+    """
+
+    def test_mode_c_task_work_emits_fix_task_text_entry(
+        self,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        fix_task = FixTaskRef(
+            fix_task_id="FIX-001",
+            task_review_entry_id="task-review-2026-04-27T12:00:00Z",
+            review_artefact_paths=(),
+        )
+
+        entries = builder.build_for(
+            stage=StageClass.TASK_WORK,
+            build_id="build-1",
+            feature_id=None,
+            mode=BuildMode.MODE_C,
+            fix_task=fix_task,
+        )
+
+        assert entries == [
+            ContextEntry(
+                flag="--fix-task",
+                value=fix_task.to_json(),
+                kind="text",
+            )
+        ]
+        # The serialised JSON must be deterministic and parseable so the
+        # downstream dispatcher can decode it without ambiguity.
+        decoded = json.loads(entries[0].value)
+        assert decoded == {
+            "fix_task_id": "FIX-001",
+            "task_review_entry_id": "task-review-2026-04-27T12:00:00Z",
+            "review_artefact_paths": [],
+        }
+
+    def test_mode_c_task_work_emits_review_artefact_paths(
+        self,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        fix_task = FixTaskRef(
+            fix_task_id="FIX-001",
+            task_review_entry_id="task-review-2026-04-27T12:00:00Z",
+            review_artefact_paths=(
+                "/work/build-1/review/findings.md",
+                "/work/build-1/review/diff.patch",
+            ),
+        )
+
+        entries = builder.build_for(
+            stage=StageClass.TASK_WORK,
+            build_id="build-1",
+            feature_id=None,
+            mode=BuildMode.MODE_C,
+            fix_task=fix_task,
+        )
+
+        # First entry: the FixTaskRef JSON. Subsequent entries: the
+        # allow-listed review paths in order.
+        assert entries[0].flag == "--fix-task"
+        assert entries[0].kind == "text"
+        assert entries[1:] == [
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/review/findings.md",
+                kind="path",
+            ),
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/review/diff.patch",
+                kind="path",
+            ),
+        ]
+
+    def test_mode_c_task_work_filters_review_paths_outside_allowlist(
+        self,
+        builder: ForwardContextBuilder,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        fix_task = FixTaskRef(
+            fix_task_id="FIX-001",
+            task_review_entry_id="task-review-1",
+            review_artefact_paths=(
+                "/work/build-1/review/findings.md",  # allowed
+                "/etc/passwd",  # outside — must be filtered
+            ),
+        )
+
+        with caplog.at_level(
+            logging.WARNING, logger="forge.pipeline.forward_context_builder"
+        ):
+            entries = builder.build_for(
+                stage=StageClass.TASK_WORK,
+                build_id="build-1",
+                feature_id=None,
+                mode=BuildMode.MODE_C,
+                fix_task=fix_task,
+            )
+
+        # Only the FixTaskRef text entry plus the allow-listed path
+        # survive; the rejected path is filtered with a structured warning.
+        assert len(entries) == 2
+        assert entries[1].value == "/work/build-1/review/findings.md"
+        assert any(
+            "/etc/passwd" in record.getMessage() and "FIX-001" in record.getMessage()
+            for record in caplog.records
+        ), "expected structured warning for path outside allowlist"
+
+    def test_mode_c_task_work_without_fix_task_returns_empty(
+        self,
+        builder: ForwardContextBuilder,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Mode C TASK_WORK without a FixTaskRef is a planner bug → safe empty."""
+        with caplog.at_level(
+            logging.WARNING, logger="forge.pipeline.forward_context_builder"
+        ):
+            entries = builder.build_for(
+                stage=StageClass.TASK_WORK,
+                build_id="build-1",
+                feature_id=None,
+                mode=BuildMode.MODE_C,
+                fix_task=None,
+            )
+        assert entries == []
+        assert any(
+            "TASK_WORK" in record.getMessage() and "fix_task" in record.getMessage()
+            for record in caplog.records
+        ), "expected warning for missing fix_task"
+
+
+class TestModeCFollowupTaskReviewContract:
+    """TASK-MBC8-005 AC-005 — Mode C follow-up ``/task-review`` dispatch.
+
+    Receives the artefact paths from every completed ``/task-work`` in
+    the cycle so the reviewer can judge the applied fixes.
+    """
+
+    def test_followup_review_receives_paths_from_every_completed_task_work(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        # Three /task-work dispatches all approved in the cycle.
+        reader.multi_entries[("build-1", StageClass.TASK_WORK, None)] = [
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=("/work/build-1/task-work/FIX-001/result.md",),
+                artefact_text=None,
+            ),
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=("/work/build-1/task-work/FIX-002/result.md",),
+                artefact_text=None,
+            ),
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=("/work/build-1/task-work/FIX-003/result.md",),
+                artefact_text=None,
+            ),
+        ]
+
+        entries = builder.build_for(
+            stage=StageClass.TASK_REVIEW,
+            build_id="build-1",
+            feature_id=None,
+            mode=BuildMode.MODE_C,
+        )
+
+        assert entries == [
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/task-work/FIX-001/result.md",
+                kind="path",
+            ),
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/task-work/FIX-002/result.md",
+                kind="path",
+            ),
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/task-work/FIX-003/result.md",
+                kind="path",
+            ),
+        ]
+
+    def test_followup_review_with_no_completed_task_work_returns_empty(
+        self,
+        builder: ForwardContextBuilder,
+    ) -> None:
+        """An initial /task-review with zero history yields empty context."""
+        entries = builder.build_for(
+            stage=StageClass.TASK_REVIEW,
+            build_id="build-1",
+            feature_id=None,
+            mode=BuildMode.MODE_C,
+        )
+        assert entries == []
+
+    def test_followup_review_filters_task_work_paths_outside_allowlist(
+        self,
+        reader: FakeStageLogReader,
+        builder: ForwardContextBuilder,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        reader.multi_entries[("build-1", StageClass.TASK_WORK, None)] = [
+            ApprovedStageEntry(
+                gate_decision="approved",
+                artefact_paths=(
+                    "/work/build-1/task-work/FIX-001/result.md",  # allowed
+                    "/tmp/leaked.md",  # outside
+                ),
+                artefact_text=None,
+            ),
+        ]
+
+        with caplog.at_level(
+            logging.WARNING, logger="forge.pipeline.forward_context_builder"
+        ):
+            entries = builder.build_for(
+                stage=StageClass.TASK_REVIEW,
+                build_id="build-1",
+                feature_id=None,
+                mode=BuildMode.MODE_C,
+            )
+
+        assert entries == [
+            ContextEntry(
+                flag="--context",
+                value="/work/build-1/task-work/FIX-001/result.md",
+                kind="path",
+            )
+        ]
+        assert any(
+            "/tmp/leaked.md" in record.getMessage() for record in caplog.records
+        ), "expected structured warning for path outside allowlist"
+
+
+# ---------------------------------------------------------------------------
+# TASK-MBC8-005 — FixTaskRef serialisation contract
+# ---------------------------------------------------------------------------
+
+
+class TestFixTaskRefSerialisation:
+    """``FixTaskRef.to_json()`` is the audit-anchor payload for Group L.
+
+    The serialisation is exercised by the Mode C TASK_WORK tests above,
+    but explicit coverage of the contract here makes the byte-stable
+    shape easy to grep when downstream code parses the JSON.
+    """
+
+    def test_to_json_emits_sorted_keys(self) -> None:
+        ref = FixTaskRef(
+            fix_task_id="FIX-001",
+            task_review_entry_id="task-review-1",
+            review_artefact_paths=("/p/a", "/p/b"),
+        )
+        payload = ref.to_json()
+        # sort_keys=True makes the JSON byte-stable so log diffing works.
+        assert payload == (
+            '{"fix_task_id": "FIX-001", '
+            '"review_artefact_paths": ["/p/a", "/p/b"], '
+            '"task_review_entry_id": "task-review-1"}'
+        )
+
+    def test_to_json_round_trips_through_loads(self) -> None:
+        ref = FixTaskRef(
+            fix_task_id="FIX-002",
+            task_review_entry_id="task-review-7",
+            review_artefact_paths=("/work/r1.md", "/work/r2.md"),
+        )
+        decoded = json.loads(ref.to_json())
+        assert decoded == {
+            "fix_task_id": "FIX-002",
+            "task_review_entry_id": "task-review-7",
+            "review_artefact_paths": ["/work/r1.md", "/work/r2.md"],
+        }
+
+    def test_fix_task_ref_is_frozen(self) -> None:
+        """Value object: must be immutable so it can be safely shared."""
+        ref = FixTaskRef(
+            fix_task_id="FIX-001",
+            task_review_entry_id="task-review-1",
+        )
+        with pytest.raises((AttributeError, TypeError)):
+            ref.fix_task_id = "FIX-XXX"  # type: ignore[misc]

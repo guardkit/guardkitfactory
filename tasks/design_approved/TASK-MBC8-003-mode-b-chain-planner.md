@@ -1,27 +1,27 @@
 ---
-id: TASK-MBC8-003
-title: Implement ModeBChainPlanner that refuses upstream Mode A stages
-task_type: feature
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 2
-implementation_mode: task-work
 complexity: 5
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-001
 - TASK-MBC8-002
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-003
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - planner
 - mode-b
 - feat-forge-008
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Implement ModeBChainPlanner that refuses upstream Mode A stages
+updated: 2026-04-27 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement ModeBChainPlanner that refuses upstream Mode A stages

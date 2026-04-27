@@ -1,0 +1,231 @@
+{
+  "task_id": "TASK-MBC8-003",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/pipeline/test_mode_c_planner.py tests/forge/test_forward_context_builder.py tests/forge/test_mode_b_planner.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_mode_b_planner.py::TestImplementationHygiene::test_mode_b_plan_is_frozen PASSED [ 97%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_history_with_unknown_status_does_not_advance PASSED [ 98%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_history_with_malformed_artefacts_value_does_not_crash PASSED [ 99%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_planner_only_inspects_latest_entry_per_stage PASSED [100%]\n============================= 104 passed in 0.18s ==============================",
+      "duration_seconds": 0.645503044128418
+    },
+    "requirements": {
+      "criteria_total": 11,
+      "criteria_met": 11,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge.pipeline.mode_b_planner` module exposes `ModeBChainPlanner`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "src/forge/pipeline/mode_b_planner.py defines `ModeBChainPlanner.plan_next_stage(self, build: Build, history: Sequence[StageEntry]) -> ModeBPlan` plus a module-level `plan_next_stage()` function with the same signature. `ModeBPlan` is a frozen dataclass with `permitted_stages: frozenset[StageClass]` and `next_stage: StageClass | None` (plus `rationale` and `diagnostics`). Verified by TestModuleAndSignature::test_class_importable_from_mode_b_planner_module, test_plan_next_stage_returns_mode_b_plan, test_module_function_matches_class_method.",
+      "notes": "src/forge/pipeline/mode_b_planner.py defines `ModeBChainPlanner.plan_next_stage(self, build: Build, history: Sequence[StageEntry]) -> ModeBPlan` plus a module-level `plan_next_stage()` function with the same signature. `ModeBPlan` is a frozen dataclass with `permitted_stages: frozenset[StageClass]` and `next_stage: StageClass | None` (plus `rationale` and `diagnostics`). Verified by TestModuleAndSignature::test_class_importable_from_mode_b_planner_module, test_plan_next_stage_returns_mode_b_plan, test_module_function_matches_class_method."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Planner returns `next_stage = FEATURE_SPEC` when history is empty",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Empty-history branch in `plan_next_stage` returns `_advance(StageClass.FEATURE_SPEC)`. Verified by TestEmptyHistoryAdvance::test_plan_next_stage_with_empty_history_returns_feature_spec.",
+      "notes": "Empty-history branch in `plan_next_stage` returns `_advance(StageClass.FEATURE_SPEC)`. Verified by TestEmptyHistoryAdvance::test_plan_next_stage_with_empty_history_returns_feature_spec."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Planner returns `next_stage = FEATURE_PLAN` only after a `FEATURE_SPEC`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "`plan_next_stage` advances to FEATURE_PLAN only when the latest FEATURE_SPEC entry has status==APPROVED and non-empty artefacts. Status != APPROVED returns None with `_wait` rationale; HARD_STOP/FAILED return None with halt rationale. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_spec_approved_returns_feature_plan and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline.",
+      "notes": "`plan_next_stage` advances to FEATURE_PLAN only when the latest FEATURE_SPEC entry has status==APPROVED and non-empty artefacts. Status != APPROVED returns None with `_wait` rationale; HARD_STOP/FAILED return None with halt rationale. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_spec_approved_returns_feature_plan and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Planner returns `next_stage = AUTOBUILD` only after `FEATURE_PLAN` is",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "After FEATURE_SPEC approved, planner only advances to AUTOBUILD when latest FEATURE_PLAN entry has status==APPROVED. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_plan_approved_returns_autobuild and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline (autobuild branch).",
+      "notes": "After FEATURE_SPEC approved, planner only advances to AUTOBUILD when latest FEATURE_PLAN entry has status==APPROVED. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_plan_approved_returns_autobuild and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline (autobuild branch)."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Planner returns `next_stage = PULL_REQUEST_REVIEW` only after",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "When AUTOBUILD entry has status==APPROVED, planner reads `details['diff_present']`: True advances to PULL_REQUEST_REVIEW; False returns next_stage=None with rationale 'autobuild produced no diff... deferring terminal decision to TASK-MBC8-006 no-diff handler' and zero diagnostics (terminal handler decides). Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_autobuild_with_diff_returns_pull_request_review and ::test_plan_next_stage_after_autobuild_without_diff_returns_none.",
+      "notes": "When AUTOBUILD entry has status==APPROVED, planner reads `details['diff_present']`: True advances to PULL_REQUEST_REVIEW; False returns next_stage=None with rationale 'autobuild produced no diff... deferring terminal decision to TASK-MBC8-006 no-diff handler' and zero diagnostics (terminal handler decides). Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_autobuild_with_diff_returns_pull_request_review and ::test_plan_next_stage_after_autobuild_without_diff_returns_none."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Planner refuses to issue a dispatch for any stage in",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "`_enforce_boundary` walks history and raises `ModeBoundaryViolation` for any entry whose stage is in MODE_B_FORBIDDEN_STAGES. Exception message names the stage value and references 'ASSUM-013'; carries `assumption='ASSUM-013'`, `stage`, `build_id` attributes. Verified by TestSecurityBoundary::test_plan_next_stage_with_forbidden_stage_raises_mode_boundary_violation (parametrized over PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and ::test_violation_message_names_forbidden_stage_and_assumption.",
+      "notes": "`_enforce_boundary` walks history and raises `ModeBoundaryViolation` for any entry whose stage is in MODE_B_FORBIDDEN_STAGES. Exception message names the stage value and references 'ASSUM-013'; carries `assumption='ASSUM-013'`, `stage`, `build_id` attributes. Verified by TestSecurityBoundary::test_plan_next_stage_with_forbidden_stage_raises_mode_boundary_violation (parametrized over PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and ::test_violation_message_names_forbidden_stage_and_assumption."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Planner returns `permitted_stages` as a `frozenset` reflecting only the",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "`MODE_B_PERMITTED_STAGES = frozenset(MODE_B_CHAIN)` is set on every returned `ModeBPlan.permitted_stages` (advance, halt, wait paths all share the helper). Verified by TestPermittedStages::test_permitted_stages_equals_mode_b_chain_frozenset, ::test_permitted_stages_excludes_mode_a_pre_feature_spec_stages, and ::test_permitted_stages_excludes_mode_c_only_stages.",
+      "notes": "`MODE_B_PERMITTED_STAGES = frozenset(MODE_B_CHAIN)` is set on every returned `ModeBPlan.permitted_stages` (advance, halt, wait paths all share the helper). Verified by TestPermittedStages::test_permitted_stages_equals_mode_b_chain_frozenset, ::test_permitted_stages_excludes_mode_a_pre_feature_spec_stages, and ::test_permitted_stages_excludes_mode_c_only_stages."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Hard-stop on `FEATURE_SPEC` (Group C negative case) returns",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "When latest FEATURE_SPEC entry has status==HARD_STOP or FAILED, planner returns `_halt(rationale='Mode B halted at feature-specification ...')` with next_stage=None. Verified by TestHardStopOnFeatureSpec::test_plan_next_stage_with_hard_stop_feature_spec_returns_none and ::test_plan_next_stage_with_failed_feature_spec_dispatch_returns_none, and Group C scenario tests TestModeBGroupCScenarios::test_c1_hard_stop_on_feature_spec_terminates_no_later_dispatch and ::test_c2_failed_spec_halts_before_planning.",
+      "notes": "When latest FEATURE_SPEC entry has status==HARD_STOP or FAILED, planner returns `_halt(rationale='Mode B halted at feature-specification ...')` with next_stage=None. Verified by TestHardStopOnFeatureSpec::test_plan_next_stage_with_hard_stop_feature_spec_returns_none and ::test_plan_next_stage_with_failed_feature_spec_dispatch_returns_none, and Group C scenario tests TestModeBGroupCScenarios::test_c1_hard_stop_on_feature_spec_terminates_no_later_dispatch and ::test_c2_failed_spec_halts_before_planning."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Empty `FEATURE_SPEC` artefacts (Group B boundary case) returns",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "`_has_empty_artefacts` detects empty `details['artefact_paths']` OR explicit `status=='empty_artefacts'`. Returns `ModeBPlan(next_stage=None, rationale='missing-spec: ...', diagnostics=(MissingSpecArtefacts(build_id, feature_id, rationale='missing-spec: ...'),))`. Verified by TestEmptySpecArtefacts::test_plan_next_stage_with_empty_artefacts_returns_none_and_emits_diagnostic, ::test_plan_next_stage_with_explicit_empty_artefacts_status, and ::test_plan_next_stage_with_non_empty_artefacts_does_not_emit_diagnostic.",
+      "notes": "`_has_empty_artefacts` detects empty `details['artefact_paths']` OR explicit `status=='empty_artefacts'`. Returns `ModeBPlan(next_stage=None, rationale='missing-spec: ...', diagnostics=(MissingSpecArtefacts(build_id, feature_id, rationale='missing-spec: ...'),))`. Verified by TestEmptySpecArtefacts::test_plan_next_stage_with_empty_artefacts_returns_none_and_emits_diagnostic, ::test_plan_next_stage_with_explicit_empty_artefacts_status, and ::test_plan_next_stage_with_non_empty_artefacts_does_not_emit_diagnostic."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Unit tests cover all 12 Mode B Group A/B/C scenarios from the feature",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestModeBGroupAScenarios covers 6 Group A scenarios (test_a1..test_a6 \u2014 full chain to PR with diff, spec\u2192plan\u2192autobuild ordering, autobuild dispatch returned, PR pinned regardless of upstream scores, flag-for-review pause and resume, completed PR review records terminal). TestModeBGroupBScenarios covers 3 Group B scenarios (test_b1..test_b3 \u2014 single feature one PR pause, no dispatch before prereq approved [scenario outline], no spec artefacts records missing-spec rationale). TestModeBGroupCScenarios covers 3 Group C scenarios (test_c1..test_c3 \u2014 hard-stop on feature-spec, failed spec halts before planning, autobuild hard-stop halts before PR). Total = 12 scenarios. Test names correspond to scenario titles where natural.",
+      "notes": "TestModeBGroupAScenarios covers 6 Group A scenarios (test_a1..test_a6 \u2014 full chain to PR with diff, spec\u2192plan\u2192autobuild ordering, autobuild dispatch returned, PR pinned regardless of upstream scores, flag-for-review pause and resume, completed PR review records terminal). TestModeBGroupBScenarios covers 3 Group B scenarios (test_b1..test_b3 \u2014 single feature one PR pause, no dispatch before prereq approved [scenario outline], no spec artefacts records missing-spec rationale). TestModeBGroupCScenarios covers 3 Group C scenarios (test_c1..test_c3 \u2014 hard-stop on feature-spec, failed spec halts before planning, autobuild hard-stop halts before PR). Total = 12 scenarios. Test names correspond to scenario titles where natural."
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implementation follows project Python style (PEP 8, Black-compatible 88-col, type hints, snake_case functions / PascalCase classes / UPPER_CASE constants per .claude/rules/code-style.md). No bare excepts; one defensive try/except for non-Sized artefacts in `_has_empty_artefacts`. All public symbols documented with Google-style docstrings; module __all__ exports the public surface. Pure-function design \u2014 no I/O, no async, no logging side-effects beyond the implicit logger pattern (planner does not log). Run `python3 -m pytest tests/forge/test_mode_b_planner.py` returns 39 passed in 0.19s. Adjacent test suites (per_feature_sequencer, stage_ordering_guard, ordering) all pass with no regression.",
+      "notes": "Implementation follows project Python style (PEP 8, Black-compatible 88-col, type hints, snake_case functions / PascalCase classes / UPPER_CASE constants per .claude/rules/code-style.md). No bare excepts; one defensive try/except for non-Sized artefacts in `_has_empty_artefacts`. All public symbols documented with Google-style docstrings; module __all__ exports the public surface. Pure-function design \u2014 no I/O, no async, no logging side-effects beyond the implicit logger pattern (planner does not log). Run `python3 -m pytest tests/forge/test_mode_b_planner.py` returns 39 passed in 0.19s. Adjacent test suites (per_feature_sequencer, stage_ordering_guard, ordering) all pass with no regression."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`forge.pipeline.mode_b_planner` module exposes `ModeBChainPlanner`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "src/forge/pipeline/mode_b_planner.py defines `ModeBChainPlanner.plan_next_stage(self, build: Build, history: Sequence[StageEntry]) -> ModeBPlan` plus a module-level `plan_next_stage()` function with the same signature. `ModeBPlan` is a frozen dataclass with `permitted_stages: frozenset[StageClass]` and `next_stage: StageClass | None` (plus `rationale` and `diagnostics`). Verified by TestModuleAndSignature::test_class_importable_from_mode_b_planner_module, test_plan_next_stage_returns_mode_b_plan, test_module_function_matches_class_method.",
+        "notes": "src/forge/pipeline/mode_b_planner.py defines `ModeBChainPlanner.plan_next_stage(self, build: Build, history: Sequence[StageEntry]) -> ModeBPlan` plus a module-level `plan_next_stage()` function with the same signature. `ModeBPlan` is a frozen dataclass with `permitted_stages: frozenset[StageClass]` and `next_stage: StageClass | None` (plus `rationale` and `diagnostics`). Verified by TestModuleAndSignature::test_class_importable_from_mode_b_planner_module, test_plan_next_stage_returns_mode_b_plan, test_module_function_matches_class_method."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Planner returns `next_stage = FEATURE_SPEC` when history is empty",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Empty-history branch in `plan_next_stage` returns `_advance(StageClass.FEATURE_SPEC)`. Verified by TestEmptyHistoryAdvance::test_plan_next_stage_with_empty_history_returns_feature_spec.",
+        "notes": "Empty-history branch in `plan_next_stage` returns `_advance(StageClass.FEATURE_SPEC)`. Verified by TestEmptyHistoryAdvance::test_plan_next_stage_with_empty_history_returns_feature_spec."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Planner returns `next_stage = FEATURE_PLAN` only after a `FEATURE_SPEC`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "`plan_next_stage` advances to FEATURE_PLAN only when the latest FEATURE_SPEC entry has status==APPROVED and non-empty artefacts. Status != APPROVED returns None with `_wait` rationale; HARD_STOP/FAILED return None with halt rationale. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_spec_approved_returns_feature_plan and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline.",
+        "notes": "`plan_next_stage` advances to FEATURE_PLAN only when the latest FEATURE_SPEC entry has status==APPROVED and non-empty artefacts. Status != APPROVED returns None with `_wait` rationale; HARD_STOP/FAILED return None with halt rationale. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_spec_approved_returns_feature_plan and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Planner returns `next_stage = AUTOBUILD` only after `FEATURE_PLAN` is",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "After FEATURE_SPEC approved, planner only advances to AUTOBUILD when latest FEATURE_PLAN entry has status==APPROVED. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_plan_approved_returns_autobuild and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline (autobuild branch).",
+        "notes": "After FEATURE_SPEC approved, planner only advances to AUTOBUILD when latest FEATURE_PLAN entry has status==APPROVED. Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_feature_plan_approved_returns_autobuild and TestModeBGroupBScenarios::test_b2_no_dispatch_until_prerequisite_approved_outline (autobuild branch)."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Planner returns `next_stage = PULL_REQUEST_REVIEW` only after",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "When AUTOBUILD entry has status==APPROVED, planner reads `details['diff_present']`: True advances to PULL_REQUEST_REVIEW; False returns next_stage=None with rationale 'autobuild produced no diff... deferring terminal decision to TASK-MBC8-006 no-diff handler' and zero diagnostics (terminal handler decides). Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_autobuild_with_diff_returns_pull_request_review and ::test_plan_next_stage_after_autobuild_without_diff_returns_none.",
+        "notes": "When AUTOBUILD entry has status==APPROVED, planner reads `details['diff_present']`: True advances to PULL_REQUEST_REVIEW; False returns next_stage=None with rationale 'autobuild produced no diff... deferring terminal decision to TASK-MBC8-006 no-diff handler' and zero diagnostics (terminal handler decides). Verified by TestChainAdvanceScenarioOutline::test_plan_next_stage_after_autobuild_with_diff_returns_pull_request_review and ::test_plan_next_stage_after_autobuild_without_diff_returns_none."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Planner refuses to issue a dispatch for any stage in",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "`_enforce_boundary` walks history and raises `ModeBoundaryViolation` for any entry whose stage is in MODE_B_FORBIDDEN_STAGES. Exception message names the stage value and references 'ASSUM-013'; carries `assumption='ASSUM-013'`, `stage`, `build_id` attributes. Verified by TestSecurityBoundary::test_plan_next_stage_with_forbidden_stage_raises_mode_boundary_violation (parametrized over PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and ::test_violation_message_names_forbidden_stage_and_assumption.",
+        "notes": "`_enforce_boundary` walks history and raises `ModeBoundaryViolation` for any entry whose stage is in MODE_B_FORBIDDEN_STAGES. Exception message names the stage value and references 'ASSUM-013'; carries `assumption='ASSUM-013'`, `stage`, `build_id` attributes. Verified by TestSecurityBoundary::test_plan_next_stage_with_forbidden_stage_raises_mode_boundary_violation (parametrized over PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and ::test_violation_message_names_forbidden_stage_and_assumption."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Planner returns `permitted_stages` as a `frozenset` reflecting only the",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "`MODE_B_PERMITTED_STAGES = frozenset(MODE_B_CHAIN)` is set on every returned `ModeBPlan.permitted_stages` (advance, halt, wait paths all share the helper). Verified by TestPermittedStages::test_permitted_stages_equals_mode_b_chain_frozenset, ::test_permitted_stages_excludes_mode_a_pre_feature_spec_stages, and ::test_permitted_stages_excludes_mode_c_only_stages.",
+        "notes": "`MODE_B_PERMITTED_STAGES = frozenset(MODE_B_CHAIN)` is set on every returned `ModeBPlan.permitted_stages` (advance, halt, wait paths all share the helper). Verified by TestPermittedStages::test_permitted_stages_equals_mode_b_chain_frozenset, ::test_permitted_stages_excludes_mode_a_pre_feature_spec_stages, and ::test_permitted_stages_excludes_mode_c_only_stages."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Hard-stop on `FEATURE_SPEC` (Group C negative case) returns",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "When latest FEATURE_SPEC entry has status==HARD_STOP or FAILED, planner returns `_halt(rationale='Mode B halted at feature-specification ...')` with next_stage=None. Verified by TestHardStopOnFeatureSpec::test_plan_next_stage_with_hard_stop_feature_spec_returns_none and ::test_plan_next_stage_with_failed_feature_spec_dispatch_returns_none, and Group C scenario tests TestModeBGroupCScenarios::test_c1_hard_stop_on_feature_spec_terminates_no_later_dispatch and ::test_c2_failed_spec_halts_before_planning.",
+        "notes": "When latest FEATURE_SPEC entry has status==HARD_STOP or FAILED, planner returns `_halt(rationale='Mode B halted at feature-specification ...')` with next_stage=None. Verified by TestHardStopOnFeatureSpec::test_plan_next_stage_with_hard_stop_feature_spec_returns_none and ::test_plan_next_stage_with_failed_feature_spec_dispatch_returns_none, and Group C scenario tests TestModeBGroupCScenarios::test_c1_hard_stop_on_feature_spec_terminates_no_later_dispatch and ::test_c2_failed_spec_halts_before_planning."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Empty `FEATURE_SPEC` artefacts (Group B boundary case) returns",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "`_has_empty_artefacts` detects empty `details['artefact_paths']` OR explicit `status=='empty_artefacts'`. Returns `ModeBPlan(next_stage=None, rationale='missing-spec: ...', diagnostics=(MissingSpecArtefacts(build_id, feature_id, rationale='missing-spec: ...'),))`. Verified by TestEmptySpecArtefacts::test_plan_next_stage_with_empty_artefacts_returns_none_and_emits_diagnostic, ::test_plan_next_stage_with_explicit_empty_artefacts_status, and ::test_plan_next_stage_with_non_empty_artefacts_does_not_emit_diagnostic.",
+        "notes": "`_has_empty_artefacts` detects empty `details['artefact_paths']` OR explicit `status=='empty_artefacts'`. Returns `ModeBPlan(next_stage=None, rationale='missing-spec: ...', diagnostics=(MissingSpecArtefacts(build_id, feature_id, rationale='missing-spec: ...'),))`. Verified by TestEmptySpecArtefacts::test_plan_next_stage_with_empty_artefacts_returns_none_and_emits_diagnostic, ::test_plan_next_stage_with_explicit_empty_artefacts_status, and ::test_plan_next_stage_with_non_empty_artefacts_does_not_emit_diagnostic."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "Unit tests cover all 12 Mode B Group A/B/C scenarios from the feature",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestModeBGroupAScenarios covers 6 Group A scenarios (test_a1..test_a6 \u2014 full chain to PR with diff, spec\u2192plan\u2192autobuild ordering, autobuild dispatch returned, PR pinned regardless of upstream scores, flag-for-review pause and resume, completed PR review records terminal). TestModeBGroupBScenarios covers 3 Group B scenarios (test_b1..test_b3 \u2014 single feature one PR pause, no dispatch before prereq approved [scenario outline], no spec artefacts records missing-spec rationale). TestModeBGroupCScenarios covers 3 Group C scenarios (test_c1..test_c3 \u2014 hard-stop on feature-spec, failed spec halts before planning, autobuild hard-stop halts before PR). Total = 12 scenarios. Test names correspond to scenario titles where natural.",
+        "notes": "TestModeBGroupAScenarios covers 6 Group A scenarios (test_a1..test_a6 \u2014 full chain to PR with diff, spec\u2192plan\u2192autobuild ordering, autobuild dispatch returned, PR pinned regardless of upstream scores, flag-for-review pause and resume, completed PR review records terminal). TestModeBGroupBScenarios covers 3 Group B scenarios (test_b1..test_b3 \u2014 single feature one PR pause, no dispatch before prereq approved [scenario outline], no spec artefacts records missing-spec rationale). TestModeBGroupCScenarios covers 3 Group C scenarios (test_c1..test_c3 \u2014 hard-stop on feature-spec, failed spec halts before planning, autobuild hard-stop halts before PR). Total = 12 scenarios. Test names correspond to scenario titles where natural."
+      },
+      {
+        "criterion_id": "AC-011",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implementation follows project Python style (PEP 8, Black-compatible 88-col, type hints, snake_case functions / PascalCase classes / UPPER_CASE constants per .claude/rules/code-style.md). No bare excepts; one defensive try/except for non-Sized artefacts in `_has_empty_artefacts`. All public symbols documented with Google-style docstrings; module __all__ exports the public surface. Pure-function design \u2014 no I/O, no async, no logging side-effects beyond the implicit logger pattern (planner does not log). Run `python3 -m pytest tests/forge/test_mode_b_planner.py` returns 39 passed in 0.19s. Adjacent test suites (per_feature_sequencer, stage_ordering_guard, ordering) all pass with no regression.",
+        "notes": "Implementation follows project Python style (PEP 8, Black-compatible 88-col, type hints, snake_case functions / PascalCase classes / UPPER_CASE constants per .claude/rules/code-style.md). No bare excepts; one defensive try/except for non-Sized artefacts in `_has_empty_artefacts`. All public symbols documented with Google-style docstrings; module __all__ exports the public surface. Pure-function design \u2014 no I/O, no async, no logging side-effects beyond the implicit logger pattern (planner does not log). Run `python3 -m pytest tests/forge/test_mode_b_planner.py` returns 39 passed in 0.19s. Adjacent test suites (per_feature_sequencer, stage_ordering_guard, ordering) all pass with no regression."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 347 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1551/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- DESCRIBES\n- PROVIDES_OPTION\n- ASSIGNS_TASK_TO\n- HAS_OPTION\n\n### \u26a0\ufe0f Warnings\n- HAS_IMPLEMENTATION_TARGET\n- USES_ENDPOINT\n- RESULTS_IN\n\n### \ud83c\udfad Role Constraints\n- DELEGATES_TO\n- DELEGATE_TO_TASK_WORK\n- MUST_CONSULT_BEFORE_MODIFYING\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

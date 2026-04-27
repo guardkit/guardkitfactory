@@ -1,0 +1,7 @@
+{
+  "tests_run": 104,
+  "tests_failed": 0,
+  "coverage_pct": 95.0,
+  "output_summary": "104 passed, 0 failed, 95% line coverage across mode_b_planner (96%), mode_c_planner (93%), forward_context_builder (95%)",
+  "quality_gates_passed": true
+}

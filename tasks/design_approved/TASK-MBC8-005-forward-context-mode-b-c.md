@@ -1,27 +1,27 @@
 ---
-id: TASK-MBC8-005
-title: Extend ForwardContextBuilder for Mode B and Mode C contracts
-task_type: feature
-status: pending
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 2
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-002
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-005
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - forward-context
 - mode-b
 - mode-c
 - feat-forge-008
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Extend ForwardContextBuilder for Mode B and Mode C contracts
+updated: 2026-04-27 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Extend ForwardContextBuilder for Mode B and Mode C contracts
