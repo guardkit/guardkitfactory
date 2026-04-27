@@ -1,0 +1,7 @@
+{
+  "tests_run": 61,
+  "tests_failed": 0,
+  "coverage_pct": 84.0,
+  "output_summary": "61/61 pytest cases pass on TASK-PSM-002 SQLite substrate; coverage 84% across forge.lifecycle and forge.adapters.sqlite.",
+  "quality_gates_passed": true
+}
