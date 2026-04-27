@@ -1,6 +1,24 @@
 {
   "task_id": "TASK-PSM-010",
-  "turn": 1,
+  "timestamp": "2026-04-27T13:53:36.553843",
+  "completed": true,
+  "success": true,
+  "implementation_mode": "direct",
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": true,
+    "quality_gates_relaxed": true,
+    "all_passed": true
+  },
   "files_modified": [],
   "files_created": [
     "src/forge/cli/history.py",
@@ -8,15 +26,6 @@
   ],
   "tests_written": [
     "tests/forge/test_cli_history.py"
-  ],
-  "tests_run": true,
-  "tests_passed": true,
-  "test_output_summary": "21 passed, 0 failed in tests/forge/test_cli_history.py. Other repo tests unrelated to TASK-PSM-010 (TestSingleStatusWriter, test_approval_publisher) fail due to pre-existing src/forge/lifecycle/recovery.py issues \u2014 verified my history.py introduces no UPDATE builds SET status SQL.",
-  "implementation_notes": "Implemented forge.cli.history per API-cli.md \u00a75. The module exposes a Click command (history_cmd) plus a plain run_history() entry point so unit tests drive the rendering path without invoking Click. Three renderers (table/json/md), --feature filter, --since ISO-date filter (with bare-date promotion to midnight UTC), --limit (defaults to ForgeConfig.queue.default_history_limit). Reads SQLite via forge.adapters.sqlite.read_only_connect (mode=ro URI). Stage_log expansion happens for json + md formats; the table renderer is intentionally narrow. Static AST + textual checks confirm zero forge.adapters.nats imports.",
-  "concerns": [
-    "Pre-existing tests in test_lifecycle_persistence.py (TestSingleStatusWriter), test_state_machine.py and test_approval_publisher.py are failing in the worktree \u2014 unrelated to this task; caused by src/forge/lifecycle/recovery.py and forge.memory modules.",
-    "src/forge/cli/__init__.py was reverted by the harness (presumably to TASK-PSM-008 scaffold form) after I authored a richer version; the history module imports from forge.cli.history directly so no functional impact.",
-    "Click is not declared in pyproject.toml dependencies. The host venv currently lacks click but the system Python (used by /home/richardwoollcott/.local/bin/pytest) has click 8.3.1 installed, which is what the tests run under."
   ],
   "requirements_addressed": [
     "AC-001",
@@ -30,8 +39,19 @@
     "AC-009",
     "AC-010"
   ],
-  "requirements_remaining": [],
-  "implementation_mode": "direct",
+  "requirements_met": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010"
+  ],
+  "summary": "Direct mode implementation completed successfully",
   "completion_promises": [
     {
       "criterion_id": "AC-001",
@@ -134,6 +154,5 @@
         "tests/forge/test_cli_history.py"
       ]
     }
-  ],
-  "success": true
+  ]
 }
