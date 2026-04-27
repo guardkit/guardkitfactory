@@ -28,6 +28,16 @@ providers = [
     "langchain-google-genai>=2.0",
 ]
 
+# TASK-PSM-012: Console-script entry point for the ``forge`` CLI.
+# ``pip install`` (or ``pip install -e .``) writes a ``forge`` shim to the
+# active environment's ``bin/`` directory pointing at the Click group
+# defined in ``forge.cli.main:main``. The dotted path matches the
+# entry-point assertion baked into ``tests/forge/test_cli_main.py``
+# (``test_module_dotted_path_matches_pyproject_entry_point``); changing
+# either side without the other breaks the install-time wiring.
+[project.scripts]
+forge = "forge.cli.main:main"
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.2",

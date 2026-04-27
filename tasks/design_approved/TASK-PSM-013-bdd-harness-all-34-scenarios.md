@@ -1,27 +1,31 @@
 ---
-id: TASK-PSM-013
-title: "BDD harness wiring all 34 scenarios via pytest-bdd"
-task_type: testing
-parent_review: TASK-REV-3EEE
-feature_id: FEAT-FORGE-001
-wave: 5
-implementation_mode: task-work
 complexity: 5
-estimated_minutes: 75
-status: pending
 dependencies:
-  - TASK-PSM-001
-  - TASK-PSM-002
-  - TASK-PSM-003
-  - TASK-PSM-004
-  - TASK-PSM-005
-  - TASK-PSM-006
-  - TASK-PSM-007
-  - TASK-PSM-008
-  - TASK-PSM-009
-  - TASK-PSM-010
-  - TASK-PSM-011
-tags: [testing, bdd, pytest-bdd, acceptance]
+- TASK-PSM-001
+- TASK-PSM-002
+- TASK-PSM-003
+- TASK-PSM-004
+- TASK-PSM-005
+- TASK-PSM-006
+- TASK-PSM-007
+- TASK-PSM-008
+- TASK-PSM-009
+- TASK-PSM-010
+- TASK-PSM-011
+estimated_minutes: 75
+feature_id: FEAT-FORGE-001
+id: TASK-PSM-013
+implementation_mode: task-work
+parent_review: TASK-REV-3EEE
+status: design_approved
+tags:
+- testing
+- bdd
+- pytest-bdd
+- acceptance
+task_type: testing
+title: BDD harness wiring all 34 scenarios via pytest-bdd
+wave: 5
 ---
 
 # Task: BDD harness wiring all 34 scenarios via pytest-bdd
