@@ -139,7 +139,9 @@ class FakeHandler:
                 f"by {responder!r}"
             ),
             guard_decision=SkipDecision(
-                verdict=SkipVerdict.PERMITTED, rationale="permitted"
+                stage=stage,
+                verdict=SkipVerdict.PERMITTED,
+                rationale="permitted",
             ),
         )
 
@@ -212,7 +214,7 @@ class TestCancelIdentifierResolution:
         persistence = FakePersistence(builds={})
         handler = FakeHandler(snapshot_reader=FakeSnapshotReader())
         _patch_runtime(monkeypatch, persistence, handler)
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             cancel_module.cancel_cmd,
             ["FEAT-NOPE", "--db", str(db_path)],
@@ -234,7 +236,7 @@ class TestCancelIdentifierResolution:
         )
         handler = FakeHandler(snapshot_reader=FakeSnapshotReader())
         _patch_runtime(monkeypatch, persistence, handler)
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             cancel_module.cancel_cmd,
             ["FEAT-A1B2", "--db", str(db_path)],
@@ -270,7 +272,7 @@ class TestSkipNonPausedRefused:
         )
         handler = FakeHandler(snapshot_reader=snapshot_reader)
         _patch_runtime(monkeypatch, persistence, handler)
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             skip_module.skip_cmd,
             ["FEAT-A1B2", "--db", str(db_path)],
@@ -287,7 +289,7 @@ class TestSkipNonPausedRefused:
         persistence = FakePersistence(builds={})
         handler = FakeHandler(snapshot_reader=FakeSnapshotReader())
         _patch_runtime(monkeypatch, persistence, handler)
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             skip_module.skip_cmd,
             ["FEAT-MISS", "--db", str(db_path)],
@@ -321,7 +323,7 @@ class TestResponderPassedToHandler:
         import os
 
         monkeypatch.setattr(os, "getlogin", lambda: "alice")
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             cancel_module.cancel_cmd,
             ["FEAT-A1B2", "--reason", "CI cleanup", "--db", str(db_path)],
@@ -358,7 +360,7 @@ class TestResponderPassedToHandler:
         import os
 
         monkeypatch.setattr(os, "getlogin", lambda: "bob")
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             skip_module.skip_cmd,
             ["FEAT-A1B2", "--reason", "approved by hand", "--db", str(db_path)],
@@ -408,13 +410,14 @@ class TestSkipConstitutionalRefusal:
                 status=SkipStatus.REFUSED_CONSTITUTIONAL,
                 rationale="constitutional veto: pr-review",
                 guard_decision=SkipDecision(
+                    stage=StageClass.PULL_REQUEST_REVIEW,
                     verdict=SkipVerdict.REFUSED_CONSTITUTIONAL,
                     rationale="pr-review is constitutional",
                 ),
             ),
         )
         _patch_runtime(monkeypatch, persistence, handler)
-        runner = CliRunner(mix_stderr=False)
+        runner = CliRunner()
         result = runner.invoke(
             skip_module.skip_cmd,
             ["FEAT-A1B2", "--db", str(db_path)],
