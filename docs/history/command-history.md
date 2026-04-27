@@ -2739,3 +2739,132 @@ GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-CBDE --verbose --max-tu
 
 
 
+
+Please review /home/richardwoollcott/Projects/appmilla_github/forge/docs/research/ideas/forge-build-plan.md and update the status and work out my next steps I think it should be : # FEAT-FORGE-008: Mode B Feature & Mode C Review-Fix (depends on 007)
+guardkit feature-plan FEAT-FORGE-008 \
+  --context forge/features/<feat-forge-008-slug>/<feat-forge-008-slug>_summary.md
+
+So this nees updating I think? Please see the histories in /home/richardwoollcott/Projects/appmilla_github/forge/docs/history and git
+
+
+
+
+Plan is updated. Here's where you actually are and what comes next.
+
+Status (corrected)
+Stage	Done	Pending
+/system-arch	✅	—
+/system-design	✅	—
+/feature-spec	7/8 (001–007)	008
+/feature-plan	6/8 (002–007)	008 (001 skipped — folded in)
+autobuild	6/8 (002–007)	008 (001 absorbed)
+Validation	◻	—
+FinProxy run	◻	—
+The doc previously claimed 5/8 specs in the header (and 6/8 in the body) — both stale. Reality is 7/8 across the board for 002–007.
+
+Your suggested next step needs one prior step
+You proposed running:
+
+
+guardkit feature-plan FEAT-FORGE-008 \
+  --context forge/features/<feat-forge-008-slug>/<feat-forge-008-slug>_summary.md
+That's blocked: /feature-spec FEAT-FORGE-008 has not been run yet, so the slug directory doesn't exist. The placeholder can't be resolved.
+
+Recommended sequence
+/feature-spec FEAT-FORGE-008 — produces features/mode-b-feature-and-mode-c-review-fix/ (slug TBD). Updated context flags now in forge-build-plan.md Step 3:
+
+
+guardkit feature-spec FEAT-FORGE-008 \
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end.feature \
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end_summary.md \
+  --context forge/docs/design/contracts/API-cli.md \
+  --context forge/docs/design/contracts/API-nats-approval-protocol.md \
+  --context forge/docs/design/models/DM-build-lifecycle.md
+The previous spec command was wrong — it pointed at forge/features/FEAT-FORGE-007/feature-spec.md, which never existed (the real path is mode-a-greenfield-end-to-end/).
+
+/feature-plan FEAT-FORGE-008 — your suggested command, with the real slug substituted once Step 1 completes.
+
+autobuild FEAT-FORGE-008 — Wave 6.
+
+Step 6 validation — including the four LES1 parity gates (CMDW / PORT / ARFS / canonical-freeze) before declaring the build canonical.
+
+Step 7 FinProxy first run.
+
+One thing worth deciding before you start 008
+FEAT-FORGE-001 was never planned or autobuilt. The src tree (pipeline/, config/, etc.) was populated piecemeal by 002–007, which works in practice but means there's no isolated coverage of the foundation contract: forge queue CLI surface, forge.yaml loader, SQLite-backed crash recovery as a unit. The doc now says: if Step 6 validation exposes a gap, spawn a discrete FEAT-FORGE-009 to backfill rather than retro-running 001. If you'd rather close that gap before 008 (cleaner foundation, but adds days), say so and I'll flip the recommendation.
+
+let's close that gap
+
+
+Quick gap analysis — what FEAT-FORGE-001 specced vs. what's actually in the tree:
+
+Specced	Status
+CLI: forge queue / status / history / cancel / skip	❌ Missing — no cli/ package, no console_scripts in pyproject
+Build-lifecycle state machine (IDLE→PREPARING→RUNNING→FINALISING→COMPLETE/FAILED)	❌ Missing — pipeline/ has stage-ordering guards (within a build) but not the lifecycle state machine
+SQLite history (builds + stage_log per DDR-003)	❌ Missing — sqlite usage exists in memory/ and dispatch/persistence.py but no central build-history schema
+Crash recovery (rehydrate every lifecycle state on restart)	❌ Missing
+Sequential queue per-project (max_concurrent=1)	❌ Missing as discrete enforcement
+Path-traversal validation on feature_id	❌ Missing
+Cancel-operator audit trail	❌ Missing
+This is a real gap — 002–007 assume the queue/CLI/lifecycle surface exists upstream and just plug into the parts they need (config, NATS adapters). Nothing has actually built forge queue or the build-lifecycle state machine.
+
+Recommended path
+Don't blindly re-run /feature-plan FEAT-FORGE-001 — the existing spec was written assuming a clean slate, so a naive plan will duplicate config/manifest work that 002–007 already shipped (e.g. forge.config.models already has FleetConfig, ApprovalConfig, etc.).
+
+Instead, do this:
+
+I write a short forge-001-gap-context.md — per-scenario coverage table (covered / partial / missing) so /feature-plan knows what to skip and what to focus on.
+You run /feature-plan FEAT-FORGE-001 --context <spec_summary> --context <gap-context> — produces a plan scoped to the missing pieces only.
+You run autobuild FEAT-FORGE-001 — Wave 1 backfill.
+Then proceed to FEAT-FORGE-008 (spec → plan → build).
+The gap-context doc is the load-bearing piece — without it, the plan will produce duplicated work.
+
+Alternative (heavier ceremony, cleaner separation): spec a new FEAT-FORGE-001B titled something like "Build Lifecycle CLI & Crash Recovery" covering only the missing scope, then plan + build that. Keeps the original FEAT-FORGE-001 spec untouched as the canonical contract, and the new feature is the implementation slice.
+
+I'd recommend option 1 (gap-context + re-plan) — keeps the FEAT-FORGE-NNN numbering coherent and reuses the existing 34-scenario spec rather than splitting it. Which way do you want to go? If option 1, I'll write the gap-context doc next.
+
+
+
+proceed with option 1 then I can run the feature-plan
+
+Gap-context doc written to docs/research/ideas/forge-001-gap-context.md.
+
+It maps every one of the 34 FEAT-FORGE-001 scenarios to either reuse (existing modules from 002–007) or build (new code under src/forge/lifecycle/ + src/forge/cli/), with explicit "MUST NOT" rules so the plan doesn't duplicate config models, executor logic, NATS adapters, or stage guards.
+
+Key finding worth flagging: the executor logic for cancel/skip is already shipped in pipeline/cli_steering.py with all the right Protocol seams waiting for FEAT-FORGE-001's concrete persistence-backed implementations. So the plan should produce a much thinner FEAT-FORGE-001 than the spec implied — primarily one new package (src/forge/lifecycle/) covering SQLite persistence, the lifecycle state machine, sequential-queue picker, crash recovery, and identifier validation, plus a thin src/forge/cli/ package and a console_scripts entry-point edit.
+
+Run it
+
+guardkit feature-plan "Pipeline State Machine and Configuration" \
+  --context forge/features/pipeline-state-machine-and-configuration/pipeline-state-machine-and-configuration_summary.md \
+  --context forge/docs/research/ideas/forge-001-gap-context.md \
+  --context forge/docs/design/contracts/API-cli.md \
+  --context forge/docs/design/contracts/API-sqlite-schema.md \
+  --context forge/docs/design/decisions/DDR-003-sqlite-schema-layout-wal.md
+
+
+The same command block is recorded in §"How to use this document" of the gap-context doc itself, so the plan picks it up regardless of where it's invoked from.
+
+After the plan completes, the next steps are: review the task breakdown (sanity-check that nothing under §5 "MUST NOT" leaked in), then autobuild FEAT-FORGE-001, then proceed to FEAT-FORGE-008.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-CBDE --verbose --max-turns 30

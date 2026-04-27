@@ -1,0 +1,176 @@
+id: FEAT-FORGE-001
+name: Pipeline State Machine and Configuration
+description: Durable build lifecycle (state machine, SQLite history, crash recovery,
+  sequential queue) and CLI surface (forge queue/status/history/cancel/skip). Closes
+  the FEAT-FORGE-001 gap left by 002-007. 13 tasks, 5 waves, 8/10 complexity.
+created: '2026-04-27T12:20:13.826147'
+status: planned
+complexity: 7
+estimated_tasks: 13
+tasks:
+- id: TASK-PSM-001
+  name: Identifiers and path-traversal validation
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-001-identifiers-and-traversal-validation.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-PSM-002
+  name: SQLite schema and migrations
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-002-sqlite-schema-and-migrations.md
+  complexity: 5
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-PSM-003
+  name: Config extension QueueConfig and load_config
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-003-config-extension-queue-and-loader.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-PSM-004
+  name: State machine transition table
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-004-state-machine-transition-table.md
+  complexity: 6
+  dependencies:
+  - TASK-PSM-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-PSM-005
+  name: Persistence protocol implementations
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-005-persistence-protocol-implementations.md
+  complexity: 7
+  dependencies:
+  - TASK-PSM-002
+  - TASK-PSM-004
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+- id: TASK-PSM-006
+  name: Sequential queue picker
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-006-sequential-queue-picker.md
+  complexity: 4
+  dependencies:
+  - TASK-PSM-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-PSM-007
+  name: Crash recovery reconciliation
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-007-crash-recovery-reconciliation.md
+  complexity: 7
+  dependencies:
+  - TASK-PSM-004
+  - TASK-PSM-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+- id: TASK-PSM-008
+  name: CLI scaffold and forge queue
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-008-cli-scaffold-and-forge-queue.md
+  complexity: 6
+  dependencies:
+  - TASK-PSM-001
+  - TASK-PSM-003
+  - TASK-PSM-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-PSM-009
+  name: forge status command
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-009-forge-status-command.md
+  complexity: 5
+  dependencies:
+  - TASK-PSM-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-PSM-010
+  name: forge history command
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-010-forge-history-command.md
+  complexity: 4
+  dependencies:
+  - TASK-PSM-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-PSM-011
+  name: forge cancel and skip wrappers
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-011-forge-cancel-and-skip-wrappers.md
+  complexity: 3
+  dependencies:
+  - TASK-PSM-005
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-PSM-012
+  name: pyproject console_scripts entry
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-012-pyproject-console-scripts-entry.md
+  complexity: 2
+  dependencies:
+  - TASK-PSM-008
+  - TASK-PSM-009
+  - TASK-PSM-010
+  - TASK-PSM-011
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 22
+- id: TASK-PSM-013
+  name: BDD harness all 34 scenarios
+  file_path: tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-013-bdd-harness-all-34-scenarios.md
+  complexity: 5
+  dependencies:
+  - TASK-PSM-001
+  - TASK-PSM-002
+  - TASK-PSM-003
+  - TASK-PSM-004
+  - TASK-PSM-005
+  - TASK-PSM-006
+  - TASK-PSM-007
+  - TASK-PSM-008
+  - TASK-PSM-009
+  - TASK-PSM-010
+  - TASK-PSM-011
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+orchestration:
+  parallel_groups:
+  - - TASK-PSM-001
+    - TASK-PSM-002
+    - TASK-PSM-003
+  - - TASK-PSM-004
+  - - TASK-PSM-005
+  - - TASK-PSM-006
+    - TASK-PSM-007
+    - TASK-PSM-008
+    - TASK-PSM-009
+    - TASK-PSM-010
+    - TASK-PSM-011
+  - - TASK-PSM-012
+    - TASK-PSM-013
+  estimated_duration_minutes: 1012
+  recommended_parallel: 4
+smoke_gates:
+  after_wave: all
+  command: python3 .guardkit/smoke/feat-forge-001-smoke.py
+  expected_exit: 0
+  timeout: 60

@@ -20,6 +20,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Core write path — enqueue a feature for build from the CLI
+  @task:TASK-PSM-008
   @key-example @smoke
   Scenario: Queueing a new feature creates a pending build
     Given I have a feature description at a permitted repository path
@@ -29,6 +30,7 @@ Feature: Pipeline State Machine and Configuration
     And the command should report success
 
   # Why: Full happy-path lifecycle — the build completes end to end
+  @task:TASK-PSM-004
   @key-example @smoke
   Scenario: A queued build progresses through the lifecycle to completion
     Given a build has been queued for a feature
@@ -38,6 +40,7 @@ Feature: Pipeline State Machine and Configuration
     And the build should expose the pull request it produced
 
   # Why: Core read path — `forge status` surfaces live activity without touching the messaging layer
+  @task:TASK-PSM-009
   @key-example @smoke
   Scenario: Viewing status shows all non-terminal builds and recent outcomes
     Given one build is currently running and one build completed yesterday
@@ -47,6 +50,7 @@ Feature: Pipeline State Machine and Configuration
     And the status query should not require the pipeline agent to be reachable
 
   # Why: Core read path — `forge history` summarises prior builds for a feature
+  @task:TASK-PSM-010
   @key-example
   Scenario: Viewing history for a specific feature lists all prior attempts
     Given three previous builds exist for the same feature, two complete and one failed
@@ -55,6 +59,7 @@ Feature: Pipeline State Machine and Configuration
     And each attempt should display its final outcome and the stages it went through
 
   # Why: Configuration loading — defaults come from forge.yaml, overridable on the command line
+  @task:TASK-PSM-003
   @key-example
   Scenario: Queueing a build applies configuration defaults when no overrides are given
     Given the configuration specifies a default reasoning-turn budget and a default stage timeout
@@ -64,6 +69,7 @@ Feature: Pipeline State Machine and Configuration
     Then the new build should record the overridden value instead of the default
 
   # Why: Single-writer discipline — the read path remains available even while the agent is writing
+  @task:TASK-PSM-002
   @key-example
   Scenario: Status and history queries remain responsive while a build is actively writing
     Given a build is actively running and recording stage outcomes
@@ -75,6 +81,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Just-inside boundary — the minimum reasoning-turn budget and the configured default are both accepted
+  @task:TASK-PSM-003
   @boundary
   Scenario Outline: Reasoning-turn budget overrides at or above the minimum are accepted
     Given the default reasoning-turn budget is five
@@ -89,6 +96,7 @@ Feature: Pipeline State Machine and Configuration
   # Why: Just-outside boundary — zero or negative turn budgets are nonsensical
   # [ASSUMPTION: confidence=medium] Reasoning-turn budget must be at least 1;
   # a zero-turn budget cannot perform any reasoning work.
+  @task:TASK-PSM-003
   @boundary @negative
   Scenario Outline: Reasoning-turn budgets outside the permitted range are rejected
     When I queue a feature with a reasoning-turn budget of <turns>
@@ -101,6 +109,7 @@ Feature: Pipeline State Machine and Configuration
       | -1    |
 
   # Why: History limit default and just-inside bound
+  @task:TASK-PSM-010
   @boundary
   Scenario Outline: History returns at most the requested number of entries
     Given <available> prior builds exist
@@ -114,6 +123,7 @@ Feature: Pipeline State Machine and Configuration
       | 60        | 1     | 1        |
 
   # Why: Just-inside default — `forge history` with no arguments returns the 50 most recent builds
+  @task:TASK-PSM-010
   @boundary
   Scenario: History with no arguments returns the 50 most recent builds by default
     Given 75 prior builds exist
@@ -122,6 +132,7 @@ Feature: Pipeline State Machine and Configuration
     And they should be the 50 most recently queued
 
   # Why: Uniqueness invariant — a feature cannot be queued twice within the same correlation scope
+  @task:TASK-PSM-008
   @boundary @negative
   Scenario: Queueing the same feature with the same correlation identifier twice is refused
     Given a build already exists for a feature under a specific correlation identifier
@@ -130,6 +141,7 @@ Feature: Pipeline State Machine and Configuration
     And only one build should remain recorded for that combination
 
   # Why: Status views bound the set of stages shown in the full detail view
+  @task:TASK-PSM-009
   @boundary
   Scenario: Full status view includes the most recent stages per build
     Given a build has completed seventeen stages
@@ -141,6 +153,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Path allowlist is a safety boundary — queueing outside it must fail fast
+  @task:TASK-PSM-008
   @negative
   Scenario: Queueing a build against a repository path outside the allowlist is refused
     Given a repository path that is not on the allowlist
@@ -150,6 +163,7 @@ Feature: Pipeline State Machine and Configuration
     And no message should be published to the pipeline
 
   # Why: Active-duplicate guard — a feature already in flight cannot be re-queued
+  @task:TASK-PSM-008
   @negative
   Scenario: Queueing a feature that already has an in-flight build is refused
     Given a build for a feature is currently pending pickup, preparing, running, or paused
@@ -158,6 +172,7 @@ Feature: Pipeline State Machine and Configuration
     And the existing build should be unaffected
 
   # Why: Skip is only meaningful on a paused build awaiting review
+  @task:TASK-PSM-011
   @negative
   Scenario: Skipping a build that is not paused is refused
     Given the pipeline is running a build that is not paused for review
@@ -166,6 +181,7 @@ Feature: Pipeline State Machine and Configuration
     And no skip decision should be sent to the pipeline
 
   # Why: Cancel resolves through the build history; missing builds should be reported, not crashed
+  @task:TASK-PSM-011
   @negative
   Scenario: Cancelling a feature with no active or recent builds is refused
     Given there is no build on record for a given feature
@@ -173,6 +189,7 @@ Feature: Pipeline State Machine and Configuration
     Then the cancel command should be refused with a not-found error
 
   # Why: Crash during preparation should be surfaced as a failure, not a silent hang
+  @task:TASK-PSM-004
   @negative
   Scenario: A feature description that fails validation causes preparation to fail
     Given a build has been picked up and its feature description is invalid
@@ -181,6 +198,7 @@ Feature: Pipeline State Machine and Configuration
     And the build should record a structured reason describing the validation problem
 
   # Why: Hard-stop gate decision halts the build and is not retryable by the pipeline itself
+  @task:TASK-PSM-004
   @negative
   Scenario: A hard-stop gate decision during running transitions the build to failed
     Given a running build has just produced a stage outcome that triggers a hard-stop decision
@@ -189,6 +207,7 @@ Feature: Pipeline State Machine and Configuration
     And the completion time of the build should be recorded
 
   # Why: State machine invariant — transitions that are not in the allowed table are rejected
+  @task:TASK-PSM-004
   @negative
   Scenario: Attempting to transition a build through an invalid path is refused
     Given a build is currently pending pickup
@@ -201,6 +220,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Crash during preparation — redelivery restarts preparation from scratch
+  @task:TASK-PSM-007
   @edge-case
   Scenario: A crash during preparation marks the build for redelivery
     Given a build had reached preparation
@@ -210,6 +230,7 @@ Feature: Pipeline State Machine and Configuration
     And the build should subsequently be picked up again and re-enter preparation
 
   # Why: Crash during running — retry-from-scratch policy
+  @task:TASK-PSM-007
   @edge-case
   Scenario: A crash during running marks the build as interrupted and restarts it from scratch
     Given a build was in the running state when the pipeline crashed
@@ -218,6 +239,7 @@ Feature: Pipeline State Machine and Configuration
     And the build should be re-picked up and restart from preparation
 
   # Why: Crash during finalisation — the PR may have been created, so operator reconciles
+  @task:TASK-PSM-007
   @edge-case
   Scenario: A crash during finalisation marks the build as interrupted with an operator warning
     Given a build was finalising when the pipeline crashed
@@ -226,6 +248,7 @@ Feature: Pipeline State Machine and Configuration
     And the recovery report should warn that the pull request may have been created and require manual reconciliation
 
   # Why: A paused build survives a crash — the approval request is re-issued on restart
+  @task:TASK-PSM-007
   @edge-case
   Scenario: A paused build survives a pipeline crash and re-issues its approval request
     Given a build is paused awaiting a review decision
@@ -234,6 +257,7 @@ Feature: Pipeline State Machine and Configuration
     And the pending approval request should be re-issued so reviewers can still respond
 
   # Why: Terminal states after a crash are a no-op — we must not restart completed builds
+  @task:TASK-PSM-007
   @edge-case
   Scenario Outline: Builds in terminal states after a crash are not re-picked
     Given a build was already in the <terminal> state when the pipeline crashed
@@ -249,6 +273,7 @@ Feature: Pipeline State Machine and Configuration
       | skipped   |
 
   # Why: `forge cancel` during a paused state is modelled as a synthetic rejection
+  @task:TASK-PSM-011
   @edge-case
   Scenario: Cancelling a paused build resolves its pending approval as a rejection
     Given a build is paused awaiting a review decision
@@ -258,6 +283,7 @@ Feature: Pipeline State Machine and Configuration
     And the reason I supplied should be recorded on the build
 
   # Why: `forge skip` during a flag-for-review pause continues the build without that stage
+  @task:TASK-PSM-011
   @edge-case
   Scenario: Skipping a stage on a flagged-for-review pause resumes the build and marks the stage skipped
     Given a build is paused on a flag-for-review gate
@@ -270,6 +296,7 @@ Feature: Pipeline State Machine and Configuration
   # [ASSUMPTION: confidence=medium] Sequential-queue scope is per-project; different
   # projects can run concurrently. The roadmap says "sequential build queue" without
   # scoping it explicitly.
+  @task:TASK-PSM-006
   @edge-case
   Scenario: A second queued build waits until the first completes before starting
     Given one build is already running for a project
@@ -278,6 +305,7 @@ Feature: Pipeline State Machine and Configuration
     And the second build should not begin preparation until the first build has reached a terminal state
 
   # Why: Watch mode streams state changes without blocking writes
+  @task:TASK-PSM-009
   @edge-case
   Scenario: Watching status refreshes the view as the build progresses
     Given a build is running and moving through stages
@@ -293,6 +321,7 @@ Feature: Pipeline State Machine and Configuration
   # [ASSUMPTION: confidence=medium] Feature identifiers containing path-traversal
   # sequences (such as "../", "/", or "\") are rejected because feature_id is
   # interpolated into build_id and worktree paths.
+  @task:TASK-PSM-001
   @edge-case @negative
   Scenario: Queueing with a feature identifier that contains path-traversal characters is refused
     When I attempt to queue a feature whose identifier contains traversal characters such as "../"
@@ -305,6 +334,7 @@ Feature: Pipeline State Machine and Configuration
   # the originating operator. The data model already supports this: `originating_user`
   # is carried on the build record; `responder` is captured on the approval-response
   # resolution that cancellation is modelled as.
+  @task:TASK-PSM-011
   @edge-case
   Scenario: Cancelling a build records the cancelling operator even when different from the originator
     Given a build is currently running and was originated by one operator
@@ -318,6 +348,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Two simultaneous queue commands must both be durable and ordered
+  @task:TASK-PSM-002
   @edge-case
   Scenario: Two features queued at the same instant both appear in history
     When two different features are queued at effectively the same instant
@@ -326,6 +357,7 @@ Feature: Pipeline State Machine and Configuration
     And both builds should appear in history with their original queue-time ordering preserved
 
   # Why: WAL guarantee — readers see a consistent snapshot even during active writes
+  @task:TASK-PSM-002
   @edge-case
   Scenario: A concurrent reader sees a consistent snapshot while the pipeline is writing
     Given the pipeline is in the middle of recording a new stage outcome
@@ -338,6 +370,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: Invariant — a terminal build always has a recorded completion time
+  @task:TASK-PSM-004
   @edge-case
   Scenario Outline: Any build that reaches a terminal state has a recorded completion time
     When a build reaches the <terminal> state
@@ -356,6 +389,7 @@ Feature: Pipeline State Machine and Configuration
   # but the pipeline publish then fails, the build row remains visible as pending
   # pickup so the operator can reconcile or re-queue it. The CLI contract specifies
   # the write-before-publish order but does not specify the failure-mode visibility.
+  @task:TASK-PSM-008
   @edge-case
   Scenario: A build row is written but the pipeline publish then fails
     Given queueing writes the build history row before publishing to the pipeline
@@ -369,6 +403,7 @@ Feature: Pipeline State Machine and Configuration
   # ─────────────────────────────────────────────────────────────────────────
 
   # Why: The CLI must fail cleanly when the pipeline messaging layer is unreachable
+  @task:TASK-PSM-008
   @edge-case @negative
   Scenario: Queueing fails cleanly when the pipeline messaging layer is unreachable
     Given the pipeline messaging layer cannot be reached from the CLI

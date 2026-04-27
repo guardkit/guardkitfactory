@@ -1,6 +1,6 @@
 # Forge Build Plan — Pipeline Orchestrator & Checkpoint Manager
 
-## Status: `/system-arch` ✅ done · `/system-design` ✅ done · `/feature-spec` 🟡 **5 / 8 complete** (FEAT-FORGE-001..005 ✅ · 3 remaining; later steps blocked on specialist-agent Phase 3 + NATS infra running)
+## Status: `/system-arch` ✅ · `/system-design` ✅ · `/feature-spec` 🟡 **7 / 8 complete** (FEAT-FORGE-001..007 ✅; 008 pending) · `/feature-plan` 🟡 **6 / 8 complete** (002..007 ✅; 001 skipped, 008 pending) · `autobuild` 🟡 **6 / 8 complete** (002..007 ✅; 001 absorbed into 002–007, 008 pending) · **Next: `/feature-spec FEAT-FORGE-008`**
 ## Repo: `guardkit/forge`
 ## Agent ID: `forge`
 ## Target: Post specialist-agent Phase 3 completion
@@ -12,9 +12,9 @@
 |---|---|---|---|---|---|
 | 1 | `/system-arch` | ✅ complete | 2026-04-18 | `9f41e22` (seeded by later refinements) | `docs/architecture/ARCHITECTURE.md`, `system-context.md`, `container.md`, `domain-model.md`, `assumptions.yaml`, **31 ADRs** (`ADR-ARCH-001`..`031`) |
 | 2 | `/system-design` | ✅ complete | 2026-04-23 | `b40365c` | `docs/design/` — **9 API contracts + 5 data models + 6 DDRs + 2 C4 L3 diagrams**; 20 artefacts seeded into Graphiti (`project_design` + `architecture_decisions`) |
-| 3 | `/feature-spec × 8` | 🟡 in progress (5 / 8) | 2026-04-24 (FEAT-FORGE-001..005) | — | FEAT-FORGE-001..004 ✅ (see Step 3 for per-feature details); FEAT-FORGE-005 ✅ → `features/guardkit-command-invocation-engine/` (32 scenarios, 7 assumptions resolved — 4 high, 3 medium, 0 low) |
-| 4 | `/feature-plan × 8` | ◻ pending | — | — | — |
-| 5 | `autobuild × 8` (Waves 1–6) | ◻ pending | — | — | — |
+| 3 | `/feature-spec × 8` | 🟡 in progress (7 / 8) | 2026-04-24..25 | various | FEAT-FORGE-001..007 ✅ (see Step 3 for per-feature details); FEAT-FORGE-008 ◻ |
+| 4 | `/feature-plan × 8` | 🟡 in progress (6 / 8) | 2026-04-24..25 | `6a29ed3`, `065b73d` | FEAT-FORGE-002..007 ✅ — task breakdowns under `tasks/backlog/<slug>/`. **001 was never planned as a discrete feature** (its scope was folded into 002–007 — see Step 4 note); 008 ◻ |
+| 5 | `autobuild × 8` (Waves 1–6) | 🟡 in progress (6 / 8) | 2026-04-25..26 | `91f4de5`, `f63bcf5`, `9774351`, `042b83e`, `0361c21`, `6e5c577` | FEAT-FORGE-002 (`91f4de5`), 003 (`f63bcf5`), 004 (`9774351`), 005 (`042b83e`), 006 (=`FEAT-8D10`, `0361c21`), 007 (=`FEAT-CBDE`, `6e5c577`) ✅. 001 absorbed (no discrete autobuild — `src/forge/{pipeline,config,fleet,gating,dispatch,discovery,adapters,memory,tools}/` populated by 002–007). 008 ◻ |
 | 6 | Validation | ◻ pending | — | — | — |
 | 7 | FinProxy first real run | ◻ pending | — | — | — |
 
@@ -257,7 +257,7 @@ Two C4 L3 diagrams ([`forge/docs/design/diagrams/`](../../design/diagrams/)):
 
 **Sibling task created in `nats-core`:** [`TASK-NCFA-003`](../../../../nats-core/tasks/backlog/forge-v2-alignment/TASK-NCFA-003-add-forge-system-design-pipeline-payloads.md) — shipped same-day as `nats-core 0.2.0`.
 
-### Step 3: /feature-spec × 8 — 🟡 IN PROGRESS (6 / 8)
+### Step 3: /feature-spec × 8 — 🟡 IN PROGRESS (7 / 8)
 
 Produces BDD feature specifications for each feature. Run sequentially — later features
 reference earlier ones.
@@ -302,6 +302,14 @@ reference earlier ones.
     - ⚠️ ASSUM-006 (credential-shape redaction in rationale before Graphiti write) open at **low** — not stated in any provided context; inferred security hygiene only.
     - ⚠️ ASSUM-007 (split-brain mirror dedupe via entity_id uniqueness + pre-check) open at **low** — inferred from CalibrationEvent deterministic id pattern; GateDecision uses UUID so a separate "already written" check is assumed.
     - ⚠️ ASSUM-008 (GateDecision links inside SessionOutcome ordered by decided_at ascending) open at **low** — no ordering semantics specified for `SessionOutcome -[CONTAINS]-> GateDecision` edges in DM-graphiti-entities.md.
+- ✅ **FEAT-FORGE-007** — Mode A Greenfield End-to-End (2026-04-25)
+  - Artefacts: `features/mode-a-greenfield-end-to-end/{slug}.feature` · `{slug}_assumptions.yaml` · `{slug}_summary.md`
+  - Scenarios: 47 total (8 @key-example · 6 @boundary · 9 @negative · 11 @edge-case · 4 @smoke · 4 @regression · 3 @security · 3 @concurrency · 6 @data-integrity · 4 @integration). Group totals do not sum to 47 — several scenarios carry multiple tags.
+  - Assumptions: 8 resolved — 5 high, 3 medium, 0 low, 0 open. Ready for `/feature-plan` (plan already run — commit `065b73d`).
+  - Capstone composition spec: stage-ordering invariants, forward propagation, async-subagent autobuild dispatch, constitutional belt-and-braces PR review, crash recovery as retry-from-scratch, CLI steering (cancel → synthetic reject; skip honoured on non-constitutional stages), pause isolation, idempotent first-write-wins on duplicate responses.
+
+**Pending:**
+- ◻ **FEAT-FORGE-008** — Mode B Feature & Mode C Review-Fix. Not yet specced. **This is the immediate next action** (see Step 3 command block below — `<feat-forge-008-slug>` placeholders resolve once the spec runs).
 
 > **Context-flag resolution (post-`/system-design`):** placeholders from the original
 > build plan resolve as follows. `DESIGN.md` / `forge-system-spec.md` were not produced
@@ -384,10 +392,18 @@ guardkit feature-spec FEAT-FORGE-007 \
   --context forge/features/infrastructure-coordination/infrastructure-coordination.feature \
   --context forge/features/infrastructure-coordination/infrastructure-coordination_summary.md
 
-# FEAT-FORGE-008: Mode B Feature & Mode C Review-Fix
+# FEAT-FORGE-008: Mode B Feature & Mode C Review-Fix  ◻ NEXT
+# Mode B reuses everything from /feature-spec onward (no PO/architect delegation).
+# Mode C is the /task-review → /task-work cycle on existing code.
+# Pull the FEAT-FORGE-007 spec for capstone composition patterns, the CLI surface
+# for the queue/status/history commands these modes piggyback on, and the
+# checkpoint protocol so the pause/resume flow stays consistent.
 guardkit feature-spec FEAT-FORGE-008 \
-  --context forge/features/FEAT-FORGE-007/feature-spec.md \
-  --context forge/docs/design/contracts/API-cli.md
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end.feature \
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end_summary.md \
+  --context forge/docs/design/contracts/API-cli.md \
+  --context forge/docs/design/contracts/API-nats-approval-protocol.md \
+  --context forge/docs/design/models/DM-build-lifecycle.md
 ```
 
 **Validation per feature spec:**
@@ -400,84 +416,103 @@ guardkit feature-spec FEAT-FORGE-008 \
 **Record Rich's responses:** Create `feature-spec-FEAT-FORGE-XXX-history.md` for each
 spec session (following Pattern 3 from the fleet-master-index).
 
-### Step 4: /feature-plan × 8
+### Step 4: /feature-plan × 8 — 🟡 IN PROGRESS (6 / 8)
 
 Produces task breakdowns for each feature. Run sequentially — dependencies must be
 respected. Each invocation takes the matching `/feature-spec` summary as `--context`
 so the plan is grounded in the curated scenarios and resolved assumptions (see
 `installer/core/commands/feature-plan.md` §"Step 11: Link BDD scenarios to tasks").
 
+> **FEAT-FORGE-001 was never planned.** Its scope (pipeline state machine, config
+> loading, CLI entrypoint, crash recovery) was implicit in every later feature's
+> task breakdown — `tasks/backlog/{slug}/` directories for 002–007 contain
+> state-machine, config, and CLI tasks (e.g. `TASK-NFI-001-extend-forge-config-fleet-pipeline-sections.md`,
+> `TASK-MAG7-001-define-stage-taxonomy.md`). The decision to fold rather than
+> backfill is documented here for the canonical-freeze gate; if a Step 6
+> validation pass exposes missing 001-scope behaviour (e.g. `forge queue` CLI
+> wrapper, SQLite-backed crash recovery as an isolated unit), spawn a discrete
+> FEAT-FORGE-009 to close the gap rather than retro-running 001.
+
 ```bash
 # Run in dependency order:
 
-# FEAT-FORGE-001: Pipeline State Machine & Configuration (no deps)
-guardkit feature-plan "Pipeline State Machine and Configuration" \
-  --context forge/features/pipeline-state-machine-and-configuration/pipeline-state-machine-and-configuration_summary.md
+# FEAT-FORGE-001: Pipeline State Machine & Configuration (no deps)  — SKIPPED (folded into 002–007)
 
 # FEAT-FORGE-002: NATS Fleet Integration (depends on 001)  ✅ COMPLETE (commit 6a29ed3)
 guardkit feature-plan "NATS Fleet Integration" \
   --context forge/features/nats-fleet-integration/nats-fleet-integration_summary.md
 
-# FEAT-FORGE-005: GuardKit Command Invocation Engine (depends on 001 — can parallel with 002)
+# FEAT-FORGE-005: GuardKit Command Invocation Engine (depends on 001 — can parallel with 002)  ✅ COMPLETE (commit 065b73d)
 guardkit feature-plan FEAT-FORGE-005 \
   --context forge/features/guardkit-command-invocation-engine/guardkit-command-invocation-engine_summary.md
 
-# FEAT-FORGE-003: Specialist Agent Delegation (depends on 002)
+# FEAT-FORGE-003: Specialist Agent Delegation (depends on 002)  ✅ COMPLETE (commit 065b73d)
 guardkit feature-plan "Specialist Agent Delegation" \
   --context forge/features/specialist-agent-delegation/specialist-agent-delegation_summary.md
 
-# FEAT-FORGE-004: Confidence-Gated Checkpoint Protocol (depends on 003)
+# FEAT-FORGE-004: Confidence-Gated Checkpoint Protocol (depends on 003)  ✅ COMPLETE (commit 065b73d)
 guardkit feature-plan "Confidence-Gated Checkpoint Protocol" \
   --context forge/features/confidence-gated-checkpoint-protocol/confidence-gated-checkpoint-protocol_summary.md
 
-# FEAT-FORGE-006: Infrastructure Coordination (depends on 001, 002)
+# FEAT-FORGE-006: Infrastructure Coordination (depends on 001, 002)  ✅ COMPLETE (commit 065b73d)
 guardkit feature-plan "Infrastructure Coordination" \
   --context forge/features/infrastructure-coordination/infrastructure-coordination_summary.md
 
-# FEAT-FORGE-007: Mode A Greenfield End-to-End (depends on 003, 004, 005, 006)
+# FEAT-FORGE-007: Mode A Greenfield End-to-End (depends on 003, 004, 005, 006)  ✅ COMPLETE (commit 065b73d)
 guardkit feature-plan FEAT-FORGE-007 \
-  --context forge/features/<feat-forge-007-slug>/<feat-forge-007-slug>_summary.md
+  --context forge/features/mode-a-greenfield-end-to-end/mode-a-greenfield-end-to-end_summary.md
 
-# FEAT-FORGE-008: Mode B Feature & Mode C Review-Fix (depends on 007)
+# FEAT-FORGE-008: Mode B Feature & Mode C Review-Fix (depends on 007)  ◻ BLOCKED on /feature-spec FEAT-FORGE-008
+# Slug will resolve once /feature-spec FEAT-FORGE-008 runs. Likely candidate:
+# `mode-b-feature-and-mode-c-review-fix` (kebab-case of the feature name).
+# Re-run the command below with the real slug once the spec completes.
 guardkit feature-plan FEAT-FORGE-008 \
   --context forge/features/<feat-forge-008-slug>/<feat-forge-008-slug>_summary.md
 ```
 
 > **Note on slugs:** `/feature-spec` writes output under a kebab-cased slug of the
-> feature **name**, not the `FEAT-FORGE-NNN` ID. The FEAT-FORGE-001 slug resolved
-> to `pipeline-state-machine-and-configuration`. The placeholders above resolve
-> as each `/feature-spec` completes — replace them with the real slugs at that
-> point.
+> feature **name**, not the `FEAT-FORGE-NNN` ID. Resolved slugs so far:
+> `pipeline-state-machine-and-configuration` (001), `nats-fleet-integration` (002),
+> `specialist-agent-delegation` (003), `confidence-gated-checkpoint-protocol` (004),
+> `guardkit-command-invocation-engine` (005), `infrastructure-coordination` (006),
+> `mode-a-greenfield-end-to-end` (007). FEAT-FORGE-008's slug resolves when its
+> spec runs — replace the placeholder above with the real one at that point.
 
 **Validation:**
 - Task wave structure respects feature dependencies
 - Each task has clear inputs, outputs, and acceptance criteria
 - Integration tasks (FEAT-FORGE-007) are in later waves
 
-### Step 5: Build (autobuild × 8)
+### Step 5: Build (autobuild × 8) — 🟡 IN PROGRESS (6 / 8)
 
 Build features in dependency order. Run sequentially on GB10 (or Bedrock when available).
 
+> **Actual ordering deviated from the wave plan below.** The autobuild scheduler
+> assigned new opaque feature IDs to capstone features (FEAT-FORGE-006 →
+> `FEAT-8D10`; FEAT-FORGE-007 → `FEAT-CBDE`) — see `.guardkit/features/*.yaml`.
+> FEAT-FORGE-001 was never built as a discrete autobuild — its scope was
+> absorbed into 002–007 (see Step 4 note).
+
 ```bash
 # Wave 1: Foundation (can parallel)
-guardkit autobuild FEAT-FORGE-001
-guardkit autobuild FEAT-FORGE-005
+# guardkit autobuild FEAT-FORGE-001  — SKIPPED (folded into 002–007)
+guardkit autobuild FEAT-FORGE-005   # ✅ commit 042b83e
 
 # Wave 2: NATS integration (depends on Wave 1)
-guardkit autobuild FEAT-FORGE-002
+guardkit autobuild FEAT-FORGE-002   # ✅ commit 91f4de5 (run-7)
 
 # Wave 3: Delegation & coordination (depends on Wave 2)
-guardkit autobuild FEAT-FORGE-003
-guardkit autobuild FEAT-FORGE-006
+guardkit autobuild FEAT-FORGE-003   # ✅ commit f63bcf5
+guardkit autobuild FEAT-FORGE-006   # ✅ commit 0361c21 (autobuild ID: FEAT-8D10)
 
 # Wave 4: Checkpoint protocol (depends on Wave 3)
-guardkit autobuild FEAT-FORGE-004
+guardkit autobuild FEAT-FORGE-004   # ✅ commit 9774351
 
 # Wave 5: End-to-end integration (depends on all above)
-guardkit autobuild FEAT-FORGE-007
+guardkit autobuild FEAT-FORGE-007   # ✅ commit 6e5c577 (autobuild ID: FEAT-CBDE)
 
 # Wave 6: Additional modes (depends on Wave 5)
-guardkit autobuild FEAT-FORGE-008
+guardkit autobuild FEAT-FORGE-008   # ◻ BLOCKED on /feature-spec + /feature-plan FEAT-FORGE-008
 ```
 
 ### Step 6: Validation
@@ -869,5 +904,6 @@ guardkit feature-spec FEAT-FORGE-004 \
 
 *Build plan created: 12 April 2026*
 *Updated: 23 April 2026 — Steps 1 & 2 complete; nats-core v0.2.0 shipped (TASK-NCFA-003)*
-*Status: Ready for `/feature-spec × 8` (Step 3) once specialist-agent Phase 3 + NATS infra are running*
+*Updated: 25 April 2026 — Steps 3–5 in flight: 7/8 specs, 6/8 plans, 6/8 autobuilds. FEAT-FORGE-001 absorbed into 002–007. Next: `/feature-spec FEAT-FORGE-008`.*
+*Status: Mode B/C (FEAT-FORGE-008) is the only outstanding feature — spec → plan → autobuild → Step 6 validation gates → Step 7 FinProxy run.*
 *"The Forge is the capstone. It's the last major agent to build because it coordinates everything else. But it's also the highest-leverage: once it works, the Software Factory is real."*
