@@ -41,6 +41,15 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# Ship the SQLite DDL alongside the lifecycle package so
+# ``importlib.resources.files("forge.lifecycle") / "schema.sql"`` works
+# from wheel installs as well as editable / source installs. See
+# TASK-PSM-002 — the schema is intentionally a real ``.sql`` file
+# (not a Python string constant) so DBAs and DDR-003 reviewers can
+# diff the schema directly.
+"forge.lifecycle" = ["*.sql"]
+
 [tool.pytest.ini_options]
 # Source layout: production code lives under ``src/forge``. Pytest
 # resolves imports via this ``pythonpath`` entry so ``import forge`` works

@@ -240,7 +240,15 @@ def test_strict_table_rejects_non_integer_max_turns(tmp_path: Path) -> None:
 
 
 def test_wal_sidecar_files_appear_after_first_write(tmp_path: Path) -> None:
-    """After a committed write the -wal and -shm files must exist."""
+    """After a committed write the -wal and -shm files must exist.
+
+    The check runs *while the connection is still open* — SQLite's
+    default close-time checkpoint can collapse the WAL frames back
+    into the main DB and unlink the sidecar files, which would mask
+    the contract this test exists to verify. The DDR-003 requirement
+    is that WAL is engaged during the lifetime of the writer, not
+    that the files persist after shutdown.
+    """
     db_path = tmp_path / "forge.db"
     cx = sqlite_connect.connect_writer(db_path)
     try:
@@ -258,15 +266,12 @@ def test_wal_sidecar_files_appear_after_first_write(tmp_path: Path) -> None:
             """
         )
         cx.commit()
-    finally:
-        # Keep the WAL files in place — closing under default checkpoint
-        # behaviour can collapse the WAL into the main file. Cycle via
-        # commit + a deliberate non-blocking close.
-        cx.close()
 
-    assert db_path.exists()
-    assert db_path.with_name(db_path.name + "-wal").exists()
-    assert db_path.with_name(db_path.name + "-shm").exists()
+        assert db_path.exists()
+        assert db_path.with_name(db_path.name + "-wal").exists()
+        assert db_path.with_name(db_path.name + "-shm").exists()
+    finally:
+        cx.close()
 
 
 # ---------------------------------------------------------------------------
