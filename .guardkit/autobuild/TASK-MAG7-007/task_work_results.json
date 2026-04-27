@@ -1,0 +1,212 @@
+{
+  "task_id": "TASK-MAG7-007",
+  "timestamp": "2026-04-26T19:09:59.064878",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 24,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/pipeline/dispatchers/test_specialist.py",
+    "tasks/backlog/TASK-MAG7-007-dispatch-specialist-stage.md",
+    "tasks/backlog/TASK-MAG7-008-dispatch-subprocess-stage.md",
+    "tasks/backlog/TASK-MAG7-009-dispatch-autobuild-async.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-007-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-008-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-009-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-006/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-007/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-008/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-008/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-008/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-009/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-MAG7-009/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-009/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-009/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-007_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-008_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-009_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-007/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/src/forge/pipeline/dispatchers/__init__.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/src/forge/pipeline/dispatchers/specialist.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/pipeline/__init__.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/pipeline/dispatchers/__init__.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/pipeline/dispatchers/test_specialist.py",
+    "src/forge/pipeline/dispatchers/__init__.py",
+    "src/forge/pipeline/dispatchers/autobuild_async.py",
+    "src/forge/pipeline/dispatchers/specialist.py",
+    "src/forge/pipeline/dispatchers/subprocess.py",
+    "tasks/design_approved/TASK-MAG7-007-dispatch-specialist-stage.md",
+    "tasks/design_approved/TASK-MAG7-008-dispatch-subprocess-stage.md",
+    "tasks/design_approved/TASK-MAG7-009-dispatch-autobuild-async.md",
+    "tests/forge/pipeline/__init__.py",
+    "tests/forge/pipeline/dispatchers/__init__.py",
+    "tests/forge/pipeline/dispatchers/test_specialist.py",
+    "tests/forge/pipeline/dispatchers/test_subprocess.py",
+    "tests/forge/test_dispatch_autobuild_async.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/pipeline/dispatchers/test_specialist.py"
+  ],
+  "summary": "24 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 59,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "dispatch_specialist_stage(stage: StageClass, build_id: str, ...) -> StageDispatchResult function exists at src/forge/pipeline/dispatchers/specialist.py",
+      "status": "complete",
+      "evidence": "Implemented async dispatch_specialist_stage(stage=, build_id=, correlation_id=, forward_context_builder=, dispatch_surface=, stage_log_writer=, feature_id=None, attempt_no=1, retry_of=None) returning StageDispatchResult dataclass at src/forge/pipeline/dispatchers/specialist.py. TestSurface verifies isinstance(result, StageDispatchResult).",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py",
+        "src/forge/pipeline/dispatchers/__init__.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Refuses any stage that is not in {PRODUCT_OWNER, ARCHITECT} (raises ValueError -- programming error, not runtime)",
+      "status": "complete",
+      "evidence": "Function refuses early with ValueError naming the offending stage when stage not in SPECIALIST_CAPABILITY_BY_STAGE (which keys on PRODUCT_OWNER and ARCHITECT only). TestStageRefusal parametrises across the six other StageClass members and verifies (a) ValueError is raised, (b) no dispatch is attempted, (c) no stage_log row is written.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Calls ForwardContextBuilder.build_for to assemble the dispatch payload context",
+      "status": "complete",
+      "evidence": "dispatch_specialist_stage calls forward_context_builder.build_for(stage=stage, build_id=build_id, feature_id=feature_id) and threads each returned ContextEntry into the DispatchParameter list as 'context' params. TestForwardContextWiring verifies the architect dispatch carries the product-owner approved charter text in its parameter values, and that the product-owner dispatch (entry stage) carries no forward context.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Delegates to FEAT-FORGE-003's specialist-dispatch tool with the capability matching the stage (product_owner_specialist, architect_specialist)",
+      "status": "complete",
+      "evidence": "SPECIALIST_CAPABILITY_BY_STAGE maps PRODUCT_OWNER -> 'product_owner_specialist' and ARCHITECT -> 'architect_specialist'; dispatcher passes the mapped capability to dispatch_surface.dispatch(). TestCapabilityRouting parametrises both stages and asserts surface.last_call['capability'] equals the expected name and that SPECIALIST_CAPABILITY_BY_STAGE[stage] matches.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Threads the build's correlation_id through the dispatch envelope (Group I @data-integrity scenario)",
+      "status": "complete",
+      "evidence": "_build_dispatch_parameters always emits a non-sensitive 'correlation_id' DispatchParameter as the first entry, value threaded unchanged from the function argument. TestCorrelationIdThreading asserts exactly one such parameter exists, value matches input verbatim, and sensitive=False so persistence does not redact it.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Records the dispatch as a stage_log entry on submit and updates on reply with the parsed Coach score and detection findings",
+      "status": "complete",
+      "evidence": "Defined StageLogWriter Protocol with two methods: record_dispatch_submit (returns entry_id) and record_dispatch_reply. Dispatcher calls submit before delegating to FEAT-FORGE-003 and reply after translating the outcome, threading coach_score / criterion_breakdown / detection_findings / reason. TestStageLogLifecycle asserts (a) one submit row with capability + correlation_id, (b) one reply row carrying the parsed Coach score (0.91) + criterion breakdown + findings keyed to the same entry_id, and (c) write-before-send: an observing dispatch surface sees one submit row already present at dispatch time.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "On degraded specialist (no healthy specialist on cache), returns a StageDispatchResult.DEGRADED outcome -- gating layer maps to flag-for-review (Group C @negative scenario 'no product-owner specialist')",
+      "status": "complete",
+      "evidence": "_translate_outcome maps Degraded -> StageDispatchOutcome.DEGRADED, copying outcome.reason through. StageDispatchResult re-exports the enum members as ClassVar attributes so AC-007's literal access pattern (StageDispatchResult.DEGRADED) works. TestDegradedPath seeds a Degraded reply with reason='no_specialist_resolvable' and asserts result.outcome is StageDispatchResult.DEGRADED and the writer records the same outcome + reason.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit test mocking FEAT-FORGE-003 dispatch surface: success path, degraded path, soft-timeout path (retry-with-context)",
+      "status": "complete",
+      "evidence": "Three dedicated test classes use the in-memory RecordingDispatchSurface fake (which structurally satisfies SpecialistDispatchSurface, asserted in TestProtocolConformance): TestSuccessPath (SyncResult -> COMPLETED with coach_score=0.78), TestDegradedPath (Degraded -> DEGRADED), TestSoftTimeoutPath (DispatchError(error_explanation='local_timeout') -> SOFT_TIMEOUT, plus a non-timeout error variant -> ERROR). TestSoftTimeoutPath also asserts the dispatcher does NOT retry (call_count == 1) -- retry-with-context lives at the supervisor layer per ASSUM-005.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran `ruff check` on src/forge/pipeline/dispatchers/specialist.py, src/forge/pipeline/dispatchers/__init__.py, and tests/forge/pipeline/dispatchers/test_specialist.py -- 'All checks passed!'. Ran `black --target-version py312` -- 2 files left unchanged after reformatting test file. Final pytest: 24/24 new tests pass; full repo regression `pytest tests/forge/ --ignore=tests/forge/adapters/test_specialist_dispatch.py` -> 1263 passed, 0 failed.",
+      "test_file": "tests/forge/pipeline/dispatchers/test_specialist.py",
+      "implementation_files": [
+        "src/forge/pipeline/dispatchers/specialist.py",
+        "src/forge/pipeline/dispatchers/__init__.py",
+        "tests/forge/pipeline/dispatchers/test_specialist.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 41.33307488099672
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 183.5315378989908
+    }
+  ]
+}

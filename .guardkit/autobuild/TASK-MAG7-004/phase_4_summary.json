@@ -1,0 +1,7 @@
+{
+  "tests_run": 54,
+  "tests_failed": 0,
+  "coverage_pct": 100.0,
+  "output_summary": "pytest: 54 passed, 0 failed; coverage 100% on src/forge/pipeline/constitutional_guard.py (Group C + Group E + integration regression)",
+  "quality_gates_passed": true
+}

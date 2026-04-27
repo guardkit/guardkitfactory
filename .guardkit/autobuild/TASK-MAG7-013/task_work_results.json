@@ -1,0 +1,171 @@
+{
+  "task_id": "TASK-MAG7-013",
+  "timestamp": "2026-04-26T19:51:54.681455",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation.",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 12,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "tasks/backlog/TASK-MAG7-012-smoke-greenfield-e2e.md",
+    "tasks/backlog/TASK-MAG7-013-crash-recovery-integration.md",
+    "tasks/backlog/TASK-MAG7-014-concurrency-multifeature-integration.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-012-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-013-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-014-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-011/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-012/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-013/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-013/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-013/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-014/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-013_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-013/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_crash_recovery.py",
+    "tasks/design_approved/TASK-MAG7-012-smoke-greenfield-e2e.md",
+    "tasks/design_approved/TASK-MAG7-013-crash-recovery-integration.md",
+    "tasks/design_approved/TASK-MAG7-014-concurrency-multifeature-integration.md",
+    "tests/integration/test_mode_a_concurrency_and_integrity.py",
+    "tests/integration/test_mode_a_crash_recovery.py",
+    "tests/integration/test_mode_a_smoke.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_crash_recovery.py"
+  ],
+  "summary": "12 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 47,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "Test module exists at tests/integration/test_mode_a_crash_recovery.py",
+      "status": "complete",
+      "evidence": "Created tests/integration/test_mode_a_crash_recovery.py containing 12 passing tests covering Group D crash-recovery, ASSUM-004 durable-vs-advisory, Group G publish-failure, Group I LTM-failure, and the FakeClock canary. Verified by `pytest tests/integration/test_mode_a_crash_recovery.py -v` \u2192 12 passed.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Parameterised test covers all seven stage classes from the Scenario Outline; for each: drive supervisor to mid-flight; trigger fake crash; assert build re-enters preparing state; assert prior in-flight stage is reattempted from start; assert no duplicate stage_log entry written for the re-attempted stage (idempotent retry)",
+      "status": "complete",
+      "evidence": "TestCrashRecoveryAcrossSevenStages.test_retry_from_scratch_after_crash is parameterised over SEVEN_STAGES = [PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD]. For each row: (1) seeds prereqs through the target stage via _seed_prereqs_through; (2) pre-crash supervisor.next_turn dispatches the target stage (asserted DISPATCHED + chosen_stage matches); (3) crash simulated by `del sup_pre` and `state_machine.reset_to_preparing(build_id)` then asserted `BuildState.PREPARING`; (4) fresh supervisor against the same DurableStageLog + AdvisoryAsyncTaskChannel re-dispatches the same stage; (5) `durable_log.approved_count(...) == 0` proves no duplicate stage_log approval was written. Two per-turn rows recorded (pre+post), zero approval rows. All 7 parameterised rows pass.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Mid-autobuild crash test: driver dispatches autobuild, waits until AutobuildState.lifecycle reaches running_wave; triggers crash; on restart, supervisor consults stage_log (authoritative) and ignores async_tasks channel data (advisory); asserts build restarts autobuild from scratch",
+      "status": "complete",
+      "evidence": "TestMidAutobuildCrashAuthoritativeDurableHistory.test_crash_mid_running_wave_restarts_autobuild_from_scratch: (1) RecordingAutobuildDispatcher writes lifecycle='running_wave' to AdvisoryAsyncTaskChannel on dispatch (mirrors production); (2) test asserts running_wave is observed in advisory + stage_log shows AUTOBUILD NOT approved; (3) crash simulated; (4) fresh supervisor + fresh autobuild dispatcher; (5) post-crash dispatch occurs even though advisory still reports running_wave \u2014 proves durable history is authoritative; (6) post_dispatcher.calls confirms exactly one redispatch. Test passes.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Notification-publish-failure test (Group G @data-integrity): stub publisher raises PublishFailure; assert stage still recorded as approved in stage_log; assert next stage's prerequisite still evaluates as satisfied",
+      "status": "complete",
+      "evidence": "TestNotificationPublishFailure.test_publish_failure_does_not_roll_back_stage_log uses FailingPublisher (raises _PublishFailure as a local stand-in for forge.adapters.nats.pipeline_publisher.PublishFailure to keep this test scoped away from transport scaffolding) wired through StageLogFirstSpecialistDispatcher. After supervisor.next_turn: (1) publisher.calls == 1 and spec.publish_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True; (3) StageOrderingGuard().next_dispatchable returns ARCHITECT in the permitted set, proving ARCHITECT \u2190 PRODUCT_OWNER prerequisite is still satisfied. Test passes.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Long-term-memory-seeding-failure test (Group I @data-integrity): stub LTM seeder raises; assert stage still recorded as approved",
+      "status": "complete",
+      "evidence": "TestLongTermMemorySeedingFailure.test_ltm_seeder_failure_does_not_roll_back_stage_log uses FailingLtmSeeder (raises _LtmSeederFailure) wired through StageLogFirstLtmAwareDispatcher. After supervisor.next_turn: (1) ltm_seeder.calls == 1 and spec.ltm_failed is True; (2) durable_log.is_approved(build_id, PRODUCT_OWNER) is True. Test passes.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "All tests use FakeClock; no real wall-clock waits",
+      "status": "complete",
+      "evidence": "FakeClock class defined in the module with fixed UTC datetime callable. TestFakeClockCanary asserts (a) sequential calls return identical times (no wall-clock movement) and (b) caller-supplied fixed times are honoured. The parameterised seven-stage test exercises FakeClock() in each row. No test calls datetime.now(), time.sleep, or any other real-clock surface. The full suite runs in 0.03s, confirming zero wall-clock waits.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran `python3 -m black --line-length 88 --target-version py311 tests/integration/test_mode_a_crash_recovery.py` and the file is now black-clean. `python3 -m py_compile` returns OK. The pyproject.toml does not enable any other linters in this project (no ruff/flake8/mypy declared). Re-running the suite after black formatting still shows 12 passed.",
+      "test_file": "tests/integration/test_mode_a_crash_recovery.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_crash_recovery.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 75.73549788599485
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 230.33243725798093
+    }
+  ]
+}

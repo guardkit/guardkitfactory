@@ -1,0 +1,199 @@
+{
+  "task_id": "TASK-MAG7-007",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/pipeline/dispatchers/test_specialist.py tests/forge/pipeline/dispatchers/test_subprocess.py tests/forge/test_dispatch_autobuild_async.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_dispatch_autobuild_async.py::TestProtocolConformance::test_fake_state_channel_satisfies_initialiser_protocol PASSED [ 96%]\ntests/forge/test_dispatch_autobuild_async.py::TestEmptyContextFallback::test_dispatch_proceeds_with_empty_context_when_plan_unapproved PASSED [ 97%]\ntests/forge/test_dispatch_autobuild_async.py::TestModuleExports::test_all_exports_resolvable PASSED [ 98%]\ntests/forge/test_dispatch_autobuild_async.py::TestModuleExports::test_forward_context_builder_module_unchanged PASSED [100%]\n============================== 75 passed in 0.17s ==============================",
+      "duration_seconds": 0.580690860748291
+    },
+    "requirements": {
+      "criteria_total": 9,
+      "criteria_met": 9,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`dispatch_specialist_stage(stage: StageClass, build_id: str, ...) -> StageDispatchResult`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented async dispatch_specialist_stage(stage=, build_id=, correlation_id=, forward_context_builder=, dispatch_surface=, stage_log_writer=, feature_id=None, attempt_no=1, retry_of=None) returning StageDispatchResult dataclass at src/forge/pipeline/dispatchers/specialist.py. TestSurface verifies isinstance(result, StageDispatchResult).",
+      "notes": "Implemented async dispatch_specialist_stage(stage=, build_id=, correlation_id=, forward_context_builder=, dispatch_surface=, stage_log_writer=, feature_id=None, attempt_no=1, retry_of=None) returning StageDispatchResult dataclass at src/forge/pipeline/dispatchers/specialist.py. TestSurface verifies isinstance(result, StageDispatchResult)."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Refuses any stage that is not in `{PRODUCT_OWNER, ARCHITECT}`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Function refuses early with ValueError naming the offending stage when stage not in SPECIALIST_CAPABILITY_BY_STAGE (which keys on PRODUCT_OWNER and ARCHITECT only). TestStageRefusal parametrises across the six other StageClass members and verifies (a) ValueError is raised, (b) no dispatch is attempted, (c) no stage_log row is written.",
+      "notes": "Function refuses early with ValueError naming the offending stage when stage not in SPECIALIST_CAPABILITY_BY_STAGE (which keys on PRODUCT_OWNER and ARCHITECT only). TestStageRefusal parametrises across the six other StageClass members and verifies (a) ValueError is raised, (b) no dispatch is attempted, (c) no stage_log row is written."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Calls `ForwardContextBuilder.build_for` to assemble the dispatch",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "dispatch_specialist_stage calls forward_context_builder.build_for(stage=stage, build_id=build_id, feature_id=feature_id) and threads each returned ContextEntry into the DispatchParameter list as 'context' params. TestForwardContextWiring verifies the architect dispatch carries the product-owner approved charter text in its parameter values, and that the product-owner dispatch (entry stage) carries no forward context.",
+      "notes": "dispatch_specialist_stage calls forward_context_builder.build_for(stage=stage, build_id=build_id, feature_id=feature_id) and threads each returned ContextEntry into the DispatchParameter list as 'context' params. TestForwardContextWiring verifies the architect dispatch carries the product-owner approved charter text in its parameter values, and that the product-owner dispatch (entry stage) carries no forward context."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Delegates to FEAT-FORGE-003's specialist-dispatch tool with the",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "SPECIALIST_CAPABILITY_BY_STAGE maps PRODUCT_OWNER -> 'product_owner_specialist' and ARCHITECT -> 'architect_specialist'; dispatcher passes the mapped capability to dispatch_surface.dispatch(). TestCapabilityRouting parametrises both stages and asserts surface.last_call['capability'] equals the expected name and that SPECIALIST_CAPABILITY_BY_STAGE[stage] matches.",
+      "notes": "SPECIALIST_CAPABILITY_BY_STAGE maps PRODUCT_OWNER -> 'product_owner_specialist' and ARCHITECT -> 'architect_specialist'; dispatcher passes the mapped capability to dispatch_surface.dispatch(). TestCapabilityRouting parametrises both stages and asserts surface.last_call['capability'] equals the expected name and that SPECIALIST_CAPABILITY_BY_STAGE[stage] matches."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Threads the build's `correlation_id` through the dispatch envelope",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_build_dispatch_parameters always emits a non-sensitive 'correlation_id' DispatchParameter as the first entry, value threaded unchanged from the function argument. TestCorrelationIdThreading asserts exactly one such parameter exists, value matches input verbatim, and sensitive=False so persistence does not redact it.",
+      "notes": "_build_dispatch_parameters always emits a non-sensitive 'correlation_id' DispatchParameter as the first entry, value threaded unchanged from the function argument. TestCorrelationIdThreading asserts exactly one such parameter exists, value matches input verbatim, and sensitive=False so persistence does not redact it."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Records the dispatch as a `stage_log` entry on submit and updates on",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Defined StageLogWriter Protocol with two methods: record_dispatch_submit (returns entry_id) and record_dispatch_reply. Dispatcher calls submit before delegating to FEAT-FORGE-003 and reply after translating the outcome, threading coach_score / criterion_breakdown / detection_findings / reason. TestStageLogLifecycle asserts (a) one submit row with capability + correlation_id, (b) one reply row carrying the parsed Coach score (0.91) + criterion breakdown + findings keyed to the same entry_id, and (c) write-before-send: an observing dispatch surface sees one submit row already present at dispatch time.",
+      "notes": "Defined StageLogWriter Protocol with two methods: record_dispatch_submit (returns entry_id) and record_dispatch_reply. Dispatcher calls submit before delegating to FEAT-FORGE-003 and reply after translating the outcome, threading coach_score / criterion_breakdown / detection_findings / reason. TestStageLogLifecycle asserts (a) one submit row with capability + correlation_id, (b) one reply row carrying the parsed Coach score (0.91) + criterion breakdown + findings keyed to the same entry_id, and (c) write-before-send: an observing dispatch surface sees one submit row already present at dispatch time."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "On degraded specialist (no healthy specialist on cache), returns a",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_translate_outcome maps Degraded -> StageDispatchOutcome.DEGRADED, copying outcome.reason through. StageDispatchResult re-exports the enum members as ClassVar attributes so AC-007's literal access pattern (StageDispatchResult.DEGRADED) works. TestDegradedPath seeds a Degraded reply with reason='no_specialist_resolvable' and asserts result.outcome is StageDispatchResult.DEGRADED and the writer records the same outcome + reason.",
+      "notes": "_translate_outcome maps Degraded -> StageDispatchOutcome.DEGRADED, copying outcome.reason through. StageDispatchResult re-exports the enum members as ClassVar attributes so AC-007's literal access pattern (StageDispatchResult.DEGRADED) works. TestDegradedPath seeds a Degraded reply with reason='no_specialist_resolvable' and asserts result.outcome is StageDispatchResult.DEGRADED and the writer records the same outcome + reason."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit test mocking FEAT-FORGE-003 dispatch surface: success path,",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Three dedicated test classes use the in-memory RecordingDispatchSurface fake (which structurally satisfies SpecialistDispatchSurface, asserted in TestProtocolConformance): TestSuccessPath (SyncResult -> COMPLETED with coach_score=0.78), TestDegradedPath (Degraded -> DEGRADED), TestSoftTimeoutPath (DispatchError(error_explanation='local_timeout') -> SOFT_TIMEOUT, plus a non-timeout error variant -> ERROR). TestSoftTimeoutPath also asserts the dispatcher does NOT retry (call_count == 1) -- retry-with-context lives at the supervisor layer per ASSUM-005.",
+      "notes": "Three dedicated test classes use the in-memory RecordingDispatchSurface fake (which structurally satisfies SpecialistDispatchSurface, asserted in TestProtocolConformance): TestSuccessPath (SyncResult -> COMPLETED with coach_score=0.78), TestDegradedPath (Degraded -> DEGRADED), TestSoftTimeoutPath (DispatchError(error_explanation='local_timeout') -> SOFT_TIMEOUT, plus a non-timeout error variant -> ERROR). TestSoftTimeoutPath also asserts the dispatcher does NOT retry (call_count == 1) -- retry-with-context lives at the supervisor layer per ASSUM-005."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Ran `ruff check` on src/forge/pipeline/dispatchers/specialist.py, src/forge/pipeline/dispatchers/__init__.py, and tests/forge/pipeline/dispatchers/test_specialist.py -- 'All checks passed!'. Ran `black --target-version py312` -- 2 files left unchanged after reformatting test file. Final pytest: 24/24 new tests pass; full repo regression `pytest tests/forge/ --ignore=tests/forge/adapters/test_specialist_dispatch.py` -> 1263 passed, 0 failed.",
+      "notes": "Ran `ruff check` on src/forge/pipeline/dispatchers/specialist.py, src/forge/pipeline/dispatchers/__init__.py, and tests/forge/pipeline/dispatchers/test_specialist.py -- 'All checks passed!'. Ran `black --target-version py312` -- 2 files left unchanged after reformatting test file. Final pytest: 24/24 new tests pass; full repo regression `pytest tests/forge/ --ignore=tests/forge/adapters/test_specialist_dispatch.py` -> 1263 passed, 0 failed."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`dispatch_specialist_stage(stage: StageClass, build_id: str, ...) -> StageDispatchResult`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented async dispatch_specialist_stage(stage=, build_id=, correlation_id=, forward_context_builder=, dispatch_surface=, stage_log_writer=, feature_id=None, attempt_no=1, retry_of=None) returning StageDispatchResult dataclass at src/forge/pipeline/dispatchers/specialist.py. TestSurface verifies isinstance(result, StageDispatchResult).",
+        "notes": "Implemented async dispatch_specialist_stage(stage=, build_id=, correlation_id=, forward_context_builder=, dispatch_surface=, stage_log_writer=, feature_id=None, attempt_no=1, retry_of=None) returning StageDispatchResult dataclass at src/forge/pipeline/dispatchers/specialist.py. TestSurface verifies isinstance(result, StageDispatchResult)."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Refuses any stage that is not in `{PRODUCT_OWNER, ARCHITECT}`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Function refuses early with ValueError naming the offending stage when stage not in SPECIALIST_CAPABILITY_BY_STAGE (which keys on PRODUCT_OWNER and ARCHITECT only). TestStageRefusal parametrises across the six other StageClass members and verifies (a) ValueError is raised, (b) no dispatch is attempted, (c) no stage_log row is written.",
+        "notes": "Function refuses early with ValueError naming the offending stage when stage not in SPECIALIST_CAPABILITY_BY_STAGE (which keys on PRODUCT_OWNER and ARCHITECT only). TestStageRefusal parametrises across the six other StageClass members and verifies (a) ValueError is raised, (b) no dispatch is attempted, (c) no stage_log row is written."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Calls `ForwardContextBuilder.build_for` to assemble the dispatch",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "dispatch_specialist_stage calls forward_context_builder.build_for(stage=stage, build_id=build_id, feature_id=feature_id) and threads each returned ContextEntry into the DispatchParameter list as 'context' params. TestForwardContextWiring verifies the architect dispatch carries the product-owner approved charter text in its parameter values, and that the product-owner dispatch (entry stage) carries no forward context.",
+        "notes": "dispatch_specialist_stage calls forward_context_builder.build_for(stage=stage, build_id=build_id, feature_id=feature_id) and threads each returned ContextEntry into the DispatchParameter list as 'context' params. TestForwardContextWiring verifies the architect dispatch carries the product-owner approved charter text in its parameter values, and that the product-owner dispatch (entry stage) carries no forward context."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Delegates to FEAT-FORGE-003's specialist-dispatch tool with the",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "SPECIALIST_CAPABILITY_BY_STAGE maps PRODUCT_OWNER -> 'product_owner_specialist' and ARCHITECT -> 'architect_specialist'; dispatcher passes the mapped capability to dispatch_surface.dispatch(). TestCapabilityRouting parametrises both stages and asserts surface.last_call['capability'] equals the expected name and that SPECIALIST_CAPABILITY_BY_STAGE[stage] matches.",
+        "notes": "SPECIALIST_CAPABILITY_BY_STAGE maps PRODUCT_OWNER -> 'product_owner_specialist' and ARCHITECT -> 'architect_specialist'; dispatcher passes the mapped capability to dispatch_surface.dispatch(). TestCapabilityRouting parametrises both stages and asserts surface.last_call['capability'] equals the expected name and that SPECIALIST_CAPABILITY_BY_STAGE[stage] matches."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Threads the build's `correlation_id` through the dispatch envelope",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_build_dispatch_parameters always emits a non-sensitive 'correlation_id' DispatchParameter as the first entry, value threaded unchanged from the function argument. TestCorrelationIdThreading asserts exactly one such parameter exists, value matches input verbatim, and sensitive=False so persistence does not redact it.",
+        "notes": "_build_dispatch_parameters always emits a non-sensitive 'correlation_id' DispatchParameter as the first entry, value threaded unchanged from the function argument. TestCorrelationIdThreading asserts exactly one such parameter exists, value matches input verbatim, and sensitive=False so persistence does not redact it."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Records the dispatch as a `stage_log` entry on submit and updates on",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Defined StageLogWriter Protocol with two methods: record_dispatch_submit (returns entry_id) and record_dispatch_reply. Dispatcher calls submit before delegating to FEAT-FORGE-003 and reply after translating the outcome, threading coach_score / criterion_breakdown / detection_findings / reason. TestStageLogLifecycle asserts (a) one submit row with capability + correlation_id, (b) one reply row carrying the parsed Coach score (0.91) + criterion breakdown + findings keyed to the same entry_id, and (c) write-before-send: an observing dispatch surface sees one submit row already present at dispatch time.",
+        "notes": "Defined StageLogWriter Protocol with two methods: record_dispatch_submit (returns entry_id) and record_dispatch_reply. Dispatcher calls submit before delegating to FEAT-FORGE-003 and reply after translating the outcome, threading coach_score / criterion_breakdown / detection_findings / reason. TestStageLogLifecycle asserts (a) one submit row with capability + correlation_id, (b) one reply row carrying the parsed Coach score (0.91) + criterion breakdown + findings keyed to the same entry_id, and (c) write-before-send: an observing dispatch surface sees one submit row already present at dispatch time."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "On degraded specialist (no healthy specialist on cache), returns a",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_translate_outcome maps Degraded -> StageDispatchOutcome.DEGRADED, copying outcome.reason through. StageDispatchResult re-exports the enum members as ClassVar attributes so AC-007's literal access pattern (StageDispatchResult.DEGRADED) works. TestDegradedPath seeds a Degraded reply with reason='no_specialist_resolvable' and asserts result.outcome is StageDispatchResult.DEGRADED and the writer records the same outcome + reason.",
+        "notes": "_translate_outcome maps Degraded -> StageDispatchOutcome.DEGRADED, copying outcome.reason through. StageDispatchResult re-exports the enum members as ClassVar attributes so AC-007's literal access pattern (StageDispatchResult.DEGRADED) works. TestDegradedPath seeds a Degraded reply with reason='no_specialist_resolvable' and asserts result.outcome is StageDispatchResult.DEGRADED and the writer records the same outcome + reason."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Unit test mocking FEAT-FORGE-003 dispatch surface: success path,",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Three dedicated test classes use the in-memory RecordingDispatchSurface fake (which structurally satisfies SpecialistDispatchSurface, asserted in TestProtocolConformance): TestSuccessPath (SyncResult -> COMPLETED with coach_score=0.78), TestDegradedPath (Degraded -> DEGRADED), TestSoftTimeoutPath (DispatchError(error_explanation='local_timeout') -> SOFT_TIMEOUT, plus a non-timeout error variant -> ERROR). TestSoftTimeoutPath also asserts the dispatcher does NOT retry (call_count == 1) -- retry-with-context lives at the supervisor layer per ASSUM-005.",
+        "notes": "Three dedicated test classes use the in-memory RecordingDispatchSurface fake (which structurally satisfies SpecialistDispatchSurface, asserted in TestProtocolConformance): TestSuccessPath (SyncResult -> COMPLETED with coach_score=0.78), TestDegradedPath (Degraded -> DEGRADED), TestSoftTimeoutPath (DispatchError(error_explanation='local_timeout') -> SOFT_TIMEOUT, plus a non-timeout error variant -> ERROR). TestSoftTimeoutPath also asserts the dispatcher does NOT retry (call_count == 1) -- retry-with-context lives at the supervisor layer per ASSUM-005."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Ran `ruff check` on src/forge/pipeline/dispatchers/specialist.py, src/forge/pipeline/dispatchers/__init__.py, and tests/forge/pipeline/dispatchers/test_specialist.py -- 'All checks passed!'. Ran `black --target-version py312` -- 2 files left unchanged after reformatting test file. Final pytest: 24/24 new tests pass; full repo regression `pytest tests/forge/ --ignore=tests/forge/adapters/test_specialist_dispatch.py` -> 1263 passed, 0 failed.",
+        "notes": "Ran `ruff check` on src/forge/pipeline/dispatchers/specialist.py, src/forge/pipeline/dispatchers/__init__.py, and tests/forge/pipeline/dispatchers/test_specialist.py -- 'All checks passed!'. Ran `black --target-version py312` -- 2 files left unchanged after reformatting test file. Final pytest: 24/24 new tests pass; full repo regression `pytest tests/forge/ --ignore=tests/forge/adapters/test_specialist_dispatch.py` -> 1263 passed, 0 failed."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 272 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1058/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- BELONGS_TO_PROJECT\n- ASSIGNS_TASK_TO\n\n### \u26a0\ufe0f Warnings\n- USES_ENDPOINT\n- IS_IMPLEMENTED_AS\n\n### \ud83c\udfad Role Constraints\n- DELEGATES_TO\n- HAS_ROLE_MUST_DO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO_TASK\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

@@ -1,0 +1,222 @@
+{
+  "task_id": "TASK-MAG7-014",
+  "timestamp": "2026-04-26T19:53:06.001714",
+  "completed": true,
+  "phases": {
+    "phase_1": {
+      "detected": true,
+      "text": "Reading task and exploring codebase.",
+      "completed": false
+    },
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 16,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_concurrency_and_integrity.py",
+    "tasks/backlog/TASK-MAG7-012-smoke-greenfield-e2e.md",
+    "tasks/backlog/TASK-MAG7-013-crash-recovery-integration.md",
+    "tasks/backlog/TASK-MAG7-014-concurrency-multifeature-integration.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-012-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-013-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-014-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-011/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-012/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-012/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-012/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-013/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-013/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-013/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-014/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-014/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-014/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-012_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-013_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-014_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-014/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_concurrency_and_integrity.py",
+    "tasks/design_approved/TASK-MAG7-012-smoke-greenfield-e2e.md",
+    "tasks/design_approved/TASK-MAG7-013-crash-recovery-integration.md",
+    "tasks/design_approved/TASK-MAG7-014-concurrency-multifeature-integration.md",
+    "tests/integration/test_mode_a_concurrency_and_integrity.py",
+    "tests/integration/test_mode_a_crash_recovery.py",
+    "tests/integration/test_mode_a_smoke.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/integration/test_mode_a_concurrency_and_integrity.py"
+  ],
+  "summary": "16 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 60,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "Test module exists at tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "status": "complete",
+      "evidence": "Created tests/integration/test_mode_a_concurrency_and_integrity.py with 16 tests organized into 9 test classes mapping 1:1 to the acceptance criteria. File is importable, collects under pytest, and passes ruff/black.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Two-concurrent-builds test (Group F): distinct correlation_ids, interleaved next_turn, distinct autobuild task_id, approval pause resolves only on matching build_id, second build product-owner dispatches without waiting for first build's autobuild",
+      "status": "complete",
+      "evidence": "TestTwoConcurrentBuilds has three tests: (1) test_distinct_autobuild_task_ids_and_correlation_ids \u2014 drives two builds via asyncio.gather, asserts distinct task_ids and per-build correlation_ids on the lifecycle bus; (2) test_approval_response_only_resolves_matching_build \u2014 uses real ApprovalSubscriber + InMemoryNats with per-build subjects, asserts response on build-A's mirror leaves build-B's wait pending; (3) test_second_build_dispatches_while_first_autobuild_in_flight \u2014 build-1 dispatches AUTOBUILD while build-2 dispatches PRODUCT_OWNER in the same gather without cross-talk.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Multi-feature integration test (Group H): 3-feature catalogue produces one feature-spec, one feature-plan, one autobuild stage entry per feature, one PR-review pause per feature, per-feature artefact paths attributed correctly",
+      "status": "complete",
+      "evidence": "TestMultiFeatureCatalogue.test_three_features_produce_one_inner_loop_dispatch_each drives a 3-feature build through the supervisor's canonical-order reasoning model; asserts exactly 3 FEATURE_SPEC, 3 FEATURE_PLAN, 3 AUTOBUILD dispatcher calls, 3 PR-review submissions (one per feature_id), and walks the artefact paths recorded per (build, stage, feature) to assert no path is attributed to more than one feature.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Per-feature sequencing test (Group D ASSUM-006): three-feature catalogue, no second autobuild dispatch begins while a first autobuild is still in non-terminal lifecycle",
+      "status": "complete",
+      "evidence": "TestPerFeatureSequencing.test_three_feature_catalogue_serialises_autobuilds dispatches FEAT-1's autobuild (turn 1), simulates 'running_wave' lifecycle, attempts FEAT-2 (turn 2) and asserts WAITING_PRIOR_AUTOBUILD; then marks FEAT-1 'completed' and asserts FEAT-3 dispatches successfully (turn 3). autobuild_dispatcher.calls count is asserted at every step (1 \u2192 1 \u2192 2).",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Correlation threading test (Group I): every published lifecycle event for a build carries the same correlation_id from queue to terminal",
+      "status": "complete",
+      "evidence": "TestCorrelationThreading.test_every_lifecycle_event_for_one_build_threads_one_correlation_id drives a 2-feature build to completion, walks every event in FakeLifecycleBus.for_build('build-CID'), and asserts the set of correlation_ids is exactly {'cid-deterministic-XY'} \u2014 proving no drift between stages. Cross-build isolation also asserted.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Calibration priors snapshot test (Group I): capture snapshot at build start, mutate operator's calibration history mid-run, assert later stages still use the priors snapshot from build start",
+      "status": "complete",
+      "evidence": "TestCalibrationPriorsSnapshot has two tests: (1) test_priors_snapshot_remains_stable_when_history_is_mutated captures a tuple snapshot, mutates the source list (append + entry mutation), and asserts the snapshot's contents are identical to the build-start state; (2) test_snapshot_is_a_tuple_so_callers_cannot_mutate_it asserts AttributeError on attempted .append, proving immutability. Also verifies a future build sees the new history.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "First-wins idempotency test (Group D + Group I): build paused at a checkpoint, two simultaneous approval responses with different decisions, exactly one decision applied, no double-resume",
+      "status": "complete",
+      "evidence": "TestFirstWinsIdempotency.test_two_simultaneous_responses_resolve_to_one_winner uses the real ApprovalSubscriber dedup buffer (FEAT-FORGE-004) \u2014 two MessageEnvelopes with the same request_id but different decisions ('approve' vs 'reject') are delivered via asyncio.gather; the wait resolves with exactly one decision and len(subscriber._dedup) == 1.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Constitutional misconfigured-prompt test (Group E): stub the supervisor's reasoning model with a configuration that emits an auto-approve directive at PR-review, ConstitutionalGuard refuses, build remains paused",
+      "status": "complete",
+      "evidence": "TestConstitutionalMisconfiguredPrompt.test_pr_review_auto_approve_refused_even_under_permissive_model wires a CanonicalOrderModel with auto_approve_overrides={PULL_REQUEST_REVIEW: True} (the misconfigured prompt). Drives the supervisor to PR-review and asserts outcome is REFUSED_CONSTITUTIONAL, gate_decision.verdict is REFUSED, the PR-review gate was NEVER called, and the stage is not marked approved \u2014 the build pauses.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Specialist override-claim test (Group E): specialist returns a claim asserting override of PR-review rule, claim is ignored at gating, build pauses for mandatory human",
+      "status": "complete",
+      "evidence": "TestSpecialistOverrideClaim has three tests: (1) test_pr_review_override_claim_is_ignored_regardless_of_payload exercises ConstitutionalGuard.veto_override_claim against five different override-payload shapes (loud, deeply nested, empty) and asserts True every time for PR-review; (2) test_non_constitutional_stage_override_claim_is_not_vetoed negative-controls every other StageClass; (3) test_build_pauses_for_mandatory_human_when_override_claimed end-to-end via supervisor.next_turn \u2192 REFUSED_CONSTITUTIONAL with no PR-review gate call.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Worktree confinement test (Group E): subprocess dispatch attempts to write outside the worktree, refused, no path outside allowlist writable",
+      "status": "complete",
+      "evidence": "TestWorktreeConfinement has three tests: (1) test_paths_outside_worktree_are_refused_by_allowlist asserts /etc/passwd, /worktree/other-build/spec.md, /worktree/build-W/../../escape.txt and /tmp/whatever are all rejected; (2) test_unknown_build_id_has_empty_allowlist proves a build with no recorded root has every path refused; (3) test_subprocess_artefact_paths_outside_allowlist_are_filtered partitions paths into kept/rejected mirroring the dispatch.subprocess._partition_paths_by_allowlist contract.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran 'ruff check tests/integration/test_mode_a_concurrency_and_integrity.py' \u2014 'All checks passed!'. Ran 'black tests/integration/test_mode_a_concurrency_and_integrity.py --fast' and applied formatting; subsequent re-run is idempotent. py_compile parses cleanly. Full pytest suite (2974 tests) passes.",
+      "test_file": "tests/integration/test_mode_a_concurrency_and_integrity.py",
+      "implementation_files": [
+        "tests/integration/test_mode_a_concurrency_and_integrity.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 60.67660888298997
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 219.29495822099852
+    }
+  ]
+}

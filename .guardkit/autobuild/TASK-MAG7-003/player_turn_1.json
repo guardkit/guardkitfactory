@@ -1,0 +1,153 @@
+{
+  "task_id": "TASK-MAG7-003",
+  "turn": 1,
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "tasks/backlog/TASK-MAG7-003-stage-ordering-guard.md",
+    "tasks/backlog/TASK-MAG7-004-constitutional-guard.md",
+    "tasks/backlog/TASK-MAG7-005-per-feature-loop-sequencer.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-003-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-004-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-005-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-002/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-003/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-003/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-003/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-004/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-004/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-004/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-005/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-003_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-004_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-003/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/src/forge/pipeline/stage_ordering_guard.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_stage_ordering_guard.py",
+    "src/forge/pipeline/constitutional_guard.py",
+    "src/forge/pipeline/per_feature_sequencer.py",
+    "src/forge/pipeline/stage_ordering_guard.py",
+    "tasks/design_approved/TASK-MAG7-003-stage-ordering-guard.md",
+    "tasks/design_approved/TASK-MAG7-004-constitutional-guard.md",
+    "tasks/design_approved/TASK-MAG7-005-per-feature-loop-sequencer.md",
+    "tests/forge/test_constitutional_guard.py",
+    "tests/forge/test_per_feature_sequencer.py",
+    "tests/forge/test_stage_ordering_guard.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_stage_ordering_guard.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001: StageOrderingGuard class at src/forge/pipeline/stage_ordering_guard.py",
+    "AC-002: next_dispatchable returns set[StageClass]",
+    "AC-003: is_dispatchable returns bool with prerequisite check",
+    "AC-004: per-feature stages take feature_id and scope correctly",
+    "AC-005: PULL_REQUEST_REVIEW requires AUTOBUILD for every feature",
+    "AC-006: Unit tests cover all seven Scenario Outline rows verbatim",
+    "AC-007: Unit tests cover multi-feature PR review case",
+    "AC-008: Pure function \u2014 Protocol-injected I/O only",
+    "AC-009: ruff and black both report zero errors"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 38,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 29,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`StageOrderingGuard` class exists at `src/forge/pipeline/stage_ordering_guard.py`",
+      "status": "complete",
+      "evidence": "Created src/forge/pipeline/stage_ordering_guard.py with `class StageOrderingGuard` exported via `__all__`. The companion `StageLogReader` Protocol is defined in the same module so callers have a single import surface.",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Method `next_dispatchable(build_id: str, stage_log_reader: StageLogReader) -> set[StageClass]` returns the set of stages whose prerequisites are all approved",
+      "status": "complete",
+      "evidence": "Implemented `StageOrderingGuard.next_dispatchable(build_id, stage_log_reader) -> set[StageClass]`. Walks every `StageClass` and delegates to `is_dispatchable`; for per-feature non-PR stages it includes the stage iff at least one feature in the catalogue has prerequisites met. Verified by `TestNextDispatchable` (4 tests covering empty log, post-product-owner, per-feature any-feature semantics, and PR review all-features semantics).",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Method `is_dispatchable(build_id, stage: StageClass, feature_id: str | None = None) -> bool` returns True only if every prerequisite of `stage` for that feature (or build, for non-per-feature stages) is approved in `stage_log`",
+      "status": "complete",
+      "evidence": "Implemented `is_dispatchable(build_id, stage, stage_log_reader, feature_id=None) -> bool`. Note: the AC signature was extended with the `stage_log_reader` parameter to keep the guard pure (no constructor state) \u2014 this is consistent with the task's Implementation Notes (\"Inject a StageLogReader Protocol\") and the explicit reader parameter on `next_dispatchable`. The decision tree mirrors the seven Group B rows; per-feature prerequisites are scoped at the same `feature_id`. Verified by 14 parametrized tests in `TestGroupBPrerequisiteRows` (negative + positive for every row).",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Per-feature stages (`FEATURE_SPEC`, `FEATURE_PLAN`, `AUTOBUILD`, `PULL_REQUEST_REVIEW`) take a `feature_id` argument and check prerequisites scoped to that feature",
+      "status": "complete",
+      "evidence": "`is_dispatchable` accepts `feature_id` and refuses per-feature stages without one (safe default to prevent cross-feature prerequisite leaks). Per-feature prerequisites are checked at the same scoped `feature_id` (rows 5 and 6 \"for that feature\"). Covered by `TestPerFeatureScoping` (3 tests: feature-plan-per-feature, autobuild-per-feature, refusal when feature_id missing).",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`PULL_REQUEST_REVIEW` requires `AUTOBUILD` approved for *every* feature in the catalogue (per Scenario Outline row 7)",
+      "status": "complete",
+      "evidence": "PR review is special-cased: it pulls `feature_catalogue(build_id)` from the reader and uses `all(...)` over `is_approved(build_id, AUTOBUILD, feature_id=fid)` for every feature. Empty catalogue is non-dispatchable (defends TASK-MAG7-005 boundary). Verified by `TestPullRequestReviewMultiFeature` (3 tests: blocked-with-one-missing, dispatchable-when-all-approved, blocked-on-empty-catalogue).",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Unit tests cover all seven prerequisite rows from the Scenario Outline verbatim",
+      "status": "complete",
+      "evidence": "`TestGroupBPrerequisiteRows` parametrize table lists all seven rows verbatim (architect\u2190product-owner through pull-request\u2190autobuild) with both negative and positive assertions per row \u2014 14 test cases total. The class docstring reproduces the table for review parity.",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Unit tests cover the multi-feature case (PR review requires all autobuilds)",
+      "status": "complete",
+      "evidence": "`TestPullRequestReviewMultiFeature.test_pr_review_blocked_when_one_of_several_autobuilds_missing` and `test_pr_review_dispatchable_when_every_autobuild_approved` exercise a 2-feature catalogue, asserting the false\u2192true transition as the second autobuild lands. `TestNextDispatchable.test_pr_review_in_set_only_when_every_feature_autobuilt` covers the same property through the aggregator method.",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Pure function \u2014 no I/O except via the injected `stage_log_reader` Protocol",
+      "status": "complete",
+      "evidence": "`StageOrderingGuard` has no constructor state (verified by `test_guard_constructs_without_arguments`); both methods are sync and depend only on the injected `StageLogReader`. No async, no SQLite import, no filesystem access. `TestPureFunctionProperty.test_guard_only_calls_protocol_methods` uses a `RecordingReader` whose `__getattr__` raises to prove the guard touches only `is_approved` and `feature_catalogue`.",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "`ruff check src/forge/pipeline/stage_ordering_guard.py tests/forge/test_stage_ordering_guard.py` \u2192 'All checks passed!'. `black --target-version py312 --check` \u2192 '2 files would be left unchanged'. Both files use 88-char max lines per project code-style.md and include type hints throughout.",
+      "test_file": "tests/forge/test_stage_ordering_guard.py",
+      "implementation_files": [
+        "src/forge/pipeline/stage_ordering_guard.py"
+      ]
+    }
+  ]
+}

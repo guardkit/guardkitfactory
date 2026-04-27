@@ -1,0 +1,195 @@
+{
+  "task_id": "TASK-MAG7-005",
+  "timestamp": "2026-04-26T18:46:32.273741",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 23,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_per_feature_sequencer.py",
+    "tasks/backlog/TASK-MAG7-003-stage-ordering-guard.md",
+    "tasks/backlog/TASK-MAG7-004-constitutional-guard.md",
+    "tasks/backlog/TASK-MAG7-005-per-feature-loop-sequencer.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MAG7-003-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-004-implementation-plan.md",
+    ".claude/task-plans/TASK-MAG7-005-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MAG7-002/checkpoints.json",
+    ".guardkit/autobuild/TASK-MAG7-003/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-003/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-003/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-004/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-MAG7-004/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-004/specialist_results.json",
+    ".guardkit/autobuild/TASK-MAG7-004/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-004/turn_context.json",
+    ".guardkit/autobuild/TASK-MAG7-005/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MAG7-005/task_work_results.json",
+    ".guardkit/autobuild/TASK-MAG7-005/turn_context.json",
+    ".guardkit/bdd/TASK-MAG7-003_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-004_junit.xml",
+    ".guardkit/bdd/TASK-MAG7-005_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/.guardkit/autobuild/TASK-MAG7-005/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/src/forge/pipeline/per_feature_sequencer.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_per_feature_sequencer.py",
+    "src/forge/pipeline/constitutional_guard.py",
+    "src/forge/pipeline/per_feature_sequencer.py",
+    "src/forge/pipeline/stage_ordering_guard.py",
+    "tasks/design_approved/TASK-MAG7-003-stage-ordering-guard.md",
+    "tasks/design_approved/TASK-MAG7-004-constitutional-guard.md",
+    "tasks/design_approved/TASK-MAG7-005-per-feature-loop-sequencer.md",
+    "tests/forge/test_constitutional_guard.py",
+    "tests/forge/test_per_feature_sequencer.py",
+    "tests/forge/test_stage_ordering_guard.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-CBDE/tests/forge/test_per_feature_sequencer.py"
+  ],
+  "summary": "23 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 30,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "PerFeatureLoopSequencer class exists at src/forge/pipeline/per_feature_sequencer.py",
+      "status": "complete",
+      "evidence": "Created src/forge/pipeline/per_feature_sequencer.py defining PerFeatureLoopSequencer. Verified by TestPerFeatureLoopSequencerExists::test_class_importable_from_per_feature_sequencer_module and ::test_class_is_instantiable_with_no_arguments \u2014 both pass.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Method may_start_autobuild(build_id, feature_id, stage_log_reader, async_task_reader) -> bool returns False if any prior feature's autobuild is in a non-terminal lifecycle (starting, planning_waves, running_wave, awaiting_approval, pushing_pr)",
+      "status": "complete",
+      "evidence": "Implemented may_start_autobuild with the exact signature. The NON_TERMINAL_AUTOBUILD_LIFECYCLES frozenset constant lists the five literals verbatim from the criterion. Parametrized test TestNonTerminalLifecyclesBlockDispatch::test_prior_feature_in_non_terminal_lifecycle_blocks_second_feature exercises all five lifecycle values and asserts the method returns False \u2014 all five parametrizations pass.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Method consults both stage_log (terminal completion) and the async_tasks state channel via async_task_reader (live lifecycle, DDR-006 AutobuildState)",
+      "status": "complete",
+      "evidence": "may_start_autobuild walks async_task_reader.list_autobuild_states(build_id) for live lifecycle and calls stage_log_reader.is_autobuild_approved(build_id, feature_id) when the async_tasks lifecycle is non-terminal \u2014 implementing DDR-006's 'SQLite is authoritative, async_tasks is advisory' rule. Test TestStageLogAndAsyncTaskConsultation::test_stale_async_task_overridden_by_stage_log_approval verifies the cross-consultation: a non-terminal async_tasks entry whose feature is also marked approved in stage_log does not block dispatch.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Returns True when no autobuild for any earlier feature is non-terminal",
+      "status": "complete",
+      "evidence": "may_start_autobuild falls through the for-loop and returns True when no sibling autobuild matches the block conditions. Tests TestStageLogAndAsyncTaskConsultation::test_no_in_flight_autobuilds_permits_dispatch (empty channel) and TestMultiFeatureCatalogue::test_all_prior_features_completed_permits_third_feature (three-feature catalogue with two prior completions) both verify the True path.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Unit test: two-feature catalogue, second autobuild dispatch blocked while first autobuild lifecycle is running_wave",
+      "status": "complete",
+      "evidence": "TestNonTerminalLifecyclesBlockDispatch::test_running_wave_lifecycle_blocks_second_feature_two_feature_catalogue sets up a two-feature catalogue with FEAT-1 in running_wave and asserts may_start_autobuild for FEAT-2 returns False.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Unit test: second autobuild dispatch permitted once first reaches completed",
+      "status": "complete",
+      "evidence": "TestTerminalLifecyclesPermitDispatch::test_completed_lifecycle_permits_second_feature_two_feature_catalogue sets FEAT-1's lifecycle to completed and stage_log to approved; asserts may_start_autobuild for FEAT-2 returns True. The parametrized test in the same class also covers cancelled and failed terminal states.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Pure function \u2014 no I/O except via injected reader Protocols",
+      "status": "complete",
+      "evidence": "The module imports only `typing.Iterable`, `typing.Protocol`, and `typing.runtime_checkable` from the stdlib \u2014 no sqlite3, requests, aiohttp, or forge.adapters. TestPureFunctionContract::test_no_module_level_io_imports parses the module's AST and asserts no Import / ImportFrom node references any forbidden I/O prefix; ::test_protocols_are_runtime_checkable asserts both StageLogReader and AsyncTaskReader are runtime_checkable Protocols satisfied by the in-memory test doubles.",
+      "test_file": "tests/forge/test_per_feature_sequencer.py",
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "No lint or format tooling (ruff, black, flake8, mypy) is configured in pyproject.toml \u2014 the project ships only pytest configuration. Both new files are written to PEP 8 conventions: 88-char line cap (the .claude/rules/code-style.md target), snake_case functions, PascalCase classes, UPPER_CASE constants, full type hints, f-strings, dataclasses for state containers, no print statements. There is therefore no configured lint check to fail; the AC is vacuously satisfied for the project's current toolchain.",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/pipeline/per_feature_sequencer.py",
+        "tests/forge/test_per_feature_sequencer.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 41.707635922997724
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 193.57783794999705
+    }
+  ]
+}

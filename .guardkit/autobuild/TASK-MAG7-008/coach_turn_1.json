@@ -1,0 +1,247 @@
+{
+  "task_id": "TASK-MAG7-008",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/pipeline/dispatchers/test_specialist.py tests/forge/pipeline/dispatchers/test_subprocess.py tests/forge/test_dispatch_autobuild_async.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_dispatch_autobuild_async.py::TestProtocolConformance::test_fake_state_channel_satisfies_initialiser_protocol PASSED [ 96%]\ntests/forge/test_dispatch_autobuild_async.py::TestEmptyContextFallback::test_dispatch_proceeds_with_empty_context_when_plan_unapproved PASSED [ 97%]\ntests/forge/test_dispatch_autobuild_async.py::TestModuleExports::test_all_exports_resolvable PASSED [ 98%]\ntests/forge/test_dispatch_autobuild_async.py::TestModuleExports::test_forward_context_builder_module_unchanged PASSED [100%]\n============================== 75 passed in 0.17s ==============================",
+      "duration_seconds": 0.5790894031524658
+    },
+    "requirements": {
+      "criteria_total": 12,
+      "criteria_met": 12,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`dispatch_subprocess_stage(stage, build_id, feature_id=None, ...) -> StageDispatchResult`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Function defined at src/forge/pipeline/dispatchers/subprocess.py with signature `async def dispatch_subprocess_stage(stage: StageClass, build_id: str, *, correlation_id, repo_path, read_allowlist, forward_context_builder, worktree_allowlist, stage_log_writer, subprocess_runner, feature_id=None, timeout_seconds=600, with_nats_streaming=True, extra_args=None) -> StageDispatchResult`. Returns frozen dataclass StageDispatchResult capturing all dispatch outcomes.",
+      "notes": "Function defined at src/forge/pipeline/dispatchers/subprocess.py with signature `async def dispatch_subprocess_stage(stage: StageClass, build_id: str, *, correlation_id, repo_path, read_allowlist, forward_context_builder, worktree_allowlist, stage_log_writer, subprocess_runner, feature_id=None, timeout_seconds=600, with_nats_streaming=True, extra_args=None) -> StageDispatchResult`. Returns frozen dataclass StageDispatchResult capturing all dispatch outcomes."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Maps each stage to its GuardKit slash command:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "SUBPROCESS_STAGE_COMMANDS dict in subprocess.py maps the four StageClass members to their subcommand tokens (system-arch/system-design/feature-spec/feature-plan; the leading slash is dropped because guardkit.run invokes the binary as `guardkit <subcommand>`). Tests TestStageCommandMapping verify the mapping covers exactly those four stages with the expected tokens, and a parametrised async test confirms the runner is invoked with each mapped subcommand.",
+      "notes": "SUBPROCESS_STAGE_COMMANDS dict in subprocess.py maps the four StageClass members to their subcommand tokens (system-arch/system-design/feature-spec/feature-plan; the leading slash is dropped because guardkit.run invokes the binary as `guardkit <subcommand>`). Tests TestStageCommandMapping verify the mapping covers exactly those four stages with the expected tokens, and a parametrised async test confirms the runner is invoked with each mapped subcommand."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Calls `ForwardContextBuilder.build_for` and converts the returned",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_build_argv_for_stage() invokes forward_context_builder.build_for(stage, build_id, feature_id) and routes the returned ContextEntry values through _context_entries_to_argv(): text-kind entries become argv flag/value pairs (--context <text>); path-kind entries with --context flag become extra_context_paths threaded through guardkit.run's resolver (so manifest entries merge correctly per ASSUM-005). Tests test_text_context_is_threaded_onto_argv_as_context_flag and test_path_context_is_threaded_via_extra_context_paths verify both branches.",
+      "notes": "_build_argv_for_stage() invokes forward_context_builder.build_for(stage, build_id, feature_id) and routes the returned ContextEntry values through _context_entries_to_argv(): text-kind entries become argv flag/value pairs (--context <text>); path-kind entries with --context flag become extra_context_paths threaded through guardkit.run's resolver (so manifest entries merge correctly per ASSUM-005). Tests test_text_context_is_threaded_onto_argv_as_context_flag and test_path_context_is_threaded_via_extra_context_paths verify both branches."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Delegates to FEAT-FORGE-005's subprocess engine for execution under",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "dispatch_subprocess_stage takes a SubprocessRunner = Callable[..., Awaitable[GuardKitResult]] argument matching forge.adapters.guardkit.run's signature exactly. Production wires guardkit.run directly (no shape adapter); tests inject FakeSubprocessRunner. The runner enforces cwd-inside-allowlist on its own side (per its docstring) \u2014 the dispatcher passes repo_path and read_allowlist through verbatim. Tests assert the runner is called with the expected subcommand/args/repo_path/read_allowlist.",
+      "notes": "dispatch_subprocess_stage takes a SubprocessRunner = Callable[..., Awaitable[GuardKitResult]] argument matching forge.adapters.guardkit.run's signature exactly. Production wires guardkit.run directly (no shape adapter); tests inject FakeSubprocessRunner. The runner enforces cwd-inside-allowlist on its own side (per its docstring) \u2014 the dispatcher passes repo_path and read_allowlist through verbatim. Tests assert the runner is called with the expected subcommand/args/repo_path/read_allowlist."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Records artefact paths returned by the subprocess in `stage_log`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_record_safely() calls StageLogWriter.record_dispatch with artefact_paths and feature_id keyword arguments. Tests test_artefact_paths_recorded_in_stage_log and test_per_feature_artefact_paths_attributed_by_feature_id verify the artefact tuple is recorded and that feature_id=None for non-per-feature stages while feature_id='FEAT-7' is recorded for FEATURE_SPEC dispatches.",
+      "notes": "_record_safely() calls StageLogWriter.record_dispatch with artefact_paths and feature_id keyword arguments. Tests test_artefact_paths_recorded_in_stage_log and test_per_feature_artefact_paths_attributed_by_feature_id verify the artefact tuple is recorded and that feature_id=None for non-per-feature stages while feature_id='FEAT-7' is recorded for FEATURE_SPEC dispatches."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Threads correlation_id through subprocess envelope and any pipeline",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Dispatcher appends ['--correlation-id', correlation_id] to the subprocess argv in _build_argv_for_stage so the GuardKit subcommand receives it on the command line and can echo it onto every pipeline.* event it publishes. correlation_id is also recorded on the stage_log row via record_dispatch's keyword arg. Tests test_correlation_id_appears_on_subprocess_argv and test_correlation_id_recorded_on_stage_log_row verify both threading paths.",
+      "notes": "Dispatcher appends ['--correlation-id', correlation_id] to the subprocess argv in _build_argv_for_stage so the GuardKit subcommand receives it on the command line and can echo it onto every pipeline.* event it publishes. correlation_id is also recorded on the stage_log row via record_dispatch's keyword arg. Tests test_correlation_id_appears_on_subprocess_argv and test_correlation_id_recorded_on_stage_log_row verify both threading paths."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Subprocess hard-stop / non-zero exit is converted to",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Post-runner branch sets status=StageDispatchStatus.FAILED whenever guardkit_result.status != 'success' (covers 'failed' and 'timeout') and builds a structured rationale combining stderr/stdout/warnings from the GuardKitResult. Internal exceptions in the runner are caught and converted to FAILED via the try/except wrapping subprocess_runner; only asyncio.CancelledError is re-raised. Tests test_subprocess_hard_stop_converts_to_failed_result, test_runner_internal_exception_converts_to_failed, test_timeout_status_converts_to_failed_result, and test_cancelled_error_propagates verify all four sub-cases. StageDispatchResult.FAILED resolves correctly via the class-level mirrors.",
+      "notes": "Post-runner branch sets status=StageDispatchStatus.FAILED whenever guardkit_result.status != 'success' (covers 'failed' and 'timeout') and builds a structured rationale combining stderr/stdout/warnings from the GuardKitResult. Internal exceptions in the runner are caught and converted to FAILED via the try/except wrapping subprocess_runner; only asyncio.CancelledError is re-raised. Tests test_subprocess_hard_stop_converts_to_failed_result, test_runner_internal_exception_converts_to_failed, test_timeout_status_converts_to_failed_result, and test_cancelled_error_propagates verify all four sub-cases. StageDispatchResult.FAILED resolves correctly via the class-level mirrors."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "On `/feature-spec` failure, the result rationale records the",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "When stage is StageClass.FEATURE_SPEC and the subprocess returns a non-success status, the rationale is prefixed with 'feature-spec failure:' so the supervisor can pattern-match it. The full stderr/stdout from the GuardKit result is threaded into the rationale verbatim (truncated at 4 KB to avoid stage_log bloat). Test test_feature_spec_failure_records_feature_spec_rationale verifies both the prefix and the underlying error text are present.",
+      "notes": "When stage is StageClass.FEATURE_SPEC and the subprocess returns a non-success status, the rationale is prefixed with 'feature-spec failure:' so the supervisor can pattern-match it. The full stderr/stdout from the GuardKit result is threaded into the rationale verbatim (truncated at 4 KB to avoid stage_log bloat). Test test_feature_spec_failure_records_feature_spec_rationale verifies both the prefix and the underlying error text are present."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Unit tests cover all four stages with mocked subprocess engine",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestStageCommandMapping.test_dispatch_invokes_runner_with_mapped_subcommand is a parametrised test running against all four stages (SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN) with a FakeSubprocessRunner mock. Each parametrisation seeds the upstream approved rows, dispatches the stage, and asserts the runner receives the expected subcommand. Additional class-level tests use the same mocked runner for context/correlation/error paths.",
+      "notes": "TestStageCommandMapping.test_dispatch_invokes_runner_with_mapped_subcommand is a parametrised test running against all four stages (SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN) with a FakeSubprocessRunner mock. Each parametrisation seeds the upstream approved rows, dispatches the stage, and asserts the runner receives the expected subcommand. Additional class-level tests use the same mocked runner for context/correlation/error paths."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Unit test: subprocess hard-stop converted to structured failure",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_subprocess_hard_stop_converts_to_failed_result asserts that a GuardKitResult with status='failed', exit_code=2, and a 'hard_stop' warning produces a StageDispatchResult with status=StageDispatchStatus.FAILED, exit_code=2, and a rationale containing the subcommand and failure detail. The dispatcher does not raise \u2014 the result captures the failure structurally.",
+      "notes": "test_subprocess_hard_stop_converts_to_failed_result asserts that a GuardKitResult with status='failed', exit_code=2, and a 'hard_stop' warning produces a StageDispatchResult with status=StageDispatchStatus.FAILED, exit_code=2, and a rationale containing the subcommand and failure detail. The dispatcher does not raise \u2014 the result captures the failure structurally."
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "Unit test: artefact path outside allowlist refused",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_artefact_path_outside_allowlist_refused seeds a GuardKitResult with status='success' but artefacts=['/etc/passwd'] and a worktree allowlist rooted at /work/build-\u2026. The dispatcher's output-side allowlist check rejects /etc/passwd, removes it from the result's artefact_paths tuple, and forces the status to FAILED with the rejected path named in the rationale. test_partial_allowlist_rejection_surfaces_failed verifies that even one bad path among many forces FAILED while keeping the good paths visible on the result.",
+      "notes": "test_artefact_path_outside_allowlist_refused seeds a GuardKitResult with status='success' but artefacts=['/etc/passwd'] and a worktree allowlist rooted at /work/build-\u2026. The dispatcher's output-side allowlist check rejects /etc/passwd, removes it from the result's artefact_paths tuple, and forces the status to FAILED with the rejected path named in the rationale. test_partial_allowlist_rejection_surfaces_failed verifies that even one bad path among many forces FAILED while keeping the good paths visible on the result."
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Both new files follow PEP 8, use type hints throughout, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants. Imports are alphabetised by group (stdlib, third-party, first-party). Docstrings are PEP 257 / Google-style. Full forge test suite (1295 tests) passes with no regressions or new warnings introduced by these files.",
+      "notes": "Both new files follow PEP 8, use type hints throughout, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants. Imports are alphabetised by group (stdlib, third-party, first-party). Docstrings are PEP 257 / Google-style. Full forge test suite (1295 tests) passes with no regressions or new warnings introduced by these files."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`dispatch_subprocess_stage(stage, build_id, feature_id=None, ...) -> StageDispatchResult`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Function defined at src/forge/pipeline/dispatchers/subprocess.py with signature `async def dispatch_subprocess_stage(stage: StageClass, build_id: str, *, correlation_id, repo_path, read_allowlist, forward_context_builder, worktree_allowlist, stage_log_writer, subprocess_runner, feature_id=None, timeout_seconds=600, with_nats_streaming=True, extra_args=None) -> StageDispatchResult`. Returns frozen dataclass StageDispatchResult capturing all dispatch outcomes.",
+        "notes": "Function defined at src/forge/pipeline/dispatchers/subprocess.py with signature `async def dispatch_subprocess_stage(stage: StageClass, build_id: str, *, correlation_id, repo_path, read_allowlist, forward_context_builder, worktree_allowlist, stage_log_writer, subprocess_runner, feature_id=None, timeout_seconds=600, with_nats_streaming=True, extra_args=None) -> StageDispatchResult`. Returns frozen dataclass StageDispatchResult capturing all dispatch outcomes."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Maps each stage to its GuardKit slash command:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "SUBPROCESS_STAGE_COMMANDS dict in subprocess.py maps the four StageClass members to their subcommand tokens (system-arch/system-design/feature-spec/feature-plan; the leading slash is dropped because guardkit.run invokes the binary as `guardkit <subcommand>`). Tests TestStageCommandMapping verify the mapping covers exactly those four stages with the expected tokens, and a parametrised async test confirms the runner is invoked with each mapped subcommand.",
+        "notes": "SUBPROCESS_STAGE_COMMANDS dict in subprocess.py maps the four StageClass members to their subcommand tokens (system-arch/system-design/feature-spec/feature-plan; the leading slash is dropped because guardkit.run invokes the binary as `guardkit <subcommand>`). Tests TestStageCommandMapping verify the mapping covers exactly those four stages with the expected tokens, and a parametrised async test confirms the runner is invoked with each mapped subcommand."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Calls `ForwardContextBuilder.build_for` and converts the returned",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_build_argv_for_stage() invokes forward_context_builder.build_for(stage, build_id, feature_id) and routes the returned ContextEntry values through _context_entries_to_argv(): text-kind entries become argv flag/value pairs (--context <text>); path-kind entries with --context flag become extra_context_paths threaded through guardkit.run's resolver (so manifest entries merge correctly per ASSUM-005). Tests test_text_context_is_threaded_onto_argv_as_context_flag and test_path_context_is_threaded_via_extra_context_paths verify both branches.",
+        "notes": "_build_argv_for_stage() invokes forward_context_builder.build_for(stage, build_id, feature_id) and routes the returned ContextEntry values through _context_entries_to_argv(): text-kind entries become argv flag/value pairs (--context <text>); path-kind entries with --context flag become extra_context_paths threaded through guardkit.run's resolver (so manifest entries merge correctly per ASSUM-005). Tests test_text_context_is_threaded_onto_argv_as_context_flag and test_path_context_is_threaded_via_extra_context_paths verify both branches."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Delegates to FEAT-FORGE-005's subprocess engine for execution under",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "dispatch_subprocess_stage takes a SubprocessRunner = Callable[..., Awaitable[GuardKitResult]] argument matching forge.adapters.guardkit.run's signature exactly. Production wires guardkit.run directly (no shape adapter); tests inject FakeSubprocessRunner. The runner enforces cwd-inside-allowlist on its own side (per its docstring) \u2014 the dispatcher passes repo_path and read_allowlist through verbatim. Tests assert the runner is called with the expected subcommand/args/repo_path/read_allowlist.",
+        "notes": "dispatch_subprocess_stage takes a SubprocessRunner = Callable[..., Awaitable[GuardKitResult]] argument matching forge.adapters.guardkit.run's signature exactly. Production wires guardkit.run directly (no shape adapter); tests inject FakeSubprocessRunner. The runner enforces cwd-inside-allowlist on its own side (per its docstring) \u2014 the dispatcher passes repo_path and read_allowlist through verbatim. Tests assert the runner is called with the expected subcommand/args/repo_path/read_allowlist."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Records artefact paths returned by the subprocess in `stage_log`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_record_safely() calls StageLogWriter.record_dispatch with artefact_paths and feature_id keyword arguments. Tests test_artefact_paths_recorded_in_stage_log and test_per_feature_artefact_paths_attributed_by_feature_id verify the artefact tuple is recorded and that feature_id=None for non-per-feature stages while feature_id='FEAT-7' is recorded for FEATURE_SPEC dispatches.",
+        "notes": "_record_safely() calls StageLogWriter.record_dispatch with artefact_paths and feature_id keyword arguments. Tests test_artefact_paths_recorded_in_stage_log and test_per_feature_artefact_paths_attributed_by_feature_id verify the artefact tuple is recorded and that feature_id=None for non-per-feature stages while feature_id='FEAT-7' is recorded for FEATURE_SPEC dispatches."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Threads correlation_id through subprocess envelope and any pipeline",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Dispatcher appends ['--correlation-id', correlation_id] to the subprocess argv in _build_argv_for_stage so the GuardKit subcommand receives it on the command line and can echo it onto every pipeline.* event it publishes. correlation_id is also recorded on the stage_log row via record_dispatch's keyword arg. Tests test_correlation_id_appears_on_subprocess_argv and test_correlation_id_recorded_on_stage_log_row verify both threading paths.",
+        "notes": "Dispatcher appends ['--correlation-id', correlation_id] to the subprocess argv in _build_argv_for_stage so the GuardKit subcommand receives it on the command line and can echo it onto every pipeline.* event it publishes. correlation_id is also recorded on the stage_log row via record_dispatch's keyword arg. Tests test_correlation_id_appears_on_subprocess_argv and test_correlation_id_recorded_on_stage_log_row verify both threading paths."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Subprocess hard-stop / non-zero exit is converted to",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Post-runner branch sets status=StageDispatchStatus.FAILED whenever guardkit_result.status != 'success' (covers 'failed' and 'timeout') and builds a structured rationale combining stderr/stdout/warnings from the GuardKitResult. Internal exceptions in the runner are caught and converted to FAILED via the try/except wrapping subprocess_runner; only asyncio.CancelledError is re-raised. Tests test_subprocess_hard_stop_converts_to_failed_result, test_runner_internal_exception_converts_to_failed, test_timeout_status_converts_to_failed_result, and test_cancelled_error_propagates verify all four sub-cases. StageDispatchResult.FAILED resolves correctly via the class-level mirrors.",
+        "notes": "Post-runner branch sets status=StageDispatchStatus.FAILED whenever guardkit_result.status != 'success' (covers 'failed' and 'timeout') and builds a structured rationale combining stderr/stdout/warnings from the GuardKitResult. Internal exceptions in the runner are caught and converted to FAILED via the try/except wrapping subprocess_runner; only asyncio.CancelledError is re-raised. Tests test_subprocess_hard_stop_converts_to_failed_result, test_runner_internal_exception_converts_to_failed, test_timeout_status_converts_to_failed_result, and test_cancelled_error_propagates verify all four sub-cases. StageDispatchResult.FAILED resolves correctly via the class-level mirrors."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "On `/feature-spec` failure, the result rationale records the",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "When stage is StageClass.FEATURE_SPEC and the subprocess returns a non-success status, the rationale is prefixed with 'feature-spec failure:' so the supervisor can pattern-match it. The full stderr/stdout from the GuardKit result is threaded into the rationale verbatim (truncated at 4 KB to avoid stage_log bloat). Test test_feature_spec_failure_records_feature_spec_rationale verifies both the prefix and the underlying error text are present.",
+        "notes": "When stage is StageClass.FEATURE_SPEC and the subprocess returns a non-success status, the rationale is prefixed with 'feature-spec failure:' so the supervisor can pattern-match it. The full stderr/stdout from the GuardKit result is threaded into the rationale verbatim (truncated at 4 KB to avoid stage_log bloat). Test test_feature_spec_failure_records_feature_spec_rationale verifies both the prefix and the underlying error text are present."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Unit tests cover all four stages with mocked subprocess engine",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestStageCommandMapping.test_dispatch_invokes_runner_with_mapped_subcommand is a parametrised test running against all four stages (SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN) with a FakeSubprocessRunner mock. Each parametrisation seeds the upstream approved rows, dispatches the stage, and asserts the runner receives the expected subcommand. Additional class-level tests use the same mocked runner for context/correlation/error paths.",
+        "notes": "TestStageCommandMapping.test_dispatch_invokes_runner_with_mapped_subcommand is a parametrised test running against all four stages (SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN) with a FakeSubprocessRunner mock. Each parametrisation seeds the upstream approved rows, dispatches the stage, and asserts the runner receives the expected subcommand. Additional class-level tests use the same mocked runner for context/correlation/error paths."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "Unit test: subprocess hard-stop converted to structured failure",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_subprocess_hard_stop_converts_to_failed_result asserts that a GuardKitResult with status='failed', exit_code=2, and a 'hard_stop' warning produces a StageDispatchResult with status=StageDispatchStatus.FAILED, exit_code=2, and a rationale containing the subcommand and failure detail. The dispatcher does not raise \u2014 the result captures the failure structurally.",
+        "notes": "test_subprocess_hard_stop_converts_to_failed_result asserts that a GuardKitResult with status='failed', exit_code=2, and a 'hard_stop' warning produces a StageDispatchResult with status=StageDispatchStatus.FAILED, exit_code=2, and a rationale containing the subcommand and failure detail. The dispatcher does not raise \u2014 the result captures the failure structurally."
+      },
+      {
+        "criterion_id": "AC-011",
+        "criterion_text": "Unit test: artefact path outside allowlist refused",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_artefact_path_outside_allowlist_refused seeds a GuardKitResult with status='success' but artefacts=['/etc/passwd'] and a worktree allowlist rooted at /work/build-\u2026. The dispatcher's output-side allowlist check rejects /etc/passwd, removes it from the result's artefact_paths tuple, and forces the status to FAILED with the rejected path named in the rationale. test_partial_allowlist_rejection_surfaces_failed verifies that even one bad path among many forces FAILED while keeping the good paths visible on the result.",
+        "notes": "test_artefact_path_outside_allowlist_refused seeds a GuardKitResult with status='success' but artefacts=['/etc/passwd'] and a worktree allowlist rooted at /work/build-\u2026. The dispatcher's output-side allowlist check rejects /etc/passwd, removes it from the result's artefact_paths tuple, and forces the status to FAILED with the rejected path named in the rationale. test_partial_allowlist_rejection_surfaces_failed verifies that even one bad path among many forces FAILED while keeping the good paths visible on the result."
+      },
+      {
+        "criterion_id": "AC-012",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Both new files follow PEP 8, use type hints throughout, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants. Imports are alphabetised by group (stdlib, third-party, first-party). Docstrings are PEP 257 / Google-style. Full forge test suite (1295 tests) passes with no regressions or new warnings introduced by these files.",
+        "notes": "Both new files follow PEP 8, use type hints throughout, max line length 88, snake_case functions/variables, PascalCase classes, UPPER_CASE constants. Imports are alphabetised by group (stdlib, third-party, first-party). Docstrings are PEP 257 / Google-style. Full forge test suite (1295 tests) passes with no regressions or new warnings introduced by these files."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 285 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1037/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- PRODUCES\n- CALLED_BY\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- OBSERVED_FAILURE symptom_of\n\n### \ud83c\udfad Role Constraints\n- HAS_ROLE_MUST_DO\n- DELEGATE_TO_TASK_WORK\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- IS_INVOCATION_METHOD_FOR\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

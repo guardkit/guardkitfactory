@@ -1,0 +1,117 @@
+{
+  "task_id": "TASK-MAG7-002",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_forward_propagation.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_forward_propagation.py::TestSelfValidationAtImport::test_validator_rejects_recipe_with_wrong_producer PASSED [ 90%]\ntests/forge/test_forward_propagation.py::TestSelfValidationAtImport::test_validator_rejects_orphaned_consumer PASSED [ 93%]\ntests/forge/test_forward_propagation.py::TestImportSideEffects::test_module_imports_no_other_forge_pipeline_submodule PASSED [ 96%]\ntests/forge/test_forward_propagation.py::TestImportSideEffects::test_module_only_imports_stage_taxonomy_from_pipeline_pkg PASSED [100%]\n============================== 32 passed in 0.12s ==============================",
+      "duration_seconds": 0.5883820056915283
+    },
+    "requirements": {
+      "criteria_total": 5,
+      "criteria_met": 5,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge.pipeline.forward_propagation` module exists at",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/pipeline/forward_propagation.py. TestModuleStructure verifies module.__name__ == 'forge.pipeline.forward_propagation' and that the file lives under src/forge/pipeline/. Importable via `from forge.pipeline.forward_propagation import ...`.",
+      "notes": "Created src/forge/pipeline/forward_propagation.py. TestModuleStructure verifies module.__name__ == 'forge.pipeline.forward_propagation' and that the file lives under src/forge/pipeline/. Importable via `from forge.pipeline.forward_propagation import ...`."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Exports `ContextRecipe` Pydantic model with fields:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ContextRecipe(BaseModel) is exported in __all__ with exactly the four required fields. producer_stage is annotated as StageClass; artefact_kind is the documented Literal; context_flag and description are non-empty str (min_length=1). Frozen + extra='forbid'. TestContextRecipeModel covers field set, types, Literal acceptance/rejection, and frozen/min-length validation.",
+      "notes": "ContextRecipe(BaseModel) is exported in __all__ with exactly the four required fields. producer_stage is annotated as StageClass; artefact_kind is the documented Literal; context_flag and description are non-empty str (min_length=1). Frozen + extra='forbid'. TestContextRecipeModel covers field set, types, Literal acceptance/rejection, and frozen/min-length validation."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Exports `PROPAGATION_CONTRACT: dict[StageClass, ContextRecipe]` with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "PROPAGATION_CONTRACT is exported in __all__, typed as dict[StageClass, ContextRecipe], with len == 7 and keys == StageClass members minus PRODUCT_OWNER. TestPropagationContractContents asserts cardinality, key set, value type, and that PRODUCT_OWNER is excluded.",
+      "notes": "PROPAGATION_CONTRACT is exported in __all__, typed as dict[StageClass, ContextRecipe], with len == 7 and keys == StageClass members minus PRODUCT_OWNER. TestPropagationContractContents asserts cardinality, key set, value type, and that PRODUCT_OWNER is excluded."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Module passes a self-validation check at import: every key is reachable",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.ARCHITECT] = ContextRecipe(producer_stage=PRODUCT_OWNER, artefact_kind='text', context_flag='--context', description='product-owner approved charter'). Verified by parametrised test_each_contract_row_matches_task_brief[architect-...].",
+      "notes": "PROPAGATION_CONTRACT[StageClass.ARCHITECT] = ContextRecipe(producer_stage=PRODUCT_OWNER, artefact_kind='text', context_flag='--context', description='product-owner approved charter'). Verified by parametrised test_each_contract_row_matches_task_brief[architect-...]."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "PROPAGATION_CONTRACT[StageClass.SYSTEM_ARCH] = ContextRecipe(producer_stage=ARCHITECT, artefact_kind='text', context_flag='--context', description='architect approved output'). Verified by parametrised test row [system-arch-...].",
+      "notes": "PROPAGATION_CONTRACT[StageClass.SYSTEM_ARCH] = ContextRecipe(producer_stage=ARCHITECT, artefact_kind='text', context_flag='--context', description='architect approved output'). Verified by parametrised test row [system-arch-...]."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`forge.pipeline.forward_propagation` module exists at",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/pipeline/forward_propagation.py. TestModuleStructure verifies module.__name__ == 'forge.pipeline.forward_propagation' and that the file lives under src/forge/pipeline/. Importable via `from forge.pipeline.forward_propagation import ...`.",
+        "notes": "Created src/forge/pipeline/forward_propagation.py. TestModuleStructure verifies module.__name__ == 'forge.pipeline.forward_propagation' and that the file lives under src/forge/pipeline/. Importable via `from forge.pipeline.forward_propagation import ...`."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Exports `ContextRecipe` Pydantic model with fields:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ContextRecipe(BaseModel) is exported in __all__ with exactly the four required fields. producer_stage is annotated as StageClass; artefact_kind is the documented Literal; context_flag and description are non-empty str (min_length=1). Frozen + extra='forbid'. TestContextRecipeModel covers field set, types, Literal acceptance/rejection, and frozen/min-length validation.",
+        "notes": "ContextRecipe(BaseModel) is exported in __all__ with exactly the four required fields. producer_stage is annotated as StageClass; artefact_kind is the documented Literal; context_flag and description are non-empty str (min_length=1). Frozen + extra='forbid'. TestContextRecipeModel covers field set, types, Literal acceptance/rejection, and frozen/min-length validation."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Exports `PROPAGATION_CONTRACT: dict[StageClass, ContextRecipe]` with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "PROPAGATION_CONTRACT is exported in __all__, typed as dict[StageClass, ContextRecipe], with len == 7 and keys == StageClass members minus PRODUCT_OWNER. TestPropagationContractContents asserts cardinality, key set, value type, and that PRODUCT_OWNER is excluded.",
+        "notes": "PROPAGATION_CONTRACT is exported in __all__, typed as dict[StageClass, ContextRecipe], with len == 7 and keys == StageClass members minus PRODUCT_OWNER. TestPropagationContractContents asserts cardinality, key set, value type, and that PRODUCT_OWNER is excluded."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Module passes a self-validation check at import: every key is reachable",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "PROPAGATION_CONTRACT[StageClass.ARCHITECT] = ContextRecipe(producer_stage=PRODUCT_OWNER, artefact_kind='text', context_flag='--context', description='product-owner approved charter'). Verified by parametrised test_each_contract_row_matches_task_brief[architect-...].",
+        "notes": "PROPAGATION_CONTRACT[StageClass.ARCHITECT] = ContextRecipe(producer_stage=PRODUCT_OWNER, artefact_kind='text', context_flag='--context', description='product-owner approved charter'). Verified by parametrised test_each_contract_row_matches_task_brief[architect-...]."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "PROPAGATION_CONTRACT[StageClass.SYSTEM_ARCH] = ContextRecipe(producer_stage=ARCHITECT, artefact_kind='text', context_flag='--context', description='architect approved output'). Verified by parametrised test row [system-arch-...].",
+        "notes": "PROPAGATION_CONTRACT[StageClass.SYSTEM_ARCH] = ContextRecipe(producer_stage=ARCHITECT, artefact_kind='text', context_flag='--context', description='architect approved output'). Verified by parametrised test row [system-arch-...]."
+      }
+    ]
+  },
+  "issues": [],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 266 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 971/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- IS_DEFINED_AS\n- USED_IN_PATTERN\n\n### \u26a0\ufe0f Warnings\n- CREATES\n- REQUIRES_USE_OF\n\n### \ud83c\udfad Role Constraints\n- DELEGATES_TO\n- PROJECT_INVOLVES\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- RESULT_LOCATION_PATTERN\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}
