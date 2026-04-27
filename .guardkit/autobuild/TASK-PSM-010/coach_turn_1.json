@@ -1,0 +1,203 @@
+{
+  "task_id": "TASK-PSM-010",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_cli_history.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_cli_history.py::TestRenderTable::test_render_table_includes_headers PASSED [ 85%]\ntests/forge/test_cli_history.py::TestClickCommand::test_click_command_default_format_table PASSED [ 90%]\ntests/forge/test_cli_history.py::TestClickCommand::test_click_command_json_format PASSED [ 95%]\ntests/forge/test_cli_history.py::TestClickCommand::test_click_command_supported_formats_constant PASSED [100%]\n============================== 21 passed in 0.24s ==============================",
+      "duration_seconds": 0.7647759914398193
+    },
+    "requirements": {
+      "criteria_total": 10,
+      "criteria_met": 10,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge history` returns at most 50 entries by default (Group B",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "run_history() with limit=None resolves the default via _resolve_default_limit(config) \u2192 QueueConfig().default_history_limit (50). Test TestDefaultLimitFiftyEntries::test_default_limit_caps_at_fifty_when_more_present seeds 60 builds and asserts len(rows) == 50.",
+      "notes": "run_history() with limit=None resolves the default via _resolve_default_limit(config) \u2192 QueueConfig().default_history_limit (50). Test TestDefaultLimitFiftyEntries::test_default_limit_caps_at_fifty_when_more_present seeds 60 builds and asserts len(rows) == 50."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`forge history --limit 1` returns at most 1 entry (Group B",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Test TestLimitFlag::test_limit_one_returns_at_most_one seeds 10 builds, calls run_history with limit=1, asserts len(rows) == 1. The limit flows through SqliteLifecyclePersistence.read_history(limit=1) which clamps via max(0, min(limit, MAX_HISTORY_LIMIT)).",
+      "notes": "Test TestLimitFlag::test_limit_one_returns_at_most_one seeds 10 builds, calls run_history with limit=1, asserts len(rows) == 1. The limit flows through SqliteLifecyclePersistence.read_history(limit=1) which clamps via max(0, min(limit, MAX_HISTORY_LIMIT))."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`forge history --limit 50` on 60 prior builds returns 50 (Group B)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Test TestLimitFlag::test_limit_fifty_on_sixty_builds_returns_fifty seeds 60 builds, calls run_history with limit=50, asserts len(rows) == 50. SQLite ORDER BY queued_at DESC LIMIT 50 applied by read_history.",
+      "notes": "Test TestLimitFlag::test_limit_fifty_on_sixty_builds_returns_fifty seeds 60 builds, calls run_history with limit=50, asserts len(rows) == 50. SQLite ORDER BY queued_at DESC LIMIT 50 applied by read_history."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`forge history` on 10 prior builds returns 10 (does not pad)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Test TestDefaultLimitFiftyEntries::test_default_limit_returns_actual_when_fewer_present seeds 10 builds, calls run_history with limit=None, asserts len(rows) == 10. No padding logic exists in run_history \u2014 the SQLite query simply returns whatever rows exist.",
+      "notes": "Test TestDefaultLimitFiftyEntries::test_default_limit_returns_actual_when_fewer_present seeds 10 builds, calls run_history with limit=None, asserts len(rows) == 10. No padding logic exists in run_history \u2014 the SQLite query simply returns whatever rows exist."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`forge history --feature FEAT-XXX` returns all builds for that",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Test TestFeatureFilter::test_feature_filter_returns_only_matching_builds seeds 3 FEAT-A1B2 + 2 FEAT-C3D4 builds, asserts the FEAT-A1B2 query returns exactly the three matching builds. Stage_log expansion verified by test_feature_filter_expands_stage_log_in_md (records a stage, asserts it appears in the md render). fetch_history calls read_stages(build_id) when include_stages=True (md/json formats).",
+      "notes": "Test TestFeatureFilter::test_feature_filter_returns_only_matching_builds seeds 3 FEAT-A1B2 + 2 FEAT-C3D4 builds, asserts the FEAT-A1B2 query returns exactly the three matching builds. Stage_log expansion verified by test_feature_filter_expands_stage_log_in_md (records a stage, asserts it appears in the md render). fetch_history calls read_stages(build_id) when include_stages=True (md/json formats)."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "`forge history --since 2026-04-20` filters by `queued_at >= date`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "parse_since('2026-04-20') promotes bare date to '2026-04-20T00:00:00+00:00' UTC. _filter_since() retains rows where queued_at >= since. Test TestSinceFilter::test_since_filters_older_builds seeds 5 builds on 2026-04-19 + 5 on 2026-04-21, asserts --since 2026-04-20 yields exactly the 5 newer builds. Edge case test_parse_since_bare_date_yields_midnight_utc verifies the promotion.",
+      "notes": "parse_since('2026-04-20') promotes bare date to '2026-04-20T00:00:00+00:00' UTC. _filter_since() retains rows where queued_at >= since. Test TestSinceFilter::test_since_filters_older_builds seeds 5 builds on 2026-04-19 + 5 on 2026-04-21, asserts --since 2026-04-20 yields exactly the 5 newer builds. Edge case test_parse_since_bare_date_yields_midnight_utc verifies the promotion."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "`forge history --format md` emits the markdown structure from",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "render_markdown emits '# Forge history \u2014 <feature>' header, then '## <build_id> \u2014 <STATUS> (Xh YYm)' per build, 'Started:'/'Finished:' lines, optional 'PR:' line, and '### Stages' section with '- HH:MM:SS \u2014 <label> <STATUS> [score=\u2026]' entries. Test TestMarkdownFormat::test_markdown_emits_header_and_per_build_section asserts startswith header, regex-counts per-build headings, and presence of 'Started:', 'Finished:', '### Stages'.",
+      "notes": "render_markdown emits '# Forge history \u2014 <feature>' header, then '## <build_id> \u2014 <STATUS> (Xh YYm)' per build, 'Started:'/'Finished:' lines, optional 'PR:' line, and '### Stages' section with '- HH:MM:SS \u2014 <label> <STATUS> [score=\u2026]' entries. Test TestMarkdownFormat::test_markdown_emits_header_and_per_build_section asserts startswith header, regex-counts per-build headings, and presence of 'Started:', 'Finished:', '### Stages'."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "`forge history --format json` emits a JSON array",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "render_json emits json.dumps(payload, indent=2) where payload is list[dict]. Test TestJsonFormat::test_json_format_emits_array seeds 3 builds, asserts json.loads(rendered) is a list of length 3 with build_id/feature_id/status/queued_at/stage_log keys. Empty case returns '[]' (test_json_format_empty_yields_empty_array).",
+      "notes": "render_json emits json.dumps(payload, indent=2) where payload is list[dict]. Test TestJsonFormat::test_json_format_emits_array seeds 3 builds, asserts json.loads(rendered) is a list of length 3 with build_id/feature_id/status/queued_at/stage_log keys. Empty case returns '[]' (test_json_format_empty_yields_empty_array)."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Import check**: zero NATS imports in `cli/history.py`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestImportDiscipline runs both an AST walk (catching ast.Import and ast.ImportFrom whose module starts with 'forge.adapters.nats') and a regex text scan (defence-in-depth) against the module source. Both assertions pass. Confirmed: src/forge/cli/history.py imports only click, forge.adapters.sqlite, forge.config.models, forge.lifecycle.persistence, plus stdlib.",
+      "notes": "TestImportDiscipline runs both an AST walk (catching ast.Import and ast.ImportFrom whose module starts with 'forge.adapters.nats') and a regex text scan (defence-in-depth) against the module source. Both assertions pass. Confirmed: src/forge/cli/history.py imports only click, forge.adapters.sqlite, forge.config.models, forge.lifecycle.persistence, plus stdlib."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Module respects the project's Black 88-char line length, snake_case functions, PascalCase types, type hints throughout, f-strings, and context managers. ast.parse succeeds (verified by import-discipline test). No black/ruff config beyond pyproject.toml's pytest section was found; the module follows the same style conventions as the surrounding lifecycle/persistence.py and adapters/sqlite/connect.py modules.",
+      "notes": "Module respects the project's Black 88-char line length, snake_case functions, PascalCase types, type hints throughout, f-strings, and context managers. ast.parse succeeds (verified by import-discipline test). No black/ruff config beyond pyproject.toml's pytest section was found; the module follows the same style conventions as the surrounding lifecycle/persistence.py and adapters/sqlite/connect.py modules."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`forge history` returns at most 50 entries by default (Group B",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "run_history() with limit=None resolves the default via _resolve_default_limit(config) \u2192 QueueConfig().default_history_limit (50). Test TestDefaultLimitFiftyEntries::test_default_limit_caps_at_fifty_when_more_present seeds 60 builds and asserts len(rows) == 50.",
+        "notes": "run_history() with limit=None resolves the default via _resolve_default_limit(config) \u2192 QueueConfig().default_history_limit (50). Test TestDefaultLimitFiftyEntries::test_default_limit_caps_at_fifty_when_more_present seeds 60 builds and asserts len(rows) == 50."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`forge history --limit 1` returns at most 1 entry (Group B",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Test TestLimitFlag::test_limit_one_returns_at_most_one seeds 10 builds, calls run_history with limit=1, asserts len(rows) == 1. The limit flows through SqliteLifecyclePersistence.read_history(limit=1) which clamps via max(0, min(limit, MAX_HISTORY_LIMIT)).",
+        "notes": "Test TestLimitFlag::test_limit_one_returns_at_most_one seeds 10 builds, calls run_history with limit=1, asserts len(rows) == 1. The limit flows through SqliteLifecyclePersistence.read_history(limit=1) which clamps via max(0, min(limit, MAX_HISTORY_LIMIT))."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`forge history --limit 50` on 60 prior builds returns 50 (Group B)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Test TestLimitFlag::test_limit_fifty_on_sixty_builds_returns_fifty seeds 60 builds, calls run_history with limit=50, asserts len(rows) == 50. SQLite ORDER BY queued_at DESC LIMIT 50 applied by read_history.",
+        "notes": "Test TestLimitFlag::test_limit_fifty_on_sixty_builds_returns_fifty seeds 60 builds, calls run_history with limit=50, asserts len(rows) == 50. SQLite ORDER BY queued_at DESC LIMIT 50 applied by read_history."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`forge history` on 10 prior builds returns 10 (does not pad)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Test TestDefaultLimitFiftyEntries::test_default_limit_returns_actual_when_fewer_present seeds 10 builds, calls run_history with limit=None, asserts len(rows) == 10. No padding logic exists in run_history \u2014 the SQLite query simply returns whatever rows exist.",
+        "notes": "Test TestDefaultLimitFiftyEntries::test_default_limit_returns_actual_when_fewer_present seeds 10 builds, calls run_history with limit=None, asserts len(rows) == 10. No padding logic exists in run_history \u2014 the SQLite query simply returns whatever rows exist."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "`forge history --feature FEAT-XXX` returns all builds for that",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Test TestFeatureFilter::test_feature_filter_returns_only_matching_builds seeds 3 FEAT-A1B2 + 2 FEAT-C3D4 builds, asserts the FEAT-A1B2 query returns exactly the three matching builds. Stage_log expansion verified by test_feature_filter_expands_stage_log_in_md (records a stage, asserts it appears in the md render). fetch_history calls read_stages(build_id) when include_stages=True (md/json formats).",
+        "notes": "Test TestFeatureFilter::test_feature_filter_returns_only_matching_builds seeds 3 FEAT-A1B2 + 2 FEAT-C3D4 builds, asserts the FEAT-A1B2 query returns exactly the three matching builds. Stage_log expansion verified by test_feature_filter_expands_stage_log_in_md (records a stage, asserts it appears in the md render). fetch_history calls read_stages(build_id) when include_stages=True (md/json formats)."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "`forge history --since 2026-04-20` filters by `queued_at >= date`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "parse_since('2026-04-20') promotes bare date to '2026-04-20T00:00:00+00:00' UTC. _filter_since() retains rows where queued_at >= since. Test TestSinceFilter::test_since_filters_older_builds seeds 5 builds on 2026-04-19 + 5 on 2026-04-21, asserts --since 2026-04-20 yields exactly the 5 newer builds. Edge case test_parse_since_bare_date_yields_midnight_utc verifies the promotion.",
+        "notes": "parse_since('2026-04-20') promotes bare date to '2026-04-20T00:00:00+00:00' UTC. _filter_since() retains rows where queued_at >= since. Test TestSinceFilter::test_since_filters_older_builds seeds 5 builds on 2026-04-19 + 5 on 2026-04-21, asserts --since 2026-04-20 yields exactly the 5 newer builds. Edge case test_parse_since_bare_date_yields_midnight_utc verifies the promotion."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "`forge history --format md` emits the markdown structure from",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "render_markdown emits '# Forge history \u2014 <feature>' header, then '## <build_id> \u2014 <STATUS> (Xh YYm)' per build, 'Started:'/'Finished:' lines, optional 'PR:' line, and '### Stages' section with '- HH:MM:SS \u2014 <label> <STATUS> [score=\u2026]' entries. Test TestMarkdownFormat::test_markdown_emits_header_and_per_build_section asserts startswith header, regex-counts per-build headings, and presence of 'Started:', 'Finished:', '### Stages'.",
+        "notes": "render_markdown emits '# Forge history \u2014 <feature>' header, then '## <build_id> \u2014 <STATUS> (Xh YYm)' per build, 'Started:'/'Finished:' lines, optional 'PR:' line, and '### Stages' section with '- HH:MM:SS \u2014 <label> <STATUS> [score=\u2026]' entries. Test TestMarkdownFormat::test_markdown_emits_header_and_per_build_section asserts startswith header, regex-counts per-build headings, and presence of 'Started:', 'Finished:', '### Stages'."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "`forge history --format json` emits a JSON array",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "render_json emits json.dumps(payload, indent=2) where payload is list[dict]. Test TestJsonFormat::test_json_format_emits_array seeds 3 builds, asserts json.loads(rendered) is a list of length 3 with build_id/feature_id/status/queued_at/stage_log keys. Empty case returns '[]' (test_json_format_empty_yields_empty_array).",
+        "notes": "render_json emits json.dumps(payload, indent=2) where payload is list[dict]. Test TestJsonFormat::test_json_format_emits_array seeds 3 builds, asserts json.loads(rendered) is a list of length 3 with build_id/feature_id/status/queued_at/stage_log keys. Empty case returns '[]' (test_json_format_empty_yields_empty_array)."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Import check**: zero NATS imports in `cli/history.py`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestImportDiscipline runs both an AST walk (catching ast.Import and ast.ImportFrom whose module starts with 'forge.adapters.nats') and a regex text scan (defence-in-depth) against the module source. Both assertions pass. Confirmed: src/forge/cli/history.py imports only click, forge.adapters.sqlite, forge.config.models, forge.lifecycle.persistence, plus stdlib.",
+        "notes": "TestImportDiscipline runs both an AST walk (catching ast.Import and ast.ImportFrom whose module starts with 'forge.adapters.nats') and a regex text scan (defence-in-depth) against the module source. Both assertions pass. Confirmed: src/forge/cli/history.py imports only click, forge.adapters.sqlite, forge.config.models, forge.lifecycle.persistence, plus stdlib."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Module respects the project's Black 88-char line length, snake_case functions, PascalCase types, type hints throughout, f-strings, and context managers. ast.parse succeeds (verified by import-discipline test). No black/ruff config beyond pyproject.toml's pytest section was found; the module follows the same style conventions as the surrounding lifecycle/persistence.py and adapters/sqlite/connect.py modules.",
+        "notes": "Module respects the project's Black 88-char line length, snake_case functions, PascalCase types, type hints throughout, f-strings, and context managers. ast.parse succeeds (verified by import-discipline test). No black/ruff config beyond pyproject.toml's pytest section was found; the module follows the same style conventions as the surrounding lifecycle/persistence.py and adapters/sqlite/connect.py modules."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 376 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1671/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- INSTRUCTS_USER_TO_START\n- USED_IN_CODE_PATTERN\n- ASSIGNS_TASK_TO\n- HAS_METADATA_PROJECT\n\n### \u26a0\ufe0f Warnings\n- HAS_FIX\n- REQUIRES_USE_OF\n- INVOLVES\n\n### \ud83c\udfad Role Constraints\n- PROJECT_INVOLVES\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n- MUST_READ_TASK_WORK_RESULTS\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- WHEN_TO_USE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

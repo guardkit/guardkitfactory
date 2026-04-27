@@ -743,6 +743,185 @@ def execute_seam_recorder(monkeypatch):
     return recorder
 
 
+# ---------------------------------------------------------------------------
+# Pipeline State Machine fixtures (TASK-PSM-013)
+# ---------------------------------------------------------------------------
+#
+# These fixtures activate the R2 BDD oracle for FEAT-FORGE-001 by binding
+# the 34 Gherkin scenarios in
+# ``features/pipeline-state-machine-and-configuration/pipeline-state-machine-and-configuration.feature``
+# to the production lifecycle persistence + state machine + recovery
+# modules. The fixtures provide:
+#
+# * ``sqlite_db`` — a real ``sqlite3.Connection`` on a per-scenario
+#   ``tmp_path`` file with the schema applied via the production
+#   migration runner.
+# * ``persistence`` — a real :class:`SqliteLifecyclePersistence` wired
+#   to the connection above.
+# * ``stub_publisher`` — recorder standing in for
+#   :func:`forge.cli.queue.publish` so no NATS connection is ever
+#   attempted.
+# * ``stub_approval_publisher`` — recorder satisfying the
+#   :class:`forge.lifecycle.recovery.ApprovalRepublisher` Protocol.
+# * ``forge_runner`` — :class:`click.testing.CliRunner` with
+#   ``forge.cli.queue.publish`` and ``forge.cli.queue.make_persistence``
+#   monkey-patched onto the persistence above so a full
+#   ``forge queue`` invocation lands in our SQLite without ever
+#   touching NATS or ``$HOME/.forge``.
+#
+# Cardinal rule: the harness exercises the *real* production code
+# (validate_feature_id, record_pending_build, apply_transition,
+# read_status, read_history, reconcile_on_boot). Only the publishers
+# are stubbed.
+
+
+@dataclass
+class _PsmStubPipelinePublisher:
+    """In-process recorder for :func:`forge.cli.queue.publish`.
+
+    Records every ``(subject, body)`` call so the queue scenarios can
+    assert publish-after-write ordering and the
+    ``messaging-layer-unreachable`` scenario can flip ``raise_on_publish``
+    to simulate a transport failure without touching NATS.
+    """
+
+    calls: list[tuple[str, bytes]] = field(default_factory=list)
+    raise_on_publish: bool = False
+
+    def publish(self, subject: str, body: bytes) -> None:
+        if self.raise_on_publish:
+            from forge.cli.queue import PublishError
+
+            raise PublishError(
+                f"messaging-layer unreachable (test-controlled): {subject}"
+            )
+        self.calls.append((subject, body))
+
+
+@dataclass
+class _PsmStubApprovalPublisher:
+    """Recorder satisfying :class:`forge.lifecycle.recovery.ApprovalRepublisher`.
+
+    Captures the envelope passed into ``publish_request`` so PAUSED-recovery
+    scenarios can assert that the pending approval request was re-issued.
+    """
+
+    envelopes: list[Any] = field(default_factory=list)
+
+    async def publish_request(self, envelope: Any) -> None:
+        self.envelopes.append(envelope)
+
+
+@dataclass
+class _PsmStubFailurePublisher:
+    """Recorder satisfying :class:`forge.lifecycle.recovery.PipelineFailurePublisher`.
+
+    Captures the ``BuildFailedPayload`` instances emitted on PREPARING
+    crash recovery.
+    """
+
+    payloads: list[Any] = field(default_factory=list)
+
+    async def publish_build_failed(self, payload: Any) -> None:
+        self.payloads.append(payload)
+
+
+@pytest.fixture
+def sqlite_db(tmp_path):
+    """Real SQLite connection on a per-scenario file with schema applied.
+
+    Returned as a ``(connection, db_path)`` tuple so step functions can
+    open extra reader connections directly against the same file (the
+    Group F concurrency scenarios rely on this). The connection is closed
+    on teardown to release the WAL files cleanly.
+    """
+    from forge.adapters.sqlite.connect import connect_writer
+    from forge.lifecycle.migrations import apply_at_boot
+
+    db_path = tmp_path / "forge.db"
+    cx = connect_writer(db_path)
+    apply_at_boot(cx)
+    try:
+        yield cx, db_path
+    finally:
+        try:
+            cx.close()
+        except Exception:  # pragma: no cover - close-on-teardown best-effort
+            pass
+
+
+@pytest.fixture
+def persistence(sqlite_db):
+    """Real :class:`SqliteLifecyclePersistence` over the per-scenario DB."""
+    from forge.lifecycle.persistence import SqliteLifecyclePersistence
+
+    cx, db_path = sqlite_db
+    return SqliteLifecyclePersistence(connection=cx, db_path=db_path)
+
+
+@pytest.fixture
+def stub_publisher() -> _PsmStubPipelinePublisher:
+    """Pipeline-publish recorder that never opens a NATS connection."""
+    return _PsmStubPipelinePublisher()
+
+
+@pytest.fixture
+def stub_approval_publisher() -> _PsmStubApprovalPublisher:
+    """Approval-republish recorder used by the PAUSED-recovery scenarios."""
+    return _PsmStubApprovalPublisher()
+
+
+@pytest.fixture
+def stub_failure_publisher() -> _PsmStubFailurePublisher:
+    """Pipeline-failure publish recorder used by PREPARING-recovery."""
+    return _PsmStubFailurePublisher()
+
+
+@pytest.fixture
+def forge_config(tmp_path):
+    """Minimal :class:`ForgeConfig` for the queue scenarios.
+
+    A permissive ``permissions`` block (the field is required) plus an
+    empty ``repo_allowlist`` so most scenarios can queue against
+    ``tmp_path`` without an explicit allowlist entry. Scenarios that
+    need the allowlist either re-create the config locally or mutate
+    ``forge_config.queue.repo_allowlist`` after fixture resolution.
+    """
+    from forge.config.models import (
+        FilesystemPermissions,
+        ForgeConfig,
+        PermissionsConfig,
+        QueueConfig,
+    )
+
+    return ForgeConfig(
+        queue=QueueConfig(),
+        permissions=PermissionsConfig(
+            filesystem=FilesystemPermissions(allowlist=[tmp_path])
+        ),
+    )
+
+
+@pytest.fixture
+def forge_runner(monkeypatch, persistence, stub_publisher):
+    """Click :class:`CliRunner` wired against the in-memory persistence.
+
+    Patches :func:`forge.cli.queue.make_persistence` to return our
+    fixture-controlled persistence and :func:`forge.cli.queue.publish` to
+    route through :class:`_PsmStubPipelinePublisher`. The patches survive
+    the scenario via ``monkeypatch`` teardown — no global state leaks.
+    """
+    from click.testing import CliRunner
+
+    from forge.cli import queue as _queue_module
+
+    monkeypatch.setattr(
+        _queue_module, "make_persistence", lambda _config: persistence
+    )
+    monkeypatch.setattr(_queue_module, "publish", stub_publisher.publish)
+    return CliRunner()
+
+
 __all__ = [
     "AGENT_ID",
     "DeterministicReasoningModel",

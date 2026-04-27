@@ -1,0 +1,223 @@
+{
+  "task_id": "TASK-PSM-009",
+  "timestamp": "2026-04-27T13:56:30.536788",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 19,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".claude/task-plans/TASK-PSM-007-implementation-plan.md",
+    ".claude/task-plans/TASK-PSM-008-implementation-plan.md",
+    ".claude/task-plans/TASK-PSM-009-implementation-plan.md",
+    ".guardkit/autobuild/TASK-PSM-005/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-006/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-006/coach_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-006/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-006/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-006/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-006/turn_state_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-007/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-008/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-009/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-010/coach_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-010/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-010/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-010/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-010/turn_state_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-011/turn_context.json",
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/src/forge/cli/__init__.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/forge/test_cli_status.py",
+    "src/forge/cli/__init__.py",
+    "src/forge/cli/history.py",
+    "src/forge/cli/main.py",
+    "src/forge/cli/status.py",
+    "src/forge/lifecycle/persistence.py",
+    "src/forge/lifecycle/queue.py",
+    "src/forge/lifecycle/recovery.py",
+    "src/forge/pipeline/cli_steering.py",
+    "tasks/design_approved/TASK-PSM-007-crash-recovery-reconciliation.md",
+    "tasks/design_approved/TASK-PSM-008-cli-scaffold-and-forge-queue.md",
+    "tasks/design_approved/TASK-PSM-009-forge-status-command.md",
+    "tests/forge/test_cli_history.py",
+    "tests/forge/test_cli_main.py",
+    "tests/forge/test_cli_status.py",
+    "tests/forge/test_lifecycle_queue.py",
+    "tests/forge/test_lifecycle_recovery.py"
+  ],
+  "files_created": [
+    ".guardkit/autobuild/TASK-PSM-007/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-PSM-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-007/specialist_results.json",
+    ".guardkit/autobuild/TASK-PSM-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-009/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-009/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-010/checkpoints.json",
+    ".guardkit/bdd/TASK-PSM-007_junit.xml",
+    ".guardkit/bdd/TASK-PSM-009_junit.xml",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/.guardkit/autobuild/TASK-PSM-009/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/src/forge/cli/status.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/forge/test_cli_status.py",
+    "src/forge/cli/cancel.py",
+    "src/forge/cli/runtime.py",
+    "src/forge/cli/skip.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/forge/test_cli_status.py"
+  ],
+  "summary": "19 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 74,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge status` (no args) shows active builds + 5 most recent terminal, formatted with `rich.table`",
+      "status": "complete",
+      "evidence": "src/forge/cli/status.py defines _query_status_views() which returns active builds (per ACTIVE_STATES) plus the most recent _RECENT_TERMINAL_LIMIT (=5) terminal builds, sorted globally newest-first by queued_at. The default Click branch in status_cmd renders the result via _build_table() (rich.table.Table). Verified by TestDefaultView::test_default_view_includes_active_and_terminal (asserts len == 2 active + 5 terminal, sorted DESC) and TestDefaultView::test_default_view_renders_table.",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`forge status FEAT-XXX` filters to that feature only",
+      "status": "complete",
+      "evidence": "_query_status_views() takes a `feature_id` argument; when provided it executes a single SELECT WHERE feature_id = ? ORDER BY queued_at DESC, returning all builds for that feature. status_cmd accepts `feature_id` as a positional Click argument and passes it through. Verified by TestFeatureFilter::test_feature_filter_returns_only_matching and TestFeatureFilter::test_feature_filter_via_cli (asserts FEAT-Q present, FEAT-Z absent).",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`forge status --watch` polls every 2s, re-renders, exits on terminal",
+      "status": "complete",
+      "evidence": "_WATCH_INTERVAL_SECS == 2.0 and _watch_loop() uses rich.live.Live to re-render in place, calling time.sleep(_WATCH_INTERVAL_SECS) between polls. The loop exits as soon as _all_terminal(views) becomes True (or immediately if the first read is already all-terminal \u2014 no flicker). Verified by TestWatchMode::test_watch_interval_is_two_seconds, test_all_terminal_helper_*, and test_watch_mode_exits_when_only_terminal (the latter actually invokes status_cmd --watch against a terminal-only db and asserts exit_code == 0 without hanging).",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`forge status --full` includes the last 5 stage_log entries per build (Group B 'Full status view caps stage detail at 5')",
+      "status": "complete",
+      "evidence": "_FULL_STAGE_LIMIT == 5. _query_recent_stages() runs a subquery that ORDER BY started_at DESC LIMIT _FULL_STAGE_LIMIT then re-orders ASC for chronological rendering. _read_full_payload() pairs each BuildStatusView with its stage tail. Verified by TestFullView::test_full_view_caps_stage_detail_at_five (seeds 8 stages, asserts only the last 5 appear with labels stage-03..stage-07) and test_full_view_with_fewer_than_five_stages (handles short-tail correctly).",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`forge status --json` emits a JSON array; each row matches the `BuildStatusView` Pydantic shape from `forge.lifecycle.persistence`",
+      "status": "complete",
+      "evidence": "_emit_json() serialises views via BuildStatusView.model_dump_json() and writes a JSON array to stdout (json.dumps with indent=2). With --full, each row is augmented with a 'stages' list of StageLogEntry.model_dump_json() rows. Verified by TestJsonOutput::test_json_output_is_array_of_status_views which round-trips each emitted row through BuildStatusView.model_validate(row) \u2014 the test would fail if the schema diverged. Empty-db case asserted to emit []. --watch + --json combination is rejected with click.UsageError (avoids ambiguous streaming JSON).",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Import check (Coach must verify): `cli/status.py` imports zero modules from `forge.adapters.nats.*` \u2014 verifiable via static analysis: `grep -r 'from forge.adapters.nats' src/forge/cli/status.py` returns no matches",
+      "status": "complete",
+      "evidence": "src/forge/cli/status.py imports only: stdlib (json/logging/os/sqlite3/time/datetime/pathlib/typing), click, rich.console/live/table, forge.adapters.sqlite.connect.read_only_connect, forge.lifecycle.persistence (ACTIVE_STATES, BuildStatusView, StageLogEntry), forge.lifecycle.state_machine.BuildState. No forge.adapters.nats reference anywhere. Verified by TestNoNatsImports::test_no_nats_imports_in_source (regex against the source text) and test_no_nats_in_module_imports_at_runtime (walks module __dict__ and asserts no value's __module__ starts with 'forge.adapters.nats'). Confirmed manually: `grep 'from forge.adapters.nats' src/forge/cli/status.py` returns no matches (exit 1).",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "BDD scenario: NATS unreachable + `forge status` succeeds (Group H)",
+      "status": "complete",
+      "evidence": "TestNatsUnreachable::test_status_works_without_nats_module_imported installs a sys.meta_path finder that raises ImportError for any 'forge.adapters.nats.*' import, then re-imports forge.cli.status and runs status_cmd via CliRunner against a seeded db. Asserts exit_code == 0 and that the seeded FEAT-NATS-DOWN row appears in output. This validates the Group H scenario 'subsequent status queries should still work without the messaging layer' \u2014 the CLI surface is functional with the NATS module entirely unreachable.",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "BDD scenario: status query during active write returns within reasonable bound (Group A 'Status responsive while writer active')",
+      "status": "complete",
+      "evidence": "TestStatusResponsiveWhileWriterActive::test_read_status_returns_within_reasonable_bound holds a writer connection inside a BEGIN IMMEDIATE transaction and calls _read_status_views() (which opens a fresh read_only_connect). Asserts the read returns the seeded row in under 2.0s \u2014 well under the busy-timeout default. Demonstrates that the CLI's per-poll ro connection does not contend with active writers (DDR-003 + WAL-mode pragmas).",
+      "test_file": "tests/forge/test_cli_status.py",
+      "implementation_files": [
+        "src/forge/cli/status.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran `ruff check src/forge/cli/status.py tests/forge/test_cli_status.py` \u2014 'All checks passed!'. Ran `black --check --target-version py311 src/forge/cli/status.py tests/forge/test_cli_status.py` \u2014 'All done! 2 files would be left unchanged.' Both files conform to the project's 88-char Black + Ruff configuration.",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/cli/status.py",
+        "tests/forge/test_cli_status.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 50.41395597401424
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 215.67504247199395
+    }
+  ]
+}

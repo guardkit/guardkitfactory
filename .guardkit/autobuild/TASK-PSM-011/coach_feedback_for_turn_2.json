@@ -1,0 +1,9 @@
+{
+  "turn": 2,
+  "feedback_from_turn": 1,
+  "feedback_summary": "- Quality gates reported as passed but no tests were executed (tests_passed=0, coverage=null). Player may not have run tests.",
+  "must_fix": [],
+  "should_fix": [],
+  "validation_results": {},
+  "raw_feedback": "- Quality gates reported as passed but no tests were executed (tests_passed=0, coverage=null). Player may not have run tests."
+}

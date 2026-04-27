@@ -201,6 +201,15 @@ class TestYamlRoundTrip:
                 "default_wait_seconds": 300,
                 "max_wait_seconds": 3600,
             },
+            # ``queue`` was added by TASK-PSM-003 — the round-trip dump now
+            # always includes it, so the canonical input dict must declare it
+            # explicitly to keep this test asserting full-fidelity round-trip.
+            "queue": {
+                "default_max_turns": 5,
+                "default_sdk_timeout_seconds": 1800,
+                "default_history_limit": 50,
+                "repo_allowlist": [],
+            },
             "permissions": {
                 "filesystem": {
                     "allowlist": ["/srv/forge", "/var/data"],

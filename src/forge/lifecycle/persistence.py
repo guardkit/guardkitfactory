@@ -1,0 +1,1474 @@
+"""Concrete SQLite-backed lifecycle persistence layer (TASK-PSM-005).
+
+This module is the **producer side** of the FEAT-FORGE-001
+``PERSISTENCE_PROTOCOLS`` integration contract — every Sqlite* class
+declared here implements one of the runtime-checkable Protocols already
+defined in :mod:`forge.pipeline.cli_steering`, so the CLI steering
+handler can be wired against in-memory fakes in tests and against these
+Sqlite-backed concrete implementations in production.
+
+It also enforces concern **sc_001** (state-mutation exclusivity) at the
+implementation level: :func:`SqliteLifecyclePersistence.apply_transition`
+is the *only* public function in the entire ``src/forge`` tree that
+issues ``UPDATE builds SET status = ?``. Every other write that needs
+to change ``builds.status`` composes a :class:`~forge.lifecycle.state_machine.Transition`
+via :func:`forge.lifecycle.state_machine.transition` and routes it
+through ``apply_transition``.
+
+Design rules baked into this module:
+
+* **Single SQL writer** of ``builds.status`` — :func:`apply_transition`.
+* **BEGIN IMMEDIATE** for every write — avoids busy-retry contention
+  under concurrent CLI / agent-runtime activity (review finding F7).
+* **read-only connections for reads** — every read path opens a fresh
+  ``read_only_connect()`` against the writer's database file so the CLI
+  side cannot accidentally hold a write lock while listing status.
+* **Strict typing at the boundary** — ``apply_transition`` accepts only
+  :class:`Transition` value objects. Raw ``status=`` kwargs are refused
+  by signature.
+* **Domain-shaped errors** — ``IntegrityError`` on the unique
+  ``(feature_id, correlation_id)`` index is translated to
+  :class:`DuplicateBuildError` rather than leaking ``sqlite3.IntegrityError``
+  to callers.
+
+References:
+    - TASK-PSM-005 — this task brief.
+    - TASK-PSM-002 — schema + connection helpers (consumed via
+      ``SCHEMA_INITIALIZED`` integration contract).
+    - TASK-PSM-004 — ``Transition`` value object + ``transition()``
+      composer (consumed via ``STATE_TRANSITION_API`` integration
+      contract).
+    - TASK-PSM-007 — consumer of ``pending_approval_request_id`` for
+      PAUSED-recovery idempotency.
+    - ``forge/pipeline/cli_steering.py`` — Protocol seams this module
+      satisfies.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import sqlite3
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any, Callable, Final, Iterator
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from forge.adapters.sqlite.connect import read_only_connect
+from forge.lifecycle.identifiers import derive_build_id
+from forge.lifecycle.state_machine import (
+    BuildState,
+    Transition,
+    transition as compose_transition,
+)
+from forge.pipeline.cli_steering import BuildLifecycle, BuildSnapshot
+from forge.pipeline.stage_taxonomy import StageClass
+
+logger = logging.getLogger(__name__)
+
+
+__all__ = [
+    "ACTIVE_STATES",
+    "MAX_HISTORY_LIMIT",
+    "AsyncTaskCanceller",
+    "AsyncTaskUpdater",
+    "Build",
+    "BuildRow",
+    "BuildStatusView",
+    "DuplicateBuildError",
+    "SqliteBuildCanceller",
+    "SqliteBuildResumer",
+    "SqliteBuildSnapshotReader",
+    "SqliteLifecyclePersistence",
+    "SqlitePauseRejectResolver",
+    "SqliteStageLogReader",
+    "SqliteStageSkipRecorder",
+    "StageLogEntry",
+]
+
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+#: Active (non-terminal, non-INTERRUPTED) lifecycle states. Any build whose
+#: status is in this set blocks a new ``record_pending_build`` for the same
+#: feature (Group C "active in-flight duplicate" check) and shows up at the
+#: top of ``forge status`` (per ``API-cli.md §4.2``).
+ACTIVE_STATES: Final[frozenset[BuildState]] = frozenset(
+    {
+        BuildState.QUEUED,
+        BuildState.PREPARING,
+        BuildState.RUNNING,
+        BuildState.PAUSED,
+        BuildState.FINALISING,
+    }
+)
+
+#: Hard cap on ``read_history(limit=...)`` to prevent unbounded queries
+#: from a misbehaving CLI invocation.
+MAX_HISTORY_LIMIT: Final[int] = 1000
+
+#: Number of recent terminal builds appended to ``read_status`` output.
+_RECENT_TERMINAL_LIMIT: Final[int] = 5
+
+
+# ---------------------------------------------------------------------------
+# Domain errors
+# ---------------------------------------------------------------------------
+
+
+class DuplicateBuildError(RuntimeError):
+    """Raised by :func:`record_pending_build` for a duplicate build row.
+
+    Signals that a build with the same ``(feature_id, correlation_id)``
+    already exists. Group B "duplicate refused" — surfaces an
+    ``IntegrityError`` on the unique index as a domain-level error so
+    the CLI / NATS consumer can issue a structured response without
+    importing :mod:`sqlite3`.
+    """
+
+    def __init__(self, feature_id: str, correlation_id: str) -> None:
+        super().__init__(
+            f"duplicate build for feature_id={feature_id!r}, "
+            f"correlation_id={correlation_id!r}"
+        )
+        self.feature_id = feature_id
+        self.correlation_id = correlation_id
+
+
+# ---------------------------------------------------------------------------
+# Value types
+# ---------------------------------------------------------------------------
+
+
+class StageLogEntry(BaseModel):
+    """One row in the ``stage_log`` table.
+
+    Frozen Pydantic model so callers can compare entries by value and
+    pass them across thread boundaries without defensive copies.
+
+    Attributes mirror the ``stage_log`` schema (TASK-PSM-002 §2.2)
+    one-for-one. ``details`` is a Python ``dict`` here for ergonomics —
+    the persistence layer JSON-encodes it on write and decodes on read.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    build_id: str = Field(min_length=1)
+    stage_label: str = Field(min_length=1)
+    target_kind: str
+    target_identifier: str
+    status: str
+    gate_mode: str | None = None
+    coach_score: float | None = None
+    threshold_applied: float | None = None
+    started_at: datetime
+    completed_at: datetime
+    duration_secs: float
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class BuildRow(BaseModel):
+    """One row from the ``builds`` table.
+
+    The full row form, used by :meth:`SqliteLifecyclePersistence.read_history`
+    and by the recovery pass.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    build_id: str
+    feature_id: str
+    repo: str
+    branch: str
+    feature_yaml_path: str
+    project: str | None = None
+    status: BuildState
+    triggered_by: str
+    originating_adapter: str | None = None
+    originating_user: str | None = None
+    correlation_id: str
+    parent_request_id: str | None = None
+    queued_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    worktree_path: str | None = None
+    pr_url: str | None = None
+    error: str | None = None
+    max_turns: int = 5
+    sdk_timeout_seconds: int = 1800
+    pending_approval_request_id: str | None = None
+
+
+class BuildStatusView(BaseModel):
+    """Narrow projection used by ``forge status``.
+
+    Carries only the columns the CLI status table renders so we don't
+    waste bandwidth marshalling the full :class:`BuildRow` for every
+    build.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    build_id: str
+    feature_id: str
+    status: BuildState
+    queued_at: datetime
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    pr_url: str | None = None
+    error: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class Build:
+    """Minimal build value object compatible with :func:`state_machine.transition`.
+
+    The state machine only reads ``status`` and ``build_id`` off its
+    ``build`` argument (TASK-PSM-004); this dataclass exposes exactly
+    those two fields so we can compose a :class:`Transition` for an
+    existing row without needing the TASK-PSM-003 ``Build`` Pydantic
+    model.
+    """
+
+    build_id: str
+    status: BuildState
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _row_to_build_row(row: sqlite3.Row | tuple[Any, ...]) -> BuildRow:
+    """Hydrate a ``builds`` row into :class:`BuildRow`."""
+    if isinstance(row, sqlite3.Row):
+        data = {key: row[key] for key in row.keys()}
+    else:
+        # Defensive: the row factory might not be ``sqlite3.Row`` in
+        # exotic test wirings. We expect the exact column ordering of
+        # ``SELECT *`` against the schema in ``schema.sql``.
+        keys = (
+            "build_id",
+            "feature_id",
+            "repo",
+            "branch",
+            "feature_yaml_path",
+            "project",
+            "status",
+            "triggered_by",
+            "originating_adapter",
+            "originating_user",
+            "correlation_id",
+            "parent_request_id",
+            "queued_at",
+            "started_at",
+            "completed_at",
+            "worktree_path",
+            "pr_url",
+            "error",
+            "max_turns",
+            "sdk_timeout_seconds",
+            "pending_approval_request_id",
+        )
+        data = dict(zip(keys, row, strict=False))
+
+    return BuildRow(
+        build_id=data["build_id"],
+        feature_id=data["feature_id"],
+        repo=data["repo"],
+        branch=data["branch"],
+        feature_yaml_path=data["feature_yaml_path"],
+        project=data.get("project"),
+        status=BuildState(data["status"]),
+        triggered_by=data["triggered_by"],
+        originating_adapter=data.get("originating_adapter"),
+        originating_user=data.get("originating_user"),
+        correlation_id=data["correlation_id"],
+        parent_request_id=data.get("parent_request_id"),
+        queued_at=datetime.fromisoformat(data["queued_at"]),
+        started_at=(
+            datetime.fromisoformat(data["started_at"])
+            if data.get("started_at")
+            else None
+        ),
+        completed_at=(
+            datetime.fromisoformat(data["completed_at"])
+            if data.get("completed_at")
+            else None
+        ),
+        worktree_path=data.get("worktree_path"),
+        pr_url=data.get("pr_url"),
+        error=data.get("error"),
+        max_turns=int(data.get("max_turns") or 5),
+        sdk_timeout_seconds=int(data.get("sdk_timeout_seconds") or 1800),
+        pending_approval_request_id=data.get("pending_approval_request_id"),
+    )
+
+
+def _row_to_status_view(row: sqlite3.Row) -> BuildStatusView:
+    """Hydrate a narrow status-projection row into :class:`BuildStatusView`."""
+    return BuildStatusView(
+        build_id=row["build_id"],
+        feature_id=row["feature_id"],
+        status=BuildState(row["status"]),
+        queued_at=datetime.fromisoformat(row["queued_at"]),
+        started_at=(
+            datetime.fromisoformat(row["started_at"])
+            if row["started_at"]
+            else None
+        ),
+        completed_at=(
+            datetime.fromisoformat(row["completed_at"])
+            if row["completed_at"]
+            else None
+        ),
+        pr_url=row["pr_url"],
+        error=row["error"],
+    )
+
+
+def _row_to_stage_entry(row: sqlite3.Row) -> StageLogEntry:
+    """Hydrate a ``stage_log`` row into :class:`StageLogEntry`."""
+    raw_details = row["details_json"]
+    try:
+        details = json.loads(raw_details) if raw_details else {}
+    except json.JSONDecodeError:
+        # Malformed legacy rows are surfaced as empty details; callers
+        # that need to see the raw bytes can read the table directly.
+        logger.warning(
+            "stage_log row for build_id=%r has malformed details_json; "
+            "returning empty dict",
+            row["build_id"],
+        )
+        details = {}
+
+    return StageLogEntry(
+        build_id=row["build_id"],
+        stage_label=row["stage_label"],
+        target_kind=row["target_kind"],
+        target_identifier=row["target_identifier"],
+        status=row["status"],
+        gate_mode=row["gate_mode"],
+        coach_score=row["coach_score"],
+        threshold_applied=row["threshold_applied"],
+        started_at=datetime.fromisoformat(row["started_at"]),
+        completed_at=datetime.fromisoformat(row["completed_at"]),
+        duration_secs=row["duration_secs"],
+        details=details,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main facade
+# ---------------------------------------------------------------------------
+
+
+class SqliteLifecyclePersistence:
+    """Concrete SQLite-backed lifecycle persistence.
+
+    Holds a writer connection (the long-lived agent-runtime connection
+    from :func:`forge.adapters.sqlite.connect.connect_writer`) and a
+    derived ``db_path`` so reads can open fresh ``read_only_connect``
+    handles (per ADR-ARCH-013 — CLI never writes).
+
+    The class is the *facade* for every lifecycle write and read. The
+    seven ``Sqlite*`` Protocol-implementing classes elsewhere in this
+    module compose this facade rather than duplicating SQL.
+
+    Args:
+        connection: Writer connection produced by
+            :func:`forge.adapters.sqlite.connect.connect_writer`. The
+            persistence layer treats this connection as autocommit
+            (``isolation_level=None``) and manages transactions via
+            explicit ``BEGIN IMMEDIATE`` / ``COMMIT`` statements.
+        db_path: Filesystem path to the database file. Optional; when
+            omitted, derived from ``PRAGMA database_list`` on the
+            writer connection. For in-memory databases the path is
+            empty and reads fall back to the writer connection (tests
+            only — production always has a real file).
+    """
+
+    def __init__(
+        self,
+        *,
+        connection: sqlite3.Connection,
+        db_path: Path | None = None,
+    ) -> None:
+        self._cx = connection
+        # ``sqlite3.Row`` factory is needed by the read-side projections.
+        if connection.row_factory is None:
+            connection.row_factory = sqlite3.Row
+        if db_path is None:
+            db_path = self._derive_db_path(connection)
+        self._db_path = db_path
+
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        """Return the underlying writer connection (for tests / diagnostics)."""
+        return self._cx
+
+    @property
+    def db_path(self) -> Path | None:
+        """Return the database path used to open read-only connections."""
+        return self._db_path
+
+    # ------------------------------------------------------------------
+    # Reader helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _derive_db_path(connection: sqlite3.Connection) -> Path | None:
+        """Return the database file path from ``PRAGMA database_list``.
+
+        Returns ``None`` for in-memory connections (file column is the
+        empty string in that case).
+        """
+        try:
+            row = connection.execute("PRAGMA database_list;").fetchone()
+        except sqlite3.Error:
+            return None
+        if not row:
+            return None
+        # PRAGMA database_list rows: (seq, name, file).
+        try:
+            file_path = row[2] if len(row) >= 3 else None
+        except (IndexError, TypeError):
+            return None
+        if not file_path:
+            return None
+        return Path(file_path)
+
+    @contextmanager
+    def _reader(self) -> Iterator[sqlite3.Connection]:
+        """Open a read-only connection (or fall back to the writer).
+
+        AC-010: ``All read paths use ``read_only_connect()``. We open a
+        fresh ro handle per call so concurrent CLI invocations do not
+        contend with the writer's lock. For in-memory test databases
+        (path is ``None``) we transparently fall back to the writer
+        connection because in-memory SQLite is per-connection.
+        """
+        if self._db_path is None or str(self._db_path) in ("", ":memory:"):
+            # In-memory or unresolvable path: reuse the writer connection.
+            yield self._cx
+            return
+
+        cx = read_only_connect(self._db_path)
+        cx.row_factory = sqlite3.Row
+        try:
+            yield cx
+        finally:
+            cx.close()
+
+    # ------------------------------------------------------------------
+    # Write API — apply_transition: SOLE writer of ``builds.status``
+    # ------------------------------------------------------------------
+
+    def apply_transition(self, transition: Transition) -> None:
+        """Persist a :class:`Transition` against the ``builds`` row.
+
+        This is the **sole** function in the entire ``src/forge`` tree
+        that issues ``UPDATE builds SET status = ?`` (concern sc_001 /
+        AC-002). Every other state-changing write composes a
+        :class:`Transition` via
+        :func:`forge.lifecycle.state_machine.transition` and routes it
+        through this method.
+
+        The signature accepts a single positional/keyword argument named
+        ``transition`` whose annotation is :class:`Transition`. Raw
+        ``status=`` kwargs are refused by signature (AC-003).
+
+        Field semantics:
+
+        * ``started_at`` is populated from ``occurred_at`` when the
+          target state is ``PREPARING`` or ``RUNNING`` and the existing
+          column is ``NULL`` (idempotent — a re-entry from
+          ``INTERRUPTED`` does not overwrite the original start time).
+        * ``completed_at`` is populated from ``transition.completed_at``
+          when the target state is terminal (the state machine guarantees
+          it is non-``None`` for terminal targets — Group G data
+          integrity invariant).
+        * ``error`` and ``pr_url`` are written verbatim when present.
+        * ``pending_approval_request_id`` is set verbatim — when the
+          target is ``PAUSED`` it carries the request id (F4 / AC-004);
+          when the target is anything else it is cleared (the
+          :class:`Transition` default is ``None``).
+
+        The whole UPDATE happens inside a ``BEGIN IMMEDIATE`` block
+        (AC-009). The optimistic-concurrency check on the
+        ``WHERE status = ?`` predicate guards against another writer
+        having transitioned the row in between the caller composing the
+        Transition and this UPDATE — a 0-row update raises a
+        :class:`RuntimeError`.
+
+        Args:
+            transition: The :class:`Transition` value object produced by
+                :func:`forge.lifecycle.state_machine.transition`.
+
+        Raises:
+            TypeError: If ``transition`` is not a :class:`Transition`.
+            RuntimeError: If the optimistic-concurrency UPDATE matches
+                zero rows (the build's state changed underneath us, or
+                the row does not exist).
+            sqlite3.Error: For any other database error. The transaction
+                is rolled back so the row is not partially updated.
+        """
+        if not isinstance(transition, Transition):
+            raise TypeError(
+                "apply_transition requires a Transition value object; got "
+                f"{type(transition).__name__}"
+            )
+
+        # Decide whether this transition writes started_at. We use the
+        # SQL ``COALESCE(started_at, ?)`` so an existing started_at is
+        # never overwritten — a replay from INTERRUPTED preserves the
+        # original wall-clock start.
+        writes_started_at = transition.to_state in (
+            BuildState.PREPARING,
+            BuildState.RUNNING,
+        )
+        started_at_value = (
+            transition.occurred_at.isoformat() if writes_started_at else None
+        )
+        completed_at_value = (
+            transition.completed_at.isoformat()
+            if transition.completed_at is not None
+            else None
+        )
+
+        try:
+            self._cx.execute("BEGIN IMMEDIATE;")
+            cursor = self._cx.execute(
+                """
+                UPDATE builds
+                   SET status = ?,
+                       started_at = COALESCE(started_at, ?),
+                       completed_at = COALESCE(?, completed_at),
+                       error = COALESCE(?, error),
+                       pr_url = COALESCE(?, pr_url),
+                       pending_approval_request_id = ?
+                 WHERE build_id = ?
+                   AND status = ?
+                """,
+                (
+                    transition.to_state.value,
+                    started_at_value,
+                    completed_at_value,
+                    transition.error,
+                    transition.pr_url,
+                    transition.pending_approval_request_id,
+                    transition.build_id,
+                    transition.from_state.value,
+                ),
+            )
+            if cursor.rowcount == 0:
+                self._cx.execute("ROLLBACK;")
+                raise RuntimeError(
+                    "apply_transition: optimistic concurrency check failed "
+                    f"for build_id={transition.build_id!r} "
+                    f"({transition.from_state.value} -> "
+                    f"{transition.to_state.value}); the row's state may "
+                    "have changed underneath us, or the row does not exist"
+                )
+            self._cx.execute("COMMIT;")
+        except sqlite3.Error:
+            try:
+                self._cx.execute("ROLLBACK;")
+            except sqlite3.Error:  # pragma: no cover - rollback failure is rare
+                pass
+            raise
+
+    # ------------------------------------------------------------------
+    # Write API — record_pending_build
+    # ------------------------------------------------------------------
+
+    def record_pending_build(self, payload: Any) -> str:
+        """Insert a fresh ``builds`` row in state ``QUEUED``.
+
+        The build_id is derived from ``payload.feature_id`` and
+        ``payload.queued_at`` per :func:`forge.lifecycle.identifiers.derive_build_id`
+        and returned to the caller for downstream correlation.
+
+        Translates ``IntegrityError`` on the unique
+        ``(feature_id, correlation_id)`` index into
+        :class:`DuplicateBuildError` (AC-005 / Group B "duplicate
+        refused"). The transaction is rolled back so neither the
+        primary row nor any side rows become visible.
+
+        Args:
+            payload: Pydantic ``BuildQueuedPayload`` from
+                :mod:`nats_core.events`. Typed as :class:`Any` here so
+                the import does not pin the persistence layer to the
+                wire-event package — the persistence layer only reads
+                attributes and never instantiates the type.
+
+        Returns:
+            The derived ``build_id``.
+
+        Raises:
+            DuplicateBuildError: If the ``(feature_id, correlation_id)``
+                pair already exists.
+            sqlite3.Error: For any other database error.
+        """
+        feature_id: str = payload.feature_id
+        correlation_id: str = payload.correlation_id
+        queued_at: datetime = payload.queued_at
+        build_id = derive_build_id(feature_id, queued_at)
+
+        try:
+            self._cx.execute("BEGIN IMMEDIATE;")
+            self._cx.execute(
+                """
+                INSERT INTO builds (
+                    build_id, feature_id, repo, branch, feature_yaml_path,
+                    status, triggered_by, originating_adapter,
+                    originating_user, correlation_id, parent_request_id,
+                    queued_at, max_turns, sdk_timeout_seconds
+                ) VALUES (
+                    ?, ?, ?, ?, ?, 'QUEUED', ?, ?, ?, ?, ?, ?, ?, ?
+                )
+                """,
+                (
+                    build_id,
+                    feature_id,
+                    payload.repo,
+                    payload.branch,
+                    payload.feature_yaml_path,
+                    payload.triggered_by,
+                    payload.originating_adapter,
+                    payload.originating_user,
+                    correlation_id,
+                    payload.parent_request_id,
+                    queued_at.isoformat(),
+                    int(payload.max_turns),
+                    int(payload.sdk_timeout_seconds),
+                ),
+            )
+            self._cx.execute("COMMIT;")
+        except sqlite3.IntegrityError as exc:
+            try:
+                self._cx.execute("ROLLBACK;")
+            except sqlite3.Error:  # pragma: no cover
+                pass
+            # Translate the unique-index violation into the domain error.
+            # The IntegrityError message includes the constraint name or
+            # column list — we don't parse it; we just look up whether
+            # a duplicate row already exists with this (feature, corr).
+            raise DuplicateBuildError(feature_id, correlation_id) from exc
+        except sqlite3.Error:
+            try:
+                self._cx.execute("ROLLBACK;")
+            except sqlite3.Error:  # pragma: no cover
+                pass
+            raise
+
+        return build_id
+
+    # ------------------------------------------------------------------
+    # Write API — record_stage
+    # ------------------------------------------------------------------
+
+    def record_stage(self, entry: StageLogEntry) -> None:
+        """Append a row to the ``stage_log`` table.
+
+        Used by dispatchers, the cancel/skip handler (via
+        :class:`SqliteStageSkipRecorder`) and the per-turn supervisor
+        recorder. The ``details`` dict is JSON-encoded into the
+        ``details_json`` column.
+        """
+        if not isinstance(entry, StageLogEntry):
+            raise TypeError(
+                "record_stage requires a StageLogEntry; got "
+                f"{type(entry).__name__}"
+            )
+
+        try:
+            self._cx.execute("BEGIN IMMEDIATE;")
+            self._cx.execute(
+                """
+                INSERT INTO stage_log (
+                    build_id, stage_label, target_kind, target_identifier,
+                    status, gate_mode, coach_score, threshold_applied,
+                    started_at, completed_at, duration_secs, details_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    entry.build_id,
+                    entry.stage_label,
+                    entry.target_kind,
+                    entry.target_identifier,
+                    entry.status,
+                    entry.gate_mode,
+                    entry.coach_score,
+                    entry.threshold_applied,
+                    entry.started_at.isoformat(),
+                    entry.completed_at.isoformat(),
+                    float(entry.duration_secs),
+                    json.dumps(entry.details, sort_keys=True, default=str),
+                ),
+            )
+            self._cx.execute("COMMIT;")
+        except sqlite3.Error:
+            try:
+                self._cx.execute("ROLLBACK;")
+            except sqlite3.Error:  # pragma: no cover
+                pass
+            raise
+
+    # ------------------------------------------------------------------
+    # Write API — mark_paused
+    # ------------------------------------------------------------------
+
+    def mark_paused(self, build_id: str, request_id: str) -> None:
+        """Transition ``build_id`` to ``PAUSED`` and record the request id atomically.
+
+        AC-004: writes ``pending_approval_request_id`` *atomically* with
+        the state transition (single ``UPDATE`` statement). This is the
+        producer side of the ``PENDING_APPROVAL_REQUEST_ID`` integration
+        contract consumed by TASK-PSM-007 (PAUSED-recovery
+        idempotency).
+
+        The transition is composed via
+        :func:`forge.lifecycle.state_machine.transition` so the
+        transition table validates ``RUNNING -> PAUSED`` (or whichever
+        from-state currently holds) before any SQL runs.
+
+        Args:
+            build_id: Build to pause.
+            request_id: The approval-request id to record on the row.
+
+        Raises:
+            ValueError: If either argument is empty.
+            RuntimeError: If the build does not exist.
+            forge.lifecycle.state_machine.InvalidTransitionError: If the
+                build's current state cannot transition to ``PAUSED``.
+        """
+        if not build_id:
+            raise ValueError("mark_paused: build_id must be non-empty")
+        if not request_id:
+            raise ValueError("mark_paused: request_id must be non-empty")
+
+        # Read the current state under the writer connection so the
+        # subsequent apply_transition's optimistic check sees the same
+        # value. We don't hold a transaction across the read — the
+        # apply_transition's BEGIN IMMEDIATE + WHERE status=? clause is
+        # the concurrency guard.
+        row = self._cx.execute(
+            "SELECT status FROM builds WHERE build_id = ?",
+            (build_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"mark_paused: no build row for build_id={build_id!r}"
+            )
+        current_state = BuildState(row["status"] if isinstance(row, sqlite3.Row) else row[0])
+
+        transition = compose_transition(
+            Build(build_id=build_id, status=current_state),
+            BuildState.PAUSED,
+            pending_approval_request_id=request_id,
+        )
+        self.apply_transition(transition)
+
+    # ------------------------------------------------------------------
+    # Read API — read_status
+    # ------------------------------------------------------------------
+
+    def read_status(
+        self,
+        feature_id: str | None = None,
+    ) -> list[BuildStatusView]:
+        """Return active builds plus the last 5 terminal builds.
+
+        AC-006 / ``API-cli.md §4.2``: the status report combines all
+        active builds with the most recent terminal builds, sorted
+        newest-first by ``queued_at``.
+
+        Args:
+            feature_id: Optional filter — when supplied, only rows for
+                that feature are returned.
+
+        Returns:
+            List of :class:`BuildStatusView` ordered by ``queued_at DESC``.
+        """
+        active_values = tuple(s.value for s in ACTIVE_STATES)
+        terminal_values = tuple(
+            s.value
+            for s in (
+                BuildState.COMPLETE,
+                BuildState.FAILED,
+                BuildState.CANCELLED,
+                BuildState.SKIPPED,
+            )
+        )
+
+        # Build placeholder strings that match each tuple length.
+        active_placeholders = ",".join(["?"] * len(active_values))
+        terminal_placeholders = ",".join(["?"] * len(terminal_values))
+
+        feature_clause_active = " AND feature_id = ?" if feature_id else ""
+        feature_clause_terminal = " AND feature_id = ?" if feature_id else ""
+
+        active_sql = f"""
+            SELECT build_id, feature_id, status, queued_at, started_at,
+                   completed_at, pr_url, error
+              FROM builds
+             WHERE status IN ({active_placeholders})
+                   {feature_clause_active}
+             ORDER BY queued_at DESC
+        """
+        terminal_sql = f"""
+            SELECT build_id, feature_id, status, queued_at, started_at,
+                   completed_at, pr_url, error
+              FROM builds
+             WHERE status IN ({terminal_placeholders})
+                   {feature_clause_terminal}
+             ORDER BY queued_at DESC
+             LIMIT ?
+        """
+
+        active_params: list[Any] = list(active_values)
+        terminal_params: list[Any] = list(terminal_values)
+        if feature_id:
+            active_params.append(feature_id)
+            terminal_params.append(feature_id)
+        terminal_params.append(_RECENT_TERMINAL_LIMIT)
+
+        with self._reader() as cx:
+            active_rows = cx.execute(active_sql, active_params).fetchall()
+            terminal_rows = cx.execute(terminal_sql, terminal_params).fetchall()
+
+        combined = [_row_to_status_view(r) for r in active_rows] + [
+            _row_to_status_view(r) for r in terminal_rows
+        ]
+        # Already ordered DESC within each bucket; re-sort the
+        # concatenation so the final list is globally newest-first.
+        combined.sort(key=lambda v: v.queued_at, reverse=True)
+        return combined
+
+    # ------------------------------------------------------------------
+    # Read API — read_history
+    # ------------------------------------------------------------------
+
+    def read_history(
+        self,
+        limit: int = 50,
+        feature_id: str | None = None,
+    ) -> list[BuildRow]:
+        """Return the most recent builds.
+
+        AC-007: ``limit`` is clamped to :data:`MAX_HISTORY_LIMIT` (1000)
+        to prevent unbounded queries. A non-positive ``limit`` returns
+        an empty list.
+
+        Args:
+            limit: Maximum rows to return. Clamped to
+                ``[0, MAX_HISTORY_LIMIT]``.
+            feature_id: Optional feature filter.
+
+        Returns:
+            List of :class:`BuildRow` ordered by ``queued_at DESC``.
+        """
+        if not isinstance(limit, int):
+            raise TypeError(
+                f"read_history: limit must be int; got {type(limit).__name__}"
+            )
+        clamped = max(0, min(limit, MAX_HISTORY_LIMIT))
+        if clamped == 0:
+            return []
+
+        feature_clause = " WHERE feature_id = ?" if feature_id else ""
+        sql = f"""
+            SELECT *
+              FROM builds
+              {feature_clause}
+             ORDER BY queued_at DESC
+             LIMIT ?
+        """
+        params: list[Any] = []
+        if feature_id:
+            params.append(feature_id)
+        params.append(clamped)
+
+        with self._reader() as cx:
+            rows = cx.execute(sql, params).fetchall()
+        return [_row_to_build_row(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Read API — read_stages
+    # ------------------------------------------------------------------
+
+    def read_stages(self, build_id: str) -> list[StageLogEntry]:
+        """Return all stage_log entries for ``build_id`` in chronological order."""
+        if not build_id:
+            raise ValueError("read_stages: build_id must be non-empty")
+        with self._reader() as cx:
+            rows = cx.execute(
+                """
+                SELECT build_id, stage_label, target_kind, target_identifier,
+                       status, gate_mode, coach_score, threshold_applied,
+                       started_at, completed_at, duration_secs, details_json
+                  FROM stage_log
+                 WHERE build_id = ?
+                 ORDER BY started_at ASC, id ASC
+                """,
+                (build_id,),
+            ).fetchall()
+        return [_row_to_stage_entry(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Read API — read_non_terminal_builds (TASK-PSM-007)
+    # ------------------------------------------------------------------
+
+    def read_non_terminal_builds(self) -> list[BuildRow]:
+        """Return every build whose status is **not** terminal.
+
+        Used by the boot-time crash-recovery reconciliation pass
+        (TASK-PSM-007 / :func:`forge.lifecycle.recovery.reconcile_on_boot`).
+        Terminal states (``COMPLETE``, ``FAILED``, ``CANCELLED``,
+        ``SKIPPED``) are filtered out at the SQL layer so the recovery
+        pass never iterates them. ``INTERRUPTED`` is non-terminal and is
+        included — the recovery handler treats it as a no-op (the build
+        is already awaiting re-pickup).
+
+        Rows are ordered by ``queued_at ASC`` so a deterministic
+        recovery order is preserved across runs (the oldest in-flight
+        build is reconciled first), which keeps the recovery report's
+        ``failures`` list stable across re-runs.
+
+        Returns:
+            List of :class:`BuildRow` for every non-terminal build.
+        """
+        terminal_values = tuple(
+            s.value
+            for s in (
+                BuildState.COMPLETE,
+                BuildState.FAILED,
+                BuildState.CANCELLED,
+                BuildState.SKIPPED,
+            )
+        )
+        placeholders = ",".join(["?"] * len(terminal_values))
+        sql = f"""
+            SELECT *
+              FROM builds
+             WHERE status NOT IN ({placeholders})
+             ORDER BY queued_at ASC
+        """
+        with self._reader() as cx:
+            rows = cx.execute(sql, terminal_values).fetchall()
+        return [_row_to_build_row(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Read API — exists_active_build
+    # ------------------------------------------------------------------
+
+    def exists_active_build(self, feature_id: str) -> bool:
+        """Return True iff any build for ``feature_id`` is in an active state.
+
+        AC-008 / Group C "active in-flight duplicate" check.
+        """
+        if not feature_id:
+            raise ValueError("exists_active_build: feature_id must be non-empty")
+
+        active_values = tuple(s.value for s in ACTIVE_STATES)
+        placeholders = ",".join(["?"] * len(active_values))
+        sql = f"""
+            SELECT 1
+              FROM builds
+             WHERE feature_id = ?
+               AND status IN ({placeholders})
+             LIMIT 1
+        """
+        params: list[Any] = [feature_id, *active_values]
+        with self._reader() as cx:
+            row = cx.execute(sql, params).fetchone()
+        return row is not None
+
+    # ------------------------------------------------------------------
+    # Read API — find_active_or_recent
+    # ------------------------------------------------------------------
+
+    def find_active_or_recent(self, feature_id: str) -> Build | None:
+        """Return the most relevant build for ``feature_id``.
+
+        Group C "cancel of unknown" check: returns the active build for
+        the feature if one exists, otherwise the most recently queued
+        build regardless of status. Returns ``None`` when the feature
+        has never produced a build.
+        """
+        if not feature_id:
+            raise ValueError(
+                "find_active_or_recent: feature_id must be non-empty"
+            )
+
+        active_values = tuple(s.value for s in ACTIVE_STATES)
+        active_placeholders = ",".join(["?"] * len(active_values))
+        with self._reader() as cx:
+            row = cx.execute(
+                f"""
+                SELECT build_id, status
+                  FROM builds
+                 WHERE feature_id = ?
+                   AND status IN ({active_placeholders})
+                 ORDER BY queued_at DESC
+                 LIMIT 1
+                """,
+                (feature_id, *active_values),
+            ).fetchone()
+            if row is None:
+                row = cx.execute(
+                    """
+                    SELECT build_id, status
+                      FROM builds
+                     WHERE feature_id = ?
+                     ORDER BY queued_at DESC
+                     LIMIT 1
+                    """,
+                    (feature_id,),
+                ).fetchone()
+        if row is None:
+            return None
+        return Build(
+            build_id=row["build_id"],
+            status=BuildState(row["status"]),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Protocol implementations — Sqlite* facades
+# ---------------------------------------------------------------------------
+
+
+class SqliteBuildSnapshotReader:
+    """SQLite-backed :class:`forge.pipeline.cli_steering.BuildSnapshotReader`.
+
+    Maps a builds row's ``status`` onto the four-way
+    :class:`~forge.pipeline.cli_steering.BuildLifecycle` taxonomy. The
+    SQLite layer cannot directly observe the DeepAgents async-task
+    channel, so :attr:`BuildLifecycle.AUTOBUILD_RUNNING` is *not*
+    produced by this reader on its own. Production wiring composes
+    this reader with an in-memory ``async_tasks`` reader that overrides
+    the lifecycle when an autobuild is in flight; the SqliteBuildSnapshotReader
+    is the FEAT-FORGE-001 contribution to that consolidation.
+    """
+
+    def __init__(self, persistence: SqliteLifecyclePersistence) -> None:
+        self._persistence = persistence
+
+    def get_snapshot(self, build_id: str) -> BuildSnapshot:
+        """Read the build's coarse lifecycle classification from SQLite."""
+        if not build_id:
+            raise ValueError(
+                "SqliteBuildSnapshotReader.get_snapshot: build_id must be "
+                "non-empty"
+            )
+        with self._persistence._reader() as cx:
+            row = cx.execute(
+                "SELECT status, feature_id FROM builds WHERE build_id = ?",
+                (build_id,),
+            ).fetchone()
+            if row is None:
+                # Treat unknown builds as terminal-no-op so the cancel
+                # handler short-circuits cleanly rather than dispatching
+                # a synthetic reject against a phantom row.
+                return BuildSnapshot(
+                    build_id=build_id,
+                    lifecycle=BuildLifecycle.TERMINAL,
+                )
+            status = BuildState(row["status"])
+            feature_id = row["feature_id"]
+
+            paused_stage: StageClass | None = None
+            if status is BuildState.PAUSED:
+                # Look up the most recent gated stage_log row to find
+                # which stage triggered the pause. The taxonomy enum
+                # values are dash-separated strings, so we attempt a
+                # round-trip; any unknown label leaves paused_stage None.
+                gated_row = cx.execute(
+                    """
+                    SELECT stage_label
+                      FROM stage_log
+                     WHERE build_id = ?
+                       AND gate_mode IS NOT NULL
+                       AND status = 'GATED'
+                     ORDER BY started_at DESC, id DESC
+                     LIMIT 1
+                    """,
+                    (build_id,),
+                ).fetchone()
+                if gated_row is not None:
+                    try:
+                        paused_stage = StageClass(gated_row["stage_label"])
+                    except ValueError:
+                        paused_stage = None
+
+        if status in (
+            BuildState.COMPLETE,
+            BuildState.FAILED,
+            BuildState.CANCELLED,
+            BuildState.SKIPPED,
+        ):
+            lifecycle = BuildLifecycle.TERMINAL
+            return BuildSnapshot(build_id=build_id, lifecycle=lifecycle)
+
+        if status is BuildState.PAUSED:
+            return BuildSnapshot(
+                build_id=build_id,
+                lifecycle=BuildLifecycle.PAUSED_AT_GATE,
+                paused_stage=paused_stage,
+                paused_feature_id=feature_id,
+            )
+
+        # QUEUED / PREPARING / RUNNING / FINALISING / INTERRUPTED.
+        return BuildSnapshot(
+            build_id=build_id,
+            lifecycle=BuildLifecycle.OTHER_RUNNING,
+        )
+
+
+class SqliteBuildCanceller:
+    """SQLite-backed :class:`~forge.pipeline.cli_steering.BuildCanceller`.
+
+    Composes a terminal ``CANCELLED`` :class:`Transition` and routes it
+    through :meth:`SqliteLifecyclePersistence.apply_transition`. The
+    rationale is recorded onto ``builds.error`` so the audit trail
+    captures *why* the cancel happened.
+    """
+
+    def __init__(self, persistence: SqliteLifecyclePersistence) -> None:
+        self._persistence = persistence
+
+    def mark_cancelled(self, build_id: str, rationale: str) -> Any:
+        """Transition the build to terminal ``CANCELLED`` with ``rationale``."""
+        if not build_id:
+            raise ValueError(
+                "SqliteBuildCanceller.mark_cancelled: build_id must be "
+                "non-empty"
+            )
+        # Read the current state under the writer connection.
+        row = self._persistence._cx.execute(
+            "SELECT status FROM builds WHERE build_id = ?",
+            (build_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"SqliteBuildCanceller.mark_cancelled: no build row for "
+                f"build_id={build_id!r}"
+            )
+        current_state = BuildState(
+            row["status"] if isinstance(row, sqlite3.Row) else row[0]
+        )
+        if current_state in (
+            BuildState.COMPLETE,
+            BuildState.FAILED,
+            BuildState.CANCELLED,
+            BuildState.SKIPPED,
+        ):
+            # Already terminal — no-op (Group D "cancel on terminal").
+            logger.info(
+                "SqliteBuildCanceller.mark_cancelled: build_id=%s already "
+                "terminal (%s); no-op",
+                build_id,
+                current_state.value,
+            )
+            return None
+
+        transition = compose_transition(
+            Build(build_id=build_id, status=current_state),
+            BuildState.CANCELLED,
+            error=rationale,
+        )
+        self._persistence.apply_transition(transition)
+        return None
+
+
+class SqliteBuildResumer:
+    """SQLite-backed :class:`~forge.pipeline.cli_steering.BuildResumer`.
+
+    Re-enters ``RUNNING`` from ``PAUSED`` after a permitted skip. If the
+    build is not currently ``PAUSED`` we log a warning and return — the
+    caller (the CLI steering handler) is the one that already validated
+    the lifecycle, so a non-PAUSED resume is a defensive log point.
+    """
+
+    def __init__(self, persistence: SqliteLifecyclePersistence) -> None:
+        self._persistence = persistence
+
+    def resume_after_skip(
+        self,
+        build_id: str,
+        skipped_stage: StageClass,
+    ) -> Any:
+        """Transition the build from ``PAUSED`` back to ``RUNNING``."""
+        if not build_id:
+            raise ValueError(
+                "SqliteBuildResumer.resume_after_skip: build_id must be "
+                "non-empty"
+            )
+        row = self._persistence._cx.execute(
+            "SELECT status FROM builds WHERE build_id = ?",
+            (build_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"SqliteBuildResumer.resume_after_skip: no build row for "
+                f"build_id={build_id!r}"
+            )
+        current_state = BuildState(
+            row["status"] if isinstance(row, sqlite3.Row) else row[0]
+        )
+        if current_state is not BuildState.PAUSED:
+            logger.warning(
+                "SqliteBuildResumer.resume_after_skip: build_id=%s is in "
+                "state %s, not PAUSED; refusing to resume after skip on %s",
+                build_id,
+                current_state.value,
+                skipped_stage.value,
+            )
+            return None
+
+        transition = compose_transition(
+            Build(build_id=build_id, status=current_state),
+            BuildState.RUNNING,
+        )
+        self._persistence.apply_transition(transition)
+        return None
+
+
+class SqliteStageLogReader:
+    """Reader-only facade over ``stage_log`` rows.
+
+    Wraps :meth:`SqliteLifecyclePersistence.read_stages` so the CLI
+    surface (``forge status --full``) and the per-feature sequencer can
+    consume a narrow read interface.
+    """
+
+    def __init__(self, persistence: SqliteLifecyclePersistence) -> None:
+        self._persistence = persistence
+
+    def read_stages(self, build_id: str) -> list[StageLogEntry]:
+        """Return all stage_log entries for ``build_id`` in chronological order."""
+        return self._persistence.read_stages(build_id)
+
+
+class SqliteStageSkipRecorder:
+    """SQLite-backed :class:`~forge.pipeline.cli_steering.StageSkipRecorder`.
+
+    Two methods because the two skip outcomes write distinct
+    ``stage_log`` rows: one carrying ``status='SKIPPED'`` (permitted
+    skip) and one carrying ``status='GATED'`` with the constitutional
+    refusal rationale embedded in ``details_json`` (refused skip; the
+    build remains paused).
+    """
+
+    def __init__(self, persistence: SqliteLifecyclePersistence) -> None:
+        self._persistence = persistence
+
+    def _now(self) -> datetime:
+        return datetime.now(UTC)
+
+    def record_skipped(
+        self,
+        build_id: str,
+        stage: StageClass,
+        rationale: str,
+    ) -> Any:
+        """Append a SKIPPED stage_log row for ``stage``."""
+        now = self._now()
+        entry = StageLogEntry(
+            build_id=build_id,
+            stage_label=stage.value,
+            target_kind="local_tool",
+            target_identifier="cli-skip",
+            status="SKIPPED",
+            gate_mode=None,
+            started_at=now,
+            completed_at=now,
+            duration_secs=0.0,
+            details={"rationale": rationale, "source": "cli_steering"},
+        )
+        self._persistence.record_stage(entry)
+        return None
+
+    def record_skip_refused(
+        self,
+        build_id: str,
+        stage: StageClass,
+        rationale: str,
+    ) -> Any:
+        """Record a constitutional skip-refusal; the build remains paused."""
+        now = self._now()
+        entry = StageLogEntry(
+            build_id=build_id,
+            stage_label=stage.value,
+            target_kind="local_tool",
+            target_identifier="cli-skip",
+            status="GATED",
+            gate_mode="HARD_STOP",
+            started_at=now,
+            completed_at=now,
+            duration_secs=0.0,
+            details={
+                "rationale": rationale,
+                "source": "cli_steering",
+                "refused": True,
+            },
+        )
+        self._persistence.record_stage(entry)
+        return None
+
+
+class SqlitePauseRejectResolver:
+    """SQLite-backed :class:`~forge.pipeline.cli_steering.PauseRejectResolver`.
+
+    Synthesises an :class:`ApprovalResponsePayload` with
+    ``decision='reject'`` for the cancel-on-paused pathway
+    (FEAT-FORGE-004 ASSUM-005) and forwards it to an injected
+    "synthetic response injector" callable. The synthetic injector is
+    typed as a plain callable to keep the persistence module decoupled
+    from :mod:`forge.adapters.nats`.
+
+    Args:
+        persistence: The lifecycle persistence facade. Used to read the
+            currently-pending ``pending_approval_request_id`` so the
+            synthetic reject carries the original request id.
+        synthetic_injector: Callable invoked with the synthetic
+            ``ApprovalResponsePayload`` (or a raw dict — production
+            wires the
+            :class:`forge.adapters.nats.synthetic_response_injector.SyntheticResponseInjector`).
+    """
+
+    def __init__(
+        self,
+        persistence: SqliteLifecyclePersistence,
+        synthetic_injector: Callable[[Any], Any],
+    ) -> None:
+        self._persistence = persistence
+        self._injector = synthetic_injector
+
+    def resolve_as_reject(
+        self,
+        build_id: str,
+        stage: StageClass,
+        feature_id: str | None,
+        rationale: str,
+    ) -> Any:
+        """Build and inject a synthetic ``ApprovalResponsePayload(reject)``."""
+        if not build_id:
+            raise ValueError(
+                "SqlitePauseRejectResolver.resolve_as_reject: build_id "
+                "must be non-empty"
+            )
+        # Read the pending_approval_request_id off the build row.
+        row = self._persistence._cx.execute(
+            "SELECT pending_approval_request_id FROM builds WHERE build_id = ?",
+            (build_id,),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError(
+                f"SqlitePauseRejectResolver.resolve_as_reject: no build row "
+                f"for build_id={build_id!r}"
+            )
+        request_id = (
+            row["pending_approval_request_id"]
+            if isinstance(row, sqlite3.Row)
+            else row[0]
+        )
+        if not request_id:
+            raise RuntimeError(
+                f"SqlitePauseRejectResolver.resolve_as_reject: build "
+                f"{build_id!r} has no pending_approval_request_id; cannot "
+                "synthesise a reject for a build that is not awaiting an "
+                "approval response"
+            )
+
+        # Construct the payload as a plain dict so we don't pin the
+        # persistence layer to nats_core; the injector is responsible
+        # for validating into ``ApprovalResponsePayload`` if it wishes.
+        synthetic = {
+            "request_id": request_id,
+            "decision": "reject",
+            "decided_by": "cli-cancel",
+            "notes": rationale,
+            "_metadata": {
+                "build_id": build_id,
+                "stage": stage.value,
+                "feature_id": feature_id,
+                "source": "cli_steering.cancel",
+            },
+        }
+        return self._injector(synthetic)
+
+
+# ---------------------------------------------------------------------------
+# AsyncTaskCanceller / AsyncTaskUpdater — pass-through wrappers
+# ---------------------------------------------------------------------------
+
+
+class AsyncTaskCanceller:
+    """Pass-through implementation of
+    :class:`~forge.pipeline.cli_steering.AsyncTaskCanceller`.
+
+    The DeepAgents ``cancel_async_task`` middleware tool lives in the
+    LangGraph runtime; this class is a thin wrapper that forwards the
+    ``task_id`` to an injected callable. No SQLite involvement — the
+    class only lives in this module for cohesion with the other
+    Protocol implementations the cli_steering handler is wired against.
+    """
+
+    def __init__(self, cancel_callable: Callable[[str], Any]) -> None:
+        self._cancel = cancel_callable
+
+    def cancel_async_task(self, task_id: str) -> Any:
+        if not task_id:
+            raise ValueError(
+                "AsyncTaskCanceller.cancel_async_task: task_id must be "
+                "non-empty"
+            )
+        return self._cancel(task_id)
+
+
+class AsyncTaskUpdater:
+    """Pass-through implementation of
+    :class:`~forge.pipeline.cli_steering.AsyncTaskUpdater`.
+
+    Forwards directive appends to an injected callable that wraps the
+    DeepAgents ``update_async_task`` middleware tool. No SQLite
+    involvement.
+    """
+
+    def __init__(
+        self,
+        update_callable: Callable[..., Any],
+    ) -> None:
+        self._update = update_callable
+
+    def update_async_task(
+        self,
+        task_id: str,
+        *,
+        append_pending_directive: str,
+    ) -> Any:
+        if not task_id:
+            raise ValueError(
+                "AsyncTaskUpdater.update_async_task: task_id must be non-empty"
+            )
+        if not append_pending_directive:
+            raise ValueError(
+                "AsyncTaskUpdater.update_async_task: append_pending_directive "
+                "must be non-empty"
+            )
+        return self._update(
+            task_id,
+            append_pending_directive=append_pending_directive,
+        )

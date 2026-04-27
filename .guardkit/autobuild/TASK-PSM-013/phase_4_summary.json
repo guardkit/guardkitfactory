@@ -1,0 +1,7 @@
+{
+  "tests_run": 45,
+  "tests_failed": 0,
+  "coverage_pct": 23.0,
+  "output_summary": "45 passed, 0 failed in 0.61s (pytest tests/bdd/test_pipeline_state_machine.py --cov=src/forge); 34 BDD scenarios + 11 outline rows green",
+  "quality_gates_passed": true
+}

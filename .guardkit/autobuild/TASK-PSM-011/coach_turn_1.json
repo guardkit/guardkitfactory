@@ -1,0 +1,187 @@
+{
+  "task_id": "TASK-PSM-011",
+  "turn": 1,
+  "decision": "feedback",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": false,
+      "test_command": "pytest tests/forge/test_cli_cancel_skip.py tests/forge/test_cli_history.py tests/forge/test_cli_main.py tests/forge/test_cli_status.py tests/forge/test_lifecycle_queue.py tests/forge/test_lifecycle_recovery.py -v --tb=short",
+      "test_output_summary": "Error detail:\n\n==================================== ERRORS ====================================\n_ ERROR at setup of TestConfigLoadedIntoContext.test_subcommands_receive_forge_config_via_pass_obj _\ntests/forge/test_cli_main.py:130: in fake_persistence\n    monkeypatch.setattr(cli_main, \"make_persistence\", lambda config: fake)\nResult:\nERROR tests/forge/test_cli_main.py::TestPublishFailureLeavesRowIntact::test_publish_failure_keeps_row_and_exits_1\nERROR tests/forge/test_cli_main.py::TestDuplicateBuildExitsThree::test_sqlite_duplicate_exits_3\nERROR tests/forge/test_cli_main.py::TestDuplicateBuildExitsThree::test_active_inflight_duplicate_exits_3\nERROR tests/forge/test_cli_main.py::TestExitCodeMatrix::test_happy_path_exit_zero\n=================== 11 failed, 81 passed, 10 errors in 0.76s ===================",
+      "duration_seconds": 1.5397539138793945
+    },
+    "requirements": {
+      "criteria_total": 9,
+      "criteria_met": 9,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`cli/cancel.py` exports `cancel_cmd` (Click command)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:cancel_cmd; Keywords matched: exports, cancel_cmd, cancel, click, command",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:cancel_cmd; Keywords matched: exports, cancel_cmd, cancel, click, command"
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`cli/skip.py` exports `skip_cmd` (Click command)",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:skip_cmd; Keywords matched: exports, skip, click, command, skip_cmd",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:skip_cmd; Keywords matched: exports, skip, click, command, skip_cmd"
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Both register with `cli/main.py`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:main, def:main; Keywords matched: register, main",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:main, def:main; Keywords matched: register, main"
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`forge cancel` resolves feature_id \u2192 build_id via",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: class:Build; Keywords matched: forge, resolves, cancel, feature_id, build_id",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: class:Build; Keywords matched: forge, resolves, cancel, feature_id, build_id"
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`forge skip` exits non-zero with REFUSED message when handler",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: forge, skip, handler, message, exits",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: forge, skip, handler, message, exits"
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Both pass `responder=os.getlogin()` to the handler \u2014 Group E",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: getlogin, group, handler, responder, pass",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: getlogin, group, handler, responder, pass"
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Both wrappers are < 60 lines each (this task is intentionally thin",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: lines, thin, wrappers, task",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: lines, thin, wrappers, task"
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "BDD scenarios for Group C (cancel-unknown, skip-non-paused) and",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: group, cancel, skip, paused, unknown",
+      "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: group, cancel, skip, paused, unknown"
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "[Text fallback] Matched in Player requirements_met: 'All modified files pass project-configured lint/format checks with'",
+      "notes": "[Text fallback] Matched in Player requirements_met: 'All modified files pass project-configured lint/format checks with'"
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`cli/cancel.py` exports `cancel_cmd` (Click command)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:cancel_cmd; Keywords matched: exports, cancel_cmd, cancel, click, command",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:cancel_cmd; Keywords matched: exports, cancel_cmd, cancel, click, command"
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`cli/skip.py` exports `skip_cmd` (Click command)",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:skip_cmd; Keywords matched: exports, skip, click, command, skip_cmd",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:skip_cmd; Keywords matched: exports, skip, click, command, skip_cmd"
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Both register with `cli/main.py`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:main, def:main; Keywords matched: register, main",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: def:main, def:main; Keywords matched: register, main"
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`forge cancel` resolves feature_id \u2192 build_id via",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: class:Build; Keywords matched: forge, resolves, cancel, feature_id, build_id",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Patterns found: class:Build; Keywords matched: forge, resolves, cancel, feature_id, build_id"
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "`forge skip` exits non-zero with REFUSED message when handler",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: forge, skip, handler, message, exits",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: forge, skip, handler, message, exits"
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Both pass `responder=os.getlogin()` to the handler \u2014 Group E",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: getlogin, group, handler, responder, pass",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: getlogin, group, handler, responder, pass"
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Both wrappers are < 60 lines each (this task is intentionally thin",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: lines, thin, wrappers, task",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: lines, thin, wrappers, task"
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "BDD scenarios for Group C (cancel-unknown, skip-non-paused) and",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: group, cancel, skip, paused, unknown",
+        "notes": "[Partial confidence - code_pattern] Code-pattern analysis: Keywords matched: group, cancel, skip, paused, unknown"
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "[Text fallback] Matched in Player requirements_met: 'All modified files pass project-configured lint/format checks with'",
+        "notes": "[Text fallback] Matched in Player requirements_met: 'All modified files pass project-configured lint/format checks with'"
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "error",
+      "category": "zero_test_anomaly",
+      "description": "Quality gates reported as passed but no tests were executed (tests_passed=0, coverage=null). Player may not have run tests."
+    }
+  ],
+  "rationale": "Zero-test anomaly detected: quality gates reported as passed but no tests were executed. Tests are required for this task type. Please write and run tests before resubmitting.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1657/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- INSTRUCTS_USER_TO_START\n- PROVIDES_OPTION\n- ASSIGNS_TASK_TO\n- HAS_OPTION\n\n### \u26a0\ufe0f Warnings\n- DEPENDS_ON\n- IS_IMPLEMENTED_AS\n- ERROR_CAUSE_OF\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- HAS_ROLE_MUST_DO\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- PITFALL_OF_IMPLEMENTATION_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

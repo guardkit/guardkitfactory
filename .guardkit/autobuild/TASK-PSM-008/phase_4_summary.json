@@ -1,0 +1,30 @@
+{
+  "tests_run": 18,
+  "tests_failed": 0,
+  "coverage_pct": 77.3,
+  "output_summary": "18/18 passed in tests/forge/test_cli_main.py; 77% line coverage on src/forge/cli/main.py + queue.py (uncovered lines are real SQLite/NATS I/O glue stubbed in tests).",
+  "quality_gates_passed": true,
+  "test_runner": "pytest",
+  "test_command": "pytest tests/forge/test_cli_main.py --cov=forge.cli.main --cov=forge.cli.queue --cov-report=term-missing",
+  "coverage_breakdown": {
+    "src/forge/cli/main.py": {
+      "stmts": 26,
+      "miss": 3,
+      "cover_pct": 88.0,
+      "missing_lines": "64-66"
+    },
+    "src/forge/cli/queue.py": {
+      "stmts": 137,
+      "miss": 34,
+      "cover_pct": 75.0,
+      "missing_lines": "187-203, 225-249, 267-268, 282, 287-294, 304, 337, 371"
+    },
+    "total": {
+      "stmts": 163,
+      "miss": 37,
+      "cover_pct": 77.3
+    }
+  },
+  "tests_passing": true,
+  "notes": "Uncovered lines correspond to make_persistence() (real SQLite connect/migrate) and publish() (real NATS asyncio bridge); both are I/O glue intentionally stubbed via fake_persistence and monkeypatched publish in the unit tests. Acceptance criteria AC-001..AC-011 are fully exercised by the 18 passing tests."
+}

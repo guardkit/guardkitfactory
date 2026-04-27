@@ -1,0 +1,7 @@
+{
+  "tests_run": 165,
+  "tests_failed": 0,
+  "coverage_pct": 100.0,
+  "output_summary": "165 tests passed (state_machine, lifecycle, supervisor); 100% line coverage on src/forge/lifecycle/state_machine.py",
+  "quality_gates_passed": true
+}

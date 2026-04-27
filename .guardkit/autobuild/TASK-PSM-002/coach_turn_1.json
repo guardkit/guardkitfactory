@@ -1,0 +1,226 @@
+{
+  "task_id": "TASK-PSM-002",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "skipped",
+      "test_output_summary": "Independent test verification skipped (tests not required for scaffolding tasks)",
+      "duration_seconds": 0.0
+    },
+    "requirements": {
+      "criteria_total": 11,
+      "criteria_met": 11,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`schema.sql` contains `CREATE TABLE IF NOT EXISTS builds (...) STRICT`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "src/forge/lifecycle/schema.sql \u00a72.1 reproduces every column from API-sqlite-schema.md \u00a72.1 (build_id, feature_id, repo, branch, feature_yaml_path, project, status, triggered_by, originating_adapter, originating_user, correlation_id, parent_request_id, queued_at, started_at, completed_at, worktree_path, pr_url, error, max_turns, sdk_timeout_seconds) and adds the F4 recovery column `pending_approval_request_id TEXT`. The CREATE TABLE statement ends with the STRICT marker. test_schema_defines_strict_builds_table_with_pending_approval_column asserts presence of both the STRICT marker and the new column.",
+      "notes": "src/forge/lifecycle/schema.sql \u00a72.1 reproduces every column from API-sqlite-schema.md \u00a72.1 (build_id, feature_id, repo, branch, feature_yaml_path, project, status, triggered_by, originating_adapter, originating_user, correlation_id, parent_request_id, queued_at, started_at, completed_at, worktree_path, pr_url, error, max_turns, sdk_timeout_seconds) and adds the F4 recovery column `pending_approval_request_id TEXT`. The CREATE TABLE statement ends with the STRICT marker. test_schema_defines_strict_builds_table_with_pending_approval_column asserts presence of both the STRICT marker and the new column."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`schema.sql` contains `CREATE TABLE IF NOT EXISTS stage_log (...) STRICT`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "schema.sql \u00a72.2 declares stage_log STRICT with id (autoincrement), build_id FK, stage_label, target_kind+CHECK, target_identifier, status+CHECK, gate_mode+CHECK, coach_score, threshold_applied, started_at, completed_at, duration_secs, details_json \u2014 plus idx_stage_log_build and the partial idx_stage_log_gated index per API contract \u00a72.2. Verified by test_schema_defines_stage_log_with_indices.",
+      "notes": "schema.sql \u00a72.2 declares stage_log STRICT with id (autoincrement), build_id FK, stage_label, target_kind+CHECK, target_identifier, status+CHECK, gate_mode+CHECK, coach_score, threshold_applied, started_at, completed_at, duration_secs, details_json \u2014 plus idx_stage_log_build and the partial idx_stage_log_gated index per API contract \u00a72.2. Verified by test_schema_defines_stage_log_with_indices."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`schema.sql` contains `CREATE TABLE IF NOT EXISTS schema_version` with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "schema.sql \u00a72.3 declares the schema_version STRICT table and follows it with `INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, datetime('now'));`. test_schema_defines_schema_version_with_seed_row and test_apply_at_boot_creates_tables_and_seeds_schema_version both verify presence and runtime behaviour.",
+      "notes": "schema.sql \u00a72.3 declares the schema_version STRICT table and follows it with `INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, datetime('now'));`. test_schema_defines_schema_version_with_seed_row and test_apply_at_boot_creates_tables_and_seeds_schema_version both verify presence and runtime behaviour."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`schema.sql` contains the UNIQUE INDEX on `(feature_id, correlation_id)`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "schema.sql defines `CREATE UNIQUE INDEX IF NOT EXISTS uq_builds_feature_correlation ON builds (feature_id, correlation_id);`. test_schema_declares_unique_feature_correlation_index asserts the index name and UNIQUE marker; test_unique_feature_correlation_index_rejects_duplicates verifies enforcement at runtime by inserting a duplicate (feature_id, correlation_id) pair and asserting sqlite3.IntegrityError.",
+      "notes": "schema.sql defines `CREATE UNIQUE INDEX IF NOT EXISTS uq_builds_feature_correlation ON builds (feature_id, correlation_id);`. test_schema_declares_unique_feature_correlation_index asserts the index name and UNIQUE marker; test_unique_feature_correlation_index_rejects_duplicates verifies enforcement at runtime by inserting a duplicate (feature_id, correlation_id) pair and asserting sqlite3.IntegrityError."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`migrations.apply_at_boot(connection)` is idempotent (running twice",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "src/forge/lifecycle/migrations.py implements apply_at_boot which (1) reads MAX(version) from schema_version, defaulting to 0 when the table does not yet exist, (2) skips already-applied migrations, and (3) wraps executescript in a `with connection:` transaction so failures roll back. The bundled schema.sql is itself idempotent (CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE). test_apply_at_boot_is_idempotent calls apply_at_boot twice and asserts schema_version still contains exactly one row [(1,)].",
+      "notes": "src/forge/lifecycle/migrations.py implements apply_at_boot which (1) reads MAX(version) from schema_version, defaulting to 0 when the table does not yet exist, (2) skips already-applied migrations, and (3) wraps executescript in a `with connection:` transaction so failures roll back. The bundled schema.sql is itself idempotent (CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE). test_apply_at_boot_is_idempotent calls apply_at_boot twice and asserts schema_version still contains exactly one row [(1,)]."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Both connection helpers apply the four mandatory pragmas (per DDR-003):",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "src/forge/adapters/sqlite/connect.py defines _apply_pragmas() called from both connect_writer and read_only_connect. It sets journal_mode=WAL on the writer (read-only connections inherit WAL state and refuse the mutating form), and unconditionally sets synchronous=NORMAL, foreign_keys=ON, busy_timeout=5000 on every open. test_connect_writer_applies_four_mandatory_pragmas reads back all four pragmas via PRAGMA round-trip and asserts the expected values (wal, 1, 1, 5000).",
+      "notes": "src/forge/adapters/sqlite/connect.py defines _apply_pragmas() called from both connect_writer and read_only_connect. It sets journal_mode=WAL on the writer (read-only connections inherit WAL state and refuse the mutating form), and unconditionally sets synchronous=NORMAL, foreign_keys=ON, busy_timeout=5000 on every open. test_connect_writer_applies_four_mandatory_pragmas reads back all four pragmas via PRAGMA round-trip and asserts the expected values (wal, 1, 1, 5000)."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "`read_only_connect()` opens with `mode=ro` URI",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "read_only_connect builds `uri = f\"file:{db_path}?mode=ro\"` and calls `sqlite3.connect(uri, uri=True, ...)`. test_read_only_connect_uses_mode_ro_uri_and_rejects_writes seeds a row via connect_writer, then opens via read_only_connect, reads the row back successfully, and asserts that an UPDATE raises sqlite3.OperationalError \u2014 proving SQLite engaged the read-only mode rather than just returning a plain connection.",
+      "notes": "read_only_connect builds `uri = f\"file:{db_path}?mode=ro\"` and calls `sqlite3.connect(uri, uri=True, ...)`. test_read_only_connect_uses_mode_ro_uri_and_rejects_writes seeds a row via connect_writer, then opens via read_only_connect, reads the row back successfully, and asserts that an UPDATE raises sqlite3.OperationalError \u2014 proving SQLite engaged the read-only mode rather than just returning a plain connection."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Integration test: open fresh DB, apply migrations, assert",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_apply_migrations_then_journal_mode_is_wal opens a fresh DB in tmp_path via connect_writer, runs migrations.apply_at_boot, asserts PRAGMA journal_mode == 'wal' and SELECT version FROM schema_version == (1,). Passes (see Phase 4.5 transcript).",
+      "notes": "test_apply_migrations_then_journal_mode_is_wal opens a fresh DB in tmp_path via connect_writer, runs migrations.apply_at_boot, asserts PRAGMA journal_mode == 'wal' and SELECT version FROM schema_version == (1,). Passes (see Phase 4.5 transcript)."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Integration test: STRICT enforcement \u2014 inserting a row with a non-INTEGER",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_strict_table_rejects_non_integer_max_turns inserts a builds row with max_turns='not-an-int' and expects sqlite3.IntegrityError. The STRICT marker on the builds table is what causes SQLite to reject the value rather than silently coercing it. Passes.",
+      "notes": "test_strict_table_rejects_non_integer_max_turns inserts a builds row with max_turns='not-an-int' and expects sqlite3.IntegrityError. The STRICT marker on the builds table is what causes SQLite to reject the value rather than silently coercing it. Passes."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Integration test: WAL files (`forge.db-wal`, `forge.db-shm`) are",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "test_wal_sidecar_files_appear_after_first_write opens connect_writer, applies migrations, executes an INSERT + commit, and (while the connection is still open, before SQLite's close-time checkpoint can collapse the WAL) asserts forge.db, forge.db-wal, and forge.db-shm all exist on disk. Passes.",
+      "notes": "test_wal_sidecar_files_appear_after_first_write opens connect_writer, applies migrations, executes an INSERT + commit, and (while the connection is still open, before SQLite's close-time checkpoint can collapse the WAL) asserts forge.db, forge.db-wal, and forge.db-shm all exist on disk. Passes."
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "All modified files pass project-configured lint/format checks with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "All new source files use type hints, snake_case names, PEP 8 line-lengths consistent with the existing forge.adapters.nats modules (88-char Black target), `from __future__ import annotations`, module-level docstrings, and structured Google-style docstrings on every public symbol. No project-level pre-commit/ruff/black config is wired into pyproject.toml in this worktree (only pytest config), so 'project-configured' lint amounts to the style guide in .claude/rules/code-style.md, which is satisfied. The pytest run completes with zero collection-time warnings.",
+      "notes": "All new source files use type hints, snake_case names, PEP 8 line-lengths consistent with the existing forge.adapters.nats modules (88-char Black target), `from __future__ import annotations`, module-level docstrings, and structured Google-style docstrings on every public symbol. No project-level pre-commit/ruff/black config is wired into pyproject.toml in this worktree (only pytest config), so 'project-configured' lint amounts to the style guide in .claude/rules/code-style.md, which is satisfied. The pytest run completes with zero collection-time warnings."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`schema.sql` contains `CREATE TABLE IF NOT EXISTS builds (...) STRICT`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "src/forge/lifecycle/schema.sql \u00a72.1 reproduces every column from API-sqlite-schema.md \u00a72.1 (build_id, feature_id, repo, branch, feature_yaml_path, project, status, triggered_by, originating_adapter, originating_user, correlation_id, parent_request_id, queued_at, started_at, completed_at, worktree_path, pr_url, error, max_turns, sdk_timeout_seconds) and adds the F4 recovery column `pending_approval_request_id TEXT`. The CREATE TABLE statement ends with the STRICT marker. test_schema_defines_strict_builds_table_with_pending_approval_column asserts presence of both the STRICT marker and the new column.",
+        "notes": "src/forge/lifecycle/schema.sql \u00a72.1 reproduces every column from API-sqlite-schema.md \u00a72.1 (build_id, feature_id, repo, branch, feature_yaml_path, project, status, triggered_by, originating_adapter, originating_user, correlation_id, parent_request_id, queued_at, started_at, completed_at, worktree_path, pr_url, error, max_turns, sdk_timeout_seconds) and adds the F4 recovery column `pending_approval_request_id TEXT`. The CREATE TABLE statement ends with the STRICT marker. test_schema_defines_strict_builds_table_with_pending_approval_column asserts presence of both the STRICT marker and the new column."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`schema.sql` contains `CREATE TABLE IF NOT EXISTS stage_log (...) STRICT`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "schema.sql \u00a72.2 declares stage_log STRICT with id (autoincrement), build_id FK, stage_label, target_kind+CHECK, target_identifier, status+CHECK, gate_mode+CHECK, coach_score, threshold_applied, started_at, completed_at, duration_secs, details_json \u2014 plus idx_stage_log_build and the partial idx_stage_log_gated index per API contract \u00a72.2. Verified by test_schema_defines_stage_log_with_indices.",
+        "notes": "schema.sql \u00a72.2 declares stage_log STRICT with id (autoincrement), build_id FK, stage_label, target_kind+CHECK, target_identifier, status+CHECK, gate_mode+CHECK, coach_score, threshold_applied, started_at, completed_at, duration_secs, details_json \u2014 plus idx_stage_log_build and the partial idx_stage_log_gated index per API contract \u00a72.2. Verified by test_schema_defines_stage_log_with_indices."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`schema.sql` contains `CREATE TABLE IF NOT EXISTS schema_version` with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "schema.sql \u00a72.3 declares the schema_version STRICT table and follows it with `INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, datetime('now'));`. test_schema_defines_schema_version_with_seed_row and test_apply_at_boot_creates_tables_and_seeds_schema_version both verify presence and runtime behaviour.",
+        "notes": "schema.sql \u00a72.3 declares the schema_version STRICT table and follows it with `INSERT OR IGNORE INTO schema_version (version, applied_at) VALUES (1, datetime('now'));`. test_schema_defines_schema_version_with_seed_row and test_apply_at_boot_creates_tables_and_seeds_schema_version both verify presence and runtime behaviour."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`schema.sql` contains the UNIQUE INDEX on `(feature_id, correlation_id)`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "schema.sql defines `CREATE UNIQUE INDEX IF NOT EXISTS uq_builds_feature_correlation ON builds (feature_id, correlation_id);`. test_schema_declares_unique_feature_correlation_index asserts the index name and UNIQUE marker; test_unique_feature_correlation_index_rejects_duplicates verifies enforcement at runtime by inserting a duplicate (feature_id, correlation_id) pair and asserting sqlite3.IntegrityError.",
+        "notes": "schema.sql defines `CREATE UNIQUE INDEX IF NOT EXISTS uq_builds_feature_correlation ON builds (feature_id, correlation_id);`. test_schema_declares_unique_feature_correlation_index asserts the index name and UNIQUE marker; test_unique_feature_correlation_index_rejects_duplicates verifies enforcement at runtime by inserting a duplicate (feature_id, correlation_id) pair and asserting sqlite3.IntegrityError."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "`migrations.apply_at_boot(connection)` is idempotent (running twice",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "src/forge/lifecycle/migrations.py implements apply_at_boot which (1) reads MAX(version) from schema_version, defaulting to 0 when the table does not yet exist, (2) skips already-applied migrations, and (3) wraps executescript in a `with connection:` transaction so failures roll back. The bundled schema.sql is itself idempotent (CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE). test_apply_at_boot_is_idempotent calls apply_at_boot twice and asserts schema_version still contains exactly one row [(1,)].",
+        "notes": "src/forge/lifecycle/migrations.py implements apply_at_boot which (1) reads MAX(version) from schema_version, defaulting to 0 when the table does not yet exist, (2) skips already-applied migrations, and (3) wraps executescript in a `with connection:` transaction so failures roll back. The bundled schema.sql is itself idempotent (CREATE TABLE IF NOT EXISTS + INSERT OR IGNORE). test_apply_at_boot_is_idempotent calls apply_at_boot twice and asserts schema_version still contains exactly one row [(1,)]."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Both connection helpers apply the four mandatory pragmas (per DDR-003):",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "src/forge/adapters/sqlite/connect.py defines _apply_pragmas() called from both connect_writer and read_only_connect. It sets journal_mode=WAL on the writer (read-only connections inherit WAL state and refuse the mutating form), and unconditionally sets synchronous=NORMAL, foreign_keys=ON, busy_timeout=5000 on every open. test_connect_writer_applies_four_mandatory_pragmas reads back all four pragmas via PRAGMA round-trip and asserts the expected values (wal, 1, 1, 5000).",
+        "notes": "src/forge/adapters/sqlite/connect.py defines _apply_pragmas() called from both connect_writer and read_only_connect. It sets journal_mode=WAL on the writer (read-only connections inherit WAL state and refuse the mutating form), and unconditionally sets synchronous=NORMAL, foreign_keys=ON, busy_timeout=5000 on every open. test_connect_writer_applies_four_mandatory_pragmas reads back all four pragmas via PRAGMA round-trip and asserts the expected values (wal, 1, 1, 5000)."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "`read_only_connect()` opens with `mode=ro` URI",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "read_only_connect builds `uri = f\"file:{db_path}?mode=ro\"` and calls `sqlite3.connect(uri, uri=True, ...)`. test_read_only_connect_uses_mode_ro_uri_and_rejects_writes seeds a row via connect_writer, then opens via read_only_connect, reads the row back successfully, and asserts that an UPDATE raises sqlite3.OperationalError \u2014 proving SQLite engaged the read-only mode rather than just returning a plain connection.",
+        "notes": "read_only_connect builds `uri = f\"file:{db_path}?mode=ro\"` and calls `sqlite3.connect(uri, uri=True, ...)`. test_read_only_connect_uses_mode_ro_uri_and_rejects_writes seeds a row via connect_writer, then opens via read_only_connect, reads the row back successfully, and asserts that an UPDATE raises sqlite3.OperationalError \u2014 proving SQLite engaged the read-only mode rather than just returning a plain connection."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Integration test: open fresh DB, apply migrations, assert",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_apply_migrations_then_journal_mode_is_wal opens a fresh DB in tmp_path via connect_writer, runs migrations.apply_at_boot, asserts PRAGMA journal_mode == 'wal' and SELECT version FROM schema_version == (1,). Passes (see Phase 4.5 transcript).",
+        "notes": "test_apply_migrations_then_journal_mode_is_wal opens a fresh DB in tmp_path via connect_writer, runs migrations.apply_at_boot, asserts PRAGMA journal_mode == 'wal' and SELECT version FROM schema_version == (1,). Passes (see Phase 4.5 transcript)."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Integration test: STRICT enforcement \u2014 inserting a row with a non-INTEGER",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_strict_table_rejects_non_integer_max_turns inserts a builds row with max_turns='not-an-int' and expects sqlite3.IntegrityError. The STRICT marker on the builds table is what causes SQLite to reject the value rather than silently coercing it. Passes.",
+        "notes": "test_strict_table_rejects_non_integer_max_turns inserts a builds row with max_turns='not-an-int' and expects sqlite3.IntegrityError. The STRICT marker on the builds table is what causes SQLite to reject the value rather than silently coercing it. Passes."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "Integration test: WAL files (`forge.db-wal`, `forge.db-shm`) are",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "test_wal_sidecar_files_appear_after_first_write opens connect_writer, applies migrations, executes an INSERT + commit, and (while the connection is still open, before SQLite's close-time checkpoint can collapse the WAL) asserts forge.db, forge.db-wal, and forge.db-shm all exist on disk. Passes.",
+        "notes": "test_wal_sidecar_files_appear_after_first_write opens connect_writer, applies migrations, executes an INSERT + commit, and (while the connection is still open, before SQLite's close-time checkpoint can collapse the WAL) asserts forge.db, forge.db-wal, and forge.db-shm all exist on disk. Passes."
+      },
+      {
+        "criterion_id": "AC-011",
+        "criterion_text": "All modified files pass project-configured lint/format checks with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "All new source files use type hints, snake_case names, PEP 8 line-lengths consistent with the existing forge.adapters.nats modules (88-char Black target), `from __future__ import annotations`, module-level docstrings, and structured Google-style docstrings on every public symbol. No project-level pre-commit/ruff/black config is wired into pyproject.toml in this worktree (only pytest config), so 'project-configured' lint amounts to the style guide in .claude/rules/code-style.md, which is satisfied. The pytest run completes with zero collection-time warnings.",
+        "notes": "All new source files use type hints, snake_case names, PEP 8 line-lengths consistent with the existing forge.adapters.nats modules (88-char Black target), `from __future__ import annotations`, module-level docstrings, and structured Google-style docstrings on every public symbol. No project-level pre-commit/ruff/black config is wired into pyproject.toml in this worktree (only pytest config), so 'project-configured' lint amounts to the style guide in .claude/rules/code-style.md, which is satisfied. The pytest run completes with zero collection-time warnings."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    }
+  ],
+  "rationale": "All quality gates passed. Tests not required for this task type. All acceptance criteria met. Architecture context: 376 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1837/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ASSIGNS_TASK_TO\n- USED_IN_CODE_PATTERN\n- INSTRUCTS_USER_TO_START\n- ENABLES_FEATURE\n- HAS_BENEFIT\n\n### \u26a0\ufe0f Warnings\n- DEPENDS_ON\n- REQUIRES_USE_OF\n- ERROR_CAUSE_OF\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- HAS_ROLE_MUST_DO\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- RESULT_LOCATION_PATTERN\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

@@ -1,0 +1,137 @@
+{
+  "task_id": "TASK-PSM-003",
+  "turn": 1,
+  "files_modified": [
+    "src/forge/config/models.py",
+    "src/forge/config/__init__.py",
+    "tests/test_forge_config.py",
+    "tests/test_approval_config.py"
+  ],
+  "files_created": [
+    "src/forge/config/loader.py",
+    "tests/forge/config/__init__.py",
+    "tests/forge/config/test_queue_and_loader.py"
+  ],
+  "tests_written": [
+    "tests/forge/config/test_queue_and_loader.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "16/16 new tests pass in tests/forge/config/test_queue_and_loader.py. 167/167 config-related tests pass overall (tests/test_forge_config.py + tests/test_approval_config.py + tests/forge/config/). The two pre-existing roundtrip tests in tests/test_forge_config.py and tests/test_approval_config.py were updated to include the new 'queue' block now that ForgeConfig.model_dump() emits it; otherwise no other test files were touched.",
+  "implementation_notes": "Added QueueConfig (Pydantic v2, extra='forbid') to src/forge/config/models.py with the four required fields and ge=1 validators on all integer fields, then wired queue: QueueConfig = Field(default_factory=QueueConfig) into ForgeConfig. Created src/forge/config/loader.py exposing load_config(path: Path) -> ForgeConfig that uses yaml.safe_load on the file's UTF-8 contents (defaulting an empty document to {}) and passes the result straight to ForgeConfig.model_validate, allowing pydantic.ValidationError to propagate unwrapped so the CLI can format error.errors() as required by the integration contract. Re-exported QueueConfig and load_config from forge.config. Added 16 unit tests organised into one class per acceptance criterion (AAA pattern, descriptive names, AC IDs in class docstrings) covering: shape of QueueConfig, default-factory isolation on ForgeConfig.queue, that the loader uses yaml.safe_load (verified via monkeypatched spy), unwrapped ValidationError propagation, ge=1 boundary at 0 (rejected) and 1 (accepted), missing queue block falling back to defaults, and YAML strings under repo_allowlist parsing into list[Path]. The two stale full-roundtrip tests in tests/test_forge_config.py and tests/test_approval_config.py were updated to include the new queue block so model_dump round-trip equality continues to hold.",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009"
+  ],
+  "requirements_remaining": [],
+  "implementation_mode": "direct",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "[ ] `QueueConfig` exists in `forge/config/models.py` with the four fields and Pydantic v2 `Field` validators",
+      "status": "complete",
+      "evidence": "Added class QueueConfig(BaseModel) to src/forge/config/models.py with model_config = ConfigDict(extra='forbid') and four Pydantic v2 Field(...) declarations: default_max_turns: int = Field(5, ge=1), default_sdk_timeout_seconds: int = Field(1800, ge=1), default_history_limit: int = Field(50, ge=1), repo_allowlist: list[Path] = Field(default_factory=list). Re-exported via __all__ and from forge.config.",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py",
+        "src/forge/config/__init__.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "[ ] `ForgeConfig` has `queue: QueueConfig = QueueConfig()` (default factory so loading a `forge.yaml` without a `queue:` block works)",
+      "status": "complete",
+      "evidence": "Added `queue: QueueConfig = Field(default_factory=QueueConfig)` to ForgeConfig in src/forge/config/models.py. Test `test_forge_config_queue_default_isolated_per_instance` proves a fresh QueueConfig is handed to each ForgeConfig instance (mutating one's repo_allowlist does not leak to another).",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "[ ] `load_config(path: Path) -> ForgeConfig` reads YAML via `yaml.safe_load` and validates via Pydantic `model_validate`",
+      "status": "complete",
+      "evidence": "Created src/forge/config/loader.py exporting `load_config(path: Path) -> ForgeConfig`. Body is `raw = yaml.safe_load(path.read_text(encoding='utf-8')) or {}; return ForgeConfig.model_validate(raw)`. Test `test_load_config_uses_safe_load_not_full_load` patches forge.config.loader.yaml.safe_load with a spy and asserts the spy was invoked, proving safe_load (not unsafe loaders) is used.",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/loader.py",
+        "src/forge/config/__init__.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "[ ] `load_config` raises `pydantic.ValidationError` (not a wrapped exception) on malformed config so callers can catch and format errors",
+      "status": "complete",
+      "evidence": "load_config does not catch or wrap exceptions \u2014 ForgeConfig.model_validate raises pydantic.ValidationError directly. Test `test_validation_error_is_not_wrapped` asserts `exc_info.type is ValidationError` (exact-class check, not isinstance), guaranteeing no wrapper subclass is in play.",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/loader.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "[ ] Boundary test: `default_max_turns: 0` in YAML raises `ValidationError`",
+      "status": "complete",
+      "evidence": "Test `test_default_max_turns_zero_raises` writes `queue: {default_max_turns: 0}` to a tmp YAML, calls load_config, and asserts a ValidationError is raised whose .errors() contains a greater_than_equal/value_error entry with loc==('queue', 'default_max_turns'). The constraint comes from Field(default=5, ge=1) on QueueConfig.default_max_turns.",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "[ ] Boundary test: `default_max_turns: 1` accepted (ASSUM-001 minimum)",
+      "status": "complete",
+      "evidence": "Test `test_default_max_turns_one_accepted` writes `queue: {default_max_turns: 1}` to a tmp YAML, calls load_config, and asserts cfg.queue.default_max_turns == 1. ge=1 in QueueConfig means 1 is the minimum accepted value (ASSUM-001).",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "[ ] Boundary test: missing `queue:` block \u2014 `ForgeConfig.queue` populated from defaults",
+      "status": "complete",
+      "evidence": "Test `test_missing_queue_block_populates_defaults` writes a YAML containing only the required permissions block, calls load_config, and asserts cfg.queue is a QueueConfig instance with default_max_turns==5, default_sdk_timeout_seconds==1800, default_history_limit==50, repo_allowlist==[].",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "[ ] Boundary test: `repo_allowlist: [\"/home/rich/Projects\"]` parses to `list[Path]`",
+      "status": "complete",
+      "evidence": "Test `test_repo_allowlist_string_parses_to_path` writes `queue: {repo_allowlist: ['/home/rich/Projects']}` to a tmp YAML and asserts cfg.queue.repo_allowlist == [Path('/home/rich/Projects')] AND that every element is an isinstance(p, Path). A second test exercises the multi-path case for completeness.",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "[ ] All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "pyproject.toml declares no ruff/black/flake8/mypy/isort configuration, so the project-configured lint/format check surface is the pytest collection itself \u2014 modules must import cleanly and code must be syntactically valid. All modified/created modules import cleanly (verified with `PYTHONPATH=src python3 -c 'from forge.config import QueueConfig, ForgeConfig, load_config'`) and the full 167-test config suite collects and passes. Code follows the project's documented Python style (snake_case functions/variables, PascalCase classes, type hints, max line ~88 chars, f-strings, context managers via `read_text`).",
+      "test_file": "tests/forge/config/test_queue_and_loader.py",
+      "implementation_files": [
+        "src/forge/config/models.py",
+        "src/forge/config/loader.py",
+        "src/forge/config/__init__.py",
+        "tests/forge/config/test_queue_and_loader.py",
+        "tests/forge/config/__init__.py",
+        "tests/test_forge_config.py",
+        "tests/test_approval_config.py"
+      ]
+    }
+  ],
+  "success": true
+}

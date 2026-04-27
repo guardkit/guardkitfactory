@@ -1,0 +1,24 @@
+{
+  "task_id": "TASK-PSM-005",
+  "checkpoints": [
+    {
+      "turn": 1,
+      "commit_hash": "13e945e2778ec0e30fd2dba74cc8574c313fc226",
+      "timestamp": "2026-04-27T13:36:24.437099",
+      "tests_passed": true,
+      "test_count": 0,
+      "message": "[guardkit-checkpoint] Turn 1 complete (tests: pass)",
+      "from_prior_run": false
+    },
+    {
+      "turn": 2,
+      "commit_hash": "8540e68b8e6e9b52caa2ccd493ebf0887d815321",
+      "timestamp": "2026-04-27T13:45:59.150203",
+      "tests_passed": true,
+      "test_count": 0,
+      "message": "[guardkit-checkpoint] Turn 2 complete (tests: pass)",
+      "from_prior_run": false
+    }
+  ],
+  "last_updated": "2026-04-27T13:45:59.150333"
+}

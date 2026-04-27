@@ -1,0 +1,174 @@
+{
+  "task_id": "TASK-PSM-005",
+  "turn": 2,
+  "files_modified": [
+    ".claude/task-plans/TASK-PSM-005-implementation-plan.md",
+    ".guardkit/autobuild/TASK-PSM-004/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-005/coach_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-005/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-PSM-005/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-005/specialist_results.json",
+    ".guardkit/autobuild/TASK-PSM-005/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-005/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-005/turn_state_turn_1.json",
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/forge/test_lifecycle_persistence.py",
+    "src/forge/lifecycle/persistence.py",
+    "tasks/backlog/pipeline-state-machine-and-configuration/TASK-PSM-005-persistence-protocol-implementations.md",
+    "tasks/design_approved/TASK-PSM-005-persistence-protocol-implementations.md",
+    "tests/forge/test_lifecycle_persistence.py",
+    "tests/forge/test_state_machine.py"
+  ],
+  "files_created": [
+    ".guardkit/autobuild/TASK-PSM-005/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-005/coach_feedback_for_turn_2.json",
+    ".guardkit/autobuild/TASK-PSM-005/player_turn_2.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/.guardkit/autobuild/TASK-PSM-005/player_turn_2.json"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/forge/test_lifecycle_persistence.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "Concrete SQLite-backed implementations of all seven cli_steering Protocols",
+    "Public write API: apply_transition, record_pending_build, record_stage, mark_paused",
+    "Public read API: read_status, read_history, read_stages, exists_active_build, find_active_or_recent",
+    "sc_001 single-status-writer concern enforced",
+    "F7 BEGIN IMMEDIATE concurrency invariant",
+    "F4 PENDING_APPROVAL_REQUEST_ID producer-side contract",
+    "Group B duplicate refused via DuplicateBuildError",
+    "Lint/format clean: ruff + mypy on modified files"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 16,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 60,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "All seven Protocol classes are concrete and pass isinstance checks against the runtime_checkable Protocols defined in pipeline/cli_steering.py",
+      "status": "complete",
+      "evidence": "Seven Sqlite*/AsyncTask* classes (SqliteBuildSnapshotReader, SqliteBuildCanceller, SqliteBuildResumer, SqliteStageSkipRecorder, SqlitePauseRejectResolver, AsyncTaskCanceller, AsyncTaskUpdater) implemented in src/forge/lifecycle/persistence.py. Each exposes the methods of its runtime_checkable Protocol from forge.pipeline.cli_steering. TestProtocolImplementations contains 7 isinstance() checks, all passing. Verified again at REPL: all seven return True for isinstance() against the corresponding Protocol.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "apply_transition(t: Transition) -> None is the ONLY public method that issues UPDATE builds SET status = ? (verified by static analysis grep)",
+      "status": "complete",
+      "evidence": "The single 'UPDATE builds SET status = ?' SQL site is inside SqliteLifecyclePersistence.apply_transition. mark_paused, SqliteBuildCanceller.mark_cancelled, SqliteBuildResumer.resume_after_skip all compose a Transition via state_machine.transition() and route through apply_transition. Verified by TestSingleStatusWriter.test_single_status_writer_in_src walking src/ for the regex (asserts exactly 1 hit located in lifecycle/persistence.py). Also verified by the existing test_state_machine.py grep test (which now uses --include=*.py to ignore the .pyc cache).",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "apply_transition rejects raw kwargs \u2014 its signature accepts only Transition objects (Pydantic-validated)",
+      "status": "complete",
+      "evidence": "apply_transition(self, transition: Transition) -> None has exactly one parameter named 'transition'. Body raises TypeError if isinstance(transition, Transition) is False. Verified by TestApplyTransitionSignature.test_signature_has_only_transition_param (introspects via inspect.signature) and test_apply_transition_rejects_non_transition (asserts TypeError for dict, str, None inputs).",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "mark_paused(build_id, request_id) writes pending_approval_request_id atomically with the state transition (single UPDATE statement)",
+      "status": "complete",
+      "evidence": "mark_paused composes a Transition with pending_approval_request_id=request_id via state_machine.transition() and routes it through apply_transition. apply_transition's UPDATE writes status AND pending_approval_request_id in the same SQL statement guarded by BEGIN IMMEDIATE / COMMIT. Verified by TestMarkPausedAtomic.test_mark_paused_persists_request_id which asserts both columns post-call.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "record_pending_build(payload) writes the build row and translates IntegrityError on the UNIQUE (feature_id, correlation_id) index into a domain-level DuplicateBuildError (Group B duplicate refused)",
+      "status": "complete",
+      "evidence": "record_pending_build wraps INSERT in BEGIN IMMEDIATE / COMMIT and converts sqlite3.IntegrityError to DuplicateBuildError(feature_id, correlation_id) with ROLLBACK on failure. Verified by TestRecordPendingBuildDuplicate (3 tests): first record succeeds, duplicate raises DuplicateBuildError with the right attributes, and only one row exists in the table after the failed second insert.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "read_status returns active builds (QUEUED, PREPARING, RUNNING, PAUSED, FINALISING) plus the last 5 terminal builds, sorted by queued_at DESC (per API-cli.md \u00a74.2)",
+      "status": "complete",
+      "evidence": "read_status issues two SELECTs (active set, terminal LIMIT 5) and merges sorted DESC. Verified by TestReadStatus across 5 cases: empty, active-only ordering, terminal cap at 5 (seeded 7 cancelled, asserted 5 returned newest-first), active + terminal global DESC interleave, and feature filter narrowing.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "read_history(limit=50) returns at most 50 most recent builds; clamps limit to a max of e.g. 1000 to prevent unbounded queries",
+      "status": "complete",
+      "evidence": "read_history clamps via max(0, min(limit, MAX_HISTORY_LIMIT)) where MAX_HISTORY_LIMIT=1000. Default 50. Negative/zero returns []; non-int raises TypeError. Verified by TestReadHistory across 4 cases: default 50 (60 builds \u2192 50 returned newest-first), clamp constant 1000 exposed, zero/negative empty, type guard.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "exists_active_build(feature_id) returns True iff any build for that feature is in {QUEUED, PREPARING, RUNNING, PAUSED, FINALISING}",
+      "status": "complete",
+      "evidence": "exists_active_build issues SELECT 1 WHERE feature_id = ? AND status IN (...) against ACTIVE_STATES. Verified by TestExistsActiveBuild: empty case False, QUEUED True, parametrized COMPLETE/FAILED/CANCELLED False, PAUSED True (after driving QUEUED \u2192 PREPARING \u2192 RUNNING \u2192 PAUSED with mark_paused).",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All write paths use BEGIN IMMEDIATE to acquire the write lock atomically (per F7 in the review report \u2014 avoids busy-retry under concurrent queue commands)",
+      "status": "complete",
+      "evidence": "apply_transition, record_pending_build, and record_stage all wrap their writes in explicit 'BEGIN IMMEDIATE;' / COMMIT (or ROLLBACK on raise) on the autocommit (isolation_level=None) writer connection. Verified by TestBeginImmediate.test_persistence_module_uses_begin_immediate scanning the source for 'BEGIN IMMEDIATE'. Delegating writes (mark_paused, mark_cancelled, resume_after_skip) inherit the guarantee via apply_transition.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All read paths use read_only_connect() from forge.adapters.sqlite.connect",
+      "status": "complete",
+      "evidence": "SqliteLifecyclePersistence._reader() context manager opens a fresh read_only_connect() against self._db_path on every read call. read_status, read_history, read_stages, exists_active_build, find_active_or_recent all flow through it. For in-memory test databases (path empty) it falls back to the writer connection. Verified by TestReadPathsUseReadOnlyConnect.test_reads_against_real_file_open_a_ro_connection which monkeypatches the helper with a spy and asserts all five read methods invoke it against the writer's db file.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "Unit tests cover each Protocol method against a real in-memory SQLite database",
+      "status": "complete",
+      "evidence": "tests/forge/test_lifecycle_persistence.py has 60 tests across 14 TestXXX classes. Every Protocol method (get_snapshot, mark_cancelled, resume_after_skip, record_skipped, record_skip_refused, resolve_as_reject, cancel_async_task, update_async_task) plus the read API is exercised against a real SQLite database (tmp_path forge.db with apply_at_boot). 60/60 pass; broader 1544-test forge suite also passes.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Ran the available linters/type-checkers on the modified files and they all pass cleanly: (1) `ruff check src/forge/lifecycle/persistence.py tests/forge/test_lifecycle_persistence.py tests/forge/test_state_machine.py` \u2192 'All checks passed!' (zero errors). (2) `mypy --ignore-missing-imports --follow-imports=silent src/forge/lifecycle/persistence.py` \u2192 'Success: no issues found in 1 source file'. Removed two unused imports (Transition, BuildSnapshot) from the test file as flagged by ruff F401 in turn-2 fix-up; re-running ruff after the fix returned a clean check. The project does not declare ruff/black/mypy in pyproject.toml as a configured gate, so the canonical check is the ruff default ruleset (the one bundled with the workspace's ruff 0.15.2 install). Both modified files pass.",
+      "test_file": "tests/forge/test_lifecycle_persistence.py",
+      "implementation_files": [
+        "src/forge/lifecycle/persistence.py",
+        "tests/forge/test_lifecycle_persistence.py"
+      ]
+    }
+  ]
+}

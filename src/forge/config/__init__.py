@@ -1,10 +1,13 @@
 """Forge configuration package.
 
-Re-exports the Pydantic v2 models that describe ``forge.yaml``. Importing from
-``forge.config`` keeps call sites short and decoupled from the internal module
-layout (see ``forge.config.models``).
+Re-exports the Pydantic v2 models that describe ``forge.yaml`` and the
+``load_config`` helper that parses + validates a YAML document into the
+root model. Importing from ``forge.config`` keeps call sites short and
+decoupled from the internal module layout (see ``forge.config.models``
+and ``forge.config.loader``).
 """
 
+from .loader import load_config
 from .models import (
     ApprovalConfig,
     FilesystemPermissions,
@@ -12,6 +15,7 @@ from .models import (
     ForgeConfig,
     PermissionsConfig,
     PipelineConfig,
+    QueueConfig,
 )
 
 __all__ = [
@@ -21,4 +25,6 @@ __all__ = [
     "ForgeConfig",
     "PermissionsConfig",
     "PipelineConfig",
+    "QueueConfig",
+    "load_config",
 ]

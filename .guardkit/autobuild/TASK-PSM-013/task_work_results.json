@@ -1,0 +1,232 @@
+{
+  "task_id": "TASK-PSM-013",
+  "timestamp": "2026-04-27T14:31:51.516442",
+  "completed": true,
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "text": "Implementation",
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 45,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    ".claude/task-plans/TASK-PSM-013-implementation-plan.md",
+    ".guardkit/autobuild/TASK-PSM-008/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-012/coach_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-012/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-012/task_work_results.json",
+    ".guardkit/autobuild/TASK-PSM-012/turn_context.json",
+    ".guardkit/autobuild/TASK-PSM-012/turn_state_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-013/turn_context.json",
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/bdd/conftest.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/bdd/test_pipeline_state_machine.py",
+    "pyproject.toml",
+    "src/forge/cli/main.py",
+    "tasks/design_approved/TASK-PSM-013-bdd-harness-all-34-scenarios.md",
+    "tests/bdd/conftest.py",
+    "tests/forge/test_pyproject_console_script.py"
+  ],
+  "files_created": [
+    ".guardkit/autobuild/TASK-PSM-012/checkpoints.json",
+    ".guardkit/autobuild/TASK-PSM-013/player_turn_1.json",
+    ".guardkit/autobuild/TASK-PSM-013/task_work_results.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/.guardkit/autobuild/TASK-PSM-013/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/bdd/test_pipeline_state_machine.py",
+    "tests/bdd/test_pipeline_state_machine.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-001/tests/bdd/test_pipeline_state_machine.py"
+  ],
+  "summary": "45 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 83,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "All 34 BDD scenarios from pipeline-state-machine-and-configuration.feature are mapped to pytest-bdd step definitions",
+      "status": "complete",
+      "evidence": "scenarios('pipeline-state-machine-and-configuration/pipeline-state-machine-and-configuration.feature') registers all 34 scenarios in tests/bdd/test_pipeline_state_machine.py. pytest collected 45 test items (34 scenarios + 11 additional Scenario Outline rows: turn-budget bounds 4 examples, history-limit 3 examples, terminal-after-crash 4 examples, terminal-completion-time 4 examples = 34 + 11 = 45). All 45 pass in 0.35s.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py",
+        "tests/bdd/conftest.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Group A (6 key examples) \u2014 all pass",
+      "status": "complete",
+      "evidence": "All 6 Group A scenarios (Queueing-creates-pending-build, full-lifecycle-to-completion, Status-shows-active-and-recent, History-lists-prior-attempts, Defaults-and-overrides, Status-responsive-during-write) pass against the production persistence + state_machine modules.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Group B (6 boundary conditions) \u2014 all pass; Scenario Outlines fan out correctly (turn-budget bounds \u00d7 4 examples; history-limit \u00d7 3 examples; terminal-states-after-crash \u00d7 4 examples)",
+      "status": "complete",
+      "evidence": "Group B fans out as expected: turn-budget-accepted [1, 5] (2 rows), turn-budget-rejected [0, -1] (2 rows), history-limit [(10,50,10),(60,50,50),(60,1,1)] (3 rows), default-history-50, duplicate-correlation-refused, full-status-five-stages \u2014 all pass. Outlines visible in pytest output as e.g. test_reasoningturn_budget_overrides_at_or_above_the_minimum_are_accepted[1].",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Group C (7 negative cases) \u2014 all pass",
+      "status": "complete",
+      "evidence": "All 7 Group C scenarios (path-allowlist-refused, in-flight-duplicate, skip-on-non-paused, cancel-of-unknown, validation-fail, hard-stop-fail, invalid-transition) pass. The path-allowlist and in-flight scenarios assert exit_code == EXIT_PATH_REFUSED / EXIT_DUPLICATE; the validation/hard-stop/invalid-transition scenarios route through state_machine.transition with InvalidTransitionError raised on illegal moves.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Group D (9 edge cases) \u2014 all pass; crash recovery scenarios use reconcile_on_boot against a seeded SQLite state",
+      "status": "complete",
+      "evidence": "All 9 Group D scenarios (crash-during-prep, crash-during-running, crash-during-finalising, paused-survives-crash, terminal-states-after-crash x4, cancel-paused, skip-flagged, sequential-queue, watch-status) pass. The four crash-recovery scenarios run forge.lifecycle.recovery.reconcile_on_boot against a seeded SQLite state (PREPARING/RUNNING/FINALISING/PAUSED rows seeded via _seed_build) and assert the per-state action matrix from API-sqlite-schema.md \u00a76.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Group E (2 security) \u2014 path-traversal includes URL-encoded variants (sc_003 invariant); cancel-operator-distinct from originator (sc_005)",
+      "status": "complete",
+      "evidence": "Both Group E scenarios pass: path-traversal exercises validate_feature_id (which decodes %2F / double-encoded variants per identifiers.py) and asserts exit_code == EXIT_INVALID_IDENTIFIER; cancel-operator-distinct seeds a build with originating_user='alice' and asserts the originator is preserved while the cancelling-operator (responder='bob') is recorded on the resolution.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Group F (2 concurrency) \u2014 uses two threads invoking forge queue concurrently against the same SQLite (with WAL); reader fixture exercises the consistent-snapshot guarantee",
+      "status": "complete",
+      "evidence": "Both Group F scenarios pass: two-features-queued-concurrently exercises back-to-back record_pending_build calls and asserts distinct build_ids and queue-time ordering preserved; concurrent-reader spawns a threading.Thread that calls read_history while the main thread writes a stage_log row, and asserts the reader sees a consistent snapshot. The connect_writer / read_only_connect helpers apply WAL-mode pragmas (DDR-003) so this concurrency exercise is meaningful.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Group G (2 data integrity) \u2014 terminal-state-completion-time invariant + write-then-publish-failure (sc_002)",
+      "status": "complete",
+      "evidence": "Both Group G scenarios pass: terminal-completion-time fans out across [complete, failed, cancelled, skipped] and asserts completed_at is non-NULL plus no further transitions are permitted (compose_transition raises InvalidTransitionError for any other target); write-then-publish-failure flips stub_publisher.raise_on_publish=True, invokes forge queue, and asserts exit_code == EXIT_PUBLISH_FAILED with the build still visible as QUEUED in SQLite.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Group H (1 integration boundary) \u2014 NATS unreachable + forge status / forge history succeed",
+      "status": "complete",
+      "evidence": "Group H 'messaging-unreachable' scenario flips stub_publisher.raise_on_publish=True, invokes forge queue (asserts EXIT_PUBLISH_FAILED + 'messaging-layer' in stderr), then verifies persistence.read_status() returns without touching the publish seam \u2014 proving the SQLite read path is functional even with the messaging layer down.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "No real NATS connections are made by the test suite (CI-friendly)",
+      "status": "complete",
+      "evidence": "forge.cli.queue.publish is monkey-patched onto _PsmStubPipelinePublisher.publish via the forge_runner fixture; recovery.reconcile_on_boot is invoked with stub_failure_publisher and stub_approval_publisher. No nats.connect() is ever called.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/conftest.py",
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "Test run completes in under 30 seconds on developer laptop",
+      "status": "complete",
+      "evidence": "Observed runtime: 0.35s for the full 45-item harness on the dev laptop (`pytest tests/bdd/test_pipeline_state_machine.py -q` -> '45 passed in 0.35s'). Two orders of magnitude under the 30-second ceiling.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-012",
+      "criterion_text": "BDD scenarios are tagged with @task:TASK-PSM-NNN (this is wired automatically by /feature-plan Step 11 \u2014 do NOT add them by hand here)",
+      "status": "complete",
+      "evidence": "The Gherkin tags @task:TASK-PSM-NNN are already present on every scenario in pipeline-state-machine-and-configuration.feature (see lines 23, 33, 43, 53, 62, 72, 84, 99, 112, 126, 135, 144, 156, 166, 175, 184, 192, 201, 210, 223, 233, 242, 251, 260, 276, 286, 298, 308, 324, 337, 351, 360, 373, 392, 406). pytest-bdd reflects them as marker objects; the conftest.py pytest_bdd_apply_tag hook applies a sanitised marker name in addition. No tags were added or modified in this task.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": []
+    },
+    {
+      "criterion_id": "AC-013",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "ruff check tests/bdd/test_pipeline_state_machine.py tests/bdd/conftest.py reports 'All checks passed!'.",
+      "test_file": "tests/bdd/test_pipeline_state_machine.py",
+      "implementation_files": [
+        "tests/bdd/test_pipeline_state_machine.py",
+        "tests/bdd/conftest.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 56.50122064398602
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 378.7038380790036
+    }
+  ]
+}
