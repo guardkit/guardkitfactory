@@ -52,6 +52,7 @@ from rich.live import Live
 from rich.table import Table
 
 from forge.adapters.sqlite.connect import read_only_connect
+from forge.lifecycle.modes import BuildMode
 from forge.lifecycle.persistence import (
     ACTIVE_STATES,
     BuildStatusView,
@@ -137,7 +138,17 @@ def _row_to_status_view(row: sqlite3.Row) -> BuildStatusView:
     duplication is intentional — the CLI read path is decoupled from the
     persistence facade so we don't need to instantiate a writer
     connection just to project one row.
+
+    Tolerates legacy rows that pre-date the ``mode`` column (FEAT-FORGE-008
+    additive migration in ``schema_v2.sql``) by defaulting to
+    :attr:`BuildMode.MODE_A`. This keeps ``forge status`` working through
+    the upgrade window and on databases that have not yet run the v2
+    migration.
     """
+    try:
+        raw_mode = row["mode"]
+    except (IndexError, KeyError):
+        raw_mode = None
     return BuildStatusView(
         build_id=row["build_id"],
         feature_id=row["feature_id"],
@@ -151,6 +162,7 @@ def _row_to_status_view(row: sqlite3.Row) -> BuildStatusView:
         ),
         pr_url=row["pr_url"],
         error=row["error"],
+        mode=BuildMode(raw_mode) if raw_mode else BuildMode.MODE_A,
     )
 
 
@@ -172,7 +184,7 @@ def _query_status_views(
         rows = cx.execute(
             """
             SELECT build_id, feature_id, status, queued_at, started_at,
-                   completed_at, pr_url, error
+                   completed_at, pr_url, error, mode
               FROM builds
              WHERE feature_id = ?
              ORDER BY queued_at DESC
@@ -188,14 +200,14 @@ def _query_status_views(
 
     active_sql = f"""
         SELECT build_id, feature_id, status, queued_at, started_at,
-               completed_at, pr_url, error
+               completed_at, pr_url, error, mode
           FROM builds
          WHERE status IN ({active_placeholders})
          ORDER BY queued_at DESC
     """
     terminal_sql = f"""
         SELECT build_id, feature_id, status, queued_at, started_at,
-               completed_at, pr_url, error
+               completed_at, pr_url, error, mode
           FROM builds
          WHERE status IN ({terminal_placeholders})
          ORDER BY queued_at DESC
@@ -360,6 +372,11 @@ def _build_table(
     table = Table(title="Forge build status")
     table.add_column("BUILD", overflow="fold")
     table.add_column("FEATURE", overflow="fold")
+    # MODE column added by FEAT-FORGE-008 / TASK-MBC8-009 so operators
+    # can disambiguate concurrent Mode A / B / C builds at a glance
+    # (Group F scenarios). Legacy rows that pre-date the column render
+    # as ``mode-a`` per the additive migration default.
+    table.add_column("MODE")
     table.add_column("STATUS")
     table.add_column("STAGE")
     table.add_column("STARTED")
@@ -374,6 +391,7 @@ def _build_table(
         table.add_row(
             view.build_id,
             view.feature_id,
+            view.mode.value,
             view.status.value,
             stage_cell,
             _format_dt(view.started_at),
@@ -543,7 +561,12 @@ def status_cmd(
             f"{_FORGE_DB_PATH_ENV} or pass --db-path."
         )
 
-    console = Console()
+    # Use a deterministically-wide console so the additional MODE column
+    # (TASK-MBC8-009) does not squeeze the BUILD/FEATURE columns into
+    # truncating width when running under non-tty contexts (CliRunner /
+    # piped output). The interactive case still benefits because we are
+    # well within typical terminal width.
+    console = Console(width=160)
 
     try:
         if watch:

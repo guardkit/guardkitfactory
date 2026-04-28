@@ -1,0 +1,15 @@
+{
+  "task_id": "TASK-MBC8-002",
+  "checkpoints": [
+    {
+      "turn": 1,
+      "commit_hash": "d2f96f704d556a8ec970e4cfa03ae07a6e426092",
+      "timestamp": "2026-04-27T17:58:00.950818",
+      "tests_passed": true,
+      "test_count": 0,
+      "message": "[guardkit-checkpoint] Turn 1 complete (tests: pass)",
+      "from_prior_run": false
+    }
+  ],
+  "last_updated": "2026-04-27T17:58:00.950881"
+}

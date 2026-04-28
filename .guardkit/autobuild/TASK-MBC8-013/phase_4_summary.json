@@ -1,0 +1,7 @@
+{
+  "tests_run": 19,
+  "tests_failed": 0,
+  "coverage_pct": 21.0,
+  "output_summary": "19 passed, 0 failed in tests/integration/test_cross_mode_concurrency.py (pytest); whole-repo line coverage 21% from this single test file",
+  "quality_gates_passed": true
+}

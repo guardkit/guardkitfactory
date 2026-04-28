@@ -1,0 +1,238 @@
+{
+  "task_id": "TASK-MBC8-009",
+  "turn": 1,
+  "decision": "feedback",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_cli_mode_flag.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_cli_mode_flag.py::TestConstitutionalGateNotBypassed::test_skip_refused_at_pull_request_review_in_every_mode[mode-b] PASSED [ 87%]\ntests/forge/test_cli_mode_flag.py::TestConstitutionalGateNotBypassed::test_skip_refused_at_pull_request_review_in_every_mode[mode-c] PASSED [ 91%]\ntests/forge/test_cli_mode_flag.py::TestModeHelpTextReferencesChainShapes::test_help_text_lists_three_modes_with_chain_descriptions PASSED [ 95%]\ntests/forge/test_cli_mode_flag.py::TestModeHelpTextReferencesChainShapes::test_resolve_mode_helper_round_trips_short_and_long_forms PASSED [100%]\n============================== 24 passed in 0.20s ==============================",
+      "duration_seconds": 0.6273796558380127
+    },
+    "requirements": {
+      "criteria_total": 10,
+      "criteria_met": 0,
+      "all_criteria_met": false,
+      "missing": [
+        "`forge queue` accepts `--mode {a|b|c}` (default `a` for backwards",
+        "`forge queue --mode b <FEAT-ID>` requires exactly one feature",
+        "`forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.",
+        "`forge status` displays the mode column (default-rendered as `mode-a`",
+        "`forge history --mode b` and `--mode c` filter the history view by",
+        "Queue picker (`SqliteLifecyclePersistence.pick_next_pending`) returns",
+        "Constitutional gate cannot be bypassed by mode flag (Group E \"skip",
+        "Help text for `--mode` references the FEAT-FORGE-008 chain shapes",
+        "Unit tests cover the CLI surface; smoke tests in TASK-MBC8-010 and",
+        "All modified files pass project-configured lint/format checks with zero"
+      ]
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge queue` accepts `--mode {a|b|c}` (default `a` for backwards",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`forge queue --mode b <FEAT-ID>` requires exactly one feature",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`forge status` displays the mode column (default-rendered as `mode-a`",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "`forge history --mode b` and `--mode c` filter the history view by",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Queue picker (`SqliteLifecyclePersistence.pick_next_pending`) returns",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Constitutional gate cannot be bypassed by mode flag (Group E \"skip",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Help text for `--mode` references the FEAT-FORGE-008 chain shapes",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Unit tests cover the CLI surface; smoke tests in TASK-MBC8-010 and",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: incomplete",
+      "notes": "Promise status: incomplete"
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`forge queue` accepts `--mode {a|b|c}` (default `a` for backwards",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`forge queue --mode b <FEAT-ID>` requires exactly one feature",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`forge status` displays the mode column (default-rendered as `mode-a`",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "`forge history --mode b` and `--mode c` filter the history view by",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Queue picker (`SqliteLifecyclePersistence.pick_next_pending`) returns",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Constitutional gate cannot be bypassed by mode flag (Group E \"skip",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Help text for `--mode` references the FEAT-FORGE-008 chain shapes",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Unit tests cover the CLI surface; smoke tests in TASK-MBC8-010 and",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: incomplete",
+        "notes": "Promise status: incomplete"
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "must_fix",
+      "category": "missing_requirement",
+      "description": "Not all acceptance criteria met",
+      "missing_criteria": [
+        "`forge queue` accepts `--mode {a|b|c}` (default `a` for backwards",
+        "`forge queue --mode b <FEAT-ID>` requires exactly one feature",
+        "`forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.",
+        "`forge status` displays the mode column (default-rendered as `mode-a`",
+        "`forge history --mode b` and `--mode c` filter the history view by",
+        "Queue picker (`SqliteLifecyclePersistence.pick_next_pending`) returns",
+        "Constitutional gate cannot be bypassed by mode flag (Group E \"skip",
+        "Help text for `--mode` references the FEAT-FORGE-008 chain shapes",
+        "Unit tests cover the CLI surface; smoke tests in TASK-MBC8-010 and",
+        "All modified files pass project-configured lint/format checks with zero"
+      ]
+    }
+  ],
+  "rationale": "Missing 10 acceptance criteria: `forge queue` accepts `--mode {a|b|c}` (default `a` for backwards, `forge queue --mode b <FEAT-ID>` requires exactly one feature, `forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g., `forge status` displays the mode column (default-rendered as `mode-a`, `forge history --mode b` and `--mode c` filter the history view by, Queue picker (`SqliteLifecyclePersistence.pick_next_pending`) returns, Constitutional gate cannot be bypassed by mode flag (Group E \"skip, Help text for `--mode` references the FEAT-FORGE-008 chain shapes, Unit tests cover the CLI surface; smoke tests in TASK-MBC8-010 and, All modified files pass project-configured lint/format checks with zero",
+  "context_used": "## Job-Specific Context\n\nBudget: 1722/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ROUTES_TO\n- APPLIES_TO\n- HAS_FALLBACK_STRATEGY\n- CREATED_AT\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- IS_IMPLEMENTED_AS\n- INCORRECT_MODE_BEHAVIOR\n\n### \ud83c\udfad Role Constraints\n- MUST_CONSULT_BEFORE_MODIFYING\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n- MONITORS\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO_TASK\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

@@ -1,0 +1,51 @@
+{
+  "task_id": "TASK-MBC8-008",
+  "turn": 1,
+  "decision": "feedback",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": false,
+      "test_command": "pytest tests/forge/test_supervisor_mode_dispatch.py -v --tb=short",
+      "test_output_summary": "Error detail:\n    assert report.outcome is TurnOutcome.WAITING_PRIOR_AUTOBUILD\nE   AssertionError: assert <TurnOutcome.DISPATCHED: 'dispatched'> is <TurnOutcome.WAITING_PRIOR_AUTOBUILD: 'waiting_prior_autobuild'>\nE    +  where <TurnOutcome.DISPATCHED: 'dispatched'> = TurnReport(outcome=<TurnOutcome.DISPATCHED: 'dispatched'>, build_id='build-B4', permitted_stages=frozenset({<StageClass.FEATURE_PLAN: 'feature-plan'>, <StageClass.AUTOBUILD: 'autobuild'>, <StageClass.FEATURE_SPEC: 'feature-spec'>}), chosen_stage=<StageClass.AUTOBUILD: 'autobuild'>, chosen_feature_id='FEAT-1', rationale='MODE_B planner chose autobuild', dispatch_result={'dispatcher': 'autobuild_async', 'status': 'ok'}, gate_decision=None).outcome\nE    +  and   <TurnOutcome.WAITING_PRIOR_AUTOBUILD: 'waiting_prior_autobuild'> = TurnOutcome.WAITING_PRIOR_AUTOBUILD\n_ TestModeCPRReviewRoute.test_clean_followup_with_commits_advances_to_pr_review _\nResult:\ntests/forge/test_supervisor_mode_dispatch.py:938: in test_mode_b_pr_revi...",
+      "duration_seconds": 0.632521390914917
+    },
+    "requirements": null
+  },
+  "criteria_verification": [],
+  "acceptance_criteria_verification": {
+    "criteria_results": []
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "must_fix",
+      "category": "test_verification",
+      "description": "Independent test verification failed",
+      "test_output": "Error detail:\n    assert report.outcome is TurnOutcome.WAITING_PRIOR_AUTOBUILD\nE   AssertionError: assert <TurnOutcome.DISPATCHED: 'dispatched'> is <TurnOutcome.WAITING_PRIOR_AUTOBUILD: 'waiting_prior_autobuild'>\nE    +  where <TurnOutcome.DISPATCHED: 'dispatched'> = TurnReport(outcome=<TurnOutcome.DISPATCHED: 'dispatched'>, build_id='build-B4', permitted_stages=frozenset({<StageClass.FEATURE_PLAN: 'feature-plan'>, <StageClass.AUTOBUILD: 'autobuild'>, <StageClass.FEATURE_SPEC: 'feature-spec'>}), chosen_stage=<StageClass.AUTOBUILD: 'autobuild'>, chosen_feature_id='FEAT-1', rationale='MODE_B planner chose autobuild', dispatch_result={'dispatcher': 'autobuild_async', 'status': 'ok'}, gate_decision=None).outcome\nE    +  and   <TurnOutcome.WAITING_PRIOR_AUTOBUILD: 'waiting_prior_autobuild'> = TurnOutcome.WAITING_PRIOR_AUTOBUILD\n_ TestModeCPRReviewRoute.test_clean_followup_with_commits_advances_to_pr_review _\nResult:\ntests/forge/test_supervisor_mode_dispatch.py:938: in test_mode_b_pr_revi...",
+      "failure_classification": "code",
+      "failure_confidence": "n/a"
+    }
+  ],
+  "rationale": "Tests passed according to task-work but failed on independent verification",
+  "context_used": "## Job-Specific Context\n\nBudget: 1533/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ASSIGNS_TASK_TO\n- INSTRUCTS_USER_TO_START\n- IS_USED_IN\n\n### \u26a0\ufe0f Warnings\n- USES_ENDPOINT\n- HAS_ROOT_CAUSE\n- INCORRECT_MODE_BEHAVIOR\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- RUNS_TESTS_BEFORE_REPORTING\n- DELEGATES_TO\n- CREATES_REPORT\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- IMPLEMENTATION_MODE_HAS_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

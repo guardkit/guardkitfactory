@@ -1,0 +1,162 @@
+{
+  "task_id": "TASK-MBC8-011",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "skipped",
+      "test_output_summary": "Independent test verification skipped (tests not required for testing tasks)",
+      "duration_seconds": 0.0
+    },
+    "requirements": {
+      "criteria_total": 7,
+      "criteria_met": 7,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`tests/integration/test_mode_c_smoke_e2e.py` enqueues Mode C builds and",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created tests/integration/test_mode_c_smoke_e2e.py with three top-level test classes (TestEmptyInitialReviewTerminal, TestFixTasksNoCommitsTerminal, TestFixTasksWithCommitsReachesPRReview) each driving a Mode C build through the supervisor and asserting the terminal shape. Harness uses real ModeCCyclePlanner + ModeCTerminalHandler against in-memory dispatcher fakes.",
+      "notes": "Created tests/integration/test_mode_c_smoke_e2e.py with three top-level test classes (TestEmptyInitialReviewTerminal, TestFixTasksNoCommitsTerminal, TestFixTasksWithCommitsReachesPRReview) each driving a Mode C build through the supervisor and asserting the terminal shape. Harness uses real ModeCCyclePlanner + ModeCTerminalHandler against in-memory dispatcher fakes."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Stage-history shape assertions:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestEmptyInitialReviewTerminal contains three tests: test_empty_review_reaches_clean_review_terminal asserts TurnOutcome.TERMINAL with 'clean-review' in rationale; test_empty_review_does_not_dispatch_task_work asserts only one /task-review dispatch and zero /task-work dispatches; test_empty_review_records_no_pr_url asserts pr_review_gate.submissions == [] and zero recorded pull_request_url values on chronology rows.",
+      "notes": "TestEmptyInitialReviewTerminal contains three tests: test_empty_review_reaches_clean_review_terminal asserts TurnOutcome.TERMINAL with 'clean-review' in rationale; test_empty_review_does_not_dispatch_task_work asserts only one /task-review dispatch and zero /task-work dispatches; test_empty_review_records_no_pr_url asserts pr_review_gate.submissions == [] and zero recorded pull_request_url values on chronology rows."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Failure-isolation assertion (ASSUM-008): one fix task's `/task-work`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestFixTasksNoCommitsTerminal scripts review_outcomes=[ReviewOutcome(('FIX-1','FIX-2','FIX-3')), ReviewOutcome(())] with commit_count=0; asserts three /task-work dispatches with sorted ids matching FIX-1/2/3, TurnOutcome.TERMINAL, 'clean-review' rationale, and pr_review_gate.submissions == [].",
+      "notes": "TestFixTasksNoCommitsTerminal scripts review_outcomes=[ReviewOutcome(('FIX-1','FIX-2','FIX-3')), ReviewOutcome(())] with commit_count=0; asserts three /task-work dispatches with sorted ids matching FIX-1/2/3, TurnOutcome.TERMINAL, 'clean-review' rationale, and pr_review_gate.submissions == []."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Hard-stop assertion: `/task-review` returns a hard-stop result; no",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestFixTasksWithCommitsReachesPRReview scripts the same review pattern with commit_count=2 (and 4 in the second test); asserts TurnOutcome.DISPATCHED with chosen_stage=PULL_REQUEST_REVIEW, exactly one PR submission with auto_approve=False, gate_mode=='MANDATORY_HUMAN_APPROVAL', and pull_request_url starting with 'https://github.com/example/forge/pull/'.",
+      "notes": "TestFixTasksWithCommitsReachesPRReview scripts the same review pattern with commit_count=2 (and 4 in the second test); asserts TurnOutcome.DISPATCHED with chosen_stage=PULL_REQUEST_REVIEW, exactly one PR submission with auto_approve=False, gate_mode=='MANDATORY_HUMAN_APPROVAL', and pull_request_url starting with 'https://github.com/example/forge/pull/'."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Cycle-termination assertion (ASSUM-010): after N fix tasks complete, a",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestStageHistoryShape::test_task_review_precedes_every_task_work_it_produced walks pipeline.stage_log.rows and asserts the first row is TASK_REVIEW, then iterates and asserts every TASK_WORK row has last_review_idx_seen != None and < its own index.",
+      "notes": "TestStageHistoryShape::test_task_review_precedes_every_task_work_it_produced walks pipeline.stage_log.rows and asserts the first row is TASK_REVIEW, then iterates and asserts every TASK_WORK row has last_review_idx_seen != None and < its own index."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Tests run in under 60 seconds with all dispatchers stubbed",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestStageHistoryShape::test_each_task_work_references_exactly_one_fix_task_id asserts each work row has non-None fix_task_id and details['fix_task_id'] mirrors the row-level field. PlannedSubprocessDispatcher also raises AssertionError if TASK_WORK is dispatched without a FixTaskRef, providing belt-and-braces enforcement.",
+      "notes": "TestStageHistoryShape::test_each_task_work_references_exactly_one_fix_task_id asserts each work row has non-None fix_task_id and details['fix_task_id'] mirrors the row-level field. PlannedSubprocessDispatcher also raises AssertionError if TASK_WORK is dispatched without a FixTaskRef, providing belt-and-braces enforcement."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestStageHistoryShape::test_artefact_paths_attribute_only_to_producing_fix_task scripts unique artefact_paths per fix task (FIX-1 -> [src/a.py, tests/a_test.py], FIX-2 -> [src/b.py], FIX-3 -> [docs/c.md]) and walks every work row asserting no path appears under two different fix_task_ids; also positively asserts attributed_per_fix_task matches the scripted lists.",
+      "notes": "TestStageHistoryShape::test_artefact_paths_attribute_only_to_producing_fix_task scripts unique artefact_paths per fix task (FIX-1 -> [src/a.py, tests/a_test.py], FIX-2 -> [src/b.py], FIX-3 -> [docs/c.md]) and walks every work row asserting no path appears under two different fix_task_ids; also positively asserts attributed_per_fix_task matches the scripted lists."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`tests/integration/test_mode_c_smoke_e2e.py` enqueues Mode C builds and",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created tests/integration/test_mode_c_smoke_e2e.py with three top-level test classes (TestEmptyInitialReviewTerminal, TestFixTasksNoCommitsTerminal, TestFixTasksWithCommitsReachesPRReview) each driving a Mode C build through the supervisor and asserting the terminal shape. Harness uses real ModeCCyclePlanner + ModeCTerminalHandler against in-memory dispatcher fakes.",
+        "notes": "Created tests/integration/test_mode_c_smoke_e2e.py with three top-level test classes (TestEmptyInitialReviewTerminal, TestFixTasksNoCommitsTerminal, TestFixTasksWithCommitsReachesPRReview) each driving a Mode C build through the supervisor and asserting the terminal shape. Harness uses real ModeCCyclePlanner + ModeCTerminalHandler against in-memory dispatcher fakes."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Stage-history shape assertions:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestEmptyInitialReviewTerminal contains three tests: test_empty_review_reaches_clean_review_terminal asserts TurnOutcome.TERMINAL with 'clean-review' in rationale; test_empty_review_does_not_dispatch_task_work asserts only one /task-review dispatch and zero /task-work dispatches; test_empty_review_records_no_pr_url asserts pr_review_gate.submissions == [] and zero recorded pull_request_url values on chronology rows.",
+        "notes": "TestEmptyInitialReviewTerminal contains three tests: test_empty_review_reaches_clean_review_terminal asserts TurnOutcome.TERMINAL with 'clean-review' in rationale; test_empty_review_does_not_dispatch_task_work asserts only one /task-review dispatch and zero /task-work dispatches; test_empty_review_records_no_pr_url asserts pr_review_gate.submissions == [] and zero recorded pull_request_url values on chronology rows."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Failure-isolation assertion (ASSUM-008): one fix task's `/task-work`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestFixTasksNoCommitsTerminal scripts review_outcomes=[ReviewOutcome(('FIX-1','FIX-2','FIX-3')), ReviewOutcome(())] with commit_count=0; asserts three /task-work dispatches with sorted ids matching FIX-1/2/3, TurnOutcome.TERMINAL, 'clean-review' rationale, and pr_review_gate.submissions == [].",
+        "notes": "TestFixTasksNoCommitsTerminal scripts review_outcomes=[ReviewOutcome(('FIX-1','FIX-2','FIX-3')), ReviewOutcome(())] with commit_count=0; asserts three /task-work dispatches with sorted ids matching FIX-1/2/3, TurnOutcome.TERMINAL, 'clean-review' rationale, and pr_review_gate.submissions == []."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Hard-stop assertion: `/task-review` returns a hard-stop result; no",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestFixTasksWithCommitsReachesPRReview scripts the same review pattern with commit_count=2 (and 4 in the second test); asserts TurnOutcome.DISPATCHED with chosen_stage=PULL_REQUEST_REVIEW, exactly one PR submission with auto_approve=False, gate_mode=='MANDATORY_HUMAN_APPROVAL', and pull_request_url starting with 'https://github.com/example/forge/pull/'.",
+        "notes": "TestFixTasksWithCommitsReachesPRReview scripts the same review pattern with commit_count=2 (and 4 in the second test); asserts TurnOutcome.DISPATCHED with chosen_stage=PULL_REQUEST_REVIEW, exactly one PR submission with auto_approve=False, gate_mode=='MANDATORY_HUMAN_APPROVAL', and pull_request_url starting with 'https://github.com/example/forge/pull/'."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Cycle-termination assertion (ASSUM-010): after N fix tasks complete, a",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestStageHistoryShape::test_task_review_precedes_every_task_work_it_produced walks pipeline.stage_log.rows and asserts the first row is TASK_REVIEW, then iterates and asserts every TASK_WORK row has last_review_idx_seen != None and < its own index.",
+        "notes": "TestStageHistoryShape::test_task_review_precedes_every_task_work_it_produced walks pipeline.stage_log.rows and asserts the first row is TASK_REVIEW, then iterates and asserts every TASK_WORK row has last_review_idx_seen != None and < its own index."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Tests run in under 60 seconds with all dispatchers stubbed",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestStageHistoryShape::test_each_task_work_references_exactly_one_fix_task_id asserts each work row has non-None fix_task_id and details['fix_task_id'] mirrors the row-level field. PlannedSubprocessDispatcher also raises AssertionError if TASK_WORK is dispatched without a FixTaskRef, providing belt-and-braces enforcement.",
+        "notes": "TestStageHistoryShape::test_each_task_work_references_exactly_one_fix_task_id asserts each work row has non-None fix_task_id and details['fix_task_id'] mirrors the row-level field. PlannedSubprocessDispatcher also raises AssertionError if TASK_WORK is dispatched without a FixTaskRef, providing belt-and-braces enforcement."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestStageHistoryShape::test_artefact_paths_attribute_only_to_producing_fix_task scripts unique artefact_paths per fix task (FIX-1 -> [src/a.py, tests/a_test.py], FIX-2 -> [src/b.py], FIX-3 -> [docs/c.md]) and walks every work row asserting no path appears under two different fix_task_ids; also positively asserts attributed_per_fix_task matches the scripted lists.",
+        "notes": "TestStageHistoryShape::test_artefact_paths_attribute_only_to_producing_fix_task scripts unique artefact_paths per fix task (FIX-1 -> [src/a.py, tests/a_test.py], FIX-2 -> [src/b.py], FIX-3 -> [docs/c.md]) and walks every work row asserting no path appears under two different fix_task_ids; also positively asserts attributed_per_fix_task matches the scripted lists."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    }
+  ],
+  "rationale": "All quality gates passed. Tests not required for this task type. All acceptance criteria met. Architecture context: 370 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1664/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- USES_ATTRIBUTE\n- EXECUTES_STEP\n- DEPENDS_ON_CONTENT\n- SETS_FIELD\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- IS_IMPLEMENTED_AS\n- USES_ENDPOINT\n\n### \ud83c\udfad Role Constraints\n- MONITOR_QUALITY_GATES\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n- MONITORS_RESULTS_FROM\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO_TASK\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

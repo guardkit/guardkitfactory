@@ -1,0 +1,153 @@
+{
+  "task_id": "TASK-MBC8-005",
+  "turn": 1,
+  "files_modified": [
+    ".guardkit/bootstrap_state.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/src/forge/pipeline/forward_context_builder.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/test_forward_context_builder.py",
+    "src/forge/pipeline/forward_context_builder.py",
+    "tasks/backlog/TASK-MBC8-003-mode-b-chain-planner.md",
+    "tasks/backlog/TASK-MBC8-004-mode-c-cycle-planner.md",
+    "tasks/backlog/TASK-MBC8-005-forward-context-mode-b-c.md",
+    "tests/forge/test_forward_context_builder.py"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-003-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-004-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-005-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-001/checkpoints.json",
+    ".guardkit/autobuild/TASK-MBC8-003/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-003/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-003/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-004/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-004/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-005/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-005/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-005/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/.guardkit/autobuild/TASK-MBC8-005/player_turn_1.json",
+    "src/forge/pipeline/mode_b_planner.py",
+    "src/forge/pipeline/mode_c_planner.py",
+    "tasks/design_approved/TASK-MBC8-003-mode-b-chain-planner.md",
+    "tasks/design_approved/TASK-MBC8-004-mode-c-cycle-planner.md",
+    "tasks/design_approved/TASK-MBC8-005-forward-context-mode-b-c.md",
+    "tests/forge/pipeline/test_mode_c_planner.py",
+    "tests/forge/test_mode_b_planner.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/test_forward_context_builder.py"
+  ],
+  "tests_run": true,
+  "tests_passed": true,
+  "test_output_summary": "",
+  "implementation_notes": "Implementation via task-work delegation. Files planned: 0, Files actual: 0",
+  "concerns": [],
+  "requirements_addressed": [
+    "AC-001: mode: BuildMode parameter added (Mode A unchanged)",
+    "AC-002: Mode B FEATURE_PLAN \u2190 FEATURE_SPEC paths",
+    "AC-003: Mode B AUTOBUILD \u2190 FEATURE_PLAN paths",
+    "AC-004: Mode B forbidden stages raise ModeBoundaryViolation",
+    "AC-005: Mode C TASK_WORK receives FixTaskRef + review paths",
+    "AC-006: Mode C follow-up TASK_REVIEW receives all completed task-work paths",
+    "AC-007: Builder is pure (build_for has no side effects beyond reader queries)",
+    "AC-008: Unit tests cover Mode B and Mode C key-example scenarios verbatim",
+    "AC-009: ruff + black both pass (zero errors)"
+  ],
+  "requirements_remaining": [],
+  "sdk_turns_used": 51,
+  "sdk_max_turns": 100,
+  "sdk_ceiling_hit": false,
+  "tests_passed_count": 45,
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "ForwardContextBuilder gains a mode: BuildMode parameter (or per-mode contract map) so callers can request the right contract set; existing Mode A callers get the existing behaviour with no change in output",
+      "status": "complete",
+      "evidence": "Added `mode: BuildMode | None = None` keyword-only parameter to build_for(). Default None is treated as MODE_A by `effective_mode = BuildMode.MODE_A if mode is None else mode`. _CONTRACT_BY_MODE dispatch table picks the right contract per mode. Backward compat verified by TestModeADefaultBackwardCompat.test_mode_a_caller_default_matches_explicit_mode_a (asserts default-mode and explicit-MODE_A return identical entries) and the 24 pre-existing Mode A tests which continue to pass unchanged.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Mode B FEATURE_PLAN receives feature-spec artefact paths from the approved /feature-spec stage entry",
+      "status": "complete",
+      "evidence": "MODE_B_PROPAGATION_CONTRACT[FEATURE_PLAN] = ContextRecipe(producer_stage=FEATURE_SPEC, artefact_kind='path', context_flag='--context'). Test test_mode_b_feature_plan_receives_feature_spec_artefact_paths arranges an approved FEATURE_SPEC entry and asserts build_for(FEATURE_PLAN, ..., mode=BuildMode.MODE_B) returns the spec path as a ContextEntry.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Mode B AUTOBUILD receives feature-plan artefact paths from the approved /feature-plan stage entry",
+      "status": "complete",
+      "evidence": "MODE_B_PROPAGATION_CONTRACT[AUTOBUILD] = ContextRecipe(producer_stage=FEATURE_PLAN, artefact_kind='path', context_flag='--context'). Test test_mode_b_autobuild_receives_feature_plan_artefact_paths arranges an approved FEATURE_PLAN entry and asserts build_for(AUTOBUILD, ..., mode=BuildMode.MODE_B) returns the plan path. Also covered by test_mode_b_pull_request_review_receives_autobuild_text and test_mode_b_contract_map_is_strict_subset_of_mode_a (asserts producer_stage/artefact_kind/context_flag parity with PROPAGATION_CONTRACT).",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Mode B forbidden stages raise ModeBoundaryViolation if any caller attempts to build context for them",
+      "status": "complete",
+      "evidence": "Added ModeBoundaryViolation(ValueError) with stage and mode attributes. build_for() raises it via `if effective_mode is BuildMode.MODE_B and stage in MODE_B_FORBIDDEN_STAGES: raise ModeBoundaryViolation(...)`. Test test_mode_b_forbidden_stages_raise_mode_boundary_violation is parametrised over all 4 MODE_B_FORBIDDEN_STAGES (PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and asserts the exception type, .stage, .mode, and that the message contains both names.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Mode C TASK_WORK receives the FixTaskRef for the fix task being dispatched AND the /task-review artefact paths that produced it (Group L lineage)",
+      "status": "complete",
+      "evidence": "Added FixTaskRef(fix_task_id, task_review_entry_id, review_artefact_paths) with stable to_json(). _build_mode_c_task_work() emits ContextEntry(flag='--fix-task', value=fix_task.to_json(), kind='text') first, then iterates fix_task.review_artefact_paths emitting one --context path entry per allow-listed path. Tests test_mode_c_task_work_emits_fix_task_text_entry, test_mode_c_task_work_emits_review_artefact_paths, test_mode_c_task_work_filters_review_paths_outside_allowlist, and test_mode_c_task_work_without_fix_task_returns_empty cover all branches.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Follow-up TASK_REVIEW receives the artefact paths from every completed /task-work in the cycle (so the reviewer sees the applied fixes)",
+      "status": "complete",
+      "evidence": "Extended StageLogReader Protocol with get_all_approved_stage_entries(build_id, stage, feature_id) -> Sequence[ApprovedStageEntry]. _build_mode_c_followup_review() queries it for TASK_WORK rows and emits one allow-listed --context path entry per artefact path across all returned entries. FakeStageLogReader satisfies the Protocol via a multi_entries dict. Test test_followup_review_receives_paths_from_every_completed_task_work seeds 3 task-work entries and asserts all 3 paths are returned in order; test_followup_review_with_no_completed_task_work_returns_empty covers the empty-cycle case; test_followup_review_filters_task_work_paths_outside_allowlist covers the allowlist gating.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Builder is pure: (build, history, mode, target_stage) -> ContextSpec with no side effects",
+      "status": "complete",
+      "evidence": "build_for() and its three new helpers (_build_for_mode_c, _build_mode_c_task_work, _build_mode_c_followup_review) only call self._reader (StageLogReader Protocol \u2014 read-only by contract), self._allowlist.is_allowed (read-only boolean check), construct frozen ContextEntry instances, and emit structured WARNING log lines for filtered paths. No filesystem writes, no DB writes, no mutation of inputs. Same purity invariant the TASK-MAG7-006 builder already had \u2014 extended verbatim to the new modes.",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Unit tests cover the Mode B and Mode C forward-propagation key-example scenarios verbatim",
+      "status": "complete",
+      "evidence": "21 new tests added across 5 test classes mirroring the AC structure: TestModeADefaultBackwardCompat (2), TestModeBContracts (9 \u2014 including parametrised forbidden-stage tests, contract-shape parity assertion, and entry-stage empty-list case), TestModeCTaskWorkContract (4), TestModeCFollowupTaskReviewContract (3), TestFixTaskRefSerialisation (3). Tests instantiate ForwardContextBuilder with FakeStageLogReader/FakeWorktreeAllowlist and exercise the Group A/L scenarios from FEAT-FORGE-008 (per-mode propagation, FixTaskRef as audit anchor, allowlist gating).",
+      "test_file": "tests/forge/test_forward_context_builder.py",
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "ruff check src/forge/pipeline/forward_context_builder.py tests/forge/test_forward_context_builder.py \u2192 'All checks passed!'. black --check --target-version py312 on both files \u2192 '2 files would be left unchanged'. Both linters report zero errors.",
+      "test_file": null,
+      "implementation_files": [
+        "src/forge/pipeline/forward_context_builder.py",
+        "tests/forge/test_forward_context_builder.py"
+      ]
+    }
+  ]
+}

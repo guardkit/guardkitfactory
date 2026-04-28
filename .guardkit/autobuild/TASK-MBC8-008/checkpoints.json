@@ -1,0 +1,24 @@
+{
+  "task_id": "TASK-MBC8-008",
+  "checkpoints": [
+    {
+      "turn": 1,
+      "commit_hash": "a131a90db94fb44b67de91e6d258fb174076cec1",
+      "timestamp": "2026-04-27T18:56:15.138525",
+      "tests_passed": true,
+      "test_count": 0,
+      "message": "[guardkit-checkpoint] Turn 1 complete (tests: pass)",
+      "from_prior_run": false
+    },
+    {
+      "turn": 2,
+      "commit_hash": "45a976120688821d15e745745c7a886c03cc385f",
+      "timestamp": "2026-04-27T19:09:24.732718",
+      "tests_passed": true,
+      "test_count": 0,
+      "message": "[guardkit-checkpoint] Turn 2 complete (tests: pass)",
+      "from_prior_run": false
+    }
+  ],
+  "last_updated": "2026-04-27T19:09:24.732778"
+}

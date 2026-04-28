@@ -1,0 +1,7 @@
+{
+  "tests_run": 1902,
+  "tests_failed": 2,
+  "coverage_pct": 87.0,
+  "output_summary": "1900 passed, 2 failed (pre-existing unrelated: sqlite_persistence idempotency, lifecycle/recovery evidence_priors); 52/52 task tests pass; changed-files cov 87% (guard 100%, supervisor 85%)",
+  "quality_gates_passed": false
+}

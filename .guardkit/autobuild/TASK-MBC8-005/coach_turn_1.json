@@ -1,0 +1,151 @@
+{
+  "task_id": "TASK-MBC8-005",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/pipeline/test_mode_c_planner.py tests/forge/test_forward_context_builder.py tests/forge/test_mode_b_planner.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_mode_b_planner.py::TestImplementationHygiene::test_mode_b_plan_is_frozen PASSED [ 97%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_history_with_unknown_status_does_not_advance PASSED [ 98%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_history_with_malformed_artefacts_value_does_not_crash PASSED [ 99%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_planner_only_inspects_latest_entry_per_stage PASSED [100%]\n============================= 104 passed in 0.17s ==============================",
+      "duration_seconds": 0.6010510921478271
+    },
+    "requirements": {
+      "criteria_total": 6,
+      "criteria_met": 6,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`ForwardContextBuilder` gains a `mode: BuildMode` parameter (or per-mode",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added `mode: BuildMode | None = None` keyword-only parameter to build_for(). Default None is treated as MODE_A by `effective_mode = BuildMode.MODE_A if mode is None else mode`. _CONTRACT_BY_MODE dispatch table picks the right contract per mode. Backward compat verified by TestModeADefaultBackwardCompat.test_mode_a_caller_default_matches_explicit_mode_a (asserts default-mode and explicit-MODE_A return identical entries) and the 24 pre-existing Mode A tests which continue to pass unchanged.",
+      "notes": "Added `mode: BuildMode | None = None` keyword-only parameter to build_for(). Default None is treated as MODE_A by `effective_mode = BuildMode.MODE_A if mode is None else mode`. _CONTRACT_BY_MODE dispatch table picks the right contract per mode. Backward compat verified by TestModeADefaultBackwardCompat.test_mode_a_caller_default_matches_explicit_mode_a (asserts default-mode and explicit-MODE_A return identical entries) and the 24 pre-existing Mode A tests which continue to pass unchanged."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Mode B contracts:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "MODE_B_PROPAGATION_CONTRACT[FEATURE_PLAN] = ContextRecipe(producer_stage=FEATURE_SPEC, artefact_kind='path', context_flag='--context'). Test test_mode_b_feature_plan_receives_feature_spec_artefact_paths arranges an approved FEATURE_SPEC entry and asserts build_for(FEATURE_PLAN, ..., mode=BuildMode.MODE_B) returns the spec path as a ContextEntry.",
+      "notes": "MODE_B_PROPAGATION_CONTRACT[FEATURE_PLAN] = ContextRecipe(producer_stage=FEATURE_SPEC, artefact_kind='path', context_flag='--context'). Test test_mode_b_feature_plan_receives_feature_spec_artefact_paths arranges an approved FEATURE_SPEC entry and asserts build_for(FEATURE_PLAN, ..., mode=BuildMode.MODE_B) returns the spec path as a ContextEntry."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Mode C contracts:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "MODE_B_PROPAGATION_CONTRACT[AUTOBUILD] = ContextRecipe(producer_stage=FEATURE_PLAN, artefact_kind='path', context_flag='--context'). Test test_mode_b_autobuild_receives_feature_plan_artefact_paths arranges an approved FEATURE_PLAN entry and asserts build_for(AUTOBUILD, ..., mode=BuildMode.MODE_B) returns the plan path. Also covered by test_mode_b_pull_request_review_receives_autobuild_text and test_mode_b_contract_map_is_strict_subset_of_mode_a (asserts producer_stage/artefact_kind/context_flag parity with PROPAGATION_CONTRACT).",
+      "notes": "MODE_B_PROPAGATION_CONTRACT[AUTOBUILD] = ContextRecipe(producer_stage=FEATURE_PLAN, artefact_kind='path', context_flag='--context'). Test test_mode_b_autobuild_receives_feature_plan_artefact_paths arranges an approved FEATURE_PLAN entry and asserts build_for(AUTOBUILD, ..., mode=BuildMode.MODE_B) returns the plan path. Also covered by test_mode_b_pull_request_review_receives_autobuild_text and test_mode_b_contract_map_is_strict_subset_of_mode_a (asserts producer_stage/artefact_kind/context_flag parity with PROPAGATION_CONTRACT)."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Builder is pure: `(build, history, mode, target_stage) -> ContextSpec`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added ModeBoundaryViolation(ValueError) with stage and mode attributes. build_for() raises it via `if effective_mode is BuildMode.MODE_B and stage in MODE_B_FORBIDDEN_STAGES: raise ModeBoundaryViolation(...)`. Test test_mode_b_forbidden_stages_raise_mode_boundary_violation is parametrised over all 4 MODE_B_FORBIDDEN_STAGES (PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and asserts the exception type, .stage, .mode, and that the message contains both names.",
+      "notes": "Added ModeBoundaryViolation(ValueError) with stage and mode attributes. build_for() raises it via `if effective_mode is BuildMode.MODE_B and stage in MODE_B_FORBIDDEN_STAGES: raise ModeBoundaryViolation(...)`. Test test_mode_b_forbidden_stages_raise_mode_boundary_violation is parametrised over all 4 MODE_B_FORBIDDEN_STAGES (PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and asserts the exception type, .stage, .mode, and that the message contains both names."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Unit tests cover the Mode B and Mode C forward-propagation key-example",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added FixTaskRef(fix_task_id, task_review_entry_id, review_artefact_paths) with stable to_json(). _build_mode_c_task_work() emits ContextEntry(flag='--fix-task', value=fix_task.to_json(), kind='text') first, then iterates fix_task.review_artefact_paths emitting one --context path entry per allow-listed path. Tests test_mode_c_task_work_emits_fix_task_text_entry, test_mode_c_task_work_emits_review_artefact_paths, test_mode_c_task_work_filters_review_paths_outside_allowlist, and test_mode_c_task_work_without_fix_task_returns_empty cover all branches.",
+      "notes": "Added FixTaskRef(fix_task_id, task_review_entry_id, review_artefact_paths) with stable to_json(). _build_mode_c_task_work() emits ContextEntry(flag='--fix-task', value=fix_task.to_json(), kind='text') first, then iterates fix_task.review_artefact_paths emitting one --context path entry per allow-listed path. Tests test_mode_c_task_work_emits_fix_task_text_entry, test_mode_c_task_work_emits_review_artefact_paths, test_mode_c_task_work_filters_review_paths_outside_allowlist, and test_mode_c_task_work_without_fix_task_returns_empty cover all branches."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Extended StageLogReader Protocol with get_all_approved_stage_entries(build_id, stage, feature_id) -> Sequence[ApprovedStageEntry]. _build_mode_c_followup_review() queries it for TASK_WORK rows and emits one allow-listed --context path entry per artefact path across all returned entries. FakeStageLogReader satisfies the Protocol via a multi_entries dict. Test test_followup_review_receives_paths_from_every_completed_task_work seeds 3 task-work entries and asserts all 3 paths are returned in order; test_followup_review_with_no_completed_task_work_returns_empty covers the empty-cycle case; test_followup_review_filters_task_work_paths_outside_allowlist covers the allowlist gating.",
+      "notes": "Extended StageLogReader Protocol with get_all_approved_stage_entries(build_id, stage, feature_id) -> Sequence[ApprovedStageEntry]. _build_mode_c_followup_review() queries it for TASK_WORK rows and emits one allow-listed --context path entry per artefact path across all returned entries. FakeStageLogReader satisfies the Protocol via a multi_entries dict. Test test_followup_review_receives_paths_from_every_completed_task_work seeds 3 task-work entries and asserts all 3 paths are returned in order; test_followup_review_with_no_completed_task_work_returns_empty covers the empty-cycle case; test_followup_review_filters_task_work_paths_outside_allowlist covers the allowlist gating."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`ForwardContextBuilder` gains a `mode: BuildMode` parameter (or per-mode",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added `mode: BuildMode | None = None` keyword-only parameter to build_for(). Default None is treated as MODE_A by `effective_mode = BuildMode.MODE_A if mode is None else mode`. _CONTRACT_BY_MODE dispatch table picks the right contract per mode. Backward compat verified by TestModeADefaultBackwardCompat.test_mode_a_caller_default_matches_explicit_mode_a (asserts default-mode and explicit-MODE_A return identical entries) and the 24 pre-existing Mode A tests which continue to pass unchanged.",
+        "notes": "Added `mode: BuildMode | None = None` keyword-only parameter to build_for(). Default None is treated as MODE_A by `effective_mode = BuildMode.MODE_A if mode is None else mode`. _CONTRACT_BY_MODE dispatch table picks the right contract per mode. Backward compat verified by TestModeADefaultBackwardCompat.test_mode_a_caller_default_matches_explicit_mode_a (asserts default-mode and explicit-MODE_A return identical entries) and the 24 pre-existing Mode A tests which continue to pass unchanged."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Mode B contracts:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "MODE_B_PROPAGATION_CONTRACT[FEATURE_PLAN] = ContextRecipe(producer_stage=FEATURE_SPEC, artefact_kind='path', context_flag='--context'). Test test_mode_b_feature_plan_receives_feature_spec_artefact_paths arranges an approved FEATURE_SPEC entry and asserts build_for(FEATURE_PLAN, ..., mode=BuildMode.MODE_B) returns the spec path as a ContextEntry.",
+        "notes": "MODE_B_PROPAGATION_CONTRACT[FEATURE_PLAN] = ContextRecipe(producer_stage=FEATURE_SPEC, artefact_kind='path', context_flag='--context'). Test test_mode_b_feature_plan_receives_feature_spec_artefact_paths arranges an approved FEATURE_SPEC entry and asserts build_for(FEATURE_PLAN, ..., mode=BuildMode.MODE_B) returns the spec path as a ContextEntry."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Mode C contracts:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "MODE_B_PROPAGATION_CONTRACT[AUTOBUILD] = ContextRecipe(producer_stage=FEATURE_PLAN, artefact_kind='path', context_flag='--context'). Test test_mode_b_autobuild_receives_feature_plan_artefact_paths arranges an approved FEATURE_PLAN entry and asserts build_for(AUTOBUILD, ..., mode=BuildMode.MODE_B) returns the plan path. Also covered by test_mode_b_pull_request_review_receives_autobuild_text and test_mode_b_contract_map_is_strict_subset_of_mode_a (asserts producer_stage/artefact_kind/context_flag parity with PROPAGATION_CONTRACT).",
+        "notes": "MODE_B_PROPAGATION_CONTRACT[AUTOBUILD] = ContextRecipe(producer_stage=FEATURE_PLAN, artefact_kind='path', context_flag='--context'). Test test_mode_b_autobuild_receives_feature_plan_artefact_paths arranges an approved FEATURE_PLAN entry and asserts build_for(AUTOBUILD, ..., mode=BuildMode.MODE_B) returns the plan path. Also covered by test_mode_b_pull_request_review_receives_autobuild_text and test_mode_b_contract_map_is_strict_subset_of_mode_a (asserts producer_stage/artefact_kind/context_flag parity with PROPAGATION_CONTRACT)."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Builder is pure: `(build, history, mode, target_stage) -> ContextSpec`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added ModeBoundaryViolation(ValueError) with stage and mode attributes. build_for() raises it via `if effective_mode is BuildMode.MODE_B and stage in MODE_B_FORBIDDEN_STAGES: raise ModeBoundaryViolation(...)`. Test test_mode_b_forbidden_stages_raise_mode_boundary_violation is parametrised over all 4 MODE_B_FORBIDDEN_STAGES (PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and asserts the exception type, .stage, .mode, and that the message contains both names.",
+        "notes": "Added ModeBoundaryViolation(ValueError) with stage and mode attributes. build_for() raises it via `if effective_mode is BuildMode.MODE_B and stage in MODE_B_FORBIDDEN_STAGES: raise ModeBoundaryViolation(...)`. Test test_mode_b_forbidden_stages_raise_mode_boundary_violation is parametrised over all 4 MODE_B_FORBIDDEN_STAGES (PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN) and asserts the exception type, .stage, .mode, and that the message contains both names."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Unit tests cover the Mode B and Mode C forward-propagation key-example",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added FixTaskRef(fix_task_id, task_review_entry_id, review_artefact_paths) with stable to_json(). _build_mode_c_task_work() emits ContextEntry(flag='--fix-task', value=fix_task.to_json(), kind='text') first, then iterates fix_task.review_artefact_paths emitting one --context path entry per allow-listed path. Tests test_mode_c_task_work_emits_fix_task_text_entry, test_mode_c_task_work_emits_review_artefact_paths, test_mode_c_task_work_filters_review_paths_outside_allowlist, and test_mode_c_task_work_without_fix_task_returns_empty cover all branches.",
+        "notes": "Added FixTaskRef(fix_task_id, task_review_entry_id, review_artefact_paths) with stable to_json(). _build_mode_c_task_work() emits ContextEntry(flag='--fix-task', value=fix_task.to_json(), kind='text') first, then iterates fix_task.review_artefact_paths emitting one --context path entry per allow-listed path. Tests test_mode_c_task_work_emits_fix_task_text_entry, test_mode_c_task_work_emits_review_artefact_paths, test_mode_c_task_work_filters_review_paths_outside_allowlist, and test_mode_c_task_work_without_fix_task_returns_empty cover all branches."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Extended StageLogReader Protocol with get_all_approved_stage_entries(build_id, stage, feature_id) -> Sequence[ApprovedStageEntry]. _build_mode_c_followup_review() queries it for TASK_WORK rows and emits one allow-listed --context path entry per artefact path across all returned entries. FakeStageLogReader satisfies the Protocol via a multi_entries dict. Test test_followup_review_receives_paths_from_every_completed_task_work seeds 3 task-work entries and asserts all 3 paths are returned in order; test_followup_review_with_no_completed_task_work_returns_empty covers the empty-cycle case; test_followup_review_filters_task_work_paths_outside_allowlist covers the allowlist gating.",
+        "notes": "Extended StageLogReader Protocol with get_all_approved_stage_entries(build_id, stage, feature_id) -> Sequence[ApprovedStageEntry]. _build_mode_c_followup_review() queries it for TASK_WORK rows and emits one allow-listed --context path entry per artefact path across all returned entries. FakeStageLogReader satisfies the Protocol via a multi_entries dict. Test test_followup_review_receives_paths_from_every_completed_task_work seeds 3 task-work entries and asserts all 3 paths are returned in order; test_followup_review_with_no_completed_task_work_returns_empty covers the empty-cycle case; test_followup_review_filters_task_work_paths_outside_allowlist covers the allowlist gating."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 364 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1581/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- HAS_FALLBACK_STRATEGY\n- CREATED_AT\n- ROUTES_TO\n- IS_APPLIED_TO\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- REQUIRES_USE_OF\n- OCCURS_IN_MODE\n\n### \ud83c\udfad Role Constraints\n- MUST_CONSULT_BEFORE_MODIFYING\n- DELEGATE_TO_TASK_WORK\n- DELEGATES_TO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- IMPLEMENTATION_MODE_HAS_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

@@ -1,0 +1,170 @@
+{
+  "task_id": "TASK-MBC8-002",
+  "timestamp": "2026-04-27T17:57:54.836152",
+  "completed": true,
+  "success": true,
+  "implementation_mode": "direct",
+  "phases": {
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 1,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": true,
+    "quality_gates_relaxed": true,
+    "all_passed": true
+  },
+  "files_modified": [
+    "src/forge/pipeline/stage_taxonomy.py",
+    "tests/forge/test_forward_propagation.py",
+    "tests/forge/test_stage_ordering_guard.py",
+    "tests/forge/test_stage_taxonomy.py"
+  ],
+  "files_created": [
+    "src/forge/lifecycle/modes.py",
+    "src/forge/pipeline/mode_chains_data.py",
+    "tests/forge/test_mode_chains_data.py"
+  ],
+  "tests_written": [
+    "tests/forge/test_mode_chains_data.py"
+  ],
+  "requirements_addressed": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010"
+  ],
+  "requirements_met": [
+    "AC-001",
+    "AC-002",
+    "AC-003",
+    "AC-004",
+    "AC-005",
+    "AC-006",
+    "AC-007",
+    "AC-008",
+    "AC-009",
+    "AC-010"
+  ],
+  "summary": "Direct mode implementation completed successfully",
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "[ ] New module `forge.pipeline.mode_chains_data` (or extend `stage_taxonomy.py`) exports the required public symbols.",
+      "status": "complete",
+      "evidence": "Created src/forge/pipeline/mode_chains_data.py with __all__ listing MODE_A_CHAIN, MODE_B_CHAIN, MODE_C_CHAIN, MODE_B_FORBIDDEN_STAGES, MODE_C_FORBIDDEN_STAGES, CHAIN_BY_MODE, MODE_B_PREREQUISITES, MODE_C_PREREQUISITES. TestModuleStructure (3 tests) validates module path, exported symbols and the import-cycle-free invariant.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "[ ] `MODE_B_CHAIN: tuple[StageClass, ...]` = (FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD, PULL_REQUEST_REVIEW)",
+      "status": "complete",
+      "evidence": "MODE_B_CHAIN defined as the four-tuple in mode_chains_data.py. TestModeBChain (5 tests) covers exact sequence, strict-suffix-of-Mode-A relationship, exclusion of pre-feature-spec stages, tuple type, and StageClass-typed members.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "[ ] `MODE_C_CHAIN: tuple[StageClass, ...]` = (TASK_REVIEW, TASK_WORK, PULL_REQUEST_REVIEW) with documentation noting TASK_WORK repeats per fix task and PULL_REQUEST_REVIEW is conditional on commits",
+      "status": "complete",
+      "evidence": "MODE_C_CHAIN defined as the three-tuple (TASK_REVIEW, TASK_WORK, PULL_REQUEST_REVIEW) with a multi-paragraph docstring explaining the per-fix-task fan-out of TASK_WORK is delegated to the cycle controller (TASK-MBC8-004) and that PULL_REQUEST_REVIEW is conditional on commits per ASSUM-005 / ASSUM-017. TestModeCChain (6 tests) pins exact sequence, length-3, type, entry stage and terminator.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "[ ] `MODE_B_FORBIDDEN_STAGES: frozenset[StageClass]` containing PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN",
+      "status": "complete",
+      "evidence": "MODE_B_FORBIDDEN_STAGES defined as a frozenset of exactly those four stages. TestModeBForbiddenStages (3 tests) validates frozenset type, exact membership, and disjointness from MODE_B_CHAIN.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "[ ] `MODE_C_FORBIDDEN_STAGES: frozenset[StageClass]` containing every Mode A pre-feature-spec stage plus FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD (Mode C operates on existing artefacts)",
+      "status": "complete",
+      "evidence": "MODE_C_FORBIDDEN_STAGES is the seven-element frozenset {PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD}. TestModeCForbiddenStages (4 tests) validates frozenset type, exact membership, that PULL_REQUEST_REVIEW is NOT forbidden (per ASSUM-005), and disjointness from MODE_C_CHAIN.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "[ ] `CHAIN_BY_MODE: Mapping[BuildMode, tuple[StageClass, ...]]` mapping each BuildMode value to its chain (Mode A continues to use the existing 8-stage chain)",
+      "status": "complete",
+      "evidence": "CHAIN_BY_MODE typed as Mapping[BuildMode, tuple[StageClass, ...]] with all three BuildMode keys present. MODE_A_CHAIN re-exported as the canonical eight-stage Mode A chain. TestChainByMode (5 tests, parametrised over all three modes) validates exhaustive coverage and the Mode A chain identity.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py",
+        "src/forge/lifecycle/modes.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "[ ] `MODE_B_PREREQUISITES`: same shape as `STAGE_PREREQUISITES` but only for Mode B's four stages",
+      "status": "complete",
+      "evidence": "MODE_B_PREREQUISITES is a dict[StageClass, list[StageClass]] with three rows: FEATURE_PLAN\u2190FEATURE_SPEC, AUTOBUILD\u2190FEATURE_PLAN, PULL_REQUEST_REVIEW\u2190AUTOBUILD. FEATURE_SPEC is the entry stage and is omitted (mirroring how PRODUCT_OWNER is omitted from STAGE_PREREQUISITES). TestModeBPrerequisites (8 tests) validates dict type, three entries, entry-stage omission, parametrised row matching, and key/value typing.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "[ ] `MODE_C_PREREQUISITES`: same shape but for Mode C's three stage classes (`TASK_WORK \u2190 TASK_REVIEW`, `PULL_REQUEST_REVIEW \u2190 TASK_WORK`)",
+      "status": "complete",
+      "evidence": "MODE_C_PREREQUISITES is a dict[StageClass, list[StageClass]] with the two rows verbatim from the AC: TASK_WORK\u2190TASK_REVIEW, PULL_REQUEST_REVIEW\u2190TASK_WORK. TASK_REVIEW (the entry stage) is omitted. TestModeCPrerequisites (7 tests) validates dict type, two entries, entry-stage omission, parametrised row matching, and key/value typing.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "[ ] Module docstring references FEAT-FORGE-008 ASSUM-001 (Mode B chain), ASSUM-004 (Mode C chain), ASSUM-013 (mode-aware planning refuses upstream Mode A stages), ASSUM-014 (Mode B does not dispatch to specialists)",
+      "status": "complete",
+      "evidence": "Module docstring of forge.pipeline.mode_chains_data explicitly references FEAT-FORGE-008, ASSUM-001, ASSUM-004, ASSUM-013, ASSUM-014 (and supporting ASSUM-005, ASSUM-011, ASSUM-017 plus ADR-ARCH-026). TestModuleDocstring is parametrised over each required anchor (FEAT-FORGE-008, ASSUM-001, ASSUM-004, ASSUM-013, ASSUM-014) and asserts presence in the docstring.",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "[ ] All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "py_compile passes on all created/modified Python files. Manual line-length scan (awk length > 88) reports zero violations across mode_chains_data.py, modes.py, and test_mode_chains_data.py. Code conforms to the project code-style.md (snake_case functions, PascalCase classes, UPPER_CASE constants, type hints, 88-char Black line length).",
+      "test_file": "tests/forge/test_mode_chains_data.py",
+      "implementation_files": [
+        "src/forge/pipeline/mode_chains_data.py",
+        "src/forge/lifecycle/modes.py",
+        "src/forge/pipeline/stage_taxonomy.py",
+        "tests/forge/test_mode_chains_data.py",
+        "tests/forge/test_stage_taxonomy.py",
+        "tests/forge/test_stage_ordering_guard.py",
+        "tests/forge/test_forward_propagation.py"
+      ]
+    }
+  ]
+}

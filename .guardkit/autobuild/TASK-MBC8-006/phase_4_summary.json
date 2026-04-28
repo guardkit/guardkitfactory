@@ -1,0 +1,7 @@
+{
+  "tests_run": 24,
+  "tests_failed": 0,
+  "coverage_pct": 87.0,
+  "output_summary": "24/24 tests passed in tests/forge/pipeline/test_terminal_handlers.py; coverage 87% on src/forge/pipeline/terminal_handlers.py",
+  "quality_gates_passed": true
+}

@@ -1,0 +1,183 @@
+{
+  "task_id": "TASK-MBC8-008",
+  "turn": 2,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_supervisor_mode_dispatch.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_supervisor_mode_dispatch.py::TestConstitutionalGuardUnchanged::test_mode_b_pr_review_does_not_request_auto_approve PASSED [ 86%]\ntests/forge/test_supervisor_mode_dispatch.py::TestConcurrentMixedModeBuilds::test_concurrent_mode_a_b_c_dispatch_independently PASSED [ 91%]\ntests/forge/test_supervisor_mode_dispatch.py::TestModeMisconfiguration::test_mode_b_without_planner_records_waiting PASSED [ 95%]\ntests/forge/test_supervisor_mode_dispatch.py::TestModeMisconfiguration::test_mode_c_without_history_reader_records_waiting PASSED [100%]\n============================== 23 passed in 0.14s ==============================",
+      "duration_seconds": 0.5604021549224854
+    },
+    "requirements": {
+      "criteria_total": 8,
+      "criteria_met": 8,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`Supervisor.next_turn` reads `build.mode` and dispatches to one of:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added BuildModeReader Protocol and mode-aware branch in Supervisor.next_turn that routes to _next_turn_mode_a (existing path, untouched), _next_turn_mode_b, or _next_turn_mode_c based on build_mode_reader.get_build_mode(build_id). Mode A path defaults to MODE_A when no reader is wired, preserving every TASK-MAG7-010 caller verbatim. Verified by TestModeDispatch (3 tests).",
+      "notes": "Added BuildModeReader Protocol and mode-aware branch in Supervisor.next_turn that routes to _next_turn_mode_a (existing path, untouched), _next_turn_mode_b, or _next_turn_mode_c based on build_mode_reader.get_build_mode(build_id). Mode A path defaults to MODE_A when no reader is wired, preserving every TASK-MAG7-010 caller verbatim. Verified by TestModeDispatch (3 tests)."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Dispatch routing within each mode:",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_next_turn_mode_b consults ModeBChainPlanner.plan_next_stage and routes through self._dispatch \u2014 which already maps FEATURE_SPEC/FEATURE_PLAN to subprocess_dispatcher, AUTOBUILD to autobuild_dispatcher, and PR_REVIEW to pr_review_gate. The post-autobuild handler (evaluate_post_autobuild) decides between PR_REVIEW (advance to gate), NO_OP (terminal), and FAILED (terminal). Verified by TestModeBSubprocessRouting + TestModeBAutobuildRouting + TestModeBPostAutobuildRouting (8 tests).",
+      "notes": "_next_turn_mode_b consults ModeBChainPlanner.plan_next_stage and routes through self._dispatch \u2014 which already maps FEATURE_SPEC/FEATURE_PLAN to subprocess_dispatcher, AUTOBUILD to autobuild_dispatcher, and PR_REVIEW to pr_review_gate. The post-autobuild handler (evaluate_post_autobuild) decides between PR_REVIEW (advance to gate), NO_OP (terminal), and FAILED (terminal). Verified by TestModeBSubprocessRouting + TestModeBAutobuildRouting + TestModeBPostAutobuildRouting (8 tests)."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`StageOrderingGuard` (TASK-MAG7-003) is invoked with the per-mode",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_next_turn_mode_c consults ModeCCyclePlanner.plan_next_stage(build, history, has_commits=...). For TASK_REVIEW/TASK_WORK it routes via subprocess_dispatcher; TASK_WORK threads the FixTaskRef and the optional fix_task_context_builder shim is invoked to produce the forward-context payload. PR_REVIEW (clean follow-up + commits) routes via pr_review_gate. Cycle-end terminals route through evaluate_terminal handler (CLEAN_REVIEW_NO_FIXES, CLEAN_REVIEW_NO_COMMITS, PR_REVIEW, FAILED). Verified by TestModeCSubprocessRouting + TestModeCFixTaskInjection + TestModeCPRReviewRoute (4 tests).",
+      "notes": "_next_turn_mode_c consults ModeCCyclePlanner.plan_next_stage(build, history, has_commits=...). For TASK_REVIEW/TASK_WORK it routes via subprocess_dispatcher; TASK_WORK threads the FixTaskRef and the optional fix_task_context_builder shim is invoked to produce the forward-context payload. PR_REVIEW (clean follow-up + commits) routes via pr_review_gate. Cycle-end terminals route through evaluate_terminal handler (CLEAN_REVIEW_NO_FIXES, CLEAN_REVIEW_NO_COMMITS, PR_REVIEW, FAILED). Verified by TestModeCSubprocessRouting + TestModeCFixTaskInjection + TestModeCPRReviewRoute (4 tests)."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "`ConstitutionalGuard` (TASK-MAG7-004) is invoked unchanged in every",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "StageOrderingGuard.is_dispatchable and next_dispatchable now accept optional `prerequisites` and `stages` keyword parameters. Defaults preserve Mode A behaviour for every existing TASK-MAG7-003 caller. Mode B path passes MODE_B_PREREQUISITES + MODE_B_CHAIN; Mode C path passes MODE_C_PREREQUISITES + MODE_C_CHAIN. Per-mode behaviour treats per-feature-ness as prerequisite-driven so Mode C's PULL_REQUEST_REVIEW (build-scoped, prereq=TASK_WORK) does not require a feature_id. Verified by TestPerModePrerequisites (3 tests) plus the existing 29 stage_ordering_guard tests still pass.",
+      "notes": "StageOrderingGuard.is_dispatchable and next_dispatchable now accept optional `prerequisites` and `stages` keyword parameters. Defaults preserve Mode A behaviour for every existing TASK-MAG7-003 caller. Mode B path passes MODE_B_PREREQUISITES + MODE_B_CHAIN; Mode C path passes MODE_C_PREREQUISITES + MODE_C_CHAIN. Per-mode behaviour treats per-feature-ness as prerequisite-driven so Mode C's PULL_REQUEST_REVIEW (build-scoped, prereq=TASK_WORK) does not require a feature_id. Verified by TestPerModePrerequisites (3 tests) plus the existing 29 stage_ordering_guard tests still pass."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "CLI steering injection (TASK-MAG7-011) works in every mode: cancel \u2192",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "The Mode A path (refactored only by routing it through the mode-A branch) still calls self.constitutional_guard.veto_auto_approve verbatim. Mode B PR_REVIEW dispatches with auto_approve=False (planner-driven, never auto-approves) so the gate's veto path is trivially honoured. Mode C PR_REVIEW likewise dispatches with auto_approve=False. The constitutional_guard field on Supervisor is unchanged. Verified by TestConstitutionalGuardUnchanged (1 test) plus the existing 29 constitutional_guard tests still pass.",
+      "notes": "The Mode A path (refactored only by routing it through the mode-A branch) still calls self.constitutional_guard.veto_auto_approve verbatim. Mode B PR_REVIEW dispatches with auto_approve=False (planner-driven, never auto-approves) so the gate's veto path is trivially honoured. Mode C PR_REVIEW likewise dispatches with auto_approve=False. The constitutional_guard field on Supervisor is unchanged. Verified by TestConstitutionalGuardUnchanged (1 test) plus the existing 29 constitutional_guard tests still pass."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "`Supervisor.next_turn` is async-safe: two concurrent Mode B builds and",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "CLI steering lives in forge.pipeline.cli_steering (TASK-MAG7-011) and is mode-agnostic \u2014 it operates on build state and stage class, not on build mode. The supervisor surfaces synthetic decisions via the same state-machine reader path in every mode (terminal state short-circuits before any mode branch fires). The constitutional veto on skip+PULL_REQUEST_REVIEW lives on ConstitutionalGuard.veto_skip and is unchanged. No supervisor-side changes are required for AC-006 because the CLI steering handler runs on a separate axis (pause/resume) from the dispatch turn.",
+      "notes": "CLI steering lives in forge.pipeline.cli_steering (TASK-MAG7-011) and is mode-agnostic \u2014 it operates on build state and stage class, not on build mode. The supervisor surfaces synthetic decisions via the same state-machine reader path in every mode (terminal state short-circuits before any mode branch fires). The constitutional veto on skip+PULL_REQUEST_REVIEW lives on ConstitutionalGuard.veto_skip and is unchanged. No supervisor-side changes are required for AC-006 because the CLI steering handler runs on a separate axis (pause/resume) from the dispatch turn."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Hard-stop in any non-constitutional stage in Mode B or Mode C",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Supervisor owns no per-build mutable state; every dependency is injected, every method takes build_id explicitly, and the dataclass attributes are pure dependencies. TestConcurrentMixedModeBuilds.test_concurrent_mode_a_b_c_dispatch_independently runs three builds (Mode A + Mode B + Mode C) concurrently through asyncio.gather on a shared Supervisor instance and asserts each dispatched its mode-appropriate stage with no cross-talk between dispatchers.",
+      "notes": "Supervisor owns no per-build mutable state; every dependency is injected, every method takes build_id explicitly, and the dataclass attributes are pure dependencies. TestConcurrentMixedModeBuilds.test_concurrent_mode_a_b_c_dispatch_independently runs three builds (Mode A + Mode B + Mode C) concurrently through asyncio.gather on a shared Supervisor instance and asserts each dispatched its mode-appropriate stage with no cross-talk between dispatchers."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Mode B: hard-stopped AUTOBUILD entries flow into _mode_b_resolve_no_advance which calls evaluate_post_autobuild. Hard-stop / failed status returns ROUTE_FAILED with the autobuild's rationale propagated; the supervisor records TurnOutcome.TERMINAL with the rationale and never invokes the autobuild dispatcher or PR-review gate. Verified by test_post_autobuild_failed_route_yields_terminal. Mode C: hard-stopped TASK_REVIEW entries are returned by ModeCCyclePlanner with terminal=ModeCTerminal.FAILED; _mode_c_resolve_terminal calls evaluate_terminal which returns ModeCTerminal.FAILED with the originating rationale; supervisor records TurnOutcome.TERMINAL.",
+      "notes": "Mode B: hard-stopped AUTOBUILD entries flow into _mode_b_resolve_no_advance which calls evaluate_post_autobuild. Hard-stop / failed status returns ROUTE_FAILED with the autobuild's rationale propagated; the supervisor records TurnOutcome.TERMINAL with the rationale and never invokes the autobuild dispatcher or PR-review gate. Verified by test_post_autobuild_failed_route_yields_terminal. Mode C: hard-stopped TASK_REVIEW entries are returned by ModeCCyclePlanner with terminal=ModeCTerminal.FAILED; _mode_c_resolve_terminal calls evaluate_terminal which returns ModeCTerminal.FAILED with the originating rationale; supervisor records TurnOutcome.TERMINAL."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`Supervisor.next_turn` reads `build.mode` and dispatches to one of:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added BuildModeReader Protocol and mode-aware branch in Supervisor.next_turn that routes to _next_turn_mode_a (existing path, untouched), _next_turn_mode_b, or _next_turn_mode_c based on build_mode_reader.get_build_mode(build_id). Mode A path defaults to MODE_A when no reader is wired, preserving every TASK-MAG7-010 caller verbatim. Verified by TestModeDispatch (3 tests).",
+        "notes": "Added BuildModeReader Protocol and mode-aware branch in Supervisor.next_turn that routes to _next_turn_mode_a (existing path, untouched), _next_turn_mode_b, or _next_turn_mode_c based on build_mode_reader.get_build_mode(build_id). Mode A path defaults to MODE_A when no reader is wired, preserving every TASK-MAG7-010 caller verbatim. Verified by TestModeDispatch (3 tests)."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Dispatch routing within each mode:",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_next_turn_mode_b consults ModeBChainPlanner.plan_next_stage and routes through self._dispatch \u2014 which already maps FEATURE_SPEC/FEATURE_PLAN to subprocess_dispatcher, AUTOBUILD to autobuild_dispatcher, and PR_REVIEW to pr_review_gate. The post-autobuild handler (evaluate_post_autobuild) decides between PR_REVIEW (advance to gate), NO_OP (terminal), and FAILED (terminal). Verified by TestModeBSubprocessRouting + TestModeBAutobuildRouting + TestModeBPostAutobuildRouting (8 tests).",
+        "notes": "_next_turn_mode_b consults ModeBChainPlanner.plan_next_stage and routes through self._dispatch \u2014 which already maps FEATURE_SPEC/FEATURE_PLAN to subprocess_dispatcher, AUTOBUILD to autobuild_dispatcher, and PR_REVIEW to pr_review_gate. The post-autobuild handler (evaluate_post_autobuild) decides between PR_REVIEW (advance to gate), NO_OP (terminal), and FAILED (terminal). Verified by TestModeBSubprocessRouting + TestModeBAutobuildRouting + TestModeBPostAutobuildRouting (8 tests)."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`StageOrderingGuard` (TASK-MAG7-003) is invoked with the per-mode",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_next_turn_mode_c consults ModeCCyclePlanner.plan_next_stage(build, history, has_commits=...). For TASK_REVIEW/TASK_WORK it routes via subprocess_dispatcher; TASK_WORK threads the FixTaskRef and the optional fix_task_context_builder shim is invoked to produce the forward-context payload. PR_REVIEW (clean follow-up + commits) routes via pr_review_gate. Cycle-end terminals route through evaluate_terminal handler (CLEAN_REVIEW_NO_FIXES, CLEAN_REVIEW_NO_COMMITS, PR_REVIEW, FAILED). Verified by TestModeCSubprocessRouting + TestModeCFixTaskInjection + TestModeCPRReviewRoute (4 tests).",
+        "notes": "_next_turn_mode_c consults ModeCCyclePlanner.plan_next_stage(build, history, has_commits=...). For TASK_REVIEW/TASK_WORK it routes via subprocess_dispatcher; TASK_WORK threads the FixTaskRef and the optional fix_task_context_builder shim is invoked to produce the forward-context payload. PR_REVIEW (clean follow-up + commits) routes via pr_review_gate. Cycle-end terminals route through evaluate_terminal handler (CLEAN_REVIEW_NO_FIXES, CLEAN_REVIEW_NO_COMMITS, PR_REVIEW, FAILED). Verified by TestModeCSubprocessRouting + TestModeCFixTaskInjection + TestModeCPRReviewRoute (4 tests)."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "`ConstitutionalGuard` (TASK-MAG7-004) is invoked unchanged in every",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "StageOrderingGuard.is_dispatchable and next_dispatchable now accept optional `prerequisites` and `stages` keyword parameters. Defaults preserve Mode A behaviour for every existing TASK-MAG7-003 caller. Mode B path passes MODE_B_PREREQUISITES + MODE_B_CHAIN; Mode C path passes MODE_C_PREREQUISITES + MODE_C_CHAIN. Per-mode behaviour treats per-feature-ness as prerequisite-driven so Mode C's PULL_REQUEST_REVIEW (build-scoped, prereq=TASK_WORK) does not require a feature_id. Verified by TestPerModePrerequisites (3 tests) plus the existing 29 stage_ordering_guard tests still pass.",
+        "notes": "StageOrderingGuard.is_dispatchable and next_dispatchable now accept optional `prerequisites` and `stages` keyword parameters. Defaults preserve Mode A behaviour for every existing TASK-MAG7-003 caller. Mode B path passes MODE_B_PREREQUISITES + MODE_B_CHAIN; Mode C path passes MODE_C_PREREQUISITES + MODE_C_CHAIN. Per-mode behaviour treats per-feature-ness as prerequisite-driven so Mode C's PULL_REQUEST_REVIEW (build-scoped, prereq=TASK_WORK) does not require a feature_id. Verified by TestPerModePrerequisites (3 tests) plus the existing 29 stage_ordering_guard tests still pass."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "CLI steering injection (TASK-MAG7-011) works in every mode: cancel \u2192",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "The Mode A path (refactored only by routing it through the mode-A branch) still calls self.constitutional_guard.veto_auto_approve verbatim. Mode B PR_REVIEW dispatches with auto_approve=False (planner-driven, never auto-approves) so the gate's veto path is trivially honoured. Mode C PR_REVIEW likewise dispatches with auto_approve=False. The constitutional_guard field on Supervisor is unchanged. Verified by TestConstitutionalGuardUnchanged (1 test) plus the existing 29 constitutional_guard tests still pass.",
+        "notes": "The Mode A path (refactored only by routing it through the mode-A branch) still calls self.constitutional_guard.veto_auto_approve verbatim. Mode B PR_REVIEW dispatches with auto_approve=False (planner-driven, never auto-approves) so the gate's veto path is trivially honoured. Mode C PR_REVIEW likewise dispatches with auto_approve=False. The constitutional_guard field on Supervisor is unchanged. Verified by TestConstitutionalGuardUnchanged (1 test) plus the existing 29 constitutional_guard tests still pass."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "`Supervisor.next_turn` is async-safe: two concurrent Mode B builds and",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "CLI steering lives in forge.pipeline.cli_steering (TASK-MAG7-011) and is mode-agnostic \u2014 it operates on build state and stage class, not on build mode. The supervisor surfaces synthetic decisions via the same state-machine reader path in every mode (terminal state short-circuits before any mode branch fires). The constitutional veto on skip+PULL_REQUEST_REVIEW lives on ConstitutionalGuard.veto_skip and is unchanged. No supervisor-side changes are required for AC-006 because the CLI steering handler runs on a separate axis (pause/resume) from the dispatch turn.",
+        "notes": "CLI steering lives in forge.pipeline.cli_steering (TASK-MAG7-011) and is mode-agnostic \u2014 it operates on build state and stage class, not on build mode. The supervisor surfaces synthetic decisions via the same state-machine reader path in every mode (terminal state short-circuits before any mode branch fires). The constitutional veto on skip+PULL_REQUEST_REVIEW lives on ConstitutionalGuard.veto_skip and is unchanged. No supervisor-side changes are required for AC-006 because the CLI steering handler runs on a separate axis (pause/resume) from the dispatch turn."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Hard-stop in any non-constitutional stage in Mode B or Mode C",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Supervisor owns no per-build mutable state; every dependency is injected, every method takes build_id explicitly, and the dataclass attributes are pure dependencies. TestConcurrentMixedModeBuilds.test_concurrent_mode_a_b_c_dispatch_independently runs three builds (Mode A + Mode B + Mode C) concurrently through asyncio.gather on a shared Supervisor instance and asserts each dispatched its mode-appropriate stage with no cross-talk between dispatchers.",
+        "notes": "Supervisor owns no per-build mutable state; every dependency is injected, every method takes build_id explicitly, and the dataclass attributes are pure dependencies. TestConcurrentMixedModeBuilds.test_concurrent_mode_a_b_c_dispatch_independently runs three builds (Mode A + Mode B + Mode C) concurrently through asyncio.gather on a shared Supervisor instance and asserts each dispatched its mode-appropriate stage with no cross-talk between dispatchers."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Mode B: hard-stopped AUTOBUILD entries flow into _mode_b_resolve_no_advance which calls evaluate_post_autobuild. Hard-stop / failed status returns ROUTE_FAILED with the autobuild's rationale propagated; the supervisor records TurnOutcome.TERMINAL with the rationale and never invokes the autobuild dispatcher or PR-review gate. Verified by test_post_autobuild_failed_route_yields_terminal. Mode C: hard-stopped TASK_REVIEW entries are returned by ModeCCyclePlanner with terminal=ModeCTerminal.FAILED; _mode_c_resolve_terminal calls evaluate_terminal which returns ModeCTerminal.FAILED with the originating rationale; supervisor records TurnOutcome.TERMINAL.",
+        "notes": "Mode B: hard-stopped AUTOBUILD entries flow into _mode_b_resolve_no_advance which calls evaluate_post_autobuild. Hard-stop / failed status returns ROUTE_FAILED with the autobuild's rationale propagated; the supervisor records TurnOutcome.TERMINAL with the rationale and never invokes the autobuild dispatcher or PR-review gate. Verified by test_post_autobuild_failed_route_yields_terminal. Mode C: hard-stopped TASK_REVIEW entries are returned by ModeCCyclePlanner with terminal=ModeCTerminal.FAILED; _mode_c_resolve_terminal calls evaluate_terminal which returns ModeCTerminal.FAILED with the originating rationale; supervisor records TurnOutcome.TERMINAL."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 1888 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1814/7892 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- ASSIGNS_TASK_TO\n- INSTRUCTS_USER_TO_START\n- IS_USED_IN\n\n### \u26a0\ufe0f Warnings\n- USES_ENDPOINT\n- HAS_ROOT_CAUSE\n- INCORRECT_MODE_BEHAVIOR\n- REQUIRES_USE_OF\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- RUNS_TESTS_BEFORE_REPORTING\n- DELEGATES_TO\n- CREATES_REPORT\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- IMPLEMENTATION_MODE_HAS_MODE\n- APPLIES_TO_TASK\n\n\n## Previous Turn Summary (Turn 1)\n**What was attempted**: Implementation attempt\n**Player decision**: feedback\n**Coach decision**: feedback\n**Coach feedback**: - Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n- Independent test verification failed:\n  Error detail:\n    assert report.outcome is TurnOutcome.WAITING_PRIOR_AUTOBUILD\nE   AssertionError: assert <TurnOutcome.DISPATCHED: 'dispatched'> is <TurnOutcome.WAITING_PRIOR_AUTOBUILD: 'waiting_prior_autobuild'>\nE    +  where <TurnOutcome.DISPATCHED: 'dispatched'> = TurnReport(outcome=<TurnOutcome.DISPATCHED: 'dispatched'>, build_id='build-B4', permitted_stages=frozenset({<StageClass.FEATURE_PLAN: 'feature-plan'>, <StageClass.AUTOBUILD: 'autobuild'>, <StageClass.FEATURE_SPEC: 'feature-spec'>}), chosen_stage=<StageClass.AUTOBUILD: 'autobuild'>, chosen_feature_id='FEAT-1', rationale='MODE_B planner chose autobuild', dispatch_result={'dispatcher': 'autobuild_async', 'status': 'ok'}, gate_decision=None).outcome\nE    +  and   <TurnOutcome.WAITING_PRIOR_AUTOBUILD: 'waiting_prior_autobuild'> = TurnOutcome.WAITING_PRIOR_AUTOBUILD\n_ TestModeCPRReviewRoute.test_clean_followup_with_commits_advances_to_pr_review _\nResult:\ntests/forge/test_supervisor_mode_dispatch.py:938: in test_mode_b_pr_revi...",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

@@ -1,0 +1,117 @@
+{
+  "task_id": "TASK-MBC8-002",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_forward_propagation.py tests/forge/test_mode_chains_data.py tests/forge/test_stage_ordering_guard.py tests/forge/test_stage_taxonomy.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_stage_taxonomy.py::TestModuleStructure::test_module_exports_all_public_symbols PASSED [ 99%]\ntests/forge/test_stage_taxonomy.py::TestModuleStructure::test_module_has_no_forge_pipeline_internal_imports PASSED [100%]\ntests/forge/test_stage_ordering_guard.py:76\n/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/test_stage_ordering_guard.py:76: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html\n======================== 150 passed, 1 warning in 0.17s ========================",
+      "duration_seconds": 0.6326239109039307
+    },
+    "requirements": {
+      "criteria_total": 5,
+      "criteria_met": 5,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "New module `forge.pipeline.mode_chains_data` (or extend",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/pipeline/mode_chains_data.py with __all__ listing MODE_A_CHAIN, MODE_B_CHAIN, MODE_C_CHAIN, MODE_B_FORBIDDEN_STAGES, MODE_C_FORBIDDEN_STAGES, CHAIN_BY_MODE, MODE_B_PREREQUISITES, MODE_C_PREREQUISITES. TestModuleStructure (3 tests) validates module path, exported symbols and the import-cycle-free invariant.",
+      "notes": "Created src/forge/pipeline/mode_chains_data.py with __all__ listing MODE_A_CHAIN, MODE_B_CHAIN, MODE_C_CHAIN, MODE_B_FORBIDDEN_STAGES, MODE_C_FORBIDDEN_STAGES, CHAIN_BY_MODE, MODE_B_PREREQUISITES, MODE_C_PREREQUISITES. TestModuleStructure (3 tests) validates module path, exported symbols and the import-cycle-free invariant."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "`MODE_B_PREREQUISITES`: same shape as `STAGE_PREREQUISITES` but only",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "MODE_B_CHAIN defined as the four-tuple in mode_chains_data.py. TestModeBChain (5 tests) covers exact sequence, strict-suffix-of-Mode-A relationship, exclusion of pre-feature-spec stages, tuple type, and StageClass-typed members.",
+      "notes": "MODE_B_CHAIN defined as the four-tuple in mode_chains_data.py. TestModeBChain (5 tests) covers exact sequence, strict-suffix-of-Mode-A relationship, exclusion of pre-feature-spec stages, tuple type, and StageClass-typed members."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "`MODE_C_PREREQUISITES`: same shape but for Mode C's three stage classes",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "MODE_C_CHAIN defined as the three-tuple (TASK_REVIEW, TASK_WORK, PULL_REQUEST_REVIEW) with a multi-paragraph docstring explaining the per-fix-task fan-out of TASK_WORK is delegated to the cycle controller (TASK-MBC8-004) and that PULL_REQUEST_REVIEW is conditional on commits per ASSUM-005 / ASSUM-017. TestModeCChain (6 tests) pins exact sequence, length-3, type, entry stage and terminator.",
+      "notes": "MODE_C_CHAIN defined as the three-tuple (TASK_REVIEW, TASK_WORK, PULL_REQUEST_REVIEW) with a multi-paragraph docstring explaining the per-fix-task fan-out of TASK_WORK is delegated to the cycle controller (TASK-MBC8-004) and that PULL_REQUEST_REVIEW is conditional on commits per ASSUM-005 / ASSUM-017. TestModeCChain (6 tests) pins exact sequence, length-3, type, entry stage and terminator."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "Module docstring references FEAT-FORGE-008 ASSUM-001 (Mode B chain),",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "MODE_B_FORBIDDEN_STAGES defined as a frozenset of exactly those four stages. TestModeBForbiddenStages (3 tests) validates frozenset type, exact membership, and disjointness from MODE_B_CHAIN.",
+      "notes": "MODE_B_FORBIDDEN_STAGES defined as a frozenset of exactly those four stages. TestModeBForbiddenStages (3 tests) validates frozenset type, exact membership, and disjointness from MODE_B_CHAIN."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "MODE_C_FORBIDDEN_STAGES is the seven-element frozenset {PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD}. TestModeCForbiddenStages (4 tests) validates frozenset type, exact membership, that PULL_REQUEST_REVIEW is NOT forbidden (per ASSUM-005), and disjointness from MODE_C_CHAIN.",
+      "notes": "MODE_C_FORBIDDEN_STAGES is the seven-element frozenset {PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD}. TestModeCForbiddenStages (4 tests) validates frozenset type, exact membership, that PULL_REQUEST_REVIEW is NOT forbidden (per ASSUM-005), and disjointness from MODE_C_CHAIN."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "New module `forge.pipeline.mode_chains_data` (or extend",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/pipeline/mode_chains_data.py with __all__ listing MODE_A_CHAIN, MODE_B_CHAIN, MODE_C_CHAIN, MODE_B_FORBIDDEN_STAGES, MODE_C_FORBIDDEN_STAGES, CHAIN_BY_MODE, MODE_B_PREREQUISITES, MODE_C_PREREQUISITES. TestModuleStructure (3 tests) validates module path, exported symbols and the import-cycle-free invariant.",
+        "notes": "Created src/forge/pipeline/mode_chains_data.py with __all__ listing MODE_A_CHAIN, MODE_B_CHAIN, MODE_C_CHAIN, MODE_B_FORBIDDEN_STAGES, MODE_C_FORBIDDEN_STAGES, CHAIN_BY_MODE, MODE_B_PREREQUISITES, MODE_C_PREREQUISITES. TestModuleStructure (3 tests) validates module path, exported symbols and the import-cycle-free invariant."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "`MODE_B_PREREQUISITES`: same shape as `STAGE_PREREQUISITES` but only",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "MODE_B_CHAIN defined as the four-tuple in mode_chains_data.py. TestModeBChain (5 tests) covers exact sequence, strict-suffix-of-Mode-A relationship, exclusion of pre-feature-spec stages, tuple type, and StageClass-typed members.",
+        "notes": "MODE_B_CHAIN defined as the four-tuple in mode_chains_data.py. TestModeBChain (5 tests) covers exact sequence, strict-suffix-of-Mode-A relationship, exclusion of pre-feature-spec stages, tuple type, and StageClass-typed members."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "`MODE_C_PREREQUISITES`: same shape but for Mode C's three stage classes",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "MODE_C_CHAIN defined as the three-tuple (TASK_REVIEW, TASK_WORK, PULL_REQUEST_REVIEW) with a multi-paragraph docstring explaining the per-fix-task fan-out of TASK_WORK is delegated to the cycle controller (TASK-MBC8-004) and that PULL_REQUEST_REVIEW is conditional on commits per ASSUM-005 / ASSUM-017. TestModeCChain (6 tests) pins exact sequence, length-3, type, entry stage and terminator.",
+        "notes": "MODE_C_CHAIN defined as the three-tuple (TASK_REVIEW, TASK_WORK, PULL_REQUEST_REVIEW) with a multi-paragraph docstring explaining the per-fix-task fan-out of TASK_WORK is delegated to the cycle controller (TASK-MBC8-004) and that PULL_REQUEST_REVIEW is conditional on commits per ASSUM-005 / ASSUM-017. TestModeCChain (6 tests) pins exact sequence, length-3, type, entry stage and terminator."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "Module docstring references FEAT-FORGE-008 ASSUM-001 (Mode B chain),",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "MODE_B_FORBIDDEN_STAGES defined as a frozenset of exactly those four stages. TestModeBForbiddenStages (3 tests) validates frozenset type, exact membership, and disjointness from MODE_B_CHAIN.",
+        "notes": "MODE_B_FORBIDDEN_STAGES defined as a frozenset of exactly those four stages. TestModeBForbiddenStages (3 tests) validates frozenset type, exact membership, and disjointness from MODE_B_CHAIN."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "MODE_C_FORBIDDEN_STAGES is the seven-element frozenset {PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD}. TestModeCForbiddenStages (4 tests) validates frozenset type, exact membership, that PULL_REQUEST_REVIEW is NOT forbidden (per ASSUM-005), and disjointness from MODE_C_CHAIN.",
+        "notes": "MODE_C_FORBIDDEN_STAGES is the seven-element frozenset {PRODUCT_OWNER, ARCHITECT, SYSTEM_ARCH, SYSTEM_DESIGN, FEATURE_SPEC, FEATURE_PLAN, AUTOBUILD}. TestModeCForbiddenStages (4 tests) validates frozenset type, exact membership, that PULL_REQUEST_REVIEW is NOT forbidden (per ASSUM-005), and disjointness from MODE_C_CHAIN."
+      }
+    ]
+  },
+  "issues": [],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 352 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1676/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- HAS_FALLBACK_STRATEGY\n- REFERS_TO\n- ROUTES_TO\n- HAS_WAVE\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- REQUIRES_USE_OF\n- OCCURS_IN_MODE\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- IS_CREATED_FOR\n- DELEGATES_TO\n- MUST_CREATE\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- HAS_IMPLEMENTATION_MODE\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

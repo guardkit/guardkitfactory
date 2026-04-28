@@ -1,0 +1,9 @@
+{
+  "turn": 2,
+  "feedback_from_turn": 1,
+  "feedback_summary": "- Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n- Not all acceptance criteria met:\n  \u2022 `forge queue` accepts `--mode {a|b|c}` (default `a` for backwards\n  \u2022 `forge queue --mode b <FEAT-ID>` requires exactly one feature\n  \u2022 `forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.\n  \u2022 `forge status` displays the mode column (default-rendered as `mode-a`\n  \u2022 `forge history --mode b` and `--mode c` filter the history view by\n  (5 more)",
+  "must_fix": [],
+  "should_fix": [],
+  "validation_results": {},
+  "raw_feedback": "- Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)\n- Not all acceptance criteria met:\n  \u2022 `forge queue` accepts `--mode {a|b|c}` (default `a` for backwards\n  \u2022 `forge queue --mode b <FEAT-ID>` requires exactly one feature\n  \u2022 `forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.\n  \u2022 `forge status` displays the mode column (default-rendered as `mode-a`\n  \u2022 `forge history --mode b` and `--mode c` filter the history view by\n  (5 more)"
+}

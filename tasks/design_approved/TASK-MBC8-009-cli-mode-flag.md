@@ -1,61 +1,28 @@
 ---
-id: TASK-MBC8-009
-title: Add forge queue --mode {a|b|c} CLI surface and mode-aware queue picker
-task_type: feature
-status: in_review
-priority: high
-created: 2026-04-27 00:00:00+00:00
-updated: 2026-04-27 00:00:00+00:00
-parent_review: TASK-REV-MBC8
-feature_id: FEAT-FORGE-008
-wave: 5
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-27 00:00:00+00:00
 dependencies:
 - TASK-MBC8-008
+feature_id: FEAT-FORGE-008
+id: TASK-MBC8-009
+implementation_mode: task-work
+parent_review: TASK-REV-MBC8
+priority: high
+status: design_approved
 tags:
 - cli
 - queue
 - mode-b
 - mode-c
 - feat-forge-008
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
-autobuild_state:
-  current_turn: 2
-  max_turns: 30
-  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
-  base_branch: main
-  started_at: '2026-04-27T19:09:24.789105'
-  last_updated: '2026-04-27T19:38:52.097037'
-  turns:
-  - turn: 1
-    decision: feedback
-    feedback: "- Advisory (non-blocking): task-work produced a report with 2 of 3\
-      \ expected agent invocations. Missing phases: 3 (Implementation). Consider invoking\
-      \ these agents via the Task tool to strengthen stack-specific quality:\n- Phase\
-      \ 3: `python-api-specialist` (Implementation)\n- Not all acceptance criteria\
-      \ met:\n  \u2022 `forge queue` accepts `--mode {a|b|c}` (default `a` for backwards\n\
-      \  \u2022 `forge queue --mode b <FEAT-ID>` requires exactly one feature\n  \u2022\
-      \ `forge queue --mode c <SUBJECT-ID>` accepts a subject identifier (e.g.\n \
-      \ \u2022 `forge status` displays the mode column (default-rendered as `mode-a`\n\
-      \  \u2022 `forge history --mode b` and `--mode c` filter the history view by\n\
-      \  (5 more)"
-    timestamp: '2026-04-27T19:09:24.789105'
-    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
-      actual: 0'
-    player_success: true
-    coach_success: true
-  - turn: 2
-    decision: approve
-    feedback: null
-    timestamp: '2026-04-27T19:29:32.735371'
-    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
-      actual: 0'
-    player_success: true
-    coach_success: true
+  status: pending
+title: Add forge queue --mode {a|b|c} CLI surface and mode-aware queue picker
+updated: 2026-04-27 00:00:00+00:00
+wave: 5
 ---
 
 # Task: Add forge queue --mode {a|b|c} CLI surface and mode-aware queue picker

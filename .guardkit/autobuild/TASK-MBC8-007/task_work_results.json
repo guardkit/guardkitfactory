@@ -1,0 +1,216 @@
+{
+  "task_id": "TASK-MBC8-007",
+  "timestamp": "2026-04-27T18:28:35.107880",
+  "completed": true,
+  "phases": {
+    "phase_5.5": {
+      "detected": true,
+      "text": "\u2014 plan audit:",
+      "completed": false
+    },
+    "phase_3": {
+      "detected": true,
+      "completed": true
+    }
+  },
+  "quality_gates": {
+    "tests_passing": true,
+    "tests_passed": 33,
+    "tests_failed": 0,
+    "coverage": null,
+    "coverage_met": null,
+    "all_passed": true
+  },
+  "files_modified": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/src/forge/pipeline/terminal_handlers/mode_c.py",
+    "tasks/backlog/TASK-MBC8-006-mode-b-no-diff-terminal.md",
+    "tasks/backlog/TASK-MBC8-007-mode-c-terminal-handlers.md"
+  ],
+  "files_created": [
+    ".claude/task-plans/TASK-MBC8-006-implementation-plan.md",
+    ".claude/task-plans/TASK-MBC8-007-implementation-plan.md",
+    ".guardkit/autobuild/TASK-MBC8-004/checkpoints.json",
+    ".guardkit/autobuild/TASK-MBC8-006/phase_4_summary.json",
+    ".guardkit/autobuild/TASK-MBC8-006/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-006/specialist_results.json",
+    ".guardkit/autobuild/TASK-MBC8-006/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-006/turn_context.json",
+    ".guardkit/autobuild/TASK-MBC8-007/player_turn_1.json",
+    ".guardkit/autobuild/TASK-MBC8-007/task_work_results.json",
+    ".guardkit/autobuild/TASK-MBC8-007/turn_context.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/.guardkit/autobuild/TASK-MBC8-007/player_turn_1.json",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/src/forge/pipeline/terminal_handlers/mode_c.py",
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+    "src/forge/pipeline/terminal_handlers/__init__.py",
+    "src/forge/pipeline/terminal_handlers/mode_c.py",
+    "tasks/design_approved/TASK-MBC8-006-mode-b-no-diff-terminal.md",
+    "tasks/design_approved/TASK-MBC8-007-mode-c-terminal-handlers.md",
+    "tests/forge/pipeline/test_terminal_handlers.py",
+    "tests/forge/pipeline/test_terminal_handlers_mode_c.py"
+  ],
+  "tests_written": [
+    "/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008/tests/forge/pipeline/test_terminal_handlers_mode_c.py"
+  ],
+  "summary": "33 tests passed, all quality gates passed",
+  "sdk_turns": {
+    "turns_used": 64,
+    "max_turns": 100,
+    "ceiling_hit": false
+  },
+  "agent_invocations_validation": {
+    "status": "violation",
+    "expected_phases": 3,
+    "actual_invocations": 2,
+    "missing_phases": [
+      "3"
+    ],
+    "violation_message": "\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\u274c PROTOCOL VIOLATION: Agent invocation incomplete\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\n\nExpected: 3 agent invocations\nActual: 2 completed invocations\n\nMissing phases:\n  - Phase 3 (Implementation)\n\nCannot generate completion report until all agents are invoked.\nReview the AGENT INVOCATIONS LOG above to see which phases were skipped.\n\nAGENT INVOCATIONS LOG:\n\u2705 Phase 4 (Phase 4): test-orchestrator (completed in ?s)\n\u2705 Phase 5 (Phase 5): code-reviewer (completed in ?s)\n\nTASK WILL BE MOVED TO BLOCKED STATE\nReason: Protocol violation - required agents not invoked\n\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550"
+  },
+  "plan_audit": {
+    "status": "skipped",
+    "severity": null,
+    "violations": 0,
+    "extra_files": [],
+    "missing_files": [],
+    "extra_dependencies": [],
+    "missing_dependencies": [],
+    "loc_variance_pct": null,
+    "discrepancies_count": 0,
+    "message": "no implementation plan on disk"
+  },
+  "unconfirmed_low_confidence_assumptions": {
+    "status": "ok",
+    "unconfirmed": [],
+    "files_scanned": 0,
+    "files_skipped": 0,
+    "message": null
+  },
+  "completion_promises": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "forge.pipeline.terminal_handlers.mode_c module exposes evaluate_terminal(build, history) -> ModeCTerminal with variants CLEAN_REVIEW_NO_FIXES, CLEAN_REVIEW_NO_COMMITS, PR_REVIEW, FAILED",
+      "status": "complete",
+      "evidence": "Created new module src/forge/pipeline/terminal_handlers/mode_c.py exposing the ModeCTerminal StrEnum with exactly the four required variants and an async evaluate_terminal(build, history, *, commit_probe=None) function returning a ModeCTerminalDecision (carries .outcome: ModeCTerminal). Module __all__ exports ModeCTerminal, ModeCTerminalDecision, CommitProbe, CommitProbeResult, evaluate_terminal, build_task_work_attribution, build_session_outcome_payload. Verified by TestModuleStructure (4 tests) \u2014 module dotted path, required symbols, four variants, StrEnum semantics.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "CLEAN_REVIEW_NO_FIXES path: initial /task-review returned an empty fix-task list; recorded with rationale 'mode-c-task-review-empty'",
+      "status": "complete",
+      "evidence": "Implemented in evaluate_terminal decision-tree branch 4: when latest review is approved with empty fix_tasks AND no prior /task-work entries exist, returns ModeCTerminalDecision(outcome=CLEAN_REVIEW_NO_FIXES, has_commits=False, rationale='mode-c-task-review-empty'). Verified by TestCleanReviewNoFixes (4 tests including rationale, has_commits=False, and that no commit_probe shell-out occurs).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "CLEAN_REVIEW_NO_COMMITS path: every dispatched /task-work is approved, but git rev-list base..HEAD against the build's worktree returns zero commits; recorded with rationale 'mode-c-no-commits'",
+      "status": "complete",
+      "evidence": "Implemented in evaluate_terminal branch 5b: when prior /task-work has approvals and commit_probe returns count=0 (not failed), returns ModeCTerminalDecision(outcome=CLEAN_REVIEW_NO_COMMITS, has_commits=False, rationale='mode-c-no-commits'). The handler delegates worktree-path resolution to the injected CommitProbe per the implementation note (do not invent a new path resolver \u2014 reuse FEAT-FORGE-005). Verified by TestCleanReviewNoCommits (3 tests) using a fake probe returning count=0.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "PR_REVIEW path: at least one /task-work is approved and there is at least one commit in the worktree; build routes to constitutional PR-review gate",
+      "status": "complete",
+      "evidence": "Implemented in evaluate_terminal branch 5b: when prior /task-work has approvals and commit_probe returns count>0, returns ModeCTerminalDecision(outcome=PR_REVIEW, has_commits=True, rationale='mode-c-commits-present', pull_request_url=None). The handler does NOT itself dispatch PR review \u2014 it returns the routing decision the supervisor consumes. pull_request_url is intentionally None at this layer (URL is set later by the PR-creation adapter). Verified by TestPrReview (3 tests).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "FAILED path: /task-review hard-stop OR all dispatched /task-work ended in failed terminal lifecycle; recorded with the originating hard-stop rationale",
+      "status": "complete",
+      "evidence": "Implemented in evaluate_terminal branches 2/3/5a plus the commit-probe failure branch: hard-stop -> rationale='mode-c-task-review-hard-stop'; rejected/failed review without hard-stop -> 'mode-c-task-review-rejected'; all /task-work failed -> 'mode-c-all-task-work-failed'; commit-probe failure -> 'mode-c-commit-check-failed' (NOT silently demoted to clean-review per implementation note). Each FAILED decision carries a failure_reason string with the originating context. Verified by TestFailedPaths (5 tests covering all four FAILED sub-paths plus the defensive no-review path).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "BuildContext.has_commits flag set from this handler so ModeCCyclePlanner (TASK-MBC8-004) can route the follow-up review branch",
+      "status": "complete",
+      "evidence": "ModeCTerminalDecision carries a has_commits: bool field set by evaluate_terminal: True for PR_REVIEW, False for CLEAN_REVIEW_* and FAILED. The supervisor wires this onto BuildContext.has_commits, which ModeCCyclePlanner.plan_next_stage already consumes via its has_commits keyword (verified in mode_c_planner.py:248-266). Verified by TestHasCommitsFlag (3 tests).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Per-fix-task artefact attribution recorded on each TASK_WORK stage entry: artefact_paths list contains only paths produced by that fix task (Group G 'no artefact path attributed to more than one fix task')",
+      "status": "complete",
+      "evidence": "Implemented build_task_work_attribution(fix_task_id, originating_review_entry_id, artefact_paths, fix_task_artefact_index) helper. When fix_task_artefact_index is supplied (the supervisor's authoritative mapping), each candidate path is admitted only if it appears in the index entry for THIS fix task \u2014 paths owned by sibling fix tasks are filtered out, enforcing Group G's 'no artefact path attributed to more than one fix task' invariant. The returned dict is suitable for direct insertion into StageLogEntry.details. Verified by TestTaskWorkAttribution (4 tests including the cross-fix-task filter).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Fix-task lineage on each TASK_WORK entry: fix_task_id and originating_review_entry_id (Group L data-integrity scenario)",
+      "status": "complete",
+      "evidence": "build_task_work_attribution always returns a dict containing both 'fix_task_id' and 'originating_review_entry_id' keys, providing the audit anchor Group L lineage scenarios depend on. Verified by TestTaskWorkAttribution.test_attribution_records_fix_task_id_and_review_entry_id.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Recorded session outcome for CLEAN_REVIEW_* carries no pull_request_url and no PR-review gate decision",
+      "status": "complete",
+      "evidence": "Implemented build_session_outcome_payload(decision) helper that structurally OMITS the 'pull_request_url' key for CLEAN_REVIEW_NO_FIXES and CLEAN_REVIEW_NO_COMMITS outcomes (and for FAILED). The key is included only when outcome==PR_REVIEW AND decision.pull_request_url is non-None. This is a structural omission rather than an in-band None, matching AC-009's invariant precisely. The payload also carries 'outcome', 'rationale', 'has_commits', and (for FAILED) 'failure_reason'. Verified by TestSessionOutcomePayload (4 tests covering each outcome's payload shape).",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "Unit tests cover the four Mode C terminal scenarios from Group D, G, L, N",
+      "status": "complete",
+      "evidence": "test_terminal_handlers_mode_c.py contains 33 unit tests organised into 8 test classes mirroring the AC structure: TestModuleStructure (AC-001), TestCleanReviewNoFixes (AC-002), TestCleanReviewNoCommits (AC-003 / Group D), TestPrReview (AC-004 / Group D), TestFailedPaths (AC-005), TestHasCommitsFlag (AC-006), TestTaskWorkAttribution (AC-007/008 / Groups G+L), TestSessionOutcomePayload (AC-009 / Group N), TestProbeWiringGuard (defensive). All 33 tests pass under pytest. The four required Group D Mode C terminal scenarios are explicitly covered: initial-empty, follow-up-no-commits, follow-up-with-commits, and review-hard-stop.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    },
+    {
+      "criterion_id": "AC-011",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero errors",
+      "status": "complete",
+      "evidence": "Both new files pass `ruff check` with zero issues and were reformatted by `black --target-version py312` (the project's configured formatter). Confirmed clean ruff output: 'All checks passed!'. Black reformatted minor whitespace then completed. The 2 unrelated failing tests in the broader forge suite (test_apply_at_boot_is_idempotent, test_no_other_module_in_forge_constructs_evidence_priors) reference src/forge/lifecycle/recovery.py and src/forge/adapters/test_sqlite_persistence.py which I have not touched \u2014 they are pre-existing failures unrelated to TASK-MBC8-007.",
+      "test_file": "tests/forge/pipeline/test_terminal_handlers_mode_c.py",
+      "implementation_files": [
+        "src/forge/pipeline/terminal_handlers/mode_c.py"
+      ]
+    }
+  ],
+  "agent_invocations": [
+    {
+      "phase": "4",
+      "agent": "test-orchestrator",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 46.65626399498433
+    },
+    {
+      "phase": "5",
+      "agent": "code-reviewer",
+      "status": "completed",
+      "source": "orchestrator",
+      "duration_seconds": 178.14972281601513
+    }
+  ]
+}

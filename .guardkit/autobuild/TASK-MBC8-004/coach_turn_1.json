@@ -1,0 +1,215 @@
+{
+  "task_id": "TASK-MBC8-004",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/pipeline/test_mode_c_planner.py tests/forge/test_forward_context_builder.py tests/forge/test_mode_b_planner.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_mode_b_planner.py::TestImplementationHygiene::test_mode_b_plan_is_frozen PASSED [ 97%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_history_with_unknown_status_does_not_advance PASSED [ 98%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_history_with_malformed_artefacts_value_does_not_crash PASSED [ 99%]\ntests/forge/test_mode_b_planner.py::TestDefensiveBehaviour::test_planner_only_inspects_latest_entry_per_stage PASSED [100%]\n============================= 104 passed in 0.18s ==============================",
+      "duration_seconds": 0.6613190174102783
+    },
+    "requirements": {
+      "criteria_total": 10,
+      "criteria_met": 10,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`forge.pipeline.mode_c_planner` module exposes `ModeCCyclePlanner`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Created src/forge/pipeline/mode_c_planner.py exporting ModeCCyclePlanner class with plan_next_stage(build: Build, history: Sequence[StageEntry], *, has_commits: bool = False) -> ModeCPlan plus a module-level plan_next_stage() function. ModeCPlan dataclass exposes permitted_stages (frozenset[StageClass]), next_stage (StageClass | None), next_fix_task (FixTaskRef | None), terminal (ModeCTerminal | None), and rationale. Verified by tests TestModuleStructure::test_module_path_is_forge_pipeline_mode_c_planner, test_module_exports_required_symbols, test_planner_signature_returns_mode_c_plan, test_module_function_delegates_to_class, test_permitted_stages_is_mode_c_chain_only.",
+      "notes": "Created src/forge/pipeline/mode_c_planner.py exporting ModeCCyclePlanner class with plan_next_stage(build: Build, history: Sequence[StageEntry], *, has_commits: bool = False) -> ModeCPlan plus a module-level plan_next_stage() function. ModeCPlan dataclass exposes permitted_stages (frozenset[StageClass]), next_stage (StageClass | None), next_fix_task (FixTaskRef | None), terminal (ModeCTerminal | None), and rationale. Verified by tests TestModuleStructure::test_module_path_is_forge_pipeline_mode_c_planner, test_module_exports_required_symbols, test_planner_signature_returns_mode_c_plan, test_module_function_delegates_to_class, test_permitted_stages_is_mode_c_chain_only."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "Empty initial review returns `terminal = CLEAN_REVIEW`, `next_stage = None`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_decide_clean_review() detects an approved /task-review with empty fix_tasks tuple and no prior /task-work in history, and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.CLEAN_REVIEW). Verified by test TestGroupBBoundary::test_clean_initial_review_terminates_with_clean_review.",
+      "notes": "_decide_clean_review() detects an approved /task-review with empty fix_tasks tuple and no prior /task-work in history, and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.CLEAN_REVIEW). Verified by test TestGroupBBoundary::test_clean_initial_review_terminates_with_clean_review."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Non-empty initial review with N fix tasks returns sequential",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_next_undispatched_fix_task() walks fix_tasks in declaration order and returns the first whose slot is still open (no terminal-status /task-work entry under the current review). Verified by parametrised tests TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which step through full N-fix-task cycles, asserting one dispatch per fix task in identification order. test_does_not_dispatch_task_work_before_review_approved verifies the prerequisite ordering invariant.",
+      "notes": "_next_undispatched_fix_task() walks fix_tasks in declaration order and returns the first whose slot is still open (no terminal-status /task-work entry under the current review). Verified by parametrised tests TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which step through full N-fix-task cycles, asserting one dispatch per fix task in identification order. test_does_not_dispatch_task_work_before_review_approved verifies the prerequisite ordering invariant."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "After the last fix task's `/task-work` is approved, planner schedules",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "When _next_undispatched_fix_task() returns None (all fix tasks reached terminal status), plan_next_stage() returns ModeCPlan(next_stage=StageClass.TASK_REVIEW, rationale='all fix tasks completed \u2014 scheduling follow-up review'). Verified by the tail of TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which after dispatching all N fix tasks asserts the next plan is TASK_REVIEW with no numeric cap.",
+      "notes": "When _next_undispatched_fix_task() returns None (all fix tasks reached terminal status), plan_next_stage() returns ModeCPlan(next_stage=StageClass.TASK_REVIEW, rationale='all fix tasks completed \u2014 scheduling follow-up review'). Verified by the tail of TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which after dispatching all N fix tasks asserts the next plan is TASK_REVIEW with no numeric cap."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Follow-up review with no further fix tasks returns",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_decide_clean_review() distinguishes initial vs follow-up review by scanning history for prior /task-work entries. For follow-up clean reviews it branches on has_commits: True \u2192 PULL_REQUEST_REVIEW, False \u2192 terminal CLEAN_REVIEW. Verified by TestGroupAHappyPath::test_build_with_commits_after_clean_followup_advances_to_pr_review, TestGroupDEdge::test_follow_up_clean_review_no_commits_terminates_clean_review, and test_follow_up_clean_review_with_commits_advances_to_pr_review.",
+      "notes": "_decide_clean_review() distinguishes initial vs follow-up review by scanning history for prior /task-work entries. For follow-up clean reviews it branches on has_commits: True \u2192 PULL_REQUEST_REVIEW, False \u2192 terminal CLEAN_REVIEW. Verified by TestGroupAHappyPath::test_build_with_commits_after_clean_followup_advances_to_pr_review, TestGroupDEdge::test_follow_up_clean_review_no_commits_terminates_clean_review, and test_follow_up_clean_review_with_commits_advances_to_pr_review."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Failed `/task-work` for a fix task is recorded against that fix task",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "_TERMINAL_STATUSES includes 'failed' so a failed /task-work closes its own slot in _next_undispatched_fix_task() and the loop advances to the next fix task. Verified by TestGroupCNegative::test_failed_task_work_does_not_auto_cancel_siblings: with FIX-1 failed in history, the next plan dispatches FIX-2 with terminal=None.",
+      "notes": "_TERMINAL_STATUSES includes 'failed' so a failed /task-work closes its own slot in _next_undispatched_fix_task() and the loop advances to the next fix task. Verified by TestGroupCNegative::test_failed_task_work_does_not_auto_cancel_siblings: with FIX-1 failed in history, the next plan dispatches FIX-2 with terminal=None."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "Hard-stop on `/task-review` (Group C negative case) returns",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "plan_next_stage() checks latest_review.hard_stop OR latest_review.status in {'failed','rejected'} and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.FAILED). Verified by TestGroupCNegative::test_hard_stop_on_task_review_terminates_with_failed (hard_stop=True, status='failed', fix_tasks supplied) and test_rejected_task_review_terminates_with_failed (status='rejected').",
+      "notes": "plan_next_stage() checks latest_review.hard_stop OR latest_review.status in {'failed','rejected'} and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.FAILED). Verified by TestGroupCNegative::test_hard_stop_on_task_review_terminates_with_failed (hard_stop=True, status='failed', fix_tasks supplied) and test_rejected_task_review_terminates_with_failed (status='rejected')."
+    },
+    {
+      "criterion_id": "AC-008",
+      "criterion_text": "Each `next_fix_task` decision records a `FixTaskRef` containing the",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "FixTaskRef is a frozen slotted dataclass with fields fix_task_id, review_history_index (index into the history Sequence of the originating /task-review entry), and review_stage_label (default 'task-review'). plan_next_stage() constructs FixTaskRef(fix_task_id=next_id, review_history_index=latest_review_idx) on every TASK_WORK dispatch. Verified by TestGroupAHappyPath::test_task_work_plan_back_references_originating_review which asserts plan.next_fix_task.review_history_index == 0 against a single-review history.",
+      "notes": "FixTaskRef is a frozen slotted dataclass with fields fix_task_id, review_history_index (index into the history Sequence of the originating /task-review entry), and review_stage_label (default 'task-review'). plan_next_stage() constructs FixTaskRef(fix_task_id=next_id, review_history_index=latest_review_idx) on every TASK_WORK dispatch. Verified by TestGroupAHappyPath::test_task_work_plan_back_references_originating_review which asserts plan.next_fix_task.review_history_index == 0 against a single-review history."
+    },
+    {
+      "criterion_id": "AC-009",
+      "criterion_text": "Unit tests cover all 14 Mode C Group A/B/C/D scenarios from the feature",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "tests/forge/pipeline/test_mode_c_planner.py contains 20 passing tests organised into TestGroupAHappyPath (4: empty-history, N-fix-task fan-out, back-reference, commits\u2192PR), TestGroupBBoundary (6: clean initial, parametrised 1/3/5 fix-task counts, prerequisite-ordering for /task-work waits on /task-review, prerequisite-ordering for PR waits on every /task-work), TestGroupCNegative (3: hard-stop on /task-review, rejected /task-review, failed /task-work isolation), and TestGroupDEdge (2: follow-up clean review with/without commits). Plus 5 TestModuleStructure tests. Mapped to the planner-relevant subset of the 14 Mode C scenarios from features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature; supervisor/recovery scenarios (crash recovery, cancel routing, approval-channel routing, duplicate-approval idempotency) are explicitly out of scope for the stateless planner.",
+      "notes": "tests/forge/pipeline/test_mode_c_planner.py contains 20 passing tests organised into TestGroupAHappyPath (4: empty-history, N-fix-task fan-out, back-reference, commits\u2192PR), TestGroupBBoundary (6: clean initial, parametrised 1/3/5 fix-task counts, prerequisite-ordering for /task-work waits on /task-review, prerequisite-ordering for PR waits on every /task-work), TestGroupCNegative (3: hard-stop on /task-review, rejected /task-review, failed /task-work isolation), and TestGroupDEdge (2: follow-up clean review with/without commits). Plus 5 TestModuleStructure tests. Mapped to the planner-relevant subset of the 14 Mode C scenarios from features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature; supervisor/recovery scenarios (crash recovery, cancel routing, approval-channel routing, duplicate-approval idempotency) are explicitly out of scope for the stateless planner."
+    },
+    {
+      "criterion_id": "AC-010",
+      "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ruff check src/forge/pipeline/mode_c_planner.py tests/forge/pipeline/test_mode_c_planner.py \u2014 All checks passed. black --target-version py312 applied; both files now produce zero diff under black --check. python3 -m py_compile produces no errors. The repository has no pyproject.toml [tool.ruff] or [tool.black] sections \u2014 running both tools with default settings confirms cleanliness.",
+      "notes": "ruff check src/forge/pipeline/mode_c_planner.py tests/forge/pipeline/test_mode_c_planner.py \u2014 All checks passed. black --target-version py312 applied; both files now produce zero diff under black --check. python3 -m py_compile produces no errors. The repository has no pyproject.toml [tool.ruff] or [tool.black] sections \u2014 running both tools with default settings confirms cleanliness."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`forge.pipeline.mode_c_planner` module exposes `ModeCCyclePlanner`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Created src/forge/pipeline/mode_c_planner.py exporting ModeCCyclePlanner class with plan_next_stage(build: Build, history: Sequence[StageEntry], *, has_commits: bool = False) -> ModeCPlan plus a module-level plan_next_stage() function. ModeCPlan dataclass exposes permitted_stages (frozenset[StageClass]), next_stage (StageClass | None), next_fix_task (FixTaskRef | None), terminal (ModeCTerminal | None), and rationale. Verified by tests TestModuleStructure::test_module_path_is_forge_pipeline_mode_c_planner, test_module_exports_required_symbols, test_planner_signature_returns_mode_c_plan, test_module_function_delegates_to_class, test_permitted_stages_is_mode_c_chain_only.",
+        "notes": "Created src/forge/pipeline/mode_c_planner.py exporting ModeCCyclePlanner class with plan_next_stage(build: Build, history: Sequence[StageEntry], *, has_commits: bool = False) -> ModeCPlan plus a module-level plan_next_stage() function. ModeCPlan dataclass exposes permitted_stages (frozenset[StageClass]), next_stage (StageClass | None), next_fix_task (FixTaskRef | None), terminal (ModeCTerminal | None), and rationale. Verified by tests TestModuleStructure::test_module_path_is_forge_pipeline_mode_c_planner, test_module_exports_required_symbols, test_planner_signature_returns_mode_c_plan, test_module_function_delegates_to_class, test_permitted_stages_is_mode_c_chain_only."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "Empty initial review returns `terminal = CLEAN_REVIEW`, `next_stage = None`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_decide_clean_review() detects an approved /task-review with empty fix_tasks tuple and no prior /task-work in history, and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.CLEAN_REVIEW). Verified by test TestGroupBBoundary::test_clean_initial_review_terminates_with_clean_review.",
+        "notes": "_decide_clean_review() detects an approved /task-review with empty fix_tasks tuple and no prior /task-work in history, and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.CLEAN_REVIEW). Verified by test TestGroupBBoundary::test_clean_initial_review_terminates_with_clean_review."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Non-empty initial review with N fix tasks returns sequential",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_next_undispatched_fix_task() walks fix_tasks in declaration order and returns the first whose slot is still open (no terminal-status /task-work entry under the current review). Verified by parametrised tests TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which step through full N-fix-task cycles, asserting one dispatch per fix task in identification order. test_does_not_dispatch_task_work_before_review_approved verifies the prerequisite ordering invariant.",
+        "notes": "_next_undispatched_fix_task() walks fix_tasks in declaration order and returns the first whose slot is still open (no terminal-status /task-work entry under the current review). Verified by parametrised tests TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which step through full N-fix-task cycles, asserting one dispatch per fix task in identification order. test_does_not_dispatch_task_work_before_review_approved verifies the prerequisite ordering invariant."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "After the last fix task's `/task-work` is approved, planner schedules",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "When _next_undispatched_fix_task() returns None (all fix tasks reached terminal status), plan_next_stage() returns ModeCPlan(next_stage=StageClass.TASK_REVIEW, rationale='all fix tasks completed \u2014 scheduling follow-up review'). Verified by the tail of TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which after dispatching all N fix tasks asserts the next plan is TASK_REVIEW with no numeric cap.",
+        "notes": "When _next_undispatched_fix_task() returns None (all fix tasks reached terminal status), plan_next_stage() returns ModeCPlan(next_stage=StageClass.TASK_REVIEW, rationale='all fix tasks completed \u2014 scheduling follow-up review'). Verified by the tail of TestGroupBBoundary::test_dispatches_one_task_work_per_fix_task[1|3|5] which after dispatching all N fix tasks asserts the next plan is TASK_REVIEW with no numeric cap."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Follow-up review with no further fix tasks returns",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_decide_clean_review() distinguishes initial vs follow-up review by scanning history for prior /task-work entries. For follow-up clean reviews it branches on has_commits: True \u2192 PULL_REQUEST_REVIEW, False \u2192 terminal CLEAN_REVIEW. Verified by TestGroupAHappyPath::test_build_with_commits_after_clean_followup_advances_to_pr_review, TestGroupDEdge::test_follow_up_clean_review_no_commits_terminates_clean_review, and test_follow_up_clean_review_with_commits_advances_to_pr_review.",
+        "notes": "_decide_clean_review() distinguishes initial vs follow-up review by scanning history for prior /task-work entries. For follow-up clean reviews it branches on has_commits: True \u2192 PULL_REQUEST_REVIEW, False \u2192 terminal CLEAN_REVIEW. Verified by TestGroupAHappyPath::test_build_with_commits_after_clean_followup_advances_to_pr_review, TestGroupDEdge::test_follow_up_clean_review_no_commits_terminates_clean_review, and test_follow_up_clean_review_with_commits_advances_to_pr_review."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Failed `/task-work` for a fix task is recorded against that fix task",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "_TERMINAL_STATUSES includes 'failed' so a failed /task-work closes its own slot in _next_undispatched_fix_task() and the loop advances to the next fix task. Verified by TestGroupCNegative::test_failed_task_work_does_not_auto_cancel_siblings: with FIX-1 failed in history, the next plan dispatches FIX-2 with terminal=None.",
+        "notes": "_TERMINAL_STATUSES includes 'failed' so a failed /task-work closes its own slot in _next_undispatched_fix_task() and the loop advances to the next fix task. Verified by TestGroupCNegative::test_failed_task_work_does_not_auto_cancel_siblings: with FIX-1 failed in history, the next plan dispatches FIX-2 with terminal=None."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "Hard-stop on `/task-review` (Group C negative case) returns",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "plan_next_stage() checks latest_review.hard_stop OR latest_review.status in {'failed','rejected'} and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.FAILED). Verified by TestGroupCNegative::test_hard_stop_on_task_review_terminates_with_failed (hard_stop=True, status='failed', fix_tasks supplied) and test_rejected_task_review_terminates_with_failed (status='rejected').",
+        "notes": "plan_next_stage() checks latest_review.hard_stop OR latest_review.status in {'failed','rejected'} and returns ModeCPlan(next_stage=None, terminal=ModeCTerminal.FAILED). Verified by TestGroupCNegative::test_hard_stop_on_task_review_terminates_with_failed (hard_stop=True, status='failed', fix_tasks supplied) and test_rejected_task_review_terminates_with_failed (status='rejected')."
+      },
+      {
+        "criterion_id": "AC-008",
+        "criterion_text": "Each `next_fix_task` decision records a `FixTaskRef` containing the",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "FixTaskRef is a frozen slotted dataclass with fields fix_task_id, review_history_index (index into the history Sequence of the originating /task-review entry), and review_stage_label (default 'task-review'). plan_next_stage() constructs FixTaskRef(fix_task_id=next_id, review_history_index=latest_review_idx) on every TASK_WORK dispatch. Verified by TestGroupAHappyPath::test_task_work_plan_back_references_originating_review which asserts plan.next_fix_task.review_history_index == 0 against a single-review history.",
+        "notes": "FixTaskRef is a frozen slotted dataclass with fields fix_task_id, review_history_index (index into the history Sequence of the originating /task-review entry), and review_stage_label (default 'task-review'). plan_next_stage() constructs FixTaskRef(fix_task_id=next_id, review_history_index=latest_review_idx) on every TASK_WORK dispatch. Verified by TestGroupAHappyPath::test_task_work_plan_back_references_originating_review which asserts plan.next_fix_task.review_history_index == 0 against a single-review history."
+      },
+      {
+        "criterion_id": "AC-009",
+        "criterion_text": "Unit tests cover all 14 Mode C Group A/B/C/D scenarios from the feature",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "tests/forge/pipeline/test_mode_c_planner.py contains 20 passing tests organised into TestGroupAHappyPath (4: empty-history, N-fix-task fan-out, back-reference, commits\u2192PR), TestGroupBBoundary (6: clean initial, parametrised 1/3/5 fix-task counts, prerequisite-ordering for /task-work waits on /task-review, prerequisite-ordering for PR waits on every /task-work), TestGroupCNegative (3: hard-stop on /task-review, rejected /task-review, failed /task-work isolation), and TestGroupDEdge (2: follow-up clean review with/without commits). Plus 5 TestModuleStructure tests. Mapped to the planner-relevant subset of the 14 Mode C scenarios from features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature; supervisor/recovery scenarios (crash recovery, cancel routing, approval-channel routing, duplicate-approval idempotency) are explicitly out of scope for the stateless planner.",
+        "notes": "tests/forge/pipeline/test_mode_c_planner.py contains 20 passing tests organised into TestGroupAHappyPath (4: empty-history, N-fix-task fan-out, back-reference, commits\u2192PR), TestGroupBBoundary (6: clean initial, parametrised 1/3/5 fix-task counts, prerequisite-ordering for /task-work waits on /task-review, prerequisite-ordering for PR waits on every /task-work), TestGroupCNegative (3: hard-stop on /task-review, rejected /task-review, failed /task-work isolation), and TestGroupDEdge (2: follow-up clean review with/without commits). Plus 5 TestModuleStructure tests. Mapped to the planner-relevant subset of the 14 Mode C scenarios from features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature; supervisor/recovery scenarios (crash recovery, cancel routing, approval-channel routing, duplicate-approval idempotency) are explicitly out of scope for the stateless planner."
+      },
+      {
+        "criterion_id": "AC-010",
+        "criterion_text": "All modified files pass project-configured lint/format checks with zero",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ruff check src/forge/pipeline/mode_c_planner.py tests/forge/pipeline/test_mode_c_planner.py \u2014 All checks passed. black --target-version py312 applied; both files now produce zero diff under black --check. python3 -m py_compile produces no errors. The repository has no pyproject.toml [tool.ruff] or [tool.black] sections \u2014 running both tools with default settings confirms cleanliness.",
+        "notes": "ruff check src/forge/pipeline/mode_c_planner.py tests/forge/pipeline/test_mode_c_planner.py \u2014 All checks passed. black --target-version py312 applied; both files now produce zero diff under black --check. python3 -m py_compile produces no errors. The repository has no pyproject.toml [tool.ruff] or [tool.black] sections \u2014 running both tools with default settings confirms cleanliness."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 350 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1685/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- INSTRUCTS_USER_TO_REVIEW\n- SOURCE_PATTERN\n- DESCRIBES\n- HAS_FIELD\n\n### \u26a0\ufe0f Warnings\n- HAS_ROOT_CAUSE\n- USES_ENDPOINT\n- HAS_IMPLEMENTATION_TARGET\n\n### \ud83c\udfad Role Constraints\n- DELEGATE_TO_TASK_WORK\n- IS_CREATED_FOR\n- HAS_ROLE_CONSTRAINT\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- APPLIES_TO\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false
+}

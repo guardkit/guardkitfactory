@@ -29,12 +29,16 @@ from importlib.resources import files
 from typing import Final
 
 
-# The current schema version baked into ``schema.sql``. When a future
-# migration bumps the schema, append a sibling ``schema_v2.sql`` (or
-# similar) and add a ``(2, "schema_v2.sql")`` entry to ``_MIGRATIONS``.
-_SCHEMA_VERSION: Final[int] = 1
+# The current schema version. Bumped to 2 in TASK-MBC8-001 to add the
+# ``builds.mode`` column. Future schema bumps should follow the same
+# pattern: append a sibling ``schema_v{N}.sql`` and add a
+# ``(N, "schema_v{N}.sql")`` entry to ``_MIGRATIONS`` in ascending
+# order. The runner applies every entry whose version is greater than
+# the current ``schema_version`` ledger row.
+_SCHEMA_VERSION: Final[int] = 2
 _MIGRATIONS: Final[tuple[tuple[int, str], ...]] = (
-    (_SCHEMA_VERSION, "schema.sql"),
+    (1, "schema.sql"),
+    (2, "schema_v2.sql"),
 )
 
 
