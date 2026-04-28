@@ -2,7 +2,7 @@
 id: TASK-MBC8-008
 title: Wire mode-aware dispatch into Supervisor.next_turn
 task_type: feature
-status: pending
+status: in_review
 priority: high
 created: 2026-04-27 00:00:00+00:00
 updated: 2026-04-27 00:00:00+00:00
@@ -27,6 +27,44 @@ test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 2
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
+  base_branch: main
+  started_at: '2026-04-27T18:32:26.061291'
+  last_updated: '2026-04-27T19:09:24.740980'
+  turns:
+  - turn: 1
+    decision: feedback
+    feedback: "- Advisory (non-blocking): task-work produced a report with 2 of 3\
+      \ expected agent invocations. Missing phases: 3 (Implementation). Consider invoking\
+      \ these agents via the Task tool to strengthen stack-specific quality:\n- Phase\
+      \ 3: `python-api-specialist` (Implementation)\n- Independent test verification\
+      \ failed:\n  Error detail:\n    assert report.outcome is TurnOutcome.WAITING_PRIOR_AUTOBUILD\n\
+      E   AssertionError: assert <TurnOutcome.DISPATCHED: 'dispatched'> is <TurnOutcome.WAITING_PRIOR_AUTOBUILD:\
+      \ 'waiting_prior_autobuild'>\nE    +  where <TurnOutcome.DISPATCHED: 'dispatched'>\
+      \ = TurnReport(outcome=<TurnOutcome.DISPATCHED: 'dispatched'>, build_id='build-B4',\
+      \ permitted_stages=frozenset({<StageClass.FEATURE_PLAN: 'feature-plan'>, <StageClass.AUTOBUILD:\
+      \ 'autobuild'>, <StageClass.FEATURE_SPEC: 'feature-spec'>}), chosen_stage=<StageClass.AUTOBUILD:\
+      \ 'autobuild'>, chosen_feature_id='FEAT-1', rationale='MODE_B planner chose\
+      \ autobuild', dispatch_result={'dispatcher': 'autobuild_async', 'status': 'ok'},\
+      \ gate_decision=None).outcome\nE    +  and   <TurnOutcome.WAITING_PRIOR_AUTOBUILD:\
+      \ 'waiting_prior_autobuild'> = TurnOutcome.WAITING_PRIOR_AUTOBUILD\n_ TestModeCPRReviewRoute.test_clean_followup_with_commits_advances_to_pr_review\
+      \ _\nResult:\ntests/forge/test_supervisor_mode_dispatch.py:938: in test_mode_b_pr_revi..."
+    timestamp: '2026-04-27T18:32:26.061291'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
+  - turn: 2
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T18:56:15.138880'
+    player_summary: 'Implementation via task-work delegation. Files planned: 0, Files
+      actual: 0'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Wire mode-aware dispatch into Supervisor.next_turn

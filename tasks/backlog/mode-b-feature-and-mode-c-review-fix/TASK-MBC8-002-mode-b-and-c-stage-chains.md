@@ -2,7 +2,7 @@
 id: TASK-MBC8-002
 title: Define Mode B and Mode C stage chains and prerequisite maps
 task_type: declarative
-status: pending
+status: in_review
 priority: high
 created: 2026-04-27 00:00:00+00:00
 updated: 2026-04-27 00:00:00+00:00
@@ -22,6 +22,27 @@ test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
+  base_branch: main
+  started_at: '2026-04-27T17:46:32.891300'
+  last_updated: '2026-04-27T17:58:00.954776'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T17:46:32.891300'
+    player_summary: 'Created forge.pipeline.mode_chains_data as a pure declarative-data
+      module: MODE_A_CHAIN, MODE_B_CHAIN, MODE_C_CHAIN tuples, MODE_B_FORBIDDEN_STAGES
+      / MODE_C_FORBIDDEN_STAGES frozensets, CHAIN_BY_MODE Mapping[BuildMode, tuple[StageClass,
+      ...]] keyed exhaustively over BuildMode, and MODE_B_PREREQUISITES / MODE_C_PREREQUISITES
+      dicts mirroring the shape of STAGE_PREREQUISITES. The module imports only StageClass
+      from forge.pipeline.stage_taxonomy and BuildMode from forge.lifecycle.modes
+      so it is impo'
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Define Mode B and Mode C stage chains and prerequisite maps

@@ -3064,7 +3064,70 @@ Next steps:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
+guardkit feature-plan FEAT-FORGE-008 \
+  --context forge/features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix_summary.md
 
+
+All structure generated. Here's the summary:
+
+
+✅ FEATURE PLANNING COMPLETE — FEAT-FORGE-008
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📁 tasks/backlog/mode-b-feature-and-mode-c-review-fix/
+    ├── README.md
+    ├── IMPLEMENTATION-GUIDE.md      (§1 data flow · §2 sequence diagrams · §3 dep graph · §4 contracts · §5 substrate reuse · §6 risks · §7 acceptance)
+    ├── TASK-MBC8-001-build-mode-and-stage-extensions.md           (Wave 1, c=3, direct)
+    ├── TASK-MBC8-002-mode-b-and-c-stage-chains.md                 (Wave 1, c=2, direct)
+    ├── TASK-MBC8-003-mode-b-chain-planner.md                      (Wave 2, c=5, task-work)
+    ├── TASK-MBC8-004-mode-c-cycle-planner.md                      (Wave 2, c=6, task-work)
+    ├── TASK-MBC8-005-forward-context-mode-b-c.md                  (Wave 2, c=4, task-work)
+    ├── TASK-MBC8-006-mode-b-no-diff-terminal.md                   (Wave 3, c=3, task-work)
+    ├── TASK-MBC8-007-mode-c-terminal-handlers.md                  (Wave 3, c=4, task-work)
+    ├── TASK-MBC8-008-supervisor-mode-aware-dispatch.md            (Wave 4, c=6, task-work)
+    ├── TASK-MBC8-009-cli-mode-flag.md                             (Wave 5, c=4, task-work)
+    ├── TASK-MBC8-010-mode-b-smoke-e2e.md                          (Wave 6, c=5, testing)
+    ├── TASK-MBC8-011-mode-c-smoke-e2e.md                          (Wave 6, c=5, testing)
+    ├── TASK-MBC8-012-bdd-bindings-56-scenarios.md                 (Wave 6, c=6, testing)
+    ├── TASK-MBC8-013-cross-mode-concurrency.md                    (Wave 7, c=6, testing)
+    └── TASK-MBC8-014-crash-recovery-mode-b-c.md                   (Wave 7, c=6, testing)
+
+📁 .guardkit/features/FEAT-FORGE-008.yaml                          (14 tasks · 7 waves · estimated 970 min)
+
+🔗 56/56 BDD scenarios @task-tagged in features/mode-b-feature-and-mode-c-review-fix/mode-b-feature-and-mode-c-review-fix.feature
+   (R2 BDD oracle now activates per-task during /task-work)
+
+ℹ️  AC-quality review: 0 unverifiable acceptance criteria
+ℹ️  R3 smoke gates: not configured (informational — add smoke_gates: to YAML if desired)
+Wave structure (parallel within wave):
+
+
+Wave 1: 001, 002        ← declarative foundations
+Wave 2: 003, 004, 005   ← planners + context
+Wave 3: 006, 007        ← terminal handlers
+Wave 4: 008             ← supervisor wiring (single integration seam)
+Wave 5: 009             ← CLI surface
+Wave 6: 010, 011, 012   ← smoke + BDD bindings
+Wave 7: 013, 014        ← cross-mode concurrency + crash recovery
+Key design decisions:
+
+Composition-only — no new state-machine transitions, no new dispatchers; reuses dispatch_subprocess_stage, dispatch_autobuild_async, ConstitutionalGuard unchanged
+Mode A byte-identical — TASK-MBC8-008 keeps the existing match build.mode Mode A branch untouched so FEAT-FORGE-007 regression suite stays green
+Mode boundary security at the planner layer — ModeBoundaryViolation raised by ModeBChainPlanner if a manifest references /system-arch or /system-design
+Mode C cycle terminates on reviewer judgement (ASSUM-010, no numeric cap) — observable budget risk logged in §6
+Three real cross-task contracts pinned in §4: FixTaskList, AutobuildResult.changed_files_count, ModeAwareStageEntry
+Next steps:
+
+
+# Autonomous build
+guardkit feature-build FEAT-FORGE-008
+
+# Or work tasks individually
+guardkit task-work TASK-MBC8-001
+Want me to /schedule a background agent to add smoke_gates: between-wave checks to the YAML once you've decided which import-and-pytest-smoke commands belong there?
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-008 --verbose --max-turns 30
 
 
 

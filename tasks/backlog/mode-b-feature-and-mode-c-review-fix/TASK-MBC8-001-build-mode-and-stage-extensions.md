@@ -2,7 +2,7 @@
 id: TASK-MBC8-001
 title: Add BuildMode enum and extend StageClass with TASK_REVIEW + TASK_WORK
 task_type: declarative
-status: pending
+status: in_review
 priority: high
 created: 2026-04-27 00:00:00+00:00
 updated: 2026-04-27 00:00:00+00:00
@@ -21,6 +21,27 @@ test_results:
   status: pending
   coverage: null
   last_run: null
+autobuild_state:
+  current_turn: 1
+  max_turns: 30
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
+  base_branch: main
+  started_at: '2026-04-27T17:46:32.890136'
+  last_updated: '2026-04-27T17:59:34.166354'
+  turns:
+  - turn: 1
+    decision: approve
+    feedback: null
+    timestamp: '2026-04-27T17:46:32.890136'
+    player_summary: "1) Added BuildMode(StrEnum) with MODE_A/MODE_B/MODE_C (string\
+      \ values 'mode-a'/'mode-b'/'mode-c') in a new src/forge/lifecycle/modes.py.\
+      \ The module file already existed when the worktree was opened \u2014 kept its\
+      \ docstring/structure intact. 2) Extended StageClass with TASK_REVIEW='task-review'\
+      \ and TASK_WORK='task-work' appended at the END so Mode A's iteration prefix\
+      \ is byte-for-byte preserved (StageOrderingGuard contract). Added STAGE_PREREQUISITES[TASK_WORK]=[TASK_REVIEW]\
+      \ (single new row; per-fix-t"
+    player_success: true
+    coach_success: true
 ---
 
 # Task: Add BuildMode enum and extend StageClass with TASK_REVIEW + TASK_WORK

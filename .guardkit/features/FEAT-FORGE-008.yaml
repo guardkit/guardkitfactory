@@ -1,0 +1,311 @@
+id: FEAT-FORGE-008
+name: Mode B Feature & Mode C Review-Fix
+description: "Two non-greenfield orchestration modes built on the FEAT-FORGE-001..007\
+  \ substrate. Mode B drives a single new feature on an existing project (/feature-spec\
+  \ \u2192 /feature-plan \u2192 autobuild \u2192 pull-request review). Mode C runs\
+  \ a review-fix cycle on existing code (/task-review \u2192 /task-work \xD7 N) with\
+  \ optional pull-request review when commits are pushed. 14 tasks, 7 waves, complexity\
+  \ 6/10. Composition-only \u2014 no new state-machine transitions, no new dispatchers."
+created: '2026-04-27T17:36:18.584931'
+status: completed
+complexity: 7
+estimated_tasks: 14
+tasks:
+- id: TASK-MBC8-001
+  name: Add BuildMode enum and extend StageClass with TASK_REVIEW + TASK_WORK
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-001-build-mode-and-stage-extensions.md
+  complexity: 3
+  dependencies: []
+  status: completed
+  implementation_mode: direct
+  estimated_minutes: 33
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T17:46:32.863993'
+  completed_at: '2026-04-27T17:59:34.169561'
+- id: TASK-MBC8-002
+  name: Define Mode B and Mode C stage chains and prerequisite maps
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-002-mode-b-and-c-stage-chains.md
+  complexity: 2
+  dependencies: []
+  status: completed
+  implementation_mode: direct
+  estimated_minutes: 22
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T17:46:32.871593'
+  completed_at: '2026-04-27T17:59:34.177545'
+- id: TASK-MBC8-003
+  name: Implement ModeBChainPlanner that refuses upstream Mode A stages
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-003-mode-b-chain-planner.md
+  complexity: 5
+  dependencies:
+  - TASK-MBC8-001
+  - TASK-MBC8-002
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T17:59:46.667549'
+  completed_at: '2026-04-27T18:16:08.072974'
+- id: TASK-MBC8-004
+  name: Implement ModeCCyclePlanner with review-work iteration and clean-review terminal
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-004-mode-c-cycle-planner.md
+  complexity: 6
+  dependencies:
+  - TASK-MBC8-001
+  - TASK-MBC8-002
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T17:59:46.671273'
+  completed_at: '2026-04-27T18:16:08.081196'
+- id: TASK-MBC8-005
+  name: Extend ForwardContextBuilder for Mode B and Mode C contracts
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-005-forward-context-mode-b-c.md
+  complexity: 4
+  dependencies:
+  - TASK-MBC8-002
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T17:59:46.675008'
+  completed_at: '2026-04-27T18:16:08.089093'
+- id: TASK-MBC8-006
+  name: Implement Mode B no-diff terminal handler
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-006-mode-b-no-diff-terminal.md
+  complexity: 3
+  dependencies:
+  - TASK-MBC8-003
+  status: completed
+  implementation_mode: direct
+  estimated_minutes: 33
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T18:16:08.119247'
+  completed_at: '2026-04-27T18:32:26.009569'
+- id: TASK-MBC8-007
+  name: Implement Mode C terminal handlers
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-007-mode-c-terminal-handlers.md
+  complexity: 4
+  dependencies:
+  - TASK-MBC8-004
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T18:16:08.126904'
+  completed_at: '2026-04-27T18:32:26.017926'
+- id: TASK-MBC8-008
+  name: Wire mode-aware dispatch into Supervisor.next_turn
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-008-supervisor-mode-aware-dispatch.md
+  complexity: 6
+  dependencies:
+  - TASK-MBC8-003
+  - TASK-MBC8-004
+  - TASK-MBC8-005
+  - TASK-MBC8-006
+  - TASK-MBC8-007
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 2
+    final_decision: approved
+    error: null
+  turns_completed: 2
+  current_turn: 0
+  started_at: '2026-04-27T18:32:26.047897'
+  completed_at: '2026-04-27T19:09:24.744629'
+- id: TASK-MBC8-009
+  name: Add forge queue --mode flag and mode-aware queue picker
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-009-cli-mode-flag.md
+  complexity: 4
+  dependencies:
+  - TASK-MBC8-008
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 50
+  requires_infrastructure: []
+  result:
+    total_turns: 2
+    final_decision: approved
+    error: null
+  turns_completed: 2
+  current_turn: 0
+  started_at: '2026-04-27T19:09:24.775272'
+  completed_at: '2026-04-27T19:38:52.100569'
+- id: TASK-MBC8-010
+  name: Mode B smoke E2E
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-010-mode-b-smoke-e2e.md
+  complexity: 5
+  dependencies:
+  - TASK-MBC8-008
+  - TASK-MBC8-009
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T19:38:52.131938'
+  completed_at: '2026-04-27T19:59:54.015121'
+- id: TASK-MBC8-011
+  name: Mode C smoke E2E
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-011-mode-c-smoke-e2e.md
+  complexity: 5
+  dependencies:
+  - TASK-MBC8-008
+  - TASK-MBC8-009
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 75
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T19:38:52.140155'
+  completed_at: '2026-04-27T19:59:54.023863'
+- id: TASK-MBC8-012
+  name: BDD step bindings for all 56 Mode B and Mode C scenarios
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-012-bdd-bindings-56-scenarios.md
+  complexity: 6
+  dependencies:
+  - TASK-MBC8-008
+  - TASK-MBC8-009
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T19:38:52.148314'
+  completed_at: '2026-04-27T19:59:54.032408'
+- id: TASK-MBC8-013
+  name: Cross-mode concurrency integration tests
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-013-cross-mode-concurrency.md
+  complexity: 6
+  dependencies:
+  - TASK-MBC8-010
+  - TASK-MBC8-011
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T19:59:54.052900'
+  completed_at: '2026-04-27T20:17:23.700736'
+- id: TASK-MBC8-014
+  name: Crash-recovery integration tests for Mode B and Mode C non-terminal stages
+  file_path: tasks/backlog/mode-b-feature-and-mode-c-review-fix/TASK-MBC8-014-crash-recovery-mode-b-c.md
+  complexity: 6
+  dependencies:
+  - TASK-MBC8-010
+  - TASK-MBC8-011
+  status: completed
+  implementation_mode: task-work
+  estimated_minutes: 113
+  requires_infrastructure: []
+  result:
+    total_turns: 1
+    final_decision: approved
+    error: null
+  turns_completed: 1
+  current_turn: 0
+  started_at: '2026-04-27T19:59:54.057010'
+  completed_at: '2026-04-27T20:17:23.705377'
+orchestration:
+  parallel_groups:
+  - - TASK-MBC8-001
+    - TASK-MBC8-002
+  - - TASK-MBC8-003
+    - TASK-MBC8-004
+    - TASK-MBC8-005
+  - - TASK-MBC8-006
+    - TASK-MBC8-007
+  - - TASK-MBC8-008
+  - - TASK-MBC8-009
+  - - TASK-MBC8-010
+    - TASK-MBC8-011
+    - TASK-MBC8-012
+  - - TASK-MBC8-013
+    - TASK-MBC8-014
+  estimated_duration_minutes: 1028
+  recommended_parallel: 3
+execution:
+  started_at: '2026-04-27T17:46:32.836537'
+  completed_at: '2026-04-27T20:17:23.715202'
+  worktree_path: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
+  total_turns: 16
+  tasks_completed: 14
+  tasks_failed: 0
+  current_wave: 7
+  completed_waves:
+  - 1
+  - 2
+  - 3
+  - 4
+  - 5
+  - 6
+  - 7
+  last_updated: '2026-04-27T20:17:23.709978'
+  archived_at: null
+  archived_to: null

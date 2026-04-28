@@ -27,6 +27,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode B's capstone happy path — no PO/architect/system-arch/system-design upfront; start at /feature-spec
   # [ASSUMPTION: confidence=high] Mode B chain is /feature-spec → /feature-plan → autobuild → pull-request review (skipping product-owner, architect, /system-arch, and /system-design)
+  @task:TASK-MBC8-010
   @mode-b @key-example @smoke
   Scenario: A Mode B build drives a single new feature from specification to pull-request review
     Given the build is picked up from the queue in feature mode
@@ -38,6 +39,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the recorded stage history should contain feature specification, feature planning, autobuild, and pull-request review in order
 
   # Why: Mode B forward propagation — the spec output drives the plan, the plan drives autobuild
+  @task:TASK-MBC8-005
   @mode-b @key-example
   Scenario: The approved feature specification is supplied as input to feature planning and the approved plan is supplied to autobuild
     Given the feature specification stage has produced approved spec artefacts
@@ -48,6 +50,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode B autobuild uses the inherited async-subagent pattern so the supervisor stays responsive
   # [ASSUMPTION: confidence=high] Mode B autobuild dispatch reuses the AsyncSubAgent pattern with the async_tasks state channel exposing wave and task indices (inherited from FEAT-FORGE-007)
+  @task:TASK-MBC8-008
   @mode-b @key-example @smoke
   Scenario: Mode B autobuild runs as an asynchronous subagent so the supervisor remains responsive during the run
     Given the feature has an approved build plan
@@ -58,6 +61,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: PR review is constitutionally pinned in Mode B, just as in Mode A — never auto-approve
   # [ASSUMPTION: confidence=high] Pull-request review is constitutionally pinned to mandatory human approval in every mode, enforced both at the prompt and the executor layer (belt-and-braces)
+  @task:TASK-MBC8-008
   @mode-b @key-example @regression
   Scenario: A Mode B pull-request review is mandatory human approval regardless of upstream Coach scores
     Given every preceding Mode B stage has been auto-approved with high Coach scores
@@ -66,6 +70,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the pause should not be eligible to be auto-approved
 
   # Why: A flag-for-review at any non-constitutional Mode B stage suspends the build and the next stage waits
+  @task:TASK-MBC8-003
   @mode-b @key-example
   Scenario: A flagged-for-review checkpoint in Mode B pauses the build and the next stage waits on the response
     Given Mode B is in the feature-planning stage and that stage has been flagged for review
@@ -75,6 +80,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And no autobuild dispatch should have been recorded before the response was received
 
   # Why: Successful Mode B build records a session outcome with the chain of gate decisions for the inherited stages only
+  @task:TASK-MBC8-010
   @mode-b @key-example
   Scenario: Completing the Mode B pull-request review writes a session outcome that links every gate decision in order
     Given a Mode B build is paused at pull-request review
@@ -85,6 +91,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode C's capstone happy path — review identifies fix tasks; work cycles through them under gating
   # [ASSUMPTION: confidence=high] Mode C chain is /task-review → /task-work × N (one /task-work dispatch per fix task identified by /task-review), with optional pull-request review at the end if changes are pushed
+  @task:TASK-MBC8-011
   @mode-c @key-example @smoke
   Scenario: A Mode C build runs the review-fix cycle from an initial review through one work dispatch per identified fix task
     Given the build is picked up from the queue in review-fix mode
@@ -95,6 +102,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And no task-work dispatch should occur before its corresponding fix task is approved
 
   # Why: Mode C forward propagation — the /task-review output supplies fix-task definitions to /task-work
+  @task:TASK-MBC8-005
   @mode-c @key-example
   Scenario: Each /task-work dispatch is supplied with the fix-task definition produced by /task-review
     Given the task-review stage has produced fix-task definitions
@@ -104,6 +112,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode C may produce a pull request once fixes are applied — the constitutional rule still pins review to a human
   # [ASSUMPTION: confidence=medium] Mode C may culminate in a pull-request review when fixes change the working branch; the constitutional pull-request rule applies in Mode C exactly as in Modes A and B
+  @task:TASK-MBC8-008
   @mode-c @key-example @regression
   Scenario: A Mode C build that produces changes ends with a pull-request review pinned to mandatory human approval
     Given a Mode C build has applied changes through one or more task-work dispatches
@@ -117,6 +126,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Single-feature Mode B is the only valid scope shape — there is no system-design catalogue iteration
   # [ASSUMPTION: confidence=high] Mode B operates on exactly one feature per build; multi-feature catalogues belong to Mode A only
+  @task:TASK-MBC8-003
   @mode-b @boundary @smoke
   Scenario: A Mode B build operates on exactly one feature and culminates in exactly one pull-request review pause
     Given a Mode B build is queued for a single feature identifier
@@ -125,6 +135,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the chain should culminate in a single pull-request review pause
 
   # Why: Stage-ordering invariant for Mode B — every downstream stage waits on its prerequisite
+  @task:TASK-MBC8-003
   @mode-b @boundary
   Scenario Outline: A downstream Mode B stage is not dispatched before its prerequisite has reached the approved state
     Given the prerequisite "<prerequisite>" has not yet been approved
@@ -138,6 +149,7 @@ Feature: Mode B Feature & Mode C Review-Fix
       | pull-request  | autobuild for the feature    |
 
   # Why: Just-outside boundary — Mode B with no spec output cannot proceed to planning
+  @task:TASK-MBC8-003
   @mode-b @boundary @negative
   Scenario: A Mode B feature-specification stage that produces no spec artefacts cannot enter feature planning
     Given the feature-specification stage has produced no spec artefacts
@@ -147,6 +159,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Just-inside boundary — Mode C with zero fix tasks completes without dispatching task-work
   # [ASSUMPTION: confidence=high] If /task-review returns an empty set of fix tasks, the Mode C build completes without dispatching /task-work and records the clean-review outcome
+  @task:TASK-MBC8-004
   @mode-c @boundary
   Scenario: A Mode C task-review that returns no fix tasks completes the build without dispatching any task-work
     Given the task-review stage has returned an empty set of fix tasks
@@ -155,6 +168,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should reach a complete terminal state with a clean-review outcome recorded
 
   # Why: Mode C scales with the number of identified fix tasks — exercises the iteration boundary
+  @task:TASK-MBC8-004
   @mode-c @boundary
   Scenario Outline: Mode C dispatches one /task-work per fix task identified by /task-review
     Given the task-review stage has returned <count> fix tasks
@@ -169,6 +183,7 @@ Feature: Mode B Feature & Mode C Review-Fix
       | 5     |
 
   # Why: Stage-ordering invariant for Mode C — task-work waits on its review entry's approval
+  @task:TASK-MBC8-004
   @mode-c @boundary
   Scenario Outline: A Mode C downstream stage is not dispatched before its prerequisite has reached the approved state
     Given the prerequisite "<prerequisite>" has not yet been approved
@@ -185,6 +200,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: A hard-stop at the first stage of Mode B terminates the build; no later dispatch should occur
+  @task:TASK-MBC8-003
   @mode-b @negative
   Scenario: A hard-stop at the Mode B feature-specification stage prevents any later stage from being dispatched
     Given the feature-specification stage returns a result that causes a hard-stop gate
@@ -193,6 +209,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And no feature-planning, autobuild, or pull-request dispatch should have been recorded
 
   # Why: A failed feature-spec dispatch must not cascade into a planning attempt
+  @task:TASK-MBC8-003
   @mode-b @negative
   Scenario: A failed Mode B feature-specification dispatch halts the build before planning
     Given the build is in the feature-specification stage
@@ -202,6 +219,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the failed-spec rationale should be recorded against the build
 
   # Why: Constitutional override — Mode B PR review can never be auto-approved by upstream score alone
+  @task:TASK-MBC8-008
   @mode-b @negative @regression
   Scenario: Auto-approval is refused at the Mode B pull-request review stage even when the upstream Coach score is at the maximum
     Given the upstream Mode B stages have all returned the maximum Coach score
@@ -210,6 +228,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the pause should not be eligible to resolve without a human decision
 
   # Why: Skip steering must not bypass the constitutional PR-review gate in Mode B
+  @task:TASK-MBC8-009
   @mode-b @negative @regression
   Scenario: A skip directive issued against the Mode B pull-request review stage is refused
     Given the Mode B build is paused at pull-request review
@@ -218,6 +237,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the skip should be recorded as refused with a constitutional rationale
 
   # Why: Mode B autobuild internal hard-stop must surface to the build and prevent PR creation
+  @task:TASK-MBC8-006
   @mode-b @negative
   Scenario: A Mode B autobuild internal hard-stop is propagated to the build and prevents pull-request creation
     Given Mode B autobuild is in flight
@@ -227,6 +247,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build's stage history should record the autobuild failure with the hard-stop rationale
 
   # Why: Reject decision at any pre-PR pause is terminal — there is no implicit retry
+  @task:TASK-MBC8-008
   @mode-b @mode-c @negative
   Scenario: A reject decision at a flagged-for-review checkpoint before pull-request review terminates the build
     Given the build is paused at any flagged-for-review checkpoint before pull-request review
@@ -235,6 +256,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And no later stage should be dispatched
 
   # Why: A hard-stop at the Mode C task-review stage terminates the build; no fix work should run
+  @task:TASK-MBC8-004
   @mode-c @negative
   Scenario: A hard-stop at the Mode C task-review stage prevents any task-work from being dispatched
     Given the task-review stage returns a result that causes a hard-stop gate
@@ -244,6 +266,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: A failed /task-work for a fix task is recorded and prevents that fix task from being marked as completed
   # [ASSUMPTION: confidence=medium] A failed /task-work for a fix task halts that fix task's progression but does not implicitly cancel later fix tasks; the build's continuation is decided at the gate
+  @task:TASK-MBC8-007
   @mode-c @negative
   Scenario: A failed Mode C task-work dispatch records the failure against its fix task and blocks pull-request creation when no fix task has succeeded
     Given a Mode C fix task is in flight under task-work
@@ -256,6 +279,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: Crash mid-stage triggers anchor §5 retry-from-scratch in Mode B as in Mode A
+  @task:TASK-MBC8-014
   @mode-b @edge-case
   Scenario Outline: A crash during any non-terminal Mode B stage is recovered by retry-from-scratch
     Given the Mode B build is in the "<stage>" stage
@@ -270,6 +294,7 @@ Feature: Mode B Feature & Mode C Review-Fix
       | autobuild    |
 
   # Why: Crash mid-stage triggers retry-from-scratch in Mode C as well
+  @task:TASK-MBC8-014
   @mode-c @edge-case
   Scenario Outline: A crash during any non-terminal Mode C stage is recovered by retry-from-scratch
     Given the Mode C build is in the "<stage>" stage
@@ -284,6 +309,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Async subagent state channel is advisory on recovery — durable history is authoritative
   # [ASSUMPTION: confidence=high] On crash recovery during Mode B autobuild or Mode C task-work, durable history is authoritative and any live async-subagent state channel is advisory (inherited from FEAT-FORGE-007)
+  @task:TASK-MBC8-014
   @mode-b @mode-c @edge-case
   Scenario: After a crash during an asynchronous Mode B autobuild or Mode C task-work, durable history is the authoritative status source
     Given an asynchronous stage was in flight when the runtime crashed
@@ -292,6 +318,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And any live state channel data should be treated as advisory
 
   # Why: Cancel during a paused stage produces a synthetic reject and terminates the build (CLI cancel mapping)
+  @task:TASK-MBC8-009
   @mode-b @mode-c @edge-case
   Scenario: A cancel directive while paused at a Mode B or Mode C checkpoint terminates the build with a synthetic reject
     Given the build is paused at a flagged-for-review checkpoint
@@ -300,6 +327,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should reach a cancelled terminal state
 
   # Why: Cancel during an asynchronous stage halts the async task and terminates the build
+  @task:TASK-MBC8-009
   @mode-b @mode-c @edge-case
   Scenario: A cancel directive during an asynchronous Mode B autobuild or Mode C task-work halts the asynchronous task and terminates the build
     Given an asynchronous stage is in flight
@@ -308,6 +336,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should reach a cancelled terminal state with no pull-request creation attempted
 
   # Why: Skip on a non-constitutional stage records the skip and continues the chain
+  @task:TASK-MBC8-009
   @mode-b @mode-c @edge-case
   Scenario: A skip directive on a non-constitutional stage marks that stage skipped and resumes the chain
     Given the build is paused at a flagged-for-review checkpoint that is not pull-request review
@@ -316,6 +345,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should resume at the next stage in the chain
 
   # Why: Approval responses are routed by build identifier — concurrent paused builds remain isolated
+  @task:TASK-MBC8-013
   @mode-b @mode-c @edge-case
   Scenario: An approval response is routed to the Mode B or Mode C build whose identifier matches the response channel
     Given two builds are simultaneously paused at flagged-for-review checkpoints
@@ -324,6 +354,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the other paused build should remain awaiting its own approval
 
   # Why: Repeat approval for the same request is idempotent — first response wins (CLI replay safety)
+  @task:TASK-MBC8-013
   @mode-b @mode-c @edge-case
   Scenario: A duplicate approval response for the same paused stage is ignored
     Given the build has resumed after an approval response was honoured
@@ -333,6 +364,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode C terminates the cycle when /task-review returns a clean review after a fix iteration
   # [ASSUMPTION: confidence=medium] Mode C terminates the review-fix cycle when a follow-up /task-review returns no further fix tasks; iteration count is bounded by reviewer judgement, not a fixed numeric ceiling
+  @task:TASK-MBC8-004
   @mode-c @edge-case
   Scenario: A follow-up Mode C task-review that returns no further fix tasks terminates the review-fix cycle
     Given the Mode C build has completed every dispatched task-work
@@ -347,6 +379,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Constitutional pull-request rule is enforced at both the prompt layer and the executor layer in every mode
   # [ASSUMPTION: confidence=high] Constitutional pull-request enforcement is mode-agnostic — the executor-side hardcoded branch fires for any tool resembling pull-request creation or review regardless of mode
+  @task:TASK-MBC8-008
   @mode-b @mode-c @security @regression
   Scenario: Mode B and Mode C pull-request review enforcement holds even if a misconfigured prompt would have allowed auto-approve
     Given the system prompt is configured incorrectly so that pull-request review appears auto-approvable
@@ -354,6 +387,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     Then the executor layer should still enforce mandatory human approval
 
   # Why: Subprocess results cannot escalate beyond their delegated authority at the gating layer
+  @task:TASK-MBC8-008
   @mode-b @mode-c @security
   Scenario: A subprocess result that asserts an override of constitutional rules is ignored at gating
     Given a subprocess stage returns a result claiming to override the pull-request review rule
@@ -362,6 +396,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should pause for mandatory human approval
 
   # Why: Each build runs only inside its ephemeral worktree allowlist — no cross-build leakage in either mode
+  @task:TASK-MBC8-008
   @mode-b @mode-c @security
   Scenario: Mode B and Mode C subprocess stages run only against the build's ephemeral worktree path
     Given the build has a configured worktree path
@@ -374,6 +409,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: Two concurrent Mode B builds run with isolated approval channels and isolated autobuild task identifiers
+  @task:TASK-MBC8-013
   @mode-b @concurrency
   Scenario: Two concurrent Mode B builds use separate approval channels and separate autobuild task identifiers
     Given two distinct Mode B builds are dispatched at approximately the same time
@@ -382,6 +418,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And each build's approval pause should resolve only on a response matching its own build identifier
 
   # Why: Mode B and Mode C can run concurrently — different stage chains over the same checkpoint substrate
+  @task:TASK-MBC8-013
   @mode-b @mode-c @concurrency
   Scenario: A Mode B and a Mode C build run concurrently with isolated approval channels and stage chains
     Given a Mode B build is in flight at autobuild
@@ -391,6 +428,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the supervisor should be able to dispatch the next stage of either build without waiting on the other
 
   # Why: A long-running asynchronous stage does not block the supervisor's reasoning loop for unrelated builds
+  @task:TASK-MBC8-013
   @mode-b @mode-c @concurrency
   Scenario: The supervisor can dispatch a different build's stage while another build's asynchronous stage is mid-flight
     Given a first build's asynchronous stage is in the running lifecycle
@@ -402,6 +440,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: Mode B canonical stage-history ordering — the chain reflects the actual order without PO/architect/system-arch/system-design entries
+  @task:TASK-MBC8-010
   @mode-b @data-integrity
   Scenario: The recorded stage history of a successful Mode B build follows the canonical Mode B ordering
     Given a Mode B build has reached the complete terminal state
@@ -410,6 +449,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And no product-owner, architect, architecture, or system-design entries should appear
 
   # Why: Mode C canonical stage-history ordering — review entries precede the corresponding work entries
+  @task:TASK-MBC8-011
   @mode-c @data-integrity
   Scenario: The recorded stage history of a successful Mode C build follows the canonical Mode C ordering
     Given a Mode C build has reached the complete terminal state
@@ -418,6 +458,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And task-work entries for distinct fix tasks should each reference the fix task identifier they implemented
 
   # Why: Per-fix-task artefact attribution — Mode C work products belong to the fix task that produced them
+  @task:TASK-MBC8-007
   @mode-c @data-integrity
   Scenario: Per-fix-task artefact paths are recorded against the fix task that produced them
     Given the task-review stage has produced two or more fix tasks
@@ -426,6 +467,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And no artefact path should be attributed to more than one fix task
 
   # Why: A failed outbound notification publish must not regress an authoritative durable approval
+  @task:TASK-MBC8-013
   @mode-b @mode-c @data-integrity
   Scenario: A notification publish failure does not regress a Mode B or Mode C build's recorded stage progress
     Given a stage has been approved
@@ -438,6 +480,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: End-to-end smoke for Mode B — minimal queue → PR-awaiting-review
+  @task:TASK-MBC8-010
   @mode-b @integration @smoke
   Scenario: A minimal Mode B build for a single feature drives to a pull request awaiting human review
     Given the operator queues a Mode B build for a single feature identifier
@@ -446,6 +489,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And a pull-request URL should be recorded against the build
 
   # Why: End-to-end smoke for Mode C — minimal queue → clean-review terminal
+  @task:TASK-MBC8-011
   @mode-c @integration @smoke
   Scenario: A minimal Mode C build with a single fix task completes through one task-review and one task-work dispatch
     Given the operator queues a Mode C build
@@ -455,6 +499,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should reach a complete or pull-request-review terminal outcome consistent with the changes applied
 
   # Why: An internal asynchronous pause must be observable through the supervisor without blocking other supervisor work
+  @task:TASK-MBC8-013
   @mode-b @mode-c @integration
   Scenario: An internal asynchronous-stage pause is observable through the supervisor without blocking other supervisor work
     Given an asynchronous stage's internal task fires a flagged-for-review pause
@@ -463,6 +508,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the supervisor should remain free to perform other work for other builds
 
   # Why: Mode B/C inherit the correlation-threading audit anchor — every lifecycle event for one build carries one correlation id
+  @task:TASK-MBC8-013
   @mode-b @mode-c @integration @data-integrity
   Scenario: Every published lifecycle event for a Mode B or Mode C build threads the same correlation identifier from queue to terminal
     Given the build has been queued with a correlation identifier
@@ -474,6 +520,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: First-write-wins discipline survives at the integration level even when two operators respond simultaneously
+  @task:TASK-MBC8-013
   @mode-b @mode-c @concurrency @edge-case
   Scenario: Two simultaneous approval responses for the same paused build resolve as first-wins
     Given the build is paused at a flagged-for-review checkpoint
@@ -483,6 +530,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Calibration snapshot stability — a long-running build sees a consistent priors view, not a moving target
   # [ASSUMPTION: confidence=medium] Calibration priors are snapshotted at build start and remain stable for the duration of that build (inherited from FEAT-FORGE-007)
+  @task:TASK-MBC8-013
   @mode-b @mode-c @data-integrity
   Scenario: Calibration priors captured at the start of a Mode B or Mode C build remain the snapshot used by every stage of that build
     Given a build is picked up and a calibration-priors snapshot is captured at start
@@ -490,6 +538,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     Then later stages of the in-flight build should still use the priors snapshot captured at start
 
   # Why: Long-term memory seeding is best-effort and must never regress an authoritative approval in either mode
+  @task:TASK-MBC8-013
   @mode-b @mode-c @integration @data-integrity
   Scenario: A long-term-memory seeding failure for one stage does not regress that stage's recorded approval
     Given a stage has been approved by gating
@@ -503,6 +552,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode B's stage chain is bounded — a misconfigured manifest cannot trick the supervisor into running upstream Mode A stages
   # [ASSUMPTION: confidence=medium] The supervisor's mode-aware planning refuses to dispatch /system-arch or /system-design in Mode B even if a context manifest references those stages
+  @task:TASK-MBC8-003
   @mode-b @security
   Scenario: A Mode B build refuses to dispatch /system-arch or /system-design even when a context manifest references those stages
     Given a Mode B build is queued
@@ -516,6 +566,7 @@ Feature: Mode B Feature & Mode C Review-Fix
   # ===========================================================================
 
   # Why: Three-way mode interleave — proves the substrate isolates approval channels and stage chains across all modes
+  @task:TASK-MBC8-013
   @mode-b @mode-c @concurrency
   Scenario: Three concurrent builds — one Mode A, one Mode B, one Mode C — hold isolated approval channels and isolated stage chains
     Given a Mode A build, a Mode B build, and a Mode C build are dispatched at approximately the same time
@@ -529,6 +580,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Positive assertion that Mode B never dispatches to specialists — there is no degraded rationale to record because there is no specialist stage
   # [ASSUMPTION: confidence=high] Mode B does not dispatch to product-owner or architect specialists, so specialist-availability outages do not gate or pause a Mode B build
+  @task:TASK-MBC8-010
   @mode-b @data-integrity
   Scenario: A Mode B build does not record a degraded-specialist rationale because no specialist dispatch is attempted
     Given no product-owner or architect specialist is reachable on the fleet
@@ -538,6 +590,7 @@ Feature: Mode B Feature & Mode C Review-Fix
     And the build should proceed into the feature-specification stage
 
   # Why: Mode C's fix-task lineage is the audit anchor for review-fix — every work entry traces back to its originating review
+  @task:TASK-MBC8-011
   @mode-c @data-integrity
   Scenario: Each Mode C task-work stage entry records the fix-task lineage back to its originating task-review entry
     Given the task-review stage has produced two or more fix tasks
@@ -551,6 +604,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: A successful autobuild that produces no diff cannot create a pull request — the constitutional rule has nothing to gate, and the build records that as a no-op
   # [ASSUMPTION: confidence=medium] When a Mode B autobuild succeeds without producing a diff against the working branch, no pull-request creation is attempted and the build terminates with a no-op outcome rather than pausing at pull-request review
+  @task:TASK-MBC8-006
   @mode-b @integration
   Scenario: A Mode B build whose autobuild produces no diff does not attempt pull-request creation
     Given the Mode B autobuild has reached the completed lifecycle with no changes against the working branch
@@ -565,6 +619,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: Mode boundaries are per-build — a follow-up feature on a previously-built project starts a fresh Mode B build, not a continuation
   # [ASSUMPTION: confidence=high] Each queued build is its own lifecycle; a follow-up feature added after a Mode A run starts a fresh Mode B build with its own build identifier and its own correlation identifier
+  @task:TASK-MBC8-009
   @mode-b @edge-case
   Scenario: A follow-up feature added after a prior Mode A build is treated as a fresh Mode B build with its own identifiers
     Given a prior Mode A build for the same project has reached a terminal state
@@ -574,6 +629,7 @@ Feature: Mode B Feature & Mode C Review-Fix
 
   # Why: A Mode C run that finds nothing to fix and produces no commits has nothing to push — the build closes cleanly without invoking the constitutional gate
   # [ASSUMPTION: confidence=medium] A Mode C run that produces no commits ends in a clean-review terminal outcome with no pull-request creation attempt and no PR URL
+  @task:TASK-MBC8-007
   @mode-c @integration
   Scenario: A Mode C build that produces no commits ends in a clean-review terminal outcome with no pull-request creation attempt
     Given a Mode C build has completed every dispatched task-work without producing commits
