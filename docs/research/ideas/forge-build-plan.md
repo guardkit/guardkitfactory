@@ -1,6 +1,6 @@
 # Forge Build Plan — Pipeline Orchestrator & Checkpoint Manager
 
-## Status: `/system-arch` ✅ · `/system-design` ✅ · `/feature-spec` ✅ **8 / 8 complete** (FEAT-FORGE-001..008 ✅) · `/feature-plan` ✅ **8 / 8 complete** (001..008 ✅) · `autobuild` 🟡 **7 / 8 complete + 1 in flight** (001..007 ✅; 008 in flight) · **Next: monitor `autobuild FEAT-FORGE-008` → Step 6 validation**
+## Status: `/system-arch` ✅ · `/system-design` ✅ · `/feature-spec` ✅ **8 / 8 complete** (FEAT-FORGE-001..008 ✅) · `/feature-plan` ✅ **8 / 8 complete** (001..008 ✅) · `autobuild` ✅ **8 / 8 complete** (001..008 ✅) · **Next: Step 6 Validation gates → Step 7 FinProxy first real run**
 ## Repo: `guardkit/forge`
 ## Agent ID: `forge`
 ## Target: Post specialist-agent Phase 3 completion
@@ -14,7 +14,7 @@
 | 2 | `/system-design` | ✅ complete | 2026-04-23 | `b40365c` | `docs/design/` — **9 API contracts + 5 data models + 6 DDRs + 2 C4 L3 diagrams**; 20 artefacts seeded into Graphiti (`project_design` + `architecture_decisions`) |
 | 3 | `/feature-spec × 8` | ✅ complete (8 / 8) | 2026-04-24..27 | various | FEAT-FORGE-001..008 ✅ (see Step 3 for per-feature details) |
 | 4 | `/feature-plan × 8` | ✅ complete (8 / 8) | 2026-04-24..27 | `6a29ed3`, `065b73d`, FEAT-FORGE-001 plan, FEAT-FORGE-008 plan | FEAT-FORGE-001..008 ✅ — task breakdowns under `tasks/backlog/<slug>/`. 001 was re-planned post-001-gap-context with `forge-001-gap-context.md` to scope to the unbuilt slice (CLI + lifecycle persistence + state machine + recovery — 13 tasks). 008 (`mode-b-feature-and-mode-c-review-fix`) planned 2026-04-27 — **14 tasks across 7 waves, complexity 6/10, composition-only on FEAT-FORGE-001..007 substrate**; 56/56 BDD scenarios `@task:`-tagged via Step 11 BDD linker. |
-| 5 | `autobuild × 8` (Waves 1–6) | 🟡 in progress (7 / 8 ✅ + 1 in flight) | 2026-04-25..27 | `91f4de5`, `f63bcf5`, `9774351`, `042b83e`, `0361c21`, `6e5c577`, `ea7e60b` | FEAT-FORGE-002 (`91f4de5`), 003 (`f63bcf5`), 004 (`9774351`), 005 (`042b83e`), 006 (=`FEAT-8D10`, `0361c21`), 007 (=`FEAT-CBDE`, `6e5c577`), 001 (`ea7e60b`, 13/13 tasks across 5 waves, 0 ceiling hits) ✅. **008 🟡 in flight (started 2026-04-27 ~17:46 UTC; worktree `.guardkit/worktrees/FEAT-FORGE-008`; 14 tasks, 7 waves)**. |
+| 5 | `autobuild × 8` (Waves 1–6) | ✅ complete (8 / 8) | 2026-04-25..27 | `91f4de5`, `f63bcf5`, `9774351`, `042b83e`, `0361c21`, `6e5c577`, `ea7e60b`, `2f13eac` | FEAT-FORGE-002 (`91f4de5`), 003 (`f63bcf5`), 004 (`9774351`), 005 (`042b83e`), 006 (=`FEAT-8D10`, `0361c21`), 007 (=`FEAT-CBDE`, `6e5c577`), 001 (`ea7e60b`, 13/13 tasks across 5 waves, 0 ceiling hits), **008 (`2f13eac` merge; 14/14 tasks across 7 waves, 86% first-attempt pass, 2 SDK ceiling hits on TASK-MBC8-008/009)** ✅. |
 | 6 | Validation | ◻ pending | — | — | — |
 | 7 | FinProxy first real run | ◻ pending | — | — | — |
 
@@ -499,7 +499,7 @@ guardkit feature-plan FEAT-FORGE-008 \
 - Each task has clear inputs, outputs, and acceptance criteria
 - Integration tasks (FEAT-FORGE-007) are in later waves
 
-### Step 5: Build (autobuild × 8) — 🟡 IN PROGRESS (7 / 8 ✅ + 1 🟡 in flight)
+### Step 5: Build (autobuild × 8) — ✅ COMPLETE (8 / 8)
 
 Build features in dependency order. Run sequentially on GB10 (or Bedrock when available).
 
@@ -530,7 +530,7 @@ guardkit autobuild FEAT-FORGE-004   # ✅ commit 9774351
 guardkit autobuild FEAT-FORGE-007   # ✅ commit 6e5c577 (autobuild ID: FEAT-CBDE)
 
 # Wave 6: Additional modes (depends on Wave 5)
-guardkit autobuild FEAT-FORGE-008   # 🟡 IN FLIGHT (started 2026-04-27 ~17:46 UTC; worktree .guardkit/worktrees/FEAT-FORGE-008; 14 tasks across 7 waves)
+guardkit autobuild FEAT-FORGE-008   # ✅ commit 2f13eac (autobuild metadata 22c0b1f; cleanup 51ae6a6) — 14/14 tasks across 7 waves, 86% first-attempt pass rate, 2 SDK ceiling hits on TASK-MBC8-008/009 (resolved on turn 2)
 ```
 
 ### Step 6: Validation
@@ -926,5 +926,6 @@ guardkit feature-spec FEAT-FORGE-004 \
 *Updated: 25 April 2026 (later) — FEAT-FORGE-001 gap closed: re-planned against `forge-001-gap-context.md` (13 tasks), autobuilt in one pass (commit `ea7e60b`, 13/13 clean, 0 ceiling hits, 1h 44m). 7/8 specs, 7/8 plans, 7/8 autobuilds. Next: `/feature-spec FEAT-FORGE-008`.*
 *Updated: 27 April 2026 — `/feature-spec FEAT-FORGE-008` complete (Mode B Feature & Mode C Review-Fix; 56 scenarios, 17 assumptions, 0 low-confidence). 8/8 specs, 7/8 plans, 7/8 autobuilds. Next: `/feature-plan FEAT-FORGE-008`.*
 *Updated: 27 April 2026 (later) — `/feature-plan FEAT-FORGE-008` complete: 14 tasks across 7 waves (complexity 6/10, composition-only on FEAT-FORGE-001..007 substrate); `.guardkit/features/FEAT-FORGE-008.yaml` written; 56/56 BDD scenarios `@task:`-tagged via Step 11 linker. **8/8 specs, 8/8 plans, 7/8 autobuilds + 1 in flight.** `autobuild FEAT-FORGE-008` started ~17:46 UTC (worktree `.guardkit/worktrees/FEAT-FORGE-008`; Wave 1 in flight: TASK-MBC8-001, TASK-MBC8-002).*
-*Status: Mode B/C (FEAT-FORGE-008) autobuild is the last outstanding step before Step 6 validation gates → Step 7 FinProxy run.*
+*Updated: 29 April 2026 — `autobuild FEAT-FORGE-008` complete and merged (`2f13eac`; autobuild metadata `22c0b1f`; worktree cleanup `51ae6a6`). 14/14 tasks across 7 waves, 86% first-attempt pass rate, 2 SDK ceiling hits on TASK-MBC8-008/009 (resolved on turn 2). **8/8 specs, 8/8 plans, 8/8 autobuilds — Steps 1–5 done.** Next: Step 6 Validation gates → Step 7 FinProxy first real run.*
+*Status: Forge orchestrator is feature-complete. Awaiting Step 6 validation (test suite, integration `forge queue` exercise, NATS pipeline-event verification, checkpoint-protocol forced-flag exercise, degraded-mode exercise, specialist-agent LES1 parity gates).*
 *"The Forge is the capstone. It's the last major agent to build because it coordinates everything else. But it's also the highest-leverage: once it works, the Software Factory is real."*
