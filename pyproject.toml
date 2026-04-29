@@ -44,6 +44,33 @@ dev = [
     "pytest-bdd>=8.1,<9",
 ]
 
+# TASK-FIX-F0E6 (per TASK-REV-F0E4 §5.1): the `nats-core==0.2.0` wheel
+# published to PyPI is malformed — its dist-info is named
+# `nats_core-0.2.0.dist-info` but the wheel's RECORD only contains
+# `nats/client/...` files; the `nats_core/` namespace forge imports
+# (events, envelope, manifest, topics, client) is **absent from the
+# wheel**. On a fresh `uv pip install -e ".[providers]"`, 55 of 108 test
+# files fail to collect with `ModuleNotFoundError: No module named
+# 'nats_core'`. Until the upstream wheel is fixed and republished
+# (tracked as TASK-FIX-F0E6b), resolve `nats-core` from the sibling
+# working tree, which has the correct `src/nats_core/` layout. This
+# mirrors jarvis's existing pattern — see jarvis/pyproject.toml.
+#
+# Canonical layout assumes `nats-core` is a sibling of `forge`:
+#   …/appmilla_github/forge/        ← this project
+#   …/appmilla_github/nats-core/    ← target of `../nats-core`
+#
+# Worktree note: `uv` resolves the path relative to the directory
+# containing this pyproject.toml. From a worktree at
+# `.guardkit/worktrees/<branch>/` the literal `../nats-core` resolves
+# to `.guardkit/worktrees/nats-core`, which won't exist. For autobuild
+# runs that need `uv pip install` inside a worktree, place a symlink
+# at `.guardkit/worktrees/nats-core` pointing at the real sibling
+# (jarvis already does this; forge will need the same once autobuild
+# starts running with this dependency layout).
+[tool.uv.sources]
+nats-core = { path = "../nats-core", editable = true }
+
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
