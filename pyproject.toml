@@ -8,6 +8,14 @@ authors = [
     { name = "Richard Woollcott", email = "rich@appmilla.com" },
 ]
 dependencies = [
+    # TASK-FIX-F0E9: `click` is imported directly by 6 modules under
+    # src/forge/cli/ (TASK-PSM-012's CLI wiring). Pre-LCP-001 it was
+    # provided transitively by langchain-anthropic>=0.2 / langchain-openai>=0.2;
+    # the LCP-001 pin tightening to >=1.4,<2 / >=1.2,<2 dropped it from the
+    # resolved set, breaking `forge --help` with ModuleNotFoundError. Pinned
+    # explicitly here so the console-script entry point (`[project.scripts]`
+    # below) survives any future transitive churn.
+    "click>=8,<9",
     "deepagents>=0.5.3,<0.6",
     "langchain>=1.2,<2",
     "langchain-core>=1.3,<2",
@@ -17,6 +25,16 @@ dependencies = [
     "nats-core>=0.2.0,<0.3",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
+    # TASK-FIX-F0E10: `rich` is imported directly by `src/forge/cli/status.py`
+    # (TASK-PSM-012's status-rendering wiring uses `rich.console.Console`).
+    # Pre-LCP-001 it was provided transitively by the 0.x-band langchain-*
+    # resolution (langchain-core / langchain-anthropic 0.x pulled `rich`
+    # via their CLI/streaming helpers). The LCP-001 pin tightening to
+    # >=1.x dropped it from the resolved set, breaking `forge --help`
+    # with ModuleNotFoundError after F0E9 closed the click iceberg.
+    # Pinned explicitly so the console-script entry point survives any
+    # future transitive churn (same trapdoor pattern as F0E9).
+    "rich>=13,<15",
 ]
 
 [project.optional-dependencies]
