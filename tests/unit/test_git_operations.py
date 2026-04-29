@@ -24,6 +24,14 @@ from typing import Any
 
 import pytest
 
+# TASK-IC-010 is design_approved but not yet implemented (no src/forge/build/).
+# Skip collection until the module exists; remove this block when TASK-IC-010 ships.
+# See tasks/design_approved/TASK-IC-010-git-gh-via-execute.md and TASK-FIX-F0E8.
+pytest.importorskip(
+    "forge.build.git_operations",
+    reason="TASK-IC-010 design_approved but not yet implemented",
+)
+
 from forge.build import git_operations
 from forge.build.git_operations import (
     ALLOWED_BINARIES,
