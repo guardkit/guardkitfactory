@@ -55,6 +55,23 @@ from uuid import UUID, uuid4
 import pytest
 from pytest_bdd import given, parsers, scenario, scenarios, then, when
 
+# TASK-IC-009 + TASK-IC-010 are design_approved but not yet implemented
+# (no src/forge/build/). Skip collection until both modules exist; remove
+# this block when TASK-IC-009 + TASK-IC-010 ship. Two gates are required
+# because this file imports from both submodules — gating only one would
+# let the other re-raise ModuleNotFoundError on partial rollout.
+# See tasks/design_approved/TASK-IC-010-git-gh-via-execute.md,
+# tasks/backlog/TASK-IC-009-test-verification-via-execute.md,
+# TASK-FIX-F0E8 (sibling fix), and TASK-FIX-F0E11.
+pytest.importorskip(
+    "forge.build.git_operations",
+    reason="TASK-IC-010 design_approved but not yet implemented",
+)
+pytest.importorskip(
+    "forge.build.test_verification",
+    reason="TASK-IC-009 design_approved but not yet implemented",
+)
+
 from forge.build.git_operations import (
     ALLOWED_BINARIES,
     DisallowedBinaryError,
