@@ -1,0 +1,550 @@
+........................................................................ [  4%]
+................................FFFFFFFFFFF..........F.................. [  8%]
+........FF.FFFFFFFFFFFFFF.FFF.FFFFFFFF.................................. [ 12%]
+........................................................................ [ 17%]
+.....................FFFFFFFFFFFFFF..F.................................. [ 21%]
+........................................................................ [ 25%]
+........................................................................ [ 29%]
+........................................................................ [ 34%]
+........................................................................ [ 38%]
+........................................................................ [ 42%]
+........................................................................ [ 47%]
+........................................................................ [ 51%]
+........................................................................ [ 55%]
+........................................................................ [ 59%]
+........................................................................ [ 64%]
+........................................................................ [ 68%]
+........................................................................ [ 72%]
+........................................................................ [ 76%]
+........................................................................ [ 81%]
+...............................................FFFFFFFFF..FFFFFFFFFFFFFF [ 85%]
+FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF...... [ 89%]
+........................................................................ [ 94%]
+.......................................FFFFFFFFFFFFFFFFFFF.............. [ 98%]
+............................                                             [100%]
+=============================== warnings summary ===============================
+tests/unit/test_priors.py:147
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:147: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:176
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:176: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:207
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:207: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:225
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:225: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:247
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:247: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:275
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:275: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:291
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:291: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:305
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:305: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:328
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:328: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:348
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:348: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:368
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:368: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:524
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:524: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_priors.py:616
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_priors.py:616: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.seam
+
+tests/unit/test_reconciler.py:209
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:209: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:220
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:220: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:240
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:240: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:249
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:249: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:277
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:277: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:294
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:294: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:312
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:312: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:337
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:337: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:367
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:367: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:390
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:390: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:405
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:405: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:428
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:428: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:445
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:445: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:466
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:466: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:500
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:500: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:514
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:514: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:557
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:557: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:586
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:586: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:618
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:618: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:651
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:651: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:671
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:671: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:692
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:692: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:704
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:704: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:724
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:724: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_reconciler.py:736
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_reconciler.py:736: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests/unit/test_writer.py:519
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/unit/test_writer.py:519: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.seam
+
+tests/forge/tools/test_graphiti.py:172
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:172: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:199
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:199: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:233
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:233: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:260
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:260: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:285
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:285: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:310
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:310: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:344
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:344: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:371
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:371: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:396
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:396: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:429
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:429: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:454
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:454: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:479
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:479: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:516
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:516: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:554
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:554: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py:641
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:641: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:272
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:272: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:332
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:332: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:365
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:365: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:475
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:475: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:587
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:587: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:647
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:647: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:727
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:727: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:750
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:750: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:768
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:768: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:790
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:790: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/hardening/test_hardening.py:809
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/hardening/test_hardening.py:809: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:128
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:128: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:160
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:160: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:197
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:197: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:223
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:223: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:260
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:260: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:296
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:296: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:334
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:334: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:371
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:371: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:403
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:403: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:451
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:451: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:477
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:477: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:509
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:509: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.seam
+
+tests/forge/adapters/guardkit/test_run.py:514
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:514: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:540
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:540: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:567
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:567: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:598
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:598: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.seam
+
+tests/forge/adapters/guardkit/test_run.py:603
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:603: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:637
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:637: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:679
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:679: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:717
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:717: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/adapters/guardkit/test_run.py:756
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:756: PytestUnknownMarkWarning: Unknown pytest.mark.seam - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.seam
+
+tests/forge/adapters/guardkit/test_run.py:761
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:761: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio()
+
+tests/forge/tools/test_graphiti.py::TestDecoratorSurface::test_underlying_callables_are_coroutine_functions
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:160: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    assert asyncio.iscoroutinefunction(guardkit_graphiti_add_context.coroutine)
+
+tests/forge/tools/test_graphiti.py::TestDecoratorSurface::test_underlying_callables_are_coroutine_functions
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/tools/test_graphiti.py:161: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    assert asyncio.iscoroutinefunction(guardkit_graphiti_query.coroutine)
+
+tests/forge/adapters/guardkit/test_run.py::TestRunModuleSurface::test_run_function_is_a_coroutine_function
+  /Users/richardwoollcott/Projects/appmilla_github/forge/tests/forge/adapters/guardkit/test_run.py:114: DeprecationWarning: 'asyncio.iscoroutinefunction' is deprecated and slated for removal in Python 3.16; use inspect.iscoroutinefunction() instead
+    assert asyncio.iscoroutinefunction(run)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/unit/test_priors.py::TestRetrieveFourParallelQueries::test_retrieve_priors_issues_exactly_four_queries
+FAILED tests/unit/test_priors.py::TestRetrieveFourParallelQueries::test_retrieve_priors_runs_queries_concurrently
+FAILED tests/unit/test_priors.py::TestRetrieveFourParallelQueries::test_retrieve_priors_returns_empty_priors_when_all_queries_empty
+FAILED tests/unit/test_priors.py::TestRetrieveFourParallelQueries::test_retrieve_priors_assembles_partial_results
+FAILED tests/unit/test_priors.py::TestRetrieveFourParallelQueries::test_retrieve_priors_tolerates_per_category_failure
+FAILED tests/unit/test_priors.py::TestRecencyHorizon::test_default_horizon_is_thirty_days
+FAILED tests/unit/test_priors.py::TestRecencyHorizon::test_custom_horizon_applied_to_every_query
+FAILED tests/unit/test_priors.py::TestRecencyHorizon::test_invalid_horizon_raises_value_error
+FAILED tests/unit/test_priors.py::TestApprovedAdjustmentsBoundary::test_unapproved_adjustments_are_filtered_out
+FAILED tests/unit/test_priors.py::TestApprovedAdjustmentsBoundary::test_expired_adjustments_are_filtered_out
+FAILED tests/unit/test_priors.py::TestApprovedAdjustmentsBoundary::test_adjustment_at_exact_now_is_treated_as_expired
+FAILED tests/unit/test_priors.py::TestPriorsNotInArgv::test_priors_text_does_not_appear_in_subprocess_argv
+FAILED tests/unit/test_reconciler.py::TestRepositoryProtocolBoundary::test_accepts_object_satisfying_protocol
+FAILED tests/unit/test_reconciler.py::TestRepositoryProtocolBoundary::test_protocol_isinstance_check_passes_for_recording_repo
+FAILED tests/unit/test_reconciler.py::TestRepositoryProtocolBoundary::test_none_repository_raises_value_error
+FAILED tests/unit/test_reconciler.py::TestRepositoryProtocolBoundary::test_repository_read_failure_is_logged_and_returns_empty_report
+FAILED tests/unit/test_reconciler.py::TestGraphitiHorizonQuery::test_query_targets_pipeline_history_group
+FAILED tests/unit/test_reconciler.py::TestGraphitiHorizonQuery::test_query_passes_horizon_lower_bound
+FAILED tests/unit/test_reconciler.py::TestGraphitiHorizonQuery::test_query_failure_degrades_to_empty_set_and_writes_everything
+FAILED tests/unit/test_reconciler.py::TestGraphitiHorizonQuery::test_query_can_return_iterable_other_than_set
+FAILED tests/unit/test_reconciler.py::TestSetDifferenceDiff::test_entities_present_in_graphiti_are_skipped
+FAILED tests/unit/test_reconciler.py::TestSetDifferenceDiff::test_full_overlap_writes_nothing
+FAILED tests/unit/test_reconciler.py::TestSetDifferenceDiff::test_disjoint_sqlite_writes_every_entity
+FAILED tests/unit/test_reconciler.py::TestBackfillReplay::test_each_missing_entity_is_passed_to_writer_with_pipeline_group
+FAILED tests/unit/test_reconciler.py::TestBackfillReplay::test_default_write_fn_is_writer_dot_write_entity
+FAILED tests/unit/test_reconciler.py::TestBackfillReplay::test_replay_is_synchronous_not_fire_and_forget
+FAILED tests/unit/test_reconciler.py::TestReconcileReportShape::test_empty_inputs_produce_zeroed_report
+FAILED tests/unit/test_reconciler.py::TestReconcileReportShape::test_report_counts_match_sqlite_and_graphiti_sizes
+FAILED tests/unit/test_reconciler.py::TestBackfillFailureTolerance::test_single_failure_is_recorded_and_does_not_raise
+FAILED tests/unit/test_reconciler.py::TestBackfillFailureTolerance::test_failure_emits_structured_log_with_required_fields
+FAILED tests/unit/test_reconciler.py::TestBackfillFailureTolerance::test_multiple_failures_do_not_short_circuit
+FAILED tests/unit/test_reconciler.py::TestHorizonConfigurable::test_default_horizon_passed_to_repo_and_query
+FAILED tests/unit/test_reconciler.py::TestHorizonConfigurable::test_explicit_horizon_overrides_default
+FAILED tests/unit/test_reconciler.py::TestHorizonConfigurable::test_non_positive_horizon_raises_value_error[0]
+FAILED tests/unit/test_reconciler.py::TestHorizonConfigurable::test_non_positive_horizon_raises_value_error[-1]
+FAILED tests/unit/test_reconciler.py::TestHorizonConfigurable::test_non_positive_horizon_raises_value_error[-30]
+FAILED tests/unit/test_reconciler.py::TestHorizonConfigurable::test_non_int_horizon_raises_value_error
+FAILED tests/unit/test_reconciler.py::TestDefaultDispatcherFallthrough::test_no_backend_available_returns_empty_set
+FAILED tests/unit/test_reconciler.py::TestDefaultDispatcherFallthrough::test_dispatcher_invoked_when_query_fn_omitted
+FAILED tests/forge/tools/test_graphiti.py::TestSubcommandPrefixBypassesResolver::test_add_context_subcommand_starts_with_graphiti_space
+FAILED tests/forge/tools/test_graphiti.py::TestSubcommandPrefixBypassesResolver::test_query_subcommand_starts_with_graphiti_space
+FAILED tests/forge/tools/test_graphiti.py::TestNoContextFlagInArgv::test_add_context_passes_no_extra_context_paths
+FAILED tests/forge/tools/test_graphiti.py::TestNoContextFlagInArgv::test_query_passes_no_extra_context_paths
+FAILED tests/forge/tools/test_graphiti.py::TestNoContextFlagInArgv::test_add_context_args_carry_doc_and_group_only
+FAILED tests/forge/tools/test_graphiti.py::TestNoContextFlagInArgv::test_query_args_carry_query_and_group_only
+FAILED tests/forge/tools/test_graphiti.py::TestReturnIsJsonString::test_success_returns_json_with_status_success
+FAILED tests/forge/tools/test_graphiti.py::TestReturnIsJsonString::test_failed_returns_json_with_status_failed_and_stderr
+FAILED tests/forge/tools/test_graphiti.py::TestReturnIsJsonString::test_timeout_returns_json_with_status_timeout
+FAILED tests/forge/tools/test_graphiti.py::TestInternalExceptionsAreAbsorbed::test_add_context_returns_error_json_when_run_raises
+FAILED tests/forge/tools/test_graphiti.py::TestInternalExceptionsAreAbsorbed::test_query_returns_error_json_when_run_raises
+FAILED tests/forge/tools/test_graphiti.py::TestInternalExceptionsAreAbsorbed::test_error_payload_with_quotes_round_trips_through_json
+FAILED tests/forge/tools/test_graphiti.py::TestStructuredLogging::test_add_context_logs_tool_name_duration_status
+FAILED tests/forge/tools/test_graphiti.py::TestStructuredLogging::test_query_logs_tool_name_duration_status
+FAILED tests/forge/tools/test_graphiti.py::TestRepoConfinement::test_repo_threaded_through_as_repo_path_and_allowlist
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[bare-relative]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[dot-slash]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[single-up]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[double-up-etc-passwd]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[triple-up-etc-passwd]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[self-cancelling-traversal]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_relative_or_traversal_repo_path_is_refused[nested-cancelling-traversal]
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_absolute_path_outside_allowlist_is_refused
+FAILED tests/hardening/test_hardening.py::TestWorkingDirTraversal::test_symlink_escape_outside_allowlist_is_refused
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[bash]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[sh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[zsh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[fish]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[dash]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[ksh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[csh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[tcsh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[ash]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[python]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[python2]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[python3]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[perl]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[ruby]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[node]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[deno]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[lua]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[php]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[Rscript]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[tclsh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[curl]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[wget]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[nc]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[netcat]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[ssh]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[scp]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[rsync]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[ftp]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[telnet]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[tftp]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[socat]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[rm]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[mv]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[cp]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[dd]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[chmod]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[chown]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[chgrp]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[ln]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[mkfs]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[shred]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[truncate]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[kill]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[killall]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[pkill]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[sudo]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[su]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[doas]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[systemctl]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[cat]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[tac]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[head]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[tail]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[less]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[more]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[strings]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[xxd]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[hexdump]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[od]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[gcc]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[g++]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[make]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[cmake]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[cargo]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[npm]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[pip]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[pip3]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[uv]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[apt]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[apt-get]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[yum]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[dnf]
+FAILED tests/hardening/test_hardening.py::TestDisallowedBinaryRefusal::test_disallowed_binary_yields_permissions_refused[brew]
+FAILED tests/hardening/test_hardening.py::TestSplitBrainRaceDedupe::test_concurrent_writers_collapse_to_a_single_entity
+FAILED tests/hardening/test_hardening.py::TestSplitBrainRaceDedupe::test_one_winner_one_noop_when_existence_check_serialises
+FAILED tests/hardening/test_hardening.py::TestRecencyHorizonBoundary::test_adjustment_at_now_plus_one_microsecond_is_included
+FAILED tests/hardening/test_hardening.py::TestRecencyHorizonBoundary::test_adjustment_at_exactly_now_is_excluded
+FAILED tests/hardening/test_hardening.py::TestRecencyHorizonBoundary::test_adjustment_at_now_minus_one_microsecond_is_excluded
+FAILED tests/hardening/test_hardening.py::TestRecencyHorizonBoundary::test_unapproved_adjustment_is_excluded_even_when_live
+FAILED tests/hardening/test_hardening.py::TestRecencyHorizonBoundary::test_dispatcher_receives_correct_since_for_horizon_days
+FAILED tests/forge/adapters/guardkit/test_run.py::TestCommandComposition::test_command_starts_with_guardkit_binary_subcommand_then_args
+FAILED tests/forge/adapters/guardkit/test_run.py::TestCommandComposition::test_cwd_passes_resolved_worktree_to_seam
+FAILED tests/forge/adapters/guardkit/test_run.py::TestCwdAllowlistEnforcement::test_relative_repo_path_is_refused_with_warning
+FAILED tests/forge/adapters/guardkit/test_run.py::TestCwdAllowlistEnforcement::test_outside_allowlist_repo_path_is_refused
+FAILED tests/forge/adapters/guardkit/test_run.py::TestResolverIntegration::test_resolver_flags_prepended_to_command
+FAILED tests/forge/adapters/guardkit/test_run.py::TestResolverIntegration::test_resolver_warnings_surface_on_result
+FAILED tests/forge/adapters/guardkit/test_run.py::TestGraphitiBypass::test_graphiti_add_context_skips_resolver
+FAILED tests/forge/adapters/guardkit/test_run.py::TestExtraContextPaths::test_extra_context_paths_appended_to_command
+FAILED tests/forge/adapters/guardkit/test_run.py::TestExtraContextPaths::test_extra_context_paths_not_persisted_between_calls
+FAILED tests/forge/adapters/guardkit/test_run.py::TestNatsFlag::test_nats_flag_appended_when_streaming_enabled
+FAILED tests/forge/adapters/guardkit/test_run.py::TestNatsFlag::test_nats_flag_omitted_when_streaming_disabled
+FAILED tests/forge/adapters/guardkit/test_run.py::TestTimeoutBoundary::test_599_seconds_is_reported_as_success
+FAILED tests/forge/adapters/guardkit/test_run.py::TestTimeoutBoundary::test_600_seconds_exact_is_reported_as_success_when_seam_completes
+FAILED tests/forge/adapters/guardkit/test_run.py::TestTimeoutBoundary::test_601_seconds_is_reported_as_timeout
+FAILED tests/forge/adapters/guardkit/test_run.py::TestCancellationPropagation::test_cancelled_error_in_seam_propagates
+FAILED tests/forge/adapters/guardkit/test_run.py::TestNonZeroExit::test_non_zero_exit_yields_failed_status_with_stderr
+FAILED tests/forge/adapters/guardkit/test_run.py::TestPermissionsRefused::test_permission_error_yields_permissions_refused_warning
+FAILED tests/forge/adapters/guardkit/test_run.py::TestWrapperInternalError::test_unexpected_exception_in_seam_yields_failed_result
+FAILED tests/forge/adapters/guardkit/test_run.py::TestParallelCallIsolation::test_two_parallel_calls_return_independent_results
+162 failed, 1522 passed, 90 warnings in 1.41s
