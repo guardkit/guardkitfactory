@@ -3130,6 +3130,72 @@ Want me to /schedule a background agent to add smoke_gates: between-wave checks 
 GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-008 --verbose --max-turns 30
 
 
+════════════════════════════════════════════════════════════
+FEATURE RESULT: SUCCESS
+════════════════════════════════════════════════════════════
+
+Feature: FEAT-FORGE-008 - Mode B Feature & Mode C Review-Fix
+Status: COMPLETED
+Tasks: 14/14 completed
+Total Turns: 16
+Duration: 150m 50s
+
+                                  Wave Summary                                   
+╭────────┬──────────┬────────────┬──────────┬──────────┬──────────┬─────────────╮
+│  Wave  │  Tasks   │   Status   │  Passed  │  Failed  │  Turns   │  Recovered  │
+├────────┼──────────┼────────────┼──────────┼──────────┼──────────┼─────────────┤
+│   1    │    2     │   ✓ PASS   │    2     │    -     │    2     │      -      │
+│   2    │    3     │   ✓ PASS   │    3     │    -     │    3     │      -      │
+│   3    │    2     │   ✓ PASS   │    2     │    -     │    2     │      -      │
+│   4    │    1     │   ✓ PASS   │    1     │    -     │    2     │      -      │
+│   5    │    1     │   ✓ PASS   │    1     │    -     │    2     │      -      │
+│   6    │    3     │   ✓ PASS   │    3     │    -     │    3     │      -      │
+│   7    │    2     │   ✓ PASS   │    2     │    -     │    2     │      -      │
+╰────────┴──────────┴────────────┴──────────┴──────────┴──────────┴─────────────╯
+
+Execution Quality:
+  Clean executions: 14/14 (100%)
+
+SDK Turn Ceiling:
+  Invocations: 12
+  Ceiling hits: 2/12 (17%)
+
+                                  Task Details                                   
+╭──────────────────────┬────────────┬──────────┬─────────────────┬──────────────╮
+│ Task                 │ Status     │  Turns   │ Decision        │  SDK Turns   │
+├──────────────────────┼────────────┼──────────┼─────────────────┼──────────────┤
+│ TASK-MBC8-001        │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-MBC8-002        │ SUCCESS    │    1     │ approved        │      -       │
+│ TASK-MBC8-003        │ SUCCESS    │    1     │ approved        │      40      │
+│ TASK-MBC8-004        │ SUCCESS    │    1     │ approved        │      63      │
+│ TASK-MBC8-005        │ SUCCESS    │    1     │ approved        │      51      │
+│ TASK-MBC8-006        │ SUCCESS    │    1     │ approved        │      67      │
+│ TASK-MBC8-007        │ SUCCESS    │    1     │ approved        │      64      │
+│ TASK-MBC8-008        │ SUCCESS    │    2     │ approved        │    15 HIT    │
+│ TASK-MBC8-009        │ SUCCESS    │    2     │ approved        │    13 HIT    │
+│ TASK-MBC8-010        │ SUCCESS    │    1     │ approved        │      45      │
+│ TASK-MBC8-011        │ SUCCESS    │    1     │ approved        │      73      │
+│ TASK-MBC8-012        │ SUCCESS    │    1     │ approved        │      49      │
+│ TASK-MBC8-013        │ SUCCESS    │    1     │ approved        │      52      │
+│ TASK-MBC8-014        │ SUCCESS    │    1     │ approved        │      61      │
+╰──────────────────────┴────────────┴──────────┴─────────────────┴──────────────╯
+
+Worktree: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
+Branch: autobuild/FEAT-FORGE-008
+
+Next Steps:
+  1. Review: cd /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-008
+  2. Diff: git diff main
+  3. Merge: git checkout main && git merge autobuild/FEAT-FORGE-008
+  4. Cleanup: guardkit worktree cleanup FEAT-FORGE-008
+INFO:guardkit.cli.display:Final summary rendered: FEAT-FORGE-008 - completed
+INFO:guardkit.orchestrator.review_summary:Review summary written to /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/autobuild/FEAT-FORGE-008/review-summary.md
+✓ Review summary: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/autobuild/FEAT-FORGE-008/review-summary.md
+INFO:guardkit.orchestrator.feature_orchestrator:Feature orchestration complete: FEAT-FORGE-008, status=completed, completed=14/14
+richardwoollcott@promaxgb10-41b1:~/Projects/appmilla_github/forge$ 
+
+
+
 
 
 
