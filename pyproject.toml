@@ -27,6 +27,20 @@ providers = [
     "langchain-openai>=1.2,<2",
     "langchain-google-genai>=4.2,<5",
 ]
+# TASK-FIX-F0E7 (per TASK-REV-F0E4 §5.2): mirrored from [dependency-groups].dev
+# below. PEP 735's [dependency-groups] is read by `uv sync --group dev`,
+# NOT by `uv pip install -e ".[dev]"`. The GuardKit portfolio-pinning
+# recipe uses the latter form, so dev deps must be declared as an extra
+# here as well as in [dependency-groups]. Keep these two lists in sync.
+# `pytest-asyncio` is required because the test suite has 100+
+# `@pytest.mark.asyncio` decorators; without the plugin loaded, every
+# async test fails with `Failed: async def functions are not natively
+# supported` (162 such failures observed in TASK-REV-F0E4's empirical run).
+dev = [
+    "pytest>=9.0.2",
+    "pytest-bdd>=8.1,<9",
+    "pytest-asyncio>=1,<2",
+]
 
 # TASK-PSM-012: Console-script entry point for the ``forge`` CLI.
 # ``pip install`` (or ``pip install -e .``) writes a ``forge`` shim to the
@@ -39,9 +53,13 @@ providers = [
 forge = "forge.cli.main:main"
 
 [dependency-groups]
+# PEP 735 dev group — read by `uv sync --group dev`. Mirrored into
+# [project.optional-dependencies].dev above so `uv pip install -e ".[dev]"`
+# also works (see TASK-FIX-F0E7 / TASK-REV-F0E4 §5.2). Keep both lists in sync.
 dev = [
     "pytest>=9.0.2",
     "pytest-bdd>=8.1,<9",
+    "pytest-asyncio>=1,<2",
 ]
 
 # TASK-FIX-F0E6 (per TASK-REV-F0E4 §5.1): the `nats-core==0.2.0` wheel
