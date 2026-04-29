@@ -43,7 +43,7 @@ timeout: 30.0
 # Bounds asyncio.gather parallelism to avoid LLM rate limits.
 # Range: 1-10 (1 = sequential, 3 = default)
 max_concurrent_episodes: 3
-
+chunk_extraction_concurrency: 4
 # LLM provider for Graphiti entity extraction
 # Options: openai (default), vllm, ollama, gemini
 #
@@ -54,7 +54,7 @@ max_concurrent_episodes: 3
 #
 # --- GB10 (vLLM, FP8) — ACTIVE ---
 llm_provider: vllm
-llm_base_url: http://promaxgb10-41b1:8000/v1
+llm_base_url: http://promaxgb10-41b1:9000/v1
 llm_model: neuralmagic/Qwen2.5-14B-Instruct-FP8-dynamic
 #
 # --- Fallback: Google Gemini (cloud, paid) — uncomment when GB10 training ---
@@ -71,7 +71,7 @@ llm_max_tokens: 4096  # Cap output tokens; prevents 16384 default exceeding 32K 
 # Embedding provider for Graphiti vector search
 # Options: openai (default), vllm, ollama
 embedding_provider: vllm
-embedding_base_url: http://promaxgb10-41b1:8001/v1
+embedding_base_url: http://promaxgb10-41b1:9000/v1
 
 # Embedding model for semantic search
 # Supported by openai, vllm, and ollama providers
@@ -93,5 +93,3 @@ group_ids:
   - command_workflows       # GuardKit command patterns and usage
 
 # Deprecated fields (kept for backwards compatibility)
-host: localhost
-port: 8000
