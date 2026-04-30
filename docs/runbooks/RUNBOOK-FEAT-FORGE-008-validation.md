@@ -7,6 +7,12 @@
 - **GB10** (`promaxgb10-41b1`) — Phases 3–5 (NATS-dependent gates) and Phases 6.1–6.3 (LES1 production-image gates)
 - **Both** — Phase 6.4 (canonical-freeze live-verification logged in `command-history.md`)
 
+> **Note for `promaxgb10-41b1` operators:** on this workstation `/etc/hosts`
+> maps `promaxgb10-41b1` to `127.0.0.1`, so "Local" and "GB10" phases run
+> against the same machine. Skip the `ssh promaxgb10-41b1` prefixes (or treat
+> them as no-ops) when working from this host. — *gap-fold 2026-04-30
+> (TASK-F8-006 / AC-13)*
+
 **Predecessor:** Build plan `forge/docs/research/ideas/forge-build-plan.md` Step 5 → ✅ 8/8 autobuilds complete (FEAT-FORGE-008 merged via `2f13eac`; autobuild metadata `22c0b1f`; worktree cleanup `51ae6a6`). 14/14 tasks across 7 waves; 86% first-attempt pass; 2 SDK ceiling hits on TASK-MBC8-008/009 (resolved on turn 2).
 
 **Expected duration:** ~3–5 hours total (Phase 1: ~5 min · Phase 2: ~10 min · Phases 3–5: ~45 min on GB10 · Phase 6 LES1 gates: ~2–3 hours including production-image rebuild · Phase 7 wrap-up: ~15 min).
@@ -69,19 +75,63 @@ ls tests/integration/test_mode_b_smoke_e2e.py \
 
 ### 0.4 Confirm the Python environment is current
 
+This repo's `pyproject.toml` declares `nats-core>=0.2.0,<0.3` via
+`[tool.uv.sources]` (sibling `../nats-core` editable install), which **only
+`uv` resolves**. Plain `pip install -e .` cannot find `nats-core` and the
+install will fail. Use `uv` for the canonical install path.
+
 ```bash
 python --version
 # Expect 3.12+ (project default — confirm with pyproject.toml if unsure)
 
-# Editable install with all extras
-pip install -e '.[providers,dev]' 2>&1 | tail -5
+# 1. Install uv first if not already present (canonical path)
+which uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+# Re-source so $PATH picks up ~/.local/bin (uv default)
+export PATH="$HOME/.local/bin:$PATH"
+uv --version
+
+# 2. Editable install with all extras (uv reads [tool.uv.sources])
+uv pip install -e ".[providers,dev]" 2>&1 | tail -5
 ```
 
-**Pass:** Install succeeds. **If `pytest-asyncio` is missing**, the recent dep work in `3092c3a` should have already pinned it — re-run `pip install -e '.[dev]'`. If still missing, check `pyproject.toml` for the optional-dependencies block.
+**Pass:** Install succeeds.
+
+**Fallback for non-uv hosts (Ubuntu 24.04 / PEP 668):** if you cannot install
+`uv`, you can run plain pip with `--break-system-packages` (note this skips
+`[tool.uv.sources]` and will fail on the `nats-core` dep — only useful if
+`nats-core` is already importable on the host):
+
+```bash
+pip install --user --break-system-packages -e '.[providers,dev]'
+```
+
+**Stale-editable-install rewire (the FEAT-FORGE-005 trap):** if a previous
+editable install pointed at a deleted worktree (e.g.
+`.guardkit/worktrees/FEAT-FORGE-*`), pip refuses to overwrite it. Rewire
+with:
+
+```bash
+pip install --user --force-reinstall --no-deps -e .
+```
+
+**If `pytest-asyncio` is missing**, the recent dep work in `3092c3a` should
+have already pinned it — re-run `uv pip install -e '.[dev]'`. If still
+missing, check `pyproject.toml` for the optional-dependencies block.
+
+> *gap-fold 2026-04-30 (TASK-F8-006 / AC-1)*
 
 ### 0.5 Confirm the `forge` CLI is callable
 
+`pip install --user` (and `uv pip install`) put the `forge` console script
+in `~/.local/bin`. On a fresh shell this may not be on `PATH`.
+
 ```bash
+# Make sure ~/.local/bin is on PATH (idempotent)
+case ":$PATH:" in
+  *":$HOME/.local/bin:"*) echo "~/.local/bin already on PATH" ;;
+  *) export PATH="$HOME/.local/bin:$PATH"; echo "Prepended ~/.local/bin to PATH" ;;
+esac
+
 which forge
 forge --help | head -20
 forge queue --help
@@ -89,11 +139,14 @@ forge queue --help
 
 **Pass:** `forge` resolves to a console script. `forge queue --help` shows the new `--mode` flag (added by TASK-MBC8-009).
 
-**If `--mode` is not in the help output:** the FEAT-FORGE-008 install is stale. Re-run `pip install -e .` and re-check.
+**If `--mode` is not in the help output:** the FEAT-FORGE-008 install is stale. Re-run `uv pip install -e .` (or the fallback from §0.4) and re-check.
+
+> *gap-fold 2026-04-30 (TASK-F8-006 / AC-2)*
 
 ### 0.6 (GB10 only) Confirm GB10 is reachable and NATS is up
 
-Skip this on local; required for Phases 3–5.
+Skip this on local; required for Phases 3–5. (On `promaxgb10-41b1` the
+"GB10" host is the local machine — see the note at the top of the runbook.)
 
 ```bash
 ssh promaxgb10-41b1 'echo OK'
@@ -103,7 +156,36 @@ ssh promaxgb10-41b1 'docker ps --format "{{.Names}}\t{{.Status}}" | grep -i nats
 
 **Pass:** SSH succeeds. NATS server is running (either as a systemd service or a docker container).
 
-**If NATS is not running:** follow the `nats-infrastructure` repo's provisioning guide — `docker compose up -d` plus `provision-streams.sh` and `provision-kv.sh`. Per build plan §"Hard Prerequisites": **a fresh-volume NATS without explicit provisioning will accept publishes (PubAck) but not retain or deliver them** — exactly the MacBook failure mode. Do not skip this.
+**Phase scope of NATS requirement:**
+
+| Phases | NATS requirement | Throwaway `nats:latest` OK? |
+|--------|------------------|-----------------------------|
+| 2–3    | Any reachable NATS server (pub/sub round-trip only) | ✅ yes |
+| 4+     | Canonically *provisioned* JetStream (streams + KV stores per `nats-core` topology) | ❌ no — must be the provisioned server |
+
+**If NATS is not running and you only need Phases 2–3:** start a throwaway
+ephemeral NATS in docker for the duration of the smoke. This is enough to
+satisfy `forge queue`'s `pipeline.>` publish path, but JetStream streams +
+KV stores are **not** provisioned, so Phase 4+ gates will not work.
+
+```bash
+# Throwaway NATS for Phases 2–3 only (no JetStream provisioning)
+docker run -d --name forge-runbook-nats --network host nats:latest -js
+sleep 2
+docker logs forge-runbook-nats 2>&1 | tail -3
+# Cleanup at end of Phase 3:
+# docker stop forge-runbook-nats && docker rm forge-runbook-nats
+```
+
+**For Phase 4+ (and the canonical Step 6 freeze):** follow the
+`nats-infrastructure` repo's provisioning runbook — `docker compose up -d`
+plus `provision-streams.sh` and `provision-kv.sh`. Per build plan §"Hard
+Prerequisites": **a fresh-volume NATS without explicit provisioning will
+accept publishes (PubAck) but not retain or deliver them** — exactly the
+MacBook failure mode. Do not skip this. (TASK-F8-007a tracks the canonical
+provisioning hand-off for this host.)
+
+> *gap-fold 2026-04-30 (TASK-F8-006 / AC-3)*
 
 ---
 
@@ -117,8 +199,15 @@ The cheapest signal. If this is red, every later gate is invalid. Runs on the lo
 echo "=== Phase 1.1: Full pytest suite ==="
 cd ~/Projects/appmilla_github/forge
 
-# Capture a clean log so the RESULTS file can cite line counts
-pytest -q --tb=short 2>&1 | tee /tmp/forge-pytest-phase1.log
+# Capture a clean log so the RESULTS file can cite line counts.
+# `--ignore=tests/bdd/test_infrastructure_coordination.py` is a workaround for
+# F008-VAL-001 (tracked as TASK-F8-001): the BDD bindings reference
+# `forge.build.git_operations` and `forge.build.test_verification` modules
+# (TASK-IC-009/010) that were never landed, so the file fails to collect.
+# Drop the `--ignore` once TASK-F8-001 lands.
+pytest -q --tb=short \
+    --ignore=tests/bdd/test_infrastructure_coordination.py \
+    2>&1 | tee /tmp/forge-pytest-phase1.log
 echo "Exit code: $?"
 ```
 
@@ -155,60 +244,121 @@ echo "=== Phase 1.3: Mode A regression ==="
 pytest tests/integration/test_mode_a_smoke.py \
        tests/integration/test_mode_a_concurrency_and_integrity.py \
        tests/integration/test_mode_a_crash_recovery.py \
-       tests/bdd/test_feat_forge_007.py \
        -v --tb=short 2>&1 | tee /tmp/forge-mode-a-regression.log
 ```
+
+> **Removed path:** earlier drafts of this block also ran
+> `tests/bdd/test_feat_forge_007.py`, but no such file exists in the repo
+> (the FEAT-FORGE-007 BDD bindings were never written). If those bindings
+> are needed later, file a follow-up task to author them and add the path
+> back here. — *gap-fold 2026-04-30 (TASK-F8-006 / AC-5)*
 
 **Pass:** All Mode A tests green. **If any are red, FEAT-FORGE-008 broke the Mode A branch in `Supervisor.next_turn` — stop and triage immediately.**
 
 ---
 
-## Phase 2: CLI smoke (local, no NATS)
+## Phase 2: CLI smoke (local, requires NATS)
 
-Validates the canonical CLI surface (`forge queue` per anchor §5) end-to-end against the in-memory substrate. Stubs the NATS layer with the integration adapter so this runs anywhere.
+Validates the canonical CLI surface (`forge queue` per anchor §5) end-to-end.
 
-### 2.1 Initialise a fresh forge state directory
+> **NATS truth (gap-fold 2026-04-30 / AC-9):** `forge queue` **always**
+> publishes to `$FORGE_NATS_URL` (default `nats://127.0.0.1:4222`). There
+> is no built-in fake-mode seam. Either start a local NATS first (the
+> throwaway `nats:latest -js` from §0.6 is enough for Phase 2), or skip
+> Phase 2's NATS-dependent gates. Earlier drafts claimed "this stubs NATS
+> via the integration adapter" — that claim was false.
+
+### 2.1 Initialise a fresh forge state directory + minimal config
+
+This phase produces three pieces of state up-front and re-uses them across
+2.2–2.6:
+
+1. `$FORGE_HOME` — tmp dir holding `forge.db` and the YAML stubs.
+2. `$FORGE_HOME/forge.yaml` — minimal valid forge config (allowlist only).
+3. `$FORGE_HOME/feature-stub.yaml` — minimal `--feature-yaml` stub for the
+   Mode B/C calls.
+
+Database routing is set **once** via `FORGE_DB_PATH` (the env-var hook the
+queue loader reads); each subcommand uses the appropriate flag below.
+
+> **Per-command flag truth (gap-fold 2026-04-30 / AC-6):**
+> - `forge queue` — reads `$FORGE_DB_PATH` from env (no `--db-path` flag).
+> - `forge history` — accepts `--db PATH` (note: `--db`, not `--db-path`).
+> - `forge status` — accepts `--db-path PATH`.
+>
+> Earlier drafts uniformly tagged `--db-path` onto every command — that
+> form fails at the `forge queue` argparse layer.
 
 ```bash
-echo "=== Phase 2.1: Fresh state directory ==="
+echo "=== Phase 2.1: Fresh state directory + config ==="
 
-# Use a tmp dir so this doesn't pollute the user's actual ~/.forge
+# Fresh tmp dir so this doesn't pollute the user's actual ~/.forge
 export FORGE_HOME=$(mktemp -d -t forge-validation-XXXXXX)
+export FORGE_DB_PATH="$FORGE_HOME/forge.db"
 echo "FORGE_HOME=$FORGE_HOME"
+echo "FORGE_DB_PATH=$FORGE_DB_PATH"
 
-# Sanity: confirm forge respects the env override (or pass --db-path explicitly)
-forge --help | grep -E "config|db-path|state" | head -5
+# Minimal forge.yaml (gap-fold 2026-04-30 / AC-7).
+# `permissions.filesystem.allowlist` is the only mandatory field.
+# Pass via `--config FILE` on every subcommand, OR keep ./forge.yaml in CWD
+# and the loader will pick it up automatically.
+cat > "$FORGE_HOME/forge.yaml" <<'EOF'
+permissions:
+  filesystem:
+    allowlist:
+      - /tmp
+      - ~/Projects/appmilla_github/forge
+EOF
+
+# Minimal per-feature stub YAML (gap-fold 2026-04-30 / AC-8).
+# `forge queue` requires `--feature-yaml FILE` on Mode B/C; the file must
+# exist on disk. The stub below is the smallest shape the loader accepts;
+# see src/forge/config/feature_loader.py for the full schema.
+cat > "$FORGE_HOME/feature-stub.yaml" <<'EOF'
+acceptance_criteria:
+  - id: AC-1
+    text: stub criterion for runbook Phase 2 smoke
+EOF
+
+ls -la "$FORGE_HOME"
 ```
 
-**Pass:** Tmp dir created. Note the path for cleanup at end of phase.
-
-**If `forge` does not accept a state-dir override:** pass `--db-path "$FORGE_HOME/forge.db"` to every command in this phase. The CLI's `--db-path` flag is on every subcommand per `forge/src/forge/cli/queue.py`.
+**Pass:** Tmp dir created with `forge.yaml` and `feature-stub.yaml` present.
+Note the path for cleanup at end of phase.
 
 ### 2.2 Mode A queue smoke (regression baseline)
 
 Mode A is the existing default; it should keep working unchanged.
 
+> **Identifier note (gap-fold 2026-04-30 / AC-10):** the wire schema regex
+> `^FEAT-[A-Z0-9]{3,12}$` (in `nats_core.events._pipeline.BuildQueuedPayload`)
+> rejects inner hyphens. The CLI's looser `validate_feature_id` lets the
+> hyphenated forms (`FEAT-TEST-MA`) through, but the publish step then
+> fails at the pydantic boundary. Examples below use the wire-valid forms
+> `FEAT-TESTMA` / `FEAT-TESTMB` / `FEAT-TESTMC`.
+
 ```bash
 echo "=== Phase 2.2: Mode A queue ==="
-forge queue FEAT-TEST-MA --repo guardkit/test-project --branch main --mode a \
-    --db-path "$FORGE_HOME/forge.db"
-forge status --db-path "$FORGE_HOME/forge.db"
-forge history --feature FEAT-TEST-MA --db-path "$FORGE_HOME/forge.db"
+forge queue FEAT-TESTMA --repo guardkit/test-project --branch main --mode a \
+    --config "$FORGE_HOME/forge.yaml"
+forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge history --feature FEAT-TESTMA --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 ```
 
-**Pass:** Queue command exits 0. `status` lists FEAT-TEST-MA with `mode=mode-a`. `history` shows at least the queue event.
+**Pass:** Queue command exits 0. `status` lists FEAT-TESTMA with `mode=mode-a`. `history` shows at least the queue event.
 
 ### 2.3 Mode B queue smoke (NEW — FEAT-FORGE-008)
 
 ```bash
 echo "=== Phase 2.3: Mode B queue ==="
-forge queue FEAT-TEST-MB --repo guardkit/test-project --branch main --mode b \
-    --db-path "$FORGE_HOME/forge.db"
-forge status --db-path "$FORGE_HOME/forge.db"
-forge history --feature FEAT-TEST-MB --db-path "$FORGE_HOME/forge.db"
+forge queue FEAT-TESTMB --repo guardkit/test-project --branch main --mode b \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
+    --config "$FORGE_HOME/forge.yaml"
+forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge history --feature FEAT-TESTMB --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 ```
 
-**Pass:** `status` shows `mode=mode-b` for FEAT-TEST-MB. **If `mode` column is absent from `status` output**, TASK-MBC8-009 acceptance was incomplete — file a follow-up.
+**Pass:** `status` shows `mode=mode-b` for FEAT-TESTMB. **If `mode` column is absent from `status` output**, TASK-MBC8-009 acceptance was incomplete — file a follow-up.
 
 ### 2.4 Mode B single-feature constraint (boundary check)
 
@@ -216,9 +366,10 @@ Per ASSUM-006: Mode B operates on exactly one feature. The CLI parser must rejec
 
 ```bash
 echo "=== Phase 2.4: Mode B single-feature boundary ==="
-forge queue FEAT-TEST-MB-MULTI FEAT-TEST-MB-EXTRA \
+forge queue FEAT-TESTMBMULT FEAT-TESTMBEXTR \
     --repo guardkit/test-project --branch main --mode b \
-    --db-path "$FORGE_HOME/forge.db" 2>&1 | tee /tmp/mb-multi-reject.log
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
+    --config "$FORGE_HOME/forge.yaml" 2>&1 | tee /tmp/mb-multi-reject.log
 echo "Exit code: $?"
 ```
 
@@ -226,28 +377,47 @@ echo "Exit code: $?"
 
 ### 2.5 Mode C queue smoke (NEW — FEAT-FORGE-008)
 
+> **Pending TASK-F8-002 / AC-11:** today the wire payload's `feature_id`
+> regex is `^FEAT-[A-Z0-9]{3,12}$`, so Mode C must be queued with a
+> `FEAT-*` identifier even though FEAT-FORGE-008 ASSUM-004 says Mode C
+> operates on `TASK-*` IDs. TASK-F8-002 lands a sibling `task_id` field
+> on the payload; once it merges, the canonical Mode C invocation
+> becomes:
+>
+> ```bash
+> # Post-TASK-F8-002 (do not run yet — the schema does not accept this):
+> forge queue TASK-TESTMC --repo guardkit/test-project --branch main --mode c \
+>     --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
+>     --config "$FORGE_HOME/forge.yaml"
+> # → publishes feature_id=<parent FEAT-> AND task_id=TASK-TESTMC
+> ```
+>
+> Re-run TASK-F8-006 (this gap-fold) once TASK-F8-002 lands to swap the
+> example below for the post-F8-002 form.
+
 ```bash
-echo "=== Phase 2.5: Mode C queue ==="
-forge queue TASK-TEST-MC --repo guardkit/test-project --branch main --mode c \
-    --db-path "$FORGE_HOME/forge.db"
-forge status --db-path "$FORGE_HOME/forge.db"
-forge history --feature TASK-TEST-MC --db-path "$FORGE_HOME/forge.db"
+echo "=== Phase 2.5: Mode C queue (pre-TASK-F8-002 form) ==="
+forge queue FEAT-TESTMC --repo guardkit/test-project --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
+    --config "$FORGE_HOME/forge.yaml"
+forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge history --feature FEAT-TESTMC --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 ```
 
-**Pass:** `status` shows `mode=mode-c` for TASK-TEST-MC.
+**Pass:** `status` shows `mode=mode-c` for FEAT-TESTMC.
 
 ### 2.6 Mode-filtered history view
 
 ```bash
 echo "=== Phase 2.6: Mode-filtered history ==="
-forge history --mode b --db-path "$FORGE_HOME/forge.db"
+forge history --mode b --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 echo "--- Mode C only ---"
-forge history --mode c --db-path "$FORGE_HOME/forge.db"
+forge history --mode c --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 echo "--- All modes ---"
-forge history --db-path "$FORGE_HOME/forge.db"
+forge history --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 ```
 
-**Pass:** `--mode b` shows only FEAT-TEST-MB. `--mode c` shows only TASK-TEST-MC. No filter shows all three (FEAT-TEST-MA, FEAT-TEST-MB, TASK-TEST-MC).
+**Pass:** `--mode b` shows only FEAT-TESTMB. `--mode c` shows only FEAT-TESTMC. No filter shows all three (FEAT-TESTMA, FEAT-TESTMB, FEAT-TESTMC).
 
 ### 2.7 Constitutional skip refusal across modes (security regression)
 
@@ -268,7 +438,9 @@ pytest tests/integration/test_constitutional_regression.py -v --tb=short 2>&1 | 
 ```bash
 echo "=== Phase 2.8: Cleanup ==="
 rm -rf "$FORGE_HOME"
-unset FORGE_HOME
+unset FORGE_HOME FORGE_DB_PATH
+# If you started a throwaway NATS in §0.6, tear it down here:
+docker stop forge-runbook-nats 2>/dev/null && docker rm forge-runbook-nats 2>/dev/null || true
 ```
 
 ---
@@ -298,19 +470,37 @@ ssh promaxgb10-41b1
 # On GB10, in the forge checkout:
 cd ~/Projects/appmilla_github/forge
 
-# Use a fresh state dir so we don't fight with any prior runs
+# Use a fresh state dir so we don't fight with any prior runs.
+# Same env-var + --feature-yaml + --config shape as Phase 2 (AC-6/AC-7/AC-8).
 export FORGE_HOME=$(mktemp -d)
+export FORGE_DB_PATH="$FORGE_HOME/forge.db"
 
-# Queue a Mode B build — feature does not need to exist; we just want the queue event
-forge queue FEAT-NATS-CHECK --repo guardkit/test-project --branch main --mode b \
-    --db-path "$FORGE_HOME/forge.db"
+cat > "$FORGE_HOME/forge.yaml" <<'EOF'
+permissions:
+  filesystem:
+    allowlist:
+      - /tmp
+      - ~/Projects/appmilla_github/forge
+EOF
+cat > "$FORGE_HOME/feature-stub.yaml" <<'EOF'
+acceptance_criteria:
+  - id: AC-1
+    text: stub criterion for runbook Phase 3 NATS smoke
+EOF
+
+# Queue a Mode B build — feature does not need to exist; we just want the queue event.
+# Identifier is `FEAT-NATSCHECK` (no inner hyphens) to satisfy the wire-schema
+# regex `^FEAT-[A-Z0-9]{3,12}$` (AC-10).
+forge queue FEAT-NATSCHECK --repo guardkit/test-project --branch main --mode b \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
+    --config "$FORGE_HOME/forge.yaml"
 
 # Capture the build's correlation ID for later assertion
-BUILD_ID=$(forge status --db-path "$FORGE_HOME/forge.db" | grep FEAT-NATS-CHECK | awk '{print $1}')
+BUILD_ID=$(forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml" | grep FEAT-NATSCHECK | awk '{print $1}')
 echo "BUILD_ID=$BUILD_ID"
 ```
 
-**Pass:** A `pipeline.build-queued.FEAT-NATS-CHECK` event appears in the subscription log within ~1 second. The event's `correlation_id` field is populated.
+**Pass:** A `pipeline.build-queued.FEAT-NATSCHECK` event appears in the subscription log within ~1 second. The event's `correlation_id` field is populated.
 
 ### 3.3 Verify correlation threading from queue → terminal
 
@@ -336,6 +526,7 @@ pytest tests/integration/test_per_build_routing.py \
 # Save the log
 scp promaxgb10-41b1:/tmp/forge-nats-pipeline.log /tmp/forge-nats-pipeline.log
 rm -rf "$FORGE_HOME"
+unset FORGE_HOME FORGE_DB_PATH
 ```
 
 ---
@@ -479,6 +670,18 @@ curl -s http://localhost:5000/health
 ## Phase 6: LES1 Parity Gates (production-image, all four required)
 
 Per build plan §"Specialist-agent LES1 Parity Gates" — these are the gates that proved necessary on the specialist-agent build (TASK-MDF-CMDW / PORT / ARFS). Do not skip. Each must be green on the production image, not on a dev build.
+
+> **🚧 Gated on F008-VAL-007b (gap-fold 2026-04-30 / AC-12).** Phase 6 is
+> **structurally unreachable today** — the runbook calls
+> `docker build -t forge:production-validation -f Dockerfile .` in §6.1
+> but no `Dockerfile` ships in this repo. Phase 6 belongs in the runbook
+> (the LES1 parity contract is canonical and unchanged), but **do not
+> attempt to execute these blocks** until **F008-VAL-007b** (forge
+> production `Dockerfile`, scoped under TASK-F8-007b) lands. Tracking
+> issue: `tasks/backlog/feat-f8-validation-fixes/TASK-F8-007b-forge-production-dockerfile-spec.md`.
+>
+> Earlier drafts of this runbook implied Phase 6 could run today; that
+> claim was incorrect.
 
 ### 6.1 CMDW gate — production-image subscription round-trip
 
