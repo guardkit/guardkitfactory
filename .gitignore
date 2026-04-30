@@ -8,7 +8,10 @@ __pycache__/
 
 # Distribution / packaging
 .Python
-build/
+# Anchor "build/" to project root so it only ignores the top-level
+# distribution build output, NOT the ``forge.build`` package
+# (``src/forge/build/``) or its mirrored test tree.
+/build/
 develop-eggs/
 dist/
 downloads/
