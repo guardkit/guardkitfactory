@@ -208,14 +208,10 @@ echo "=== Phase 1.1: Full pytest suite ==="
 cd ~/Projects/appmilla_github/forge
 
 # Capture a clean log so the RESULTS file can cite line counts.
-# `--ignore=tests/bdd/test_infrastructure_coordination.py` is a workaround for
-# F008-VAL-001 (tracked as TASK-F8-001): the BDD bindings reference
-# `forge.build.git_operations` and `forge.build.test_verification` modules
-# (TASK-IC-009/010) that were never landed, so the file fails to collect.
-# Drop the `--ignore` once TASK-F8-001 lands.
-pytest -q --tb=short \
-    --ignore=tests/bdd/test_infrastructure_coordination.py \
-    2>&1 | tee /tmp/forge-pytest-phase1.log
+# `tests/bdd/test_infrastructure_coordination.py` collects cleanly as of
+# TASK-F8-001 (commit `d0c2f81`) which landed `forge.build.git_operations` +
+# `forge.build.test_verification`. No `--ignore` is needed.
+pytest -q --tb=short 2>&1 | tee /tmp/forge-pytest-phase1.log
 echo "Exit code: $?"
 ```
 
@@ -289,13 +285,28 @@ This phase produces three pieces of state up-front and re-uses them across
 Database routing is set **once** via `FORGE_DB_PATH` (the env-var hook the
 queue loader reads); each subcommand uses the appropriate flag below.
 
-> **Per-command flag truth (gap-fold 2026-04-30 / AC-6):**
+> **Per-command flag truth (gap-fold 2026-04-30 / AC-6, refined by F008-RERUN-001):**
+> - `--config FILE` is a **top-level** option (`forge --config FILE <subcommand>`).
+>   Subcommands reject it. Earlier drafts placed it after the subcommand name —
+>   that form fails at the click parser. Or omit `--config` entirely and let
+>   the loader auto-pick `./forge.yaml` from CWD.
 > - `forge queue` — reads `$FORGE_DB_PATH` from env (no `--db-path` flag).
+>   Always requires `--feature-yaml FILE` (Mode A, B and C alike — *not* just
+>   Mode B/C as earlier drafts implied; the CLI rejects with `Missing option
+>   '--feature-yaml'`).
 > - `forge history` — accepts `--db PATH` (note: `--db`, not `--db-path`).
 > - `forge status` — accepts `--db-path PATH`.
->
-> Earlier drafts uniformly tagged `--db-path` onto every command — that
-> form fails at the `forge queue` argparse layer.
+> - `--repo` is `click.Path(exists=True)`: the path must already exist on the
+>   filesystem. Placeholder strings like `guardkit/test-project` fail
+>   immediately. Use a real, allowlisted checkout (e.g. the live forge tree).
+
+> **`forge.yaml` allowlist truth (F008-RERUN-001 / AC-2):**
+> `ForgeConfig` validators reject relative or `~`-prefixed paths in
+> `permissions.filesystem.allowlist`; entries must be absolute. The heredoc
+> below uses `<<EOF` (no quotes) so `$HOME` expands at write-time, producing
+> an absolute path. Earlier drafts used `<<'EOF'` plus a literal `~/...` —
+> the loader fails with
+> `ValidationError: filesystem.allowlist entries must be absolute paths`.
 
 ```bash
 echo "=== Phase 2.1: Fresh state directory + config ==="
@@ -303,25 +314,30 @@ echo "=== Phase 2.1: Fresh state directory + config ==="
 # Fresh tmp dir so this doesn't pollute the user's actual ~/.forge
 export FORGE_HOME=$(mktemp -d -t forge-validation-XXXXXX)
 export FORGE_DB_PATH="$FORGE_HOME/forge.db"
+# Pin the repo path (used as `--repo` on every queue invocation below).
+# Must point at a real checkout AND appear in the allowlist below.
+export FORGE_REPO_PATH="$HOME/Projects/appmilla_github/forge"
 echo "FORGE_HOME=$FORGE_HOME"
 echo "FORGE_DB_PATH=$FORGE_DB_PATH"
+echo "FORGE_REPO_PATH=$FORGE_REPO_PATH"
 
-# Minimal forge.yaml (gap-fold 2026-04-30 / AC-7).
-# `permissions.filesystem.allowlist` is the only mandatory field.
-# Pass via `--config FILE` on every subcommand, OR keep ./forge.yaml in CWD
-# and the loader will pick it up automatically.
-cat > "$FORGE_HOME/forge.yaml" <<'EOF'
+# Minimal forge.yaml (gap-fold 2026-04-30 / AC-7, F008-RERUN-001 / AC-2).
+# `permissions.filesystem.allowlist` is the only mandatory field. Entries
+# must be absolute paths — the unquoted heredoc `<<EOF` lets `$HOME` and
+# `$FORGE_REPO_PATH` expand inline so the file ends up with literal absolute
+# paths.
+cat > "$FORGE_HOME/forge.yaml" <<EOF
 permissions:
   filesystem:
     allowlist:
       - /tmp
-      - ~/Projects/appmilla_github/forge
+      - $FORGE_REPO_PATH
 EOF
 
 # Minimal per-feature stub YAML (gap-fold 2026-04-30 / AC-8).
-# `forge queue` requires `--feature-yaml FILE` on Mode B/C; the file must
-# exist on disk. The stub below is the smallest shape the loader accepts;
-# see src/forge/config/feature_loader.py for the full schema.
+# `forge queue` requires `--feature-yaml FILE` on EVERY mode (A, B and C);
+# the file must exist on disk. The stub below is the smallest shape the
+# loader accepts; see src/forge/config/feature_loader.py for the full schema.
 cat > "$FORGE_HOME/feature-stub.yaml" <<'EOF'
 acceptance_criteria:
   - id: AC-1
@@ -347,10 +363,11 @@ Mode A is the existing default; it should keep working unchanged.
 
 ```bash
 echo "=== Phase 2.2: Mode A queue ==="
-forge queue FEAT-TESTMA --repo guardkit/test-project --branch main --mode a \
-    --config "$FORGE_HOME/forge.yaml"
-forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
-forge history --feature FEAT-TESTMA --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" queue FEAT-TESTMA \
+    --repo "$FORGE_REPO_PATH" --branch main --mode a \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml"
+forge --config "$FORGE_HOME/forge.yaml" status --db-path "$FORGE_DB_PATH"
+forge --config "$FORGE_HOME/forge.yaml" history --feature FEAT-TESTMA --db "$FORGE_DB_PATH"
 ```
 
 **Pass:** Queue command exits 0. `status` lists FEAT-TESTMA with `mode=mode-a`. `history` shows at least the queue event.
@@ -359,11 +376,11 @@ forge history --feature FEAT-TESTMA --db "$FORGE_DB_PATH" --config "$FORGE_HOME/
 
 ```bash
 echo "=== Phase 2.3: Mode B queue ==="
-forge queue FEAT-TESTMB --repo guardkit/test-project --branch main --mode b \
-    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
-    --config "$FORGE_HOME/forge.yaml"
-forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
-forge history --feature FEAT-TESTMB --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" queue FEAT-TESTMB \
+    --repo "$FORGE_REPO_PATH" --branch main --mode b \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml"
+forge --config "$FORGE_HOME/forge.yaml" status --db-path "$FORGE_DB_PATH"
+forge --config "$FORGE_HOME/forge.yaml" history --feature FEAT-TESTMB --db "$FORGE_DB_PATH"
 ```
 
 **Pass:** `status` shows `mode=mode-b` for FEAT-TESTMB. **If `mode` column is absent from `status` output**, TASK-MBC8-009 acceptance was incomplete — file a follow-up.
@@ -374,11 +391,10 @@ Per ASSUM-006: Mode B operates on exactly one feature. The CLI parser must rejec
 
 ```bash
 echo "=== Phase 2.4: Mode B single-feature boundary ==="
-forge queue FEAT-TESTMBMULT FEAT-TESTMBEXTR \
-    --repo guardkit/test-project --branch main --mode b \
-    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
-    --config "$FORGE_HOME/forge.yaml" 2>&1 | tee /tmp/mb-multi-reject.log
-echo "Exit code: $?"
+forge --config "$FORGE_HOME/forge.yaml" queue FEAT-TESTMBMULT FEAT-TESTMBEXTR \
+    --repo "$FORGE_REPO_PATH" --branch main --mode b \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml" 2>&1 | tee /tmp/mb-multi-reject.log
+echo "Exit code: ${PIPESTATUS[0]}"
 ```
 
 **Pass:** Non-zero exit code. Stderr explains "Mode B accepts exactly one feature identifier" or similar. **If it succeeds, ASSUM-006 is not enforced at the CLI layer** — file a follow-up against TASK-MBC8-009.
@@ -412,11 +428,11 @@ YAML
 
 ```bash
 echo "=== Phase 2.5: Mode C queue (post-TASK-F8-002 canonical form) ==="
-forge queue TASK-TESTMC --repo guardkit/test-project --branch main --mode c \
-    --feature-yaml "$FORGE_HOME/fix-task-stub.yaml" \
-    --config "$FORGE_HOME/forge.yaml"
-forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
-forge history --feature FEAT-TESTMC --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" queue TASK-TESTMC \
+    --repo "$FORGE_REPO_PATH" --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/fix-task-stub.yaml"
+forge --config "$FORGE_HOME/forge.yaml" status --db-path "$FORGE_DB_PATH"
+forge --config "$FORGE_HOME/forge.yaml" history --feature FEAT-TESTMC --db "$FORGE_DB_PATH"
 ```
 
 The published `BuildQueuedPayload` carries:
@@ -433,18 +449,18 @@ persistence or publish side effect):
 
 ```bash
 # 1. FEAT-shaped positional rejected at the CLI boundary (exit 4).
-forge queue FEAT-TESTMC --repo guardkit/test-project --branch main --mode c \
-    --feature-yaml "$FORGE_HOME/fix-task-stub.yaml" \
-    --config "$FORGE_HOME/forge.yaml" 2>&1 | head -3
+forge --config "$FORGE_HOME/forge.yaml" queue FEAT-TESTMC \
+    --repo "$FORGE_REPO_PATH" --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/fix-task-stub.yaml" 2>&1 | head -3
 # Expected: "Mode C requires positional argument to match ^TASK-[A-Z0-9]{3,12}$"
 
 # 2. Missing parent_feature in the fix-task YAML (Click UsageError).
 cat > "$FORGE_HOME/no-parent.yaml" <<'YAML'
 name: example-fix
 YAML
-forge queue TASK-TESTMC --repo guardkit/test-project --branch main --mode c \
-    --feature-yaml "$FORGE_HOME/no-parent.yaml" \
-    --config "$FORGE_HOME/forge.yaml" 2>&1 | head -3
+forge --config "$FORGE_HOME/forge.yaml" queue TASK-TESTMC \
+    --repo "$FORGE_REPO_PATH" --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/no-parent.yaml" 2>&1 | head -3
 # Expected: "Mode C requires the fix-task YAML to declare a non-empty 'parent_feature' field"
 ```
 
@@ -469,11 +485,11 @@ lives in `tests/forge/test_cli_mode_flag.py::TestModeCSubject`.
 
 ```bash
 echo "=== Phase 2.6: Mode-filtered history ==="
-forge history --mode b --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" history --mode b --db "$FORGE_DB_PATH"
 echo "--- Mode C only ---"
-forge history --mode c --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" history --mode c --db "$FORGE_DB_PATH"
 echo "--- All modes ---"
-forge history --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" history --db "$FORGE_DB_PATH"
 ```
 
 **Pass:** `--mode b` shows only FEAT-TESTMB. `--mode c` shows only FEAT-TESTMC. No filter shows all three (FEAT-TESTMA, FEAT-TESTMB, FEAT-TESTMC).
@@ -515,7 +531,13 @@ In one SSH session, subscribe to every pipeline event and pretty-print:
 ```bash
 ssh promaxgb10-41b1
 # On GB10:
-nats sub 'pipeline.>' --headers --raw 2>&1 | tee /tmp/forge-nats-pipeline.log
+# `--raw` prints message bodies verbatim. Earlier drafts also passed
+# `--headers`, but that flag does not exist on the `nats` CLI shipped here
+# (the valid flag is `--headers-only`, which suppresses bodies — not what
+# we want). The envelope's `correlation_id` is in the JSON body, not in
+# NATS headers, so `--raw` alone is sufficient evidence.
+# — *gap-fold 2026-04-30 (F008-RERUN-001 / AC-5)*
+nats sub 'pipeline.>' --raw 2>&1 | tee /tmp/forge-nats-pipeline.log
 ```
 
 Leave this running. The runbook will produce events in 3.2.
@@ -530,16 +552,18 @@ ssh promaxgb10-41b1
 cd ~/Projects/appmilla_github/forge
 
 # Use a fresh state dir so we don't fight with any prior runs.
-# Same env-var + --feature-yaml + --config shape as Phase 2 (AC-6/AC-7/AC-8).
+# Same env-var + --feature-yaml + top-level --config shape as Phase 2.1
+# (AC-6/AC-7/AC-8 + F008-RERUN-001 / AC-1..AC-4).
 export FORGE_HOME=$(mktemp -d)
 export FORGE_DB_PATH="$FORGE_HOME/forge.db"
+export FORGE_REPO_PATH="$HOME/Projects/appmilla_github/forge"
 
-cat > "$FORGE_HOME/forge.yaml" <<'EOF'
+cat > "$FORGE_HOME/forge.yaml" <<EOF
 permissions:
   filesystem:
     allowlist:
       - /tmp
-      - ~/Projects/appmilla_github/forge
+      - $FORGE_REPO_PATH
 EOF
 cat > "$FORGE_HOME/feature-stub.yaml" <<'EOF'
 acceptance_criteria:
@@ -550,12 +574,12 @@ EOF
 # Queue a Mode B build — feature does not need to exist; we just want the queue event.
 # Identifier is `FEAT-NATSCHECK` (no inner hyphens) to satisfy the wire-schema
 # regex `^FEAT-[A-Z0-9]{3,12}$` (AC-10).
-forge queue FEAT-NATSCHECK --repo guardkit/test-project --branch main --mode b \
-    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
-    --config "$FORGE_HOME/forge.yaml"
+forge --config "$FORGE_HOME/forge.yaml" queue FEAT-NATSCHECK \
+    --repo "$FORGE_REPO_PATH" --branch main --mode b \
+    --feature-yaml "$FORGE_HOME/feature-stub.yaml"
 
 # Capture the build's correlation ID for later assertion
-BUILD_ID=$(forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml" | grep FEAT-NATSCHECK | awk '{print $1}')
+BUILD_ID=$(forge --config "$FORGE_HOME/forge.yaml" status --db-path "$FORGE_DB_PATH" | grep FEAT-NATSCHECK | awk '{print $2}')
 echo "BUILD_ID=$BUILD_ID"
 ```
 
