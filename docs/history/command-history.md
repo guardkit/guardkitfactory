@@ -3195,10 +3195,63 @@ INFO:guardkit.orchestrator.feature_orchestrator:Feature orchestration complete: 
 richardwoollcott@promaxgb10-41b1:~/Projects/appmilla_github/forge$ 
 
 
+Validation runbook executed. Summary:
+
+Decision: Step 6 partially passed — not canonical. RESULTS file written to docs/runbooks/RESULTS-FEAT-FORGE-008-validation.md.
+
+Hard regression confirmed (the runbook §1.3 trap): Supervisor._dispatch at src/forge/pipeline/supervisor.py:1555 has no routing branch for StageClass.TASK_REVIEW. Mode A reaches that stage and crashes with TypeError. Two Mode A integration tests are red as a direct consequence.
+
+Other reds in Phase 1.1:
+
+migrations.apply_at_boot non-idempotent for v2 schema row (duplicate insert on second boot).
+lifecycle/recovery.py open-codes evidence_priors — violates AC-008 single-ownership.
+tests/bdd/test_infrastructure_coordination.py cannot collect (forge.build modules from TASK-IC-009/010 missing — pre-existing, not FEAT-FORGE-008).
+What is healthy: FEAT-FORGE-008 BDD bindings (64/64), Mode B + Mode C integration smoke (68/68), constitutional guard (5/5), CLI surface for all three modes including ASSUM-006 single-feature reject, mode-filtered history, and a real NATS round-trip with correlation-ID threading.
+
+Other findings worth filing:
+
+Mode C wire schema rejects TASK-* identifiers despite FEAT-FORGE-008 ASSUM-004 — Mode C is half-shipped (F008-VAL-002).
+The runbook itself has 9 copy-paste-as-code gaps documented in the RESULTS file (forge.yaml required, --db vs --db-path, missing --feature-yaml, invalid example IDs, no fake-NATS seam, missing Dockerfile, etc.).
+I did not touch the build plan — Step 6 cannot be marked canonical with these reds. Phases 4–6 were skipped per the runbook's own §1.3 hard-stop rule plus the absence of provisioned JetStream NATS and a forge production Dockerfile on this host.
+
+/task-create please create a review task to analyse the runbook results docs/runbooks/RESULTS-FEAT-FORGE-008-validation.md and provide any context from this conversation) with the aim of fixing the failings and addressing the findings
+
+
+Task created.
+
+✅ Task Created: TASK-REV-F008
+
+📋 Task Details
+
+Title: Fix FEAT-FORGE-008 validation failures and address runbook findings
+Type: review (architectural decision/triage task)
+Priority: high
+Status: backlog
+Tags: review, validation, regression, mode-a, mode-c, runbook, feat-forge-008
+Related features: FEAT-FORGE-007, FEAT-FORGE-008
+Related runbooks: RUNBOOK-FEAT-FORGE-008-validation.md, RESULTS-FEAT-FORGE-008-validation.md
+📁 File Location
+tasks/backlog/TASK-REV-F008-fix-feat-forge-008-validation-failures.md
+
+Contents include:
+
+7 acceptance criteria covering decisions for all F008-VAL-001..007 findings
+Curated reading list of 10 source files/lines so the reviewer doesn't re-derive what was learned
+Verbatim pytest failure modes (4 reds + 1 collection error)
+Environment notes (the 127.0.0.1 promaxgb10-41b1 quirk, the stale FEAT-FORGE-005 editable-install trap, no uv / no provisioned NATS / no Dockerfile)
+CLI surface gaps observed (actual flags vs. runbook claims)
+A list of what was healthy (so the re-run can be scoped tight)
+Suggested deliverable shape (triage table → ASSUM-004 design decision → re-run plan → Phase-6 prereq plan → runbook gap-fold patch outline)
+Next Steps
+
+/task-review TASK-REV-F008 --mode=architectural to execute the review
+After the checkpoint, [I]mplement fans out per-finding tasks (suggested prefix F8)
+/task-complete TASK-REV-F008 once decisions are recorded
+Stopping here per the /task-create contract — no implementation, just the task file.
 
 
 
-
+/task-review TASK-REV-F008 --mode=architectural
 
 
 GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-CBDE --verbose --max-turns 30
