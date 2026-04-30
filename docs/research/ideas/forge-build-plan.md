@@ -535,27 +535,85 @@ guardkit autobuild FEAT-FORGE-008   # ✅ commit 2f13eac (autobuild metadata 22c
 
 ### Step 6: Validation
 
-After all features are built:
+The canonical operator-level walkthrough lives in
+[`docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md`](../../runbooks/RUNBOOK-FEAT-FORGE-008-validation.md)
+(Phases 0–7). The shell snippets below are the high-level shape; the runbook is
+the source of truth for the exact commands, prerequisites, and pass/fail
+contracts.
+
+#### Phase status (post-rerun 2026-04-30)
+
+| Phases | Status | Latest evidence | Gating prerequisite |
+|--------|--------|-----------------|---------------------|
+| 0 — Pre-flight (env + artefacts) | ✅ canonical | [`RESULTS-FEAT-FORGE-008-validation-rerun.md`](../../runbooks/RESULTS-FEAT-FORGE-008-validation-rerun.md) §0.x | none |
+| 1 — Local pytest gate (full sweep + BDD-008 + Mode A regression) | ✅ canonical | rerun §1.x — 3853p/0f/1s, 64/64 BDD-008, 42/42 Mode A | none |
+| 2 — CLI smoke (Mode A/B/C `forge queue` + history filter + constitutional) | ✅ canonical | rerun §2.x — Mode C `TASK-*` canonical form via TASK-F8-002 | throwaway NATS (Phases 2–3 only) |
+| 3 — NATS pipeline-event observation (Mode B + Mode C round-trip) | ✅ canonical | rerun §3.x — `task_id="TASK-NATSCHECKC"`, threaded `correlation_id` | throwaway NATS |
+| 4 — Checkpoint forced-flag exercise (`pipeline.build-paused` / `build-resumed`) | ⏸ deferred | — | **FCH-001** (canonically-provisioned JetStream — streams + KV + durable consumer config) |
+| 5 — Degraded-mode exercise (Mode A specialists offline → FLAG_FOR_REVIEW) | ⏸ deferred | — | FCH-001 + a deployed specialist-agent fleet |
+| 6.1 — CMDW gate (production-image subscription round-trip) | ⏸ deferred | — | **FEAT-FORGE-009** (forge production `Dockerfile` + `forge serve`) |
+| 6.2 — PORT gate (`(role, stage)` dispatch matrix) | ⏸ deferred | — | FEAT-FORGE-009 + specialist-agent production image |
+| 6.3 — ARFS gate (per-tool handler completeness) | ⏸ deferred | — | FEAT-FORGE-009 |
+| 6.4 — Canonical-freeze walkthrough (clean MacBook + GB10) | ⏸ deferred | — | All Phase 4–6.3 prerequisites green AND runbook in verbatim-runnable shape |
+| 7 — FinProxy first real run | ◻ pending (forge unblocked) | runbook stub: [`RUNBOOK-FEAT-FORGE-008-finproxy-first-run.md`](../../runbooks/RUNBOOK-FEAT-FORGE-008-finproxy-first-run.md) | operator scheduling |
+
+**Cross-repo / sibling-feature handoffs gating Phases 4–6:**
+
+- **FCH-001 — canonical NATS provisioning** (gates Phases 4 + 5 + 6.x).
+  Owned by [`nats-infrastructure`](../../../../nats-infrastructure) on an
+  independent timeline. The contract `forge` consumes is enumerated verbatim
+  in [`docs/handoffs/F8-007a-nats-canonical-provisioning.md`](../../handoffs/F8-007a-nats-canonical-provisioning.md)
+  (streams, KV buckets, durable consumer config, retention floors, ACL).
+  Tracked from `forge`'s side by `TASK-F8-007a` (✅ closed; the cross-repo
+  delegation artefact landed). When FCH-001 ships, Phases 4–5 unblock and the
+  runbook's §0.6 throwaway-NATS hint stops being needed.
+
+- **FEAT-FORGE-009 — forge production `Dockerfile` + `forge serve` daemon**
+  (gates Phase 6.1 / 6.2 / 6.3 / 6.4). Scoped at
+  [`docs/scoping/F8-007b-forge-production-dockerfile.md`](../../scoping/F8-007b-forge-production-dockerfile.md)
+  (gate-by-gate requirements, base-image baseline, multi-stage layout, open
+  questions). Backlog handoff at [`tasks/backlog/FEAT-FORGE-009-production-image.md`](../../../tasks/backlog/FEAT-FORGE-009-production-image.md).
+  Tracked from this build plan's side by `TASK-F8-007b` (✅ closed). When
+  FEAT-FORGE-009 ships, Phase 6 LES1 gates become structurally reachable.
+
+**Re-run sequencing once each prerequisite lands:**
+
+1. **FCH-001 lands** → re-run runbook Phases 0.6 + 4 + 5 against the canonical
+   NATS (skip the throwaway-docker block in §0.6). Capture in a new
+   `RESULTS-FEAT-FORGE-008-validation-phases-4-5.md`. If green, mark Phases 4–5
+   ✅ canonical in this table. Step 7 was already unblocked from `forge`'s side
+   at the 2026-04-30 rerun, so this does **not** gate Step 7.
+2. **FEAT-FORGE-009 lands** → re-run Phase 6 (CMDW / PORT / ARFS / canonical-
+   freeze) against the production image. The canonical-freeze gate (6.4)
+   additionally requires a verbatim walkthrough on a clean machine logged in
+   `command-history.md`. Capture in `RESULTS-FEAT-FORGE-008-validation-phases-6.md`.
+3. Update the row above + the Status header on this build plan when each
+   tier closes.
+
+#### Reference shell snippets (high-level shape)
 
 ```bash
-# Run full test suite
+# Run full test suite (Phase 1.1 — see runbook for the canonical invocation)
 cd ~/Projects/appmilla_github/forge
 pytest
 
 # Integration test: queue a test feature (canonical CLI surface per anchor §5)
-forge queue FEAT-TEST-001 --repo guardkit/test-project --branch main
-forge status
-forge history --feature FEAT-TEST-001
+forge --config ./forge.yaml queue FEAT-TEST-001 \
+    --repo "$FORGE_REPO_PATH" --branch main --mode a \
+    --feature-yaml feature-stub.yaml
+forge --config ./forge.yaml status --db-path "$FORGE_DB_PATH"
+forge --config ./forge.yaml history --feature FEAT-TEST-001 --db "$FORGE_DB_PATH"
 
 # Verify pipeline events published to NATS
-# (subscribe to pipeline.> on GB10 and observe)
+# (subscribe to pipeline.> on GB10 and observe — see runbook §3.1)
 
-# Verify checkpoint protocol
+# Verify checkpoint protocol (Phase 4 — gated on FCH-001)
 # (set low auto_approve threshold in forge.yaml to force FLAG FOR REVIEW,
-#  verify pipeline.build-paused arrives)
+#  verify pipeline.build-paused arrives — see runbook §4)
 
-# Verify degraded mode
-# (stop specialist agents, run pipeline, verify forced FLAG FOR REVIEW)
+# Verify degraded mode (Phase 5 — gated on FCH-001)
+# (stop specialist agents, run pipeline, verify forced FLAG FOR REVIEW
+#  — see runbook §5)
 ```
 
 #### Specialist-agent LES1 Parity Gates (pre-merge required)
