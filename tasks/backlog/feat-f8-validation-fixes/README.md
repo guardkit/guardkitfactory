@@ -48,8 +48,8 @@ Wave 2 (parallel-safe; F8-002 cross-repo nats-core 0.3.0)  — ✅ COMPLETE 2026
 
   ── re-run Phases 1+2+3; declare Step 6 canonical for Phases 0–3 (PENDING OPERATOR) ──
 
-Wave 3 (delegated, parallel-allowed throughout — no gate dependency)
-  ▶ TASK-F8-007a  NATS canonical provisioning handoff → nats-infrastructure
+Wave 3 (delegated, parallel-allowed throughout — no gate dependency)  — ✅ COMPLETE 2026-04-30
+  ✅ TASK-F8-007a  NATS canonical provisioning handoff → nats-infrastructure  2026-04-30 (FCH-001 filed)
   ✅ TASK-F8-007b  production Dockerfile scoping → spawned FEAT-FORGE-009 stub  2026-04-30
 ```
 
@@ -63,7 +63,7 @@ Wave 3 (delegated, parallel-allowed throughout — no gate dependency)
 | [TASK-F8-002](TASK-F8-002-mode-c-task-id-payload.md) | 2 | Add `task_id` + `mode` fields to `BuildQueuedPayload` (cross-repo) | 6 | task-work | ✅ `ae20423` (nats-core) + forge CLI/pin |
 | [TASK-F8-001](TASK-F8-001-land-forge-build-modules.md) | 2 | Land `forge.build.git_operations` + `forge.build.test_verification` | 5 | task-work | ✅ `d0c2f81` |
 | [TASK-F8-006](TASK-F8-006-runbook-gap-fold-feat-008.md) | 2 | Apply LES1 §8 runbook gap-fold to RUNBOOK-FEAT-FORGE-008-validation.md | 3 | direct | ✅ `35952fd` |
-| [TASK-F8-007a](TASK-F8-007a-nats-canonical-provisioning-handoff.md) | 3 | Hand off canonical NATS provisioning to `nats-infrastructure` | 2 | direct | ▶ pending |
+| [TASK-F8-007a](../../completed/TASK-F8-007a/TASK-F8-007a-nats-canonical-provisioning-handoff.md) | 3 | Hand off canonical NATS provisioning to `nats-infrastructure` | 2 | direct | ✅ 2026-04-30 (FCH-001 in nats-infrastructure) |
 | [TASK-F8-007b](../../completed/TASK-F8-007b/TASK-F8-007b-forge-production-dockerfile-spec.md) | 3 | Scope production Dockerfile → sibling FEAT-FORGE-009 | 3 | direct | ✅ 2026-04-30 (scoping doc + FEAT-FORGE-009 stub) |
 
 ## Wave structure
@@ -102,4 +102,6 @@ Wave 3  ▶ TASK-F8-007a, 007b              (delegated/scoping; no gate)
       the new `task_id` + `mode` fields on the wire.
       ⏸ Pending operator: re-run runbook Phases 0–3 verbatim to formally
       declare Step 6 canonical.
-- [ ] Wave 3 hand-off documents merged and tracked in their owning repos.
+- [x] Wave 3 hand-off documents merged and tracked in their owning repos.
+      TASK-F8-007a closed 2026-04-30 (FCH-001 filed in nats-infrastructure).
+      TASK-F8-007b closed 2026-04-30 (scoping doc + FEAT-FORGE-009 stub).

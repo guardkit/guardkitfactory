@@ -2,10 +2,11 @@
 id: TASK-F8-007a
 title: "Hand off canonical NATS provisioning to nats-infrastructure"
 task_type: documentation
-status: in_review
+status: completed
 priority: medium
 created: 2026-04-29T00:00:00Z
 updated: 2026-04-30T00:00:00Z
+completed: 2026-04-30T00:00:00Z
 parent_review: TASK-REV-F008
 feature_id: FEAT-F8-VALIDATION-FIXES
 wave: 3
@@ -134,43 +135,24 @@ provisioning, hardening, and operations.
   §0.6 to link to the handoff doc as the canonical source for "what
   Phases 4+ require" (after the TASK-F8-006 gap-fold landed).
 
-### Pending operator action (AC-2 + AC-4 closing condition)
+### Done — AC-2 + AC-4 closure (2026-04-30)
 
-- **AC-2 (cross-repo issue):** A GitHub issue must be opened in
-  `https://github.com/guardkit/nats-infrastructure` linking back to
-  the handoff doc. Suggested template:
+- **AC-2 (cross-repo tracking artefact):** `nats-infrastructure` does
+  not use GitHub Issues — it uses the same `tasks/backlog/` folder
+  convention this repo does (existing examples: `TASK-REV-4721`,
+  `TASK-DCD-005`, `TASK-850A`). Filed:
+  [`nats-infrastructure/tasks/backlog/TASK-FCH-001-canonical-nats-provisioning-for-forge.md`](../../../../nats-infrastructure/tasks/backlog/TASK-FCH-001-canonical-nats-provisioning-for-forge.md).
+  That task carries forward the v2.1 reconciliation, GB10 deployment
+  decision, dedicated-forge-user decision, KV provisioning, and health
+  probe acceptance — its AC-6 commits `nats-infrastructure` to ping
+  `forge` once provisioning is live so the runbook Phases 4–6 can run.
+  Per AC-2's own escape hatch ("raise it via whatever ticket system
+  `nats-infrastructure` uses"), this satisfies the requirement without
+  a GitHub issue.
 
-  ```bash
-  gh issue create \
-      --repo guardkit/nats-infrastructure \
-      --title "Canonical NATS provisioning for forge (FEAT-FORGE-008 Phase 4+)" \
-      --body "$(cat <<'EOF'
-  Forge has published its canonical-provisioning handoff document at
-  guardkit/forge → docs/handoffs/F8-007a-nats-canonical-provisioning.md.
-
-  This issue tracks the nats-infrastructure-side delivery: provisioning
-  the streams, KV buckets, and (optionally) the dedicated forge
-  service-identity user that the handoff document specifies.
-
-  Specifically asks (see handoff doc §9):
-
-  1. Confirm anchor v2.1 reconciliation for FLEET / JARVIS /
-     NOTIFICATIONS retention values.
-  2. Confirm GB10 deployment target (docker-compose vs. systemd).
-  3. Decide whether a dedicated forge user lands before the FEAT-FORGE-008
-     Phase 6.4 canonical-freeze, or whether the shared APPMILLA
-     rich/james account is used for sign-off.
-
-  Forge-side task: TASK-F8-007a (closes when this issue is opened +
-  the handoff doc is merged on forge main).
-  EOF
-  )"
-  ```
-
-- **AC-4 (close):** Once the handoff doc is merged on `forge:main` AND
-  the cross-repo issue link above is captured (paste the issue URL into
-  this log), move this task file to `tasks/completed/TASK-F8-007a/` and
-  flip `status: completed` per the convention used by TASK-F8-006.
+- **AC-4 (close):** Both AC-1 (handoff doc merged on `forge:main`) and
+  AC-2 (cross-repo tracking artefact filed) are satisfied. Task moved
+  to `tasks/completed/TASK-F8-007a/`; status flipped to `completed`.
 
 ### Out of scope (explicit, per task brief)
 
