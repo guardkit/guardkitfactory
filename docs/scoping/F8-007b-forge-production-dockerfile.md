@@ -252,22 +252,33 @@ operators a non-NATS check against image freshness.
    tmpfs) is a deployment-shaped question, not a Dockerfile-shaped
    one — but the Dockerfile must declare the `VOLUME` paths. Defer
    path enumeration to feature-plan.
-4. **`nats-core` source inside the container.** Forge's `pyproject.toml`
-   resolves `nats-core` from the sibling working tree
-   (`../nats-core`, editable). That path doesn't exist in a container
-   build context. Three resolutions:
+4. **`nats-core` source inside the container.** ✅ **RESOLVED 2026-04-30 —
+   operator picked (c)**: Docker BuildKit `--build-context` widening.
+   Forge's `pyproject.toml` resolves `nats-core` from the sibling working
+   tree (`../nats-core`, editable). That path doesn't exist in a container
+   build context. Three resolutions were considered:
      a. wait for upstream PyPI fix to `nats-core` and use it
         non-editable;
      b. publish forge's own `nats-core` wheel to a private index and
         consume it;
-     c. include `../nats-core/` in the Docker build context (e.g. by
-        running `docker build` from a parent dir with a
+     c. **(picked)** include `../nats-core/` in the Docker build context
+        (e.g. by running `docker build` from a parent dir with a
         `--build-context` for nats-core).
-   This is a *blocker-shaped* open question — without a resolution,
-   the image will fail to build. FEAT-FORGE-009's feature-spec must
-   pick one. Recommendation: (a) if upstream `nats-core` ships a fixed
-   wheel by then; otherwise (c) with a documented Docker BuildKit
-   `--build-context nats-core=../nats-core` invocation in Phase 6.1.
+   **Rationale (operator):** "I'd prefer if everything is dockerised" —
+   keeps the canonical build path entirely container-native and removes
+   the dependency on upstream PyPI republishing `nats-core` (which as
+   of 2026-04-30 still serves `0.2.0` while the sibling editable install
+   is at `0.3.0`).
+   **Implementation hooks for FEAT-FORGE-009 feature-spec:**
+   - Dockerfile must declare `nats-core` as a named build context
+     (e.g. `FROM scratch AS nats-core-src` or `COPY --from=nats-core …`).
+   - Build invocation: `docker buildx build --build-context nats-core=../nats-core -f forge/Dockerfile forge/`.
+   - The runbook §6.1 CMDW gate must use the same invocation; document
+     it inline in the runbook fold that closes FEAT-FORGE-009.
+   - `pyproject.toml`'s `[tool.uv.sources]` entry stays as-is (still
+     editable from sibling on dev hosts); the Docker layer rewrites the
+     resolution by COPYing the named context into a known absolute path
+     before `pip install .[providers]`.
 5. **Source-copy strategy.** `pip install .[providers]` in the builder
    stage installs forge into `/opt/venv` as a proper distribution. Do
    we *also* need to copy `src/forge/` into the runtime stage? Only if

@@ -67,9 +67,14 @@ That document is the seed input to `/feature-spec`.
 - **Sibling — `TASK-F8-007a`**: NATS canonical provisioning
   (delegated to `nats-infrastructure`) is parallelisable but is also
   required for Phase 6 to actually *run* once the image exists.
-- **Open question 4 in the scoping doc** (`nats-core` build-context
+- ~~**Open question 4 in the scoping doc** (`nats-core` build-context
   resolution) needs an operator decision before `/feature-spec` can
-  converge.
+  converge.~~ ✅ **Resolved 2026-04-30 — operator picked (c):** Docker
+  BuildKit `--build-context nats-core=../nats-core`. Rationale: "I'd
+  prefer if everything is dockerised" — keeps the canonical build path
+  fully container-native. See scoping doc §11.4 for the full
+  implementation hooks (named build context, `docker buildx` invocation,
+  runbook §6.1 alignment).
 
 ## Definition of done (sketch)
 
