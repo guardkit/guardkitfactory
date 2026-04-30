@@ -182,10 +182,18 @@ docker logs forge-runbook-nats 2>&1 | tail -3
 plus `provision-streams.sh` and `provision-kv.sh`. Per build plan §"Hard
 Prerequisites": **a fresh-volume NATS without explicit provisioning will
 accept publishes (PubAck) but not retain or deliver them** — exactly the
-MacBook failure mode. Do not skip this. (TASK-F8-007a tracks the canonical
-provisioning hand-off for this host.)
+MacBook failure mode. Do not skip this.
 
-> *gap-fold 2026-04-30 (TASK-F8-006 / AC-3)*
+The canonical source of truth for **what Forge requires from the
+provisioned server** (streams, durable consumer config, KV buckets,
+auth/ACL, health probes) is the handoff document:
+[`docs/handoffs/F8-007a-nats-canonical-provisioning.md`](../handoffs/F8-007a-nats-canonical-provisioning.md).
+If a Phase 4+ gate fails because of a missing stream, missing KV
+bucket, or wrong consumer config, cross-check that document first —
+its §3–§5 enumerate the exact floors `forge` depends on. (TASK-F8-007a
+tracks the cross-repo provisioning hand-off itself.)
+
+> *gap-fold 2026-04-30 (TASK-F8-006 / AC-3, TASK-F8-007a / AC-3)*
 
 ---
 
