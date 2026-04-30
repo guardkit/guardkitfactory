@@ -211,84 +211,6 @@ class ApprovalRepublisher(Protocol):
 # ---------------------------------------------------------------------------
 
 
-def _build_recovery_approval_envelope(build: BuildRow) -> Any:
-    """Build a recovery-flavoured approval envelope for a PAUSED build.
-
-    The envelope re-issues the **original** ``request_id`` (the value
-    already on ``builds.pending_approval_request_id``). The original
-    :class:`forge.gating.models.GateDecision` is not preserved across
-    process restarts, so the recovery payload carries only what is
-    durable in SQLite plus a ``recovery: True`` marker on ``details``.
-
-    Notification adapters that previously rendered a rich approval card
-    will see a stripped card on the re-issue; the responder, however,
-    only correlates by ``request_id`` and is unaffected.
-
-    Args:
-        build: The PAUSED build whose approval request is being
-            re-issued. ``build.pending_approval_request_id`` MUST be
-            non-empty — :func:`reconcile_on_boot` checks this before
-            calling.
-
-    Returns:
-        :class:`nats_core.envelope.MessageEnvelope` ready to be passed
-        to :class:`ApprovalRepublisher.publish_request`.
-    """
-    # Late import — keeps the lifecycle module from pulling
-    # ``nats_core`` in unless the recovery pass actually runs (the import
-    # is unconditional once we hit a PAUSED build, but isolated to this
-    # helper so a missing optional dependency surfaces with a clear
-    # traceback rather than at module import).
-    from nats_core.envelope import EventType, MessageEnvelope
-    from nats_core.events import ApprovalRequestPayload
-
-    request_id = build.pending_approval_request_id
-    # Defensive: the caller already checked, but keep the assertion so
-    # a future caller cannot accidentally bypass the contract.
-    if not request_id:
-        msg = (
-            f"_build_recovery_approval_envelope: build {build.build_id!r} "
-            "has no pending_approval_request_id; cannot re-issue"
-        )
-        raise ValueError(msg)
-
-    details: dict[str, Any] = {
-        "build_id": build.build_id,
-        "feature_id": build.feature_id,
-        "stage_label": "recovery",
-        "gate_mode": "MANDATORY_HUMAN_APPROVAL",
-        "coach_score": None,
-        "criterion_breakdown": {},
-        "detection_findings": [],
-        "rationale": (
-            "Boot-time recovery: re-issuing approval request after "
-            "agent-runtime restart. Original request_id preserved."
-        ),
-        "evidence_priors": [],
-        "artefact_paths": [],
-        "resume_options": ["approve", "reject", "defer", "override"],
-        "recovery": True,
-    }
-
-    payload = ApprovalRequestPayload(
-        request_id=request_id,
-        agent_id="forge",
-        action_description=(
-            f"Recovery: re-issuing pause for build {build.build_id} "
-            f"(feature={build.feature_id})"
-        ),
-        risk_level="medium",
-        details=details,
-    )
-
-    envelope = MessageEnvelope(
-        source_id="forge",
-        event_type=EventType.APPROVAL_REQUEST,
-        payload=payload.model_dump(mode="json"),
-    )
-    return envelope
-
-
 def _build_failed_payload(build: BuildRow) -> Any:
     """Build the ``BuildFailedPayload`` for a PREPARING-recovery emit.
 
@@ -378,7 +300,15 @@ async def _handle_paused(
         )
         raise RuntimeError(msg)
 
-    envelope = _build_recovery_approval_envelope(build)
+    # AC-008 single-ownership: the eleven-key ``details`` dict shape is
+    # constructed exclusively in
+    # :mod:`forge.adapters.nats.approval_publisher`. Late-import keeps
+    # the lifecycle module free of an eager NATS dependency.
+    from forge.adapters.nats.approval_publisher import (
+        build_recovery_approval_envelope,
+    )
+
+    envelope = build_recovery_approval_envelope(build)
     await approval_publisher.publish_request(envelope)
     report.paused_reissued_count += 1
 

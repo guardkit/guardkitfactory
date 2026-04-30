@@ -35,6 +35,7 @@ from forge.adapters.nats.approval_publisher import (
     ApprovalPublisher,
     _build_approval_details,
     _derive_risk_level,
+    build_recovery_approval_envelope,
 )
 from forge.gating.models import (
     DetectionFinding,
@@ -479,6 +480,118 @@ class TestPublishedEnvelopeContract:
         _subject, env = _decode_publish_call(nats_client.publish.call_args)
         # The whole envelope must JSON round-trip without TypeErrors.
         assert json.loads(json.dumps(env)) == env
+
+
+# ---------------------------------------------------------------------------
+# TASK-F8-004 / AC-5 — recovery envelope helper
+# ---------------------------------------------------------------------------
+
+
+def _make_paused_build_row(
+    *,
+    build_id: str = "build-FEAT-RECV-20260429120000",
+    feature_id: str = "FEAT-RECV",
+    request_id: str | None = "req-recover-001",
+) -> Any:
+    """Build a minimal PAUSED :class:`BuildRow` for recovery-helper tests."""
+    from forge.lifecycle.modes import BuildMode
+    from forge.lifecycle.persistence import BuildRow
+    from forge.lifecycle.state_machine import BuildState
+
+    return BuildRow(
+        build_id=build_id,
+        feature_id=feature_id,
+        repo="appmilla/forge",
+        branch="main",
+        feature_yaml_path=f"docs/features/{feature_id}.yaml",
+        project=None,
+        status=BuildState.PAUSED,
+        triggered_by="test",
+        correlation_id="corr-recover-0001",
+        queued_at=datetime(2026, 4, 29, 12, 0, 0, tzinfo=timezone.utc),
+        pending_approval_request_id=request_id,
+        mode=BuildMode.MODE_A,
+    )
+
+
+class TestBuildRecoveryApprovalEnvelope:
+    """TASK-F8-004 / AC-5 — recovery-flavoured envelope helper.
+
+    Verifies the public helper:
+
+    (a) sets ``recovery=True`` on the ``details`` dict,
+    (b) preserves the original ``request_id`` verbatim (sc_004), and
+    (c) emits the canonical eleven-key shape on ``details`` plus the
+        ``recovery`` marker (AC-008 single-source-of-truth).
+    """
+
+    def test_envelope_carries_recovery_true_on_details(self) -> None:
+        envelope = build_recovery_approval_envelope(_make_paused_build_row())
+        details = envelope.payload["details"]
+        assert details["recovery"] is True
+
+    def test_envelope_preserves_request_id_verbatim(self) -> None:
+        # sc_004: the responder correlates by ``request_id``; the recovery
+        # republish MUST carry the same value as
+        # ``builds.pending_approval_request_id`` rather than minting a new
+        # UUID.
+        build = _make_paused_build_row(request_id="req-recover-verbatim-XYZ")
+        envelope = build_recovery_approval_envelope(build)
+        assert envelope.payload["request_id"] == "req-recover-verbatim-XYZ"
+
+    def test_envelope_details_match_canonical_eleven_key_shape(self) -> None:
+        # AC-008: the eleven canonical keys are present, and the only
+        # additional key is the ``recovery`` marker (twelfth key).
+        envelope = build_recovery_approval_envelope(_make_paused_build_row())
+        details = envelope.payload["details"]
+        assert EXPECTED_KEYS.issubset(details.keys())
+        assert set(details.keys()) == EXPECTED_KEYS | {"recovery"}
+
+    def test_envelope_details_carry_build_and_feature_ids(self) -> None:
+        build = _make_paused_build_row(
+            build_id="build-FEAT-OTHER-99",
+            feature_id="FEAT-OTHER",
+        )
+        envelope = build_recovery_approval_envelope(build)
+        details = envelope.payload["details"]
+        assert details["build_id"] == "build-FEAT-OTHER-99"
+        assert details["feature_id"] == "FEAT-OTHER"
+
+    def test_envelope_uses_recovery_stage_label_and_mode(self) -> None:
+        # Stripped recovery card: stage_label="recovery",
+        # gate_mode="MANDATORY_HUMAN_APPROVAL", and the empty/null
+        # decision-derived defaults documented in the helper's docstring.
+        envelope = build_recovery_approval_envelope(_make_paused_build_row())
+        details = envelope.payload["details"]
+        assert details["stage_label"] == "recovery"
+        assert details["gate_mode"] == "MANDATORY_HUMAN_APPROVAL"
+        assert details["coach_score"] is None
+        assert details["criterion_breakdown"] == {}
+        assert details["detection_findings"] == []
+        assert details["evidence_priors"] == []
+        assert details["artefact_paths"] == []
+        assert details["resume_options"] == [
+            "approve",
+            "reject",
+            "defer",
+            "override",
+        ]
+
+    def test_envelope_payload_round_trips_through_json(self) -> None:
+        # Wire-shape sanity: the envelope must serialise without
+        # TypeErrors so :meth:`ApprovalPublisher.publish_request` can
+        # ``model_dump_json().encode("utf-8")`` it.
+        envelope = build_recovery_approval_envelope(_make_paused_build_row())
+        body = envelope.model_dump_json()
+        decoded = json.loads(body)
+        assert decoded["payload"]["details"]["recovery"] is True
+
+    def test_missing_request_id_raises_value_error(self) -> None:
+        # The lifecycle handler checks first, but the helper keeps the
+        # defensive guard so a future caller cannot bypass the contract.
+        build = _make_paused_build_row(request_id=None)
+        with pytest.raises(ValueError, match="pending_approval_request_id"):
+            build_recovery_approval_envelope(build)
 
 
 # ---------------------------------------------------------------------------
