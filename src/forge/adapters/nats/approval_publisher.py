@@ -43,6 +43,8 @@ from forge.gating.models import GateDecision, GateMode
 if TYPE_CHECKING:  # pragma: no cover — import-time only
     from nats_core.envelope import MessageEnvelope
 
+    from forge.lifecycle.persistence import BuildRow
+
 logger = logging.getLogger(__name__)
 
 #: Identity stamped onto every envelope this publisher emits. Mirrors
@@ -72,7 +74,25 @@ __all__ = [
     "RiskLevel",
     "_build_approval_details",
     "_derive_risk_level",
+    "build_recovery_approval_envelope",
 ]
+
+
+# Recovery-flavoured constants. Pulled out so unit tests assert against
+# the same source of truth the helper consults.
+_RECOVERY_STAGE_LABEL: str = "recovery"
+_RECOVERY_GATE_MODE: str = "MANDATORY_HUMAN_APPROVAL"
+_RECOVERY_RISK_LEVEL: RiskLevel = "medium"
+_RECOVERY_RATIONALE: str = (
+    "Boot-time recovery: re-issuing approval request after "
+    "agent-runtime restart. Original request_id preserved."
+)
+_RECOVERY_RESUME_OPTIONS: tuple[str, ...] = (
+    "approve",
+    "reject",
+    "defer",
+    "override",
+)
 
 
 # ---------------------------------------------------------------------------
@@ -228,6 +248,115 @@ def _derive_risk_level(decision: GateDecision) -> RiskLevel:
         "invoked for this mode."
     )
     raise ValueError(msg)
+
+
+# ---------------------------------------------------------------------------
+# Recovery-flavoured envelope helper (AC-008 single-ownership)
+# ---------------------------------------------------------------------------
+
+
+def _build_recovery_approval_details(build: BuildRow) -> dict[str, Any]:
+    """Build the recovery-flavoured ``details`` dict for a PAUSED build.
+
+    Matches the eleven canonical keys produced by
+    :func:`_build_approval_details` (per ``API-nats-approval-protocol §3.2``)
+    and adds a twelfth ``"recovery": True`` marker. Boot-time recovery
+    has no live :class:`forge.gating.models.GateDecision` — only the
+    durable :class:`BuildRow` survives a process restart — so the
+    decision-derived fields are emitted as their empty/null defaults.
+
+    AC-008: this is the only place outside :func:`_build_approval_details`
+    that constructs the canonical eleven-key shape; callers in
+    :mod:`forge.lifecycle.recovery` delegate here rather than open-code
+    the dict.
+
+    Args:
+        build: The PAUSED build whose approval request is being
+            re-issued. Only ``build_id`` and ``feature_id`` are read.
+
+    Returns:
+        A fresh JSON-serialisable ``dict[str, Any]`` carrying the eleven
+        canonical keys plus ``recovery: True``.
+    """
+    return {
+        "build_id": build.build_id,
+        "feature_id": build.feature_id,
+        "stage_label": _RECOVERY_STAGE_LABEL,
+        "gate_mode": _RECOVERY_GATE_MODE,
+        "coach_score": None,
+        "criterion_breakdown": {},
+        "detection_findings": [],
+        "rationale": _RECOVERY_RATIONALE,
+        "evidence_priors": [],
+        "artefact_paths": [],
+        "resume_options": list(_RECOVERY_RESUME_OPTIONS),
+        "recovery": True,
+    }
+
+
+def build_recovery_approval_envelope(build: BuildRow) -> MessageEnvelope:
+    """Build a recovery-flavoured approval envelope (sc_004 verbatim ``request_id``).
+
+    The recovery envelope re-issues the original
+    ``builds.pending_approval_request_id`` verbatim and carries a
+    stripped details dict with ``recovery=True``. The full details
+    shape is constructed by this module so AC-008 single-ownership of
+    the eleven-key dict is preserved.
+
+    The original :class:`forge.gating.models.GateDecision` is not
+    durable across process restarts, so the recovery payload carries
+    only what survives in SQLite plus the ``recovery`` marker.
+    Notification adapters that previously rendered a rich approval
+    card will see a stripped card on the re-issue; the responder,
+    however, only correlates by ``request_id`` and is unaffected.
+
+    Args:
+        build: The PAUSED build whose approval request is being
+            re-issued. ``build.pending_approval_request_id`` MUST be
+            non-empty — :func:`forge.lifecycle.recovery._handle_paused`
+            checks this before calling.
+
+    Returns:
+        :class:`nats_core.envelope.MessageEnvelope` ready to be passed
+        to :meth:`ApprovalPublisher.publish_request`.
+
+    Raises:
+        ValueError: If ``build.pending_approval_request_id`` is missing
+            — surfaces a corrupt PAUSED row rather than fabricating a
+            request_id.
+    """
+    # Late import — the lifecycle module re-exports this helper without
+    # eagerly importing ``nats_core.envelope`` / ``nats_core.events``,
+    # so a missing optional dependency surfaces with a clear traceback
+    # at call time rather than at module-import time.
+    from nats_core.envelope import EventType, MessageEnvelope
+    from nats_core.events import ApprovalRequestPayload
+
+    request_id = build.pending_approval_request_id
+    if not request_id:
+        msg = (
+            f"build_recovery_approval_envelope: build {build.build_id!r} "
+            "has no pending_approval_request_id; cannot re-issue"
+        )
+        raise ValueError(msg)
+
+    details = _build_recovery_approval_details(build)
+    payload = ApprovalRequestPayload(
+        request_id=request_id,
+        agent_id=AGENT_ID,
+        action_description=(
+            f"Recovery: re-issuing pause for build {build.build_id} "
+            f"(feature={build.feature_id})"
+        ),
+        risk_level=_RECOVERY_RISK_LEVEL,
+        details=details,
+    )
+
+    return MessageEnvelope(
+        source_id=AGENT_ID,
+        event_type=EventType.APPROVAL_REQUEST,
+        payload=payload.model_dump(mode="json"),
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -78,6 +78,21 @@ def feature_yaml(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def fix_task_yaml(tmp_path: Path) -> Path:
+    """Fix-task YAML carrying a ``parent_feature`` pointer (TASK-F8-002).
+
+    Mode C dispatches read this field to derive the parent ``feature_id``
+    that rides on the wire alongside the per-fix-task ``task_id``.
+    """
+    yaml_path = tmp_path / "fix-task.yaml"
+    yaml_path.write_text(
+        "name: example-fix\nparent_feature: FEAT-FIX007\n",
+        encoding="utf-8",
+    )
+    return yaml_path
+
+
+@pytest.fixture
 def config_path(tmp_path: Path, repo_dir: Path) -> Path:
     return _write_yaml(
         tmp_path / "forge.yaml",
@@ -184,11 +199,9 @@ class TestQueueModeFlag:
         [
             ("a", BuildMode.MODE_A),
             ("b", BuildMode.MODE_B),
-            ("c", BuildMode.MODE_C),
             # Case-insensitive — Click's case_sensitive=False on the choice.
             ("A", BuildMode.MODE_A),
             ("B", BuildMode.MODE_B),
-            ("C", BuildMode.MODE_C),
         ],
     )
     def test_explicit_mode_flag_maps_to_build_mode(
@@ -201,6 +214,9 @@ class TestQueueModeFlag:
         captured_publish: list[tuple[str, bytes]],  # noqa: ARG002
         fake_persistence: _FakePersistence,
     ) -> None:
+        # Mode C requires a TASK-XXX positional + parent_feature YAML
+        # (TASK-F8-002), so the c/C flag cases live in
+        # ``TestModeCSubject`` below rather than this parametrize.
         from forge.cli.main import main
 
         runner = CliRunner()
@@ -221,9 +237,12 @@ class TestQueueModeFlag:
         )
         assert result.exit_code == 0, result.output
         assert len(fake_persistence.records) == 1
-        _, persisted_mode = fake_persistence.records[0]
+        payload, persisted_mode = fake_persistence.records[0]
         assert persisted_mode is expected
         assert f"mode={expected.value}" in result.output
+        # TASK-F8-002 — Mode A/B publishers must NOT carry a task_id.
+        assert payload.task_id is None
+        assert payload.mode == expected.value
 
     def test_mode_flag_defaults_to_a_for_backwards_compatibility(
         self,
@@ -373,18 +392,26 @@ class TestModeBSingleFeature:
 
 
 class TestModeCSubject:
-    """``forge queue --mode c`` accepts a subject identifier."""
+    """``forge queue --mode c`` carries TASK-XXX + parent FEAT- on the wire.
 
-    def test_mode_c_accepts_subject_identifier_and_persists_it(
+    TASK-F8-002 / F008-VAL-002 — Mode C is the only build shape where
+    the fix-task is the dispatch target. The CLI now reads the parent
+    ``feature_id`` from the fix-task YAML's ``parent_feature`` field
+    rather than reusing the ``feature_id`` column, so the wire payload
+    carries both identifiers in their canonical slots.
+    """
+
+    @pytest.mark.parametrize("flag", ["c", "C"])
+    def test_mode_c_populates_task_id_and_parent_feature_on_payload(
         self,
+        flag: str,
         config_path: Path,
         repo_dir: Path,
-        feature_yaml: Path,
+        fix_task_yaml: Path,
         captured_publish: list[tuple[str, bytes]],  # noqa: ARG002
         fake_persistence: _FakePersistence,
     ) -> None:
-        """The Mode C subject is feature-id-shaped per the existing
-        schema (ASSUM-004 / TASK-MBC8-001 column reuse)."""
+        """Mode C: positional TASK-XXX + parent_feature: FEAT-XXX → both fields populated."""
         from forge.cli.main import main
 
         runner = CliRunner()
@@ -394,20 +421,127 @@ class TestModeCSubject:
                 "--config",
                 str(config_path),
                 "queue",
-                "FEAT-FIX007",
+                "TASK-FIX007",
                 "--repo",
                 str(repo_dir),
                 "--feature-yaml",
-                str(feature_yaml),
+                str(fix_task_yaml),
                 "--mode",
-                "c",
+                flag,
             ],
         )
         assert result.exit_code == 0, result.output
         payload, persisted_mode = fake_persistence.records[0]
         assert persisted_mode is BuildMode.MODE_C
-        # Subject id round-tripped through the feature-id column.
+        # Parent feature_id resolved from the fix-task YAML.
         assert payload.feature_id == "FEAT-FIX007"
+        # task_id round-trips the positional argument.
+        assert payload.task_id == "TASK-FIX007"
+        # mode is now a first-class wire field.
+        assert payload.mode == "mode-c"
+
+    def test_mode_c_rejects_non_task_positional_at_cli_boundary(
+        self,
+        config_path: Path,
+        repo_dir: Path,
+        fix_task_yaml: Path,
+        captured_publish: list[tuple[str, bytes]],
+        fake_persistence: _FakePersistence,
+    ) -> None:
+        """Mode C with a FEAT-shaped positional fails before any side effect."""
+        from forge.cli.main import main
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "queue",
+                "FEAT-FIX007",  # wrong shape for Mode C
+                "--repo",
+                str(repo_dir),
+                "--feature-yaml",
+                str(fix_task_yaml),
+                "--mode",
+                "c",
+            ],
+        )
+        assert result.exit_code == cli_queue.EXIT_INVALID_IDENTIFIER
+        assert "Mode C requires positional argument to match" in result.output
+        # No persistence or publish side effects.
+        assert fake_persistence.calls == []
+        assert captured_publish == []
+
+    def test_mode_c_requires_parent_feature_in_fix_task_yaml(
+        self,
+        config_path: Path,
+        repo_dir: Path,
+        feature_yaml: Path,  # the bare YAML without parent_feature
+        captured_publish: list[tuple[str, bytes]],
+        fake_persistence: _FakePersistence,
+    ) -> None:
+        """Missing ``parent_feature`` field surfaces a UsageError."""
+        from forge.cli.main import main
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "queue",
+                "TASK-FIX007",
+                "--repo",
+                str(repo_dir),
+                "--feature-yaml",
+                str(feature_yaml),  # has no parent_feature key
+                "--mode",
+                "c",
+            ],
+        )
+        assert result.exit_code != 0
+        # Click's UsageError surfaces the canonical message.
+        assert "parent_feature" in result.output
+        # No persistence or publish side effects.
+        assert fake_persistence.calls == []
+        assert captured_publish == []
+
+    def test_mode_c_rejects_non_feat_parent_in_fix_task_yaml(
+        self,
+        config_path: Path,
+        repo_dir: Path,
+        tmp_path: Path,
+        captured_publish: list[tuple[str, bytes]],
+        fake_persistence: _FakePersistence,
+    ) -> None:
+        """parent_feature with traversal characters fails the security pipeline."""
+        bad_yaml = tmp_path / "bad-fix-task.yaml"
+        bad_yaml.write_text(
+            "parent_feature: ../etc/passwd\n", encoding="utf-8"
+        )
+        from forge.cli.main import main
+
+        runner = CliRunner()
+        result = runner.invoke(
+            main,
+            [
+                "--config",
+                str(config_path),
+                "queue",
+                "TASK-FIX007",
+                "--repo",
+                str(repo_dir),
+                "--feature-yaml",
+                str(bad_yaml),
+                "--mode",
+                "c",
+            ],
+        )
+        assert result.exit_code == cli_queue.EXIT_INVALID_IDENTIFIER
+        assert "Invalid parent_feature" in result.output
+        assert fake_persistence.calls == []
+        assert captured_publish == []
 
 
 # ---------------------------------------------------------------------------

@@ -123,7 +123,15 @@ def test_apply_at_boot_is_idempotent(tmp_path: Path) -> None:
         rows = cx.execute(
             "SELECT version FROM schema_version ORDER BY version;"
         ).fetchall()
-        assert rows == [(1,)], "second apply must not duplicate the seed row"
+        # Expected: one row per applied migration, no duplicates. Parameterised
+        # on ``_SCHEMA_VERSION`` so future schema bumps (adding ``(N,
+        # "schema_vN.sql")`` to ``_MIGRATIONS``) do not require editing this
+        # assertion — see TASK-F8-005.
+        expected = [(v,) for v in range(1, migrations._SCHEMA_VERSION + 1)]
+        assert rows == expected, (
+            f"second apply must not duplicate seed rows; "
+            f"expected {expected}, got {rows}"
+        )
     finally:
         cx.close()
 

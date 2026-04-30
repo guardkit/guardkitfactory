@@ -622,6 +622,17 @@ class Supervisor:
                 StageClass.SYSTEM_DESIGN,
                 StageClass.FEATURE_SPEC,
                 StageClass.FEATURE_PLAN,
+                # FEAT-FORGE-008 + F008-VAL-003 / TASK-F8-003: Mode C
+                # extensions. Multi-feature ``next_turn`` already routes
+                # both via ``subprocess_dispatcher`` (supervisor.py
+                # 1296-1331); membership here makes the per-turn
+                # ``_dispatch`` router agree. ``PER_FEATURE_STAGES``
+                # excludes these two, so the missing-feature_id check at
+                # line 1501 won't misfire — fix-task identity for
+                # ``TASK_WORK`` is enforced upstream by
+                # ``ModeCCyclePlanner`` (TASK-MBC8-004).
+                StageClass.TASK_REVIEW,
+                StageClass.TASK_WORK,
             }
         ),
         init=False,
