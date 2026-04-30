@@ -383,36 +383,87 @@ echo "Exit code: $?"
 
 **Pass:** Non-zero exit code. Stderr explains "Mode B accepts exactly one feature identifier" or similar. **If it succeeds, ASSUM-006 is not enforced at the CLI layer** — file a follow-up against TASK-MBC8-009.
 
-### 2.5 Mode C queue smoke (NEW — FEAT-FORGE-008)
+### 2.5 Mode C queue smoke (NEW — FEAT-FORGE-008, post-TASK-F8-002)
 
-> **Pending TASK-F8-002 / AC-11:** today the wire payload's `feature_id`
-> regex is `^FEAT-[A-Z0-9]{3,12}$`, so Mode C must be queued with a
-> `FEAT-*` identifier even though FEAT-FORGE-008 ASSUM-004 says Mode C
-> operates on `TASK-*` IDs. TASK-F8-002 lands a sibling `task_id` field
-> on the payload; once it merges, the canonical Mode C invocation
-> becomes:
->
-> ```bash
-> # Post-TASK-F8-002 (do not run yet — the schema does not accept this):
-> forge queue TASK-TESTMC --repo guardkit/test-project --branch main --mode c \
->     --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
->     --config "$FORGE_HOME/forge.yaml"
-> # → publishes feature_id=<parent FEAT-> AND task_id=TASK-TESTMC
-> ```
->
-> Re-run TASK-F8-006 (this gap-fold) once TASK-F8-002 lands to swap the
-> example below for the post-F8-002 form.
+> **TASK-F8-002 landed (nats-core 0.3.0 + forge wire wiring, 2026-04-30).**
+> The wire payload now carries both a strict `feature_id`
+> (`^FEAT-[A-Z0-9]{3,12}$`) **and** a sibling `task_id`
+> (`^TASK-[A-Z0-9]{3,12}$`) plus a first-class `mode` field. Mode C
+> dispatches now follow ASSUM-004 cleanly: the positional argument is
+> the per-fix-task `TASK-*` identifier and the parent `FEAT-*` is read
+> from the fix-task YAML's `parent_feature` field. A
+> `model_validator(mode="after")` in
+> `nats_core.events._pipeline.BuildQueuedPayload` enforces the
+> bidirectional invariant `mode == "mode-c"  <=>  task_id is not None`,
+> so Mode A/B publishers continue to validate without changes.
+
+**Setup — write a Mode C fix-task YAML** (the file at `--feature-yaml`
+must declare a non-empty `parent_feature` field for Mode C; missing or
+malformed values exit `4` before any persistence side effect):
 
 ```bash
-echo "=== Phase 2.5: Mode C queue (pre-TASK-F8-002 form) ==="
-forge queue FEAT-TESTMC --repo guardkit/test-project --branch main --mode c \
-    --feature-yaml "$FORGE_HOME/feature-stub.yaml" \
+cat > "$FORGE_HOME/fix-task-stub.yaml" <<'YAML'
+name: example-fix
+parent_feature: FEAT-TESTMC
+YAML
+```
+
+**Run — canonical Mode C invocation:**
+
+```bash
+echo "=== Phase 2.5: Mode C queue (post-TASK-F8-002 canonical form) ==="
+forge queue TASK-TESTMC --repo guardkit/test-project --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/fix-task-stub.yaml" \
     --config "$FORGE_HOME/forge.yaml"
 forge status --db-path "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 forge history --feature FEAT-TESTMC --db "$FORGE_DB_PATH" --config "$FORGE_HOME/forge.yaml"
 ```
 
-**Pass:** `status` shows `mode=mode-c` for FEAT-TESTMC.
+The published `BuildQueuedPayload` carries:
+- `feature_id = "FEAT-TESTMC"` (resolved from `parent_feature` in the YAML)
+- `task_id    = "TASK-TESTMC"` (the CLI positional)
+- `mode       = "mode-c"`
+
+**Pass:**
+- `forge queue` exits `0` and prints `Queued FEAT-TESTMC (build pending) mode=mode-c …`.
+- `forge status` shows `mode=mode-c` for FEAT-TESTMC.
+
+**Negative-path checks** (each must exit non-zero **before** any
+persistence or publish side effect):
+
+```bash
+# 1. FEAT-shaped positional rejected at the CLI boundary (exit 4).
+forge queue FEAT-TESTMC --repo guardkit/test-project --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/fix-task-stub.yaml" \
+    --config "$FORGE_HOME/forge.yaml" 2>&1 | head -3
+# Expected: "Mode C requires positional argument to match ^TASK-[A-Z0-9]{3,12}$"
+
+# 2. Missing parent_feature in the fix-task YAML (Click UsageError).
+cat > "$FORGE_HOME/no-parent.yaml" <<'YAML'
+name: example-fix
+YAML
+forge queue TASK-TESTMC --repo guardkit/test-project --branch main --mode c \
+    --feature-yaml "$FORGE_HOME/no-parent.yaml" \
+    --config "$FORGE_HOME/forge.yaml" 2>&1 | head -3
+# Expected: "Mode C requires the fix-task YAML to declare a non-empty 'parent_feature' field"
+```
+
+**Pass (negative paths):** Both invocations exit non-zero with no
+SQLite write or NATS publish recorded. Coverage for these refusals
+lives in `tests/forge/test_cli_mode_flag.py::TestModeCSubject`.
+
+> **AC-10 wire-layer smoke** — `tests/integration/test_mode_c_wire_smoke_e2e.py`
+> exercises the same payload shape end-to-end against a live NATS
+> broker. It is skipped by default; opt in with:
+>
+> ```bash
+> FORGE_NATS_URL=nats://127.0.0.1:4222 \
+>     pytest tests/integration/test_mode_c_wire_smoke_e2e.py -v
+> ```
+>
+> Last run against `nats:2.10` jetstream-enabled container: PASSED
+> (round-trip on `pipeline.build-queued.FEAT-<rand>` with both
+> identifier fields intact).
 
 ### 2.6 Mode-filtered history view
 

@@ -59,6 +59,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import sys
 import uuid
 from datetime import UTC, datetime
@@ -375,6 +376,73 @@ def _path_to_repo_slug(repo: Path) -> str:
     return f"{org}/{name}"
 
 
+#: Regex that gates the Mode C positional argument at the CLI boundary
+#: (TASK-F8-002 / F008-VAL-002). Mirrors the canonical
+#: ``TASK_ID_PATTERN`` in :mod:`nats_core.events._pipeline` so an
+#: operator-supplied task_id is refused at the boundary rather than at
+#: the Pydantic wire-validation layer one stack frame deeper.
+_TASK_ID_REGEX: re.Pattern[str] = re.compile(r"^TASK-[A-Z0-9]{3,12}$")
+
+
+def _load_parent_feature_from_fix_task_yaml(yaml_path: Path) -> str:
+    """Read the ``parent_feature`` field from a fix-task YAML.
+
+    Mode C dispatches carry a per-fix-task identifier on the wire
+    alongside the parent feature_id. The fix-task YAML at
+    ``--feature-yaml`` is the canonical source for the parent feature
+    reference — the same artefact a developer reads when running
+    ``/task-work TASK-XXX`` — so resolving it here keeps Mode C from
+    having to thread a duplicate ``--parent-feature`` flag.
+
+    Args:
+        yaml_path: Path to the fix-task YAML supplied via
+            ``--feature-yaml``. The CLI has already verified the file
+            exists via Click's ``type=click.Path(exists=True)``.
+
+    Returns:
+        The raw ``parent_feature`` string (the caller is responsible
+        for running it through :func:`validate_feature_id` and the
+        wire-layer regex).
+
+    Raises:
+        click.UsageError: When the YAML is malformed, the top-level
+            value is not a mapping, or ``parent_feature`` is missing
+            or not a string.
+    """
+    # ``yaml`` is imported lazily — the queue CLI's import surface is
+    # otherwise stdlib + click + nats-core, and YAML parsing only runs
+    # on the Mode C branch.
+    import yaml
+
+    try:
+        text = Path(yaml_path).read_text(encoding="utf-8")
+    except OSError as exc:
+        raise click.UsageError(
+            f"Cannot read fix-task YAML {str(yaml_path)!r}: {exc}"
+        ) from exc
+
+    try:
+        data = yaml.safe_load(text) or {}
+    except yaml.YAMLError as exc:
+        raise click.UsageError(
+            f"Fix-task YAML {str(yaml_path)!r} is malformed: {exc}"
+        ) from exc
+
+    if not isinstance(data, dict):
+        raise click.UsageError(
+            f"Fix-task YAML {str(yaml_path)!r} must be a YAML mapping "
+            "at the top level"
+        )
+
+    parent = data.get("parent_feature")
+    if not isinstance(parent, str) or not parent.strip():
+        raise click.UsageError(
+            "Mode C requires the fix-task YAML to declare a non-empty "
+            f"'parent_feature' field (string); got {parent!r} in {yaml_path}"
+        )
+    return parent
+
+
 def _envelope_bytes(payload: Any, correlation_id: str) -> bytes:
     """Wrap ``payload`` in :class:`MessageEnvelope` and serialise to bytes.
 
@@ -549,19 +617,59 @@ def queue_cmd(
             f"forge queue accepts exactly one feature/subject identifier; "
             f"got {len(feature_ids)}: {list(feature_ids)!r}"
         )
-    feature_id = feature_ids[0]
+    positional_id = feature_ids[0]
 
     config = _require_forge_config(config_obj)
 
-    # 1. Validate feature_id BEFORE any side effect (AC-003 / sc_003).
-    try:
-        feature_id = validate_feature_id(feature_id)
-    except InvalidIdentifierError as exc:
-        click.echo(
-            f"Invalid feature_id ({exc.reason}): {exc.value!r}",
-            err=True,
-        )
-        sys.exit(EXIT_INVALID_IDENTIFIER)
+    # 1. Resolve ``feature_id`` and (Mode C only) ``task_id`` BEFORE any
+    #    side effect (AC-003 / sc_003). Mode A/B reuse the existing
+    #    discipline; Mode C interprets the positional as a TASK-XXX
+    #    dispatch target and resolves the parent feature_id from the
+    #    fix-task YAML's ``parent_feature`` field (TASK-F8-002 AC-8 / 9).
+    task_id: str | None
+    if build_mode is BuildMode.MODE_C:
+        # 1a. Mode C positional must be TASK-XXX. The wire layer will
+        # also enforce this regex, but refusing at the CLI boundary
+        # gives a clearer error before any persistence/publish work.
+        if not _TASK_ID_REGEX.match(positional_id):
+            click.echo(
+                "Mode C requires positional argument to match "
+                f"{_TASK_ID_REGEX.pattern}; got {positional_id!r}",
+                err=True,
+            )
+            sys.exit(EXIT_INVALID_IDENTIFIER)
+        task_id = positional_id
+        # 1b. Parent feature_id comes from the fix-task YAML.
+        try:
+            raw_parent = _load_parent_feature_from_fix_task_yaml(
+                Path(feature_yaml)
+            )
+        except click.UsageError:
+            # Click handles UsageError formatting + exit code on its own
+            # — re-raise so the operator sees the canonical message
+            # rather than a swallow-and-re-format here.
+            raise
+        try:
+            feature_id = validate_feature_id(raw_parent)
+        except InvalidIdentifierError as exc:
+            click.echo(
+                f"Invalid parent_feature in fix-task YAML ({exc.reason}): "
+                f"{exc.value!r}",
+                err=True,
+            )
+            sys.exit(EXIT_INVALID_IDENTIFIER)
+    else:
+        # Mode A / Mode B: positional is the feature_id (existing
+        # contract); no per-fix-task identifier rides on the wire.
+        task_id = None
+        try:
+            feature_id = validate_feature_id(positional_id)
+        except InvalidIdentifierError as exc:
+            click.echo(
+                f"Invalid feature_id ({exc.reason}): {exc.value!r}",
+                err=True,
+            )
+            sys.exit(EXIT_INVALID_IDENTIFIER)
 
     # 2. Allowlist check (AC-004 / Group C "path-allowlist refused").
     repo_path = Path(repo)
@@ -602,6 +710,12 @@ def queue_cmd(
         correlation_id=effective_correlation_id,
         requested_at=now,
         queued_at=now,
+        # TASK-F8-002 / F008-VAL-002 — mode is now a first-class wire
+        # field; ``task_id`` is non-None iff ``mode == "mode-c"`` (the
+        # nats-core ``_task_id_required_iff_mode_c`` model_validator
+        # enforces the bidirectional invariant).
+        mode=build_mode.value,
+        task_id=task_id,
     )
 
     # 5. Construct the persistence facade (production: SQLite; tests:

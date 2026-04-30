@@ -14,7 +14,7 @@ dependencies = [
     "langgraph>=1.1,<2",
     "langchain-community>=0.4,<0.5",
     "langchain-anthropic>=1.4,<2",
-    "nats-core>=0.2.0,<0.3",
+    "nats-core>=0.3.0,<0.4",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
 ]
