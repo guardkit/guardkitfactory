@@ -14,6 +14,7 @@ parent_review: TASK-REV-F09A
 parent_task: TASK-FIX-F09A1
 implementation_mode: cross-repo  # work happens in appmilla_github/guardkit, not forge
 target_repo: appmilla_github/guardkit
+target_task_url: TBD  # fill in once mirrored: e.g. ~/Projects/appmilla_github/guardkit/tasks/backlog/TASK-XXX-...md OR https://github.com/appmilla/guardkit/pull/NNN
 related_tasks:
   - TASK-REV-F09A   # decision review that produced this task
   - TASK-FIX-F09A1  # forge-side ship-now fix that this task makes obsolete

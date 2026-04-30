@@ -8078,7 +8078,105 @@ GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-009 --verbose
 
 
 
+Manifest: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-009/pyproject.toml
+Manifest requires-python: >=3.11
+Detected PEP 668 externally-managed-environment failure.
+Install stderr (tail):
+ERROR: Ignored the following versions that require a different python version: 0.1.0 Requires-Python >=3.13; 0.2.0 Requires-Python >=3.13
+ERROR: Could not find a version that satisfies the requirement nats-core<0.4,>=0.3.0 (from forge) (from versions: 0.0.0)
+ERROR: No matching distribution found for nats-core<0.4,>=0.3.0
+Hint: set `bootstrap_failure_mode: warn` in .guardkit/config.yaml (or pass `--bootstrap-failure-mode warn`) to downgrade this to a non-blocking warning.
+Orchestration error: Failed to orchestrate feature FEAT-FORGE-009: Bootstrap hard-fail: 0/1 install(s) 
+succeeded for essential stack(s): python.
+Manifest: 
+/home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-009/pyproject.toml
+Manifest requires-python: >=3.11
+Detected PEP 668 externally-managed-environment failure.
+Install stderr (tail):
+ERROR: Ignored the following versions that require a different python version: 0.1.0 Requires-Python >=3.13; 
+0.2.0 Requires-Python >=3.13
+ERROR: Could not find a version that satisfies the requirement nats-core<0.4,>=0.3.0 (from forge) (from 
+versions: 0.0.0)
+ERROR: No matching distribution found for nats-core<0.4,>=0.3.0
+Hint: set `bootstrap_failure_mode: warn` in .guardkit/config.yaml (or pass `--bootstrap-failure-mode warn`) to
+downgrade this to a non-blocking warning.
+ERROR:guardkit.cli.autobuild:Feature orchestration error: Failed to orchestrate feature FEAT-FORGE-009: Bootstrap hard-fail: 0/1 install(s) succeeded for essential stack(s): python.
+Manifest: /home/richardwoollcott/Projects/appmilla_github/forge/.guardkit/worktrees/FEAT-FORGE-009/pyproject.toml
+Manifest requires-python: >=3.11
+Detected PEP 668 externally-managed-environment failure.
+Install stderr (tail):
+ERROR: Ignored the following versions that require a different python version: 0.1.0 Requires-Python >=3.13; 0.2.0 Requires-Python >=3.13
+ERROR: Could not find a version that satisfies the requirement nats-core<0.4,>=0.3.0 (from forge) (from versions: 0.0.0)
+ERROR: No matching distribution found for nats-core<0.4,>=0.3.0
+Hint: set `bootstrap_failure_mode: warn` in .guardkit/config.yaml (or pass `--bootstrap-failure-mode warn`) to downgrade this to a non-blocking warning.
 
+
+/task-create please create a review task to analyse ,diagnose and fix the failing autoubuild in /home/richardwoollcott/Projects/appmilla_github/forge/docs/history/autobuild-FEAT-FORGE-009-failure-run-1-history.md
+
+Task Created: TASK-REV-F09A
+
+File: tasks/backlog/TASK-REV-F09A-diagnose-feat-forge-009-autobuild-bootstrap-failure.md
+
+Type: review · Priority: high · Complexity: 6 · Feature: FEAT-FORGE-009
+
+Initial root-cause hypothesis recorded in the task (to be confirmed by /task-review):
+
+pyproject.toml:17 requires nats-core>=0.3.0,<0.4, but no satisfying release exists on PyPI under requires-python>=3.11.
+The repo works around this via [tool.uv.sources] nats-core = { path = "../nats-core" } — a uv-only directive.
+GuardKit's environment_bootstrap shells out to pip, which silently ignores [tool.uv.sources] and falls back to PyPI → hard-fail.
+Six candidate fixes enumerated (A–F), spanning the forge / guardkit / nats-core repos, with effort/risk scoring stubs for the reviewer to fill in. Cross-references to TASK-FIX-F0E6 and TASK-FIX-F0E6b (the existing wheel-republish follow-up) are wired in so the review doesn't duplicate that scope.
+
+Next steps:
+
+Run /task-review TASK-REV-F09A --mode=decision to execute the analysis.
+At the checkpoint: [A]ccept findings → [I]mplement the chosen fix as a new /task-work task.
+Re-run guardkit autobuild feature FEAT-FORGE-009 --verbose --fresh to verify Phase 1 (Setup) clears.
+Stopping here — awaiting your /task-review TASK-REV-F09A.
+
+
+/task-review TASK-REV-F09A --mode=decision
+
+
+Review complete. Report written to .claude/reviews/TASK-REV-F09A-review-report.md. Summary:
+
+Root cause (confirmed empirically): GuardKit's environment_bootstrap is hardcoded to pip install -e . at environment_bootstrap.py:546,557. pip ignores [tool.uv.sources] in pyproject.toml:89-90, and PyPI has no nats-core wheel satisfying >=0.3.0,<0.4 on Python 3.11/3.12. uv is not installed on this host.
+
+Reproduction (in .guardkit/worktrees/FEAT-FORGE-009/.guardkit/venv/):
+
+A: pip install -e . → fails identically to Run 1.
+B: pip install -e ~/Projects/appmilla_github/nats-core (seed sibling first), then pip install -e . → succeeds, no uv needed.
+C: forge --help then surfaces a second, latent bug — click and rich are imported by forge/cli/* but undeclared in pyproject.toml. Would break the FEAT-FORGE-009 smoke gate even after bootstrap is fixed.
+Recommended layered fix:
+
+Layer 1 (ship today, forge-only): add .guardkit/preflight.sh that pre-installs nats-core from sibling source via plain pip; add click/rich to [project].dependencies; runbook entry naming the operator pre-step.
+Layer 2 (durable, cross-repo): file a guardkit task — detect [tool.uv.sources] and prefer uv pip install -e . when uv is on PATH.
+Layer 3 (long-term): ride existing TASK-FIX-F0E6b to delete [tool.uv.sources] once nats-core publishes a working wheel.
+Rejected with cause: option C (bootstrap_failure_mode: warn) would leave forge not installed in the worktree and immediately break the FEAT-FORGE-009 smoke gate (forge serve --help) — turns Phase-1 fail into a Phase-3 cascade. Also rejected: E (git+ssh ref kills sibling-iteration), F (private index — too heavy), H (vendored wheel — drift).
+
+Task moved to review_complete with review_results populated.
+
+Decision Checkpoint
+
+[A]ccept — archive review as the canonical decision record.
+[R]evise — drill deeper on a specific area (e.g., test installing uv and verifying option A end-to-end; investigate guardkit hook extensibility; produce a draft preflight.sh).
+[I]mplement — create the Layer 1 forge task (TASK-FIX-F09A1) plus a cross-repo Layer 2 task description for guardkit, then optionally execute Layer 1 to unblock Run 2.
+[C]ancel — discard.
+Which would you like? (A / R / I / C)
+
+TASK-REV-F09A-review-report.md
+I
+
+Two task files created and the review's implementation_tasks linkage recorded.
+
+Created:
+
+tasks/backlog/TASK-FIX-F09A1-add-preflight-and-cli-deps.md — Layer 1 (forge-side, ship-now, priority high, ~75 min). Covers .guardkit/preflight.sh, click/rich dep additions, runbook update, and Run 2 verification.
+tasks/backlog/TASK-FIX-F09A2-guardkit-uv-sources-detection.md — Layer 2 (cross-repo guardkit handoff, priority medium, ~180 min). Mirrors the TASK-FIX-F0E6b pattern: filed in forge for traceability, work happens in appmilla_github/guardkit/. Includes a 5-row behaviour matrix as the acceptance contract.
+Layer 3 (TASK-FIX-F0E6b) was already tracked — not duplicated.
+
+Provenance captured on both new tasks: parent_review: TASK-REV-F09A, feature_id: FEAT-FORGE-009 (Layer 1), and a parent_task: TASK-FIX-F09A1 link on Layer 2. Review task transitioned to review_complete with implementation_tasks listing all three layers.
+
+Recommended next step: /task-work TASK-FIX-F09A1 to ship Layer 1 and unblock FEAT-FORGE-009 Run 2.
 
 
 
