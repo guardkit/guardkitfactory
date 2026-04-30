@@ -54,7 +54,7 @@ from forge.pipeline.constitutional_guard import (
 )
 from forge.pipeline.per_feature_sequencer import PerFeatureLoopSequencer
 from forge.pipeline.stage_ordering_guard import StageOrderingGuard
-from forge.pipeline.stage_taxonomy import StageClass
+from forge.pipeline.stage_taxonomy import PER_FEATURE_STAGES, StageClass
 from forge.pipeline.supervisor import (
     BuildState,
     DispatchChoice,
@@ -816,6 +816,32 @@ class TestDispatchRouting:
         report = await supervisor.next_turn(bid)
         assert report.outcome is TurnOutcome.DISPATCHED
         assert len(pr_review_gate.submissions) == 1
+
+    @pytest.mark.asyncio
+    async def test_dispatch_covers_every_stage_class(
+        self,
+        supervisor: Supervisor,
+    ) -> None:
+        # Catches future enum extensions that forget a routing branch and
+        # would otherwise hit the loud-fail ``TypeError`` at
+        # ``supervisor.py:1555``. This is the regression net for
+        # FEAT-FORGE-008 + F008-VAL-003 (TASK_REVIEW / TASK_WORK).
+        for stage in StageClass:
+            feature_id = "FEAT-META" if stage in PER_FEATURE_STAGES else None
+            choice = DispatchChoice(
+                stage=stage,
+                feature_id=feature_id,
+                rationale="meta-test routing coverage",
+            )
+            try:
+                await supervisor._dispatch(build_id="build-meta", choice=choice)
+            except TypeError as exc:
+                if "no routing for stage" in str(exc):
+                    pytest.fail(
+                        f"StageClass.{stage.name} has no routing branch in "
+                        f"Supervisor._dispatch — every enum member needs one"
+                    )
+                raise
 
 
 # ---------------------------------------------------------------------------
