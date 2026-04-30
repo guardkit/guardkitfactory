@@ -671,14 +671,20 @@ curl -s http://localhost:5000/health
 
 Per build plan §"Specialist-agent LES1 Parity Gates" — these are the gates that proved necessary on the specialist-agent build (TASK-MDF-CMDW / PORT / ARFS). Do not skip. Each must be green on the production image, not on a dev build.
 
-> **🚧 Gated on F008-VAL-007b (gap-fold 2026-04-30 / AC-12).** Phase 6 is
+> **🚧 Gated on FEAT-FORGE-009 (production image).** Phase 6 is
 > **structurally unreachable today** — the runbook calls
 > `docker build -t forge:production-validation -f Dockerfile .` in §6.1
 > but no `Dockerfile` ships in this repo. Phase 6 belongs in the runbook
 > (the LES1 parity contract is canonical and unchanged), but **do not
-> attempt to execute these blocks** until **F008-VAL-007b** (forge
-> production `Dockerfile`, scoped under TASK-F8-007b) lands. Tracking
-> issue: `tasks/backlog/feat-f8-validation-fixes/TASK-F8-007b-forge-production-dockerfile-spec.md`.
+> attempt to execute these blocks** until **FEAT-FORGE-009** (forge
+> production `Dockerfile` + `forge serve` daemon) lands.
+>
+> - Scoping doc (gate-by-gate requirements, base-image baseline, multi-
+>   stage layout, open questions): [`docs/scoping/F8-007b-forge-production-dockerfile.md`](../scoping/F8-007b-forge-production-dockerfile.md).
+> - Originating task: TASK-F8-007b (closed once the scoping doc + this
+>   runbook reference + a backlog handoff for `FEAT-FORGE-009-production-image`
+>   exist; the Dockerfile build itself is FEAT-FORGE-009's delivery).
+> - Backlog pointer: `tasks/backlog/FEAT-FORGE-009-production-image.md`.
 >
 > Earlier drafts of this runbook implied Phase 6 could run today; that
 > claim was incorrect.
