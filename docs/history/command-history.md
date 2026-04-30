@@ -8019,4 +8019,76 @@ The TASK-REV-F008 / FEAT-F8 cycle is now durable end-to-end: review → fan-out 
 
 
 
+
+/feature-plan "FEAT-FORGE-009 Forge Production Image — multi-stage \
+  Dockerfile + forge serve daemon to unblock LES1 parity gates" \
+  --context features/forge-production-image/forge-production-image_summary.md \
+  --context features/forge-production-image/forge-production-image_assumptions.yaml \
+  --context docs/scoping/F8-007b-forge-production-dockerfile.md \
+  --context docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md \
+  --context docs/architecture/decisions/ADR-ARCH-032-langchain-1x-portfolio-alignment.md \
+  --context tasks/backlog/FEAT-FORGE-009-production-image.md
+
+
+
+
+FEATURE PLANNING COMPLETE: FEAT-FORGE-009
+
+📁 Feature folder:    tasks/backlog/forge-production-image/
+📄 Implementation:    tasks/backlog/forge-production-image/IMPLEMENTATION-GUIDE.md
+📋 Structured YAML:   .guardkit/features/FEAT-FORGE-009.yaml
+🔗 Review task:       tasks/backlog/TASK-REV-F009-plan-feat-forge-009-production-image.md
+🥒 BDD spec:          features/forge-production-image/forge-production-image.feature (27 scenarios, all @task-tagged)
+8 tasks across 4 waves
+Wave	Tasks (parallel)	Total
+W1 Foundation	T1 (skeleton, c=3) ‖ T2 (Dockerfile skeleton, c=4)	2
+W2 Feature	T3 (daemon, c=7) ‖ T4 (/healthz, c=5) ‖ T5 (install + BuildKit, c=7)	3
+W3 Gates	T6 (BDD + tests, c=6) ‖ T7 (CI workflow, c=5)	2
+W4 Governance	T8 (runbook fold, c=3, sequential)	1
+BDD scenario distribution (27 → 8 tasks, all above 0.6 threshold)
+Task	Scenarios
+TASK-F009-003 (daemon)	9 — A3, B1, B2, C5, D2, D3, E1.2, E2.1, E3.1
+TASK-F009-005 (install + BuildKit)	5 — A1, B3, C3, C4, E1.3
+TASK-F009-007 (CI workflow)	4 — B4, C1, D5, E3.2
+TASK-F009-006 (BDD bindings + tests)	3 — A4, D1, D4
+TASK-F009-002 (Dockerfile skeleton)	2 — C2, E1.1
+TASK-F009-001 (forge serve skeleton)	2 — A2, B2
+TASK-F009-004 (/healthz)	1 — B5
+TASK-F009-008 (runbook fold)	1 — A5
+§4 Integration Contracts (3)
+Contract A BUILDKIT_INVOCATION — producer T5; consumers T6, T7, T8
+Contract B HEALTHZ_PORT = 8080 — producer T1; consumers T4, T5, T6
+Contract C JETSTREAM_DURABLE_NAME = "forge-serve" — producer T1; consumers T3, T6
+Smoke gates configured (after Wave 2 + Wave 3)
+The YAML includes a smoke_gates block that fires Python-side smoke after Wave 2 (forge serve --help, contract constants importable) and the full @smoke pytest selection after Wave 3 (image build path).
+
+Estimated effort: 2–3 sessions (~12 h)
+Run AutoBuild
+
+/feature-build FEAT-FORGE-009
+Or work tasks individually starting with Wave 1:
+
+
+/task-work TASK-F009-001    # forge serve skeleton
+/task-work TASK-F009-002    # Dockerfile skeleton
+Want me to /schedule an agent in ~3 days to check whether Wave 1 has merged and nudge you toward Wave 2 if it has?
+
+
+GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-FORGE-009 --verbose
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-CBDE --verbose --max-turns 30
