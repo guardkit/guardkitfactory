@@ -1,0 +1,119 @@
+id: FEAT-FORGE-009
+name: Forge Production Image
+description: Multi-stage Dockerfile + forge serve daemon to unblock LES1 parity gates
+  (CMDW, PORT, ARFS, canonical-freeze) currently blocking Phase 6 of RUNBOOK-FEAT-FORGE-008-validation.md
+created: '2026-04-30T19:29:18.632969'
+status: planned
+complexity: 7
+estimated_tasks: 8
+tasks:
+- id: TASK-F009-001
+  name: Add forge serve skeleton, ServeConfig, and shared SubscriptionState
+  file_path: tasks/backlog/forge-production-image/TASK-F009-001-add-forge-serve-skeleton.md
+  complexity: 3
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+- id: TASK-F009-002
+  name: Add multi-stage Dockerfile skeleton with digest-pinned base and non-root user
+  file_path: tasks/backlog/forge-production-image/TASK-F009-002-add-dockerfile-skeleton.md
+  complexity: 4
+  dependencies: []
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 50
+- id: TASK-F009-003
+  name: Implement forge serve daemon body with JetStream durable consumer
+  file_path: tasks/backlog/forge-production-image/TASK-F009-003-implement-forge-serve-daemon.md
+  complexity: 7
+  dependencies:
+  - TASK-F009-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+- id: TASK-F009-004
+  name: Implement /healthz HTTP endpoint reporting JetStream subscription state
+  file_path: tasks/backlog/forge-production-image/TASK-F009-004-implement-healthz-endpoint.md
+  complexity: 5
+  dependencies:
+  - TASK-F009-001
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-F009-005
+  name: Implement Dockerfile install layer with BuildKit nats-core context and HEALTHCHECK
+  file_path: tasks/backlog/forge-production-image/TASK-F009-005-implement-dockerfile-install-layer.md
+  complexity: 7
+  dependencies:
+  - TASK-F009-001
+  - TASK-F009-002
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 170
+- id: TASK-F009-006
+  name: Add BDD bindings and integration tests for the production image
+  file_path: tasks/backlog/forge-production-image/TASK-F009-006-add-bdd-bindings-and-integration-tests.md
+  complexity: 6
+  dependencies:
+  - TASK-F009-003
+  - TASK-F009-004
+  - TASK-F009-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 113
+- id: TASK-F009-007
+  name: Add GitHub Actions workflow that builds and smoke-tests the production image
+  file_path: tasks/backlog/forge-production-image/TASK-F009-007-add-github-actions-image-workflow.md
+  complexity: 5
+  dependencies:
+  - TASK-F009-005
+  status: pending
+  description: ''
+  implementation_mode: task-work
+  estimated_minutes: 75
+- id: TASK-F009-008
+  name: Fold runbook section 6 gating callout and append history entry
+  file_path: tasks/backlog/forge-production-image/TASK-F009-008-fold-runbook-section6-and-history.md
+  complexity: 3
+  dependencies:
+  - TASK-F009-006
+  - TASK-F009-007
+  status: pending
+  description: ''
+  implementation_mode: direct
+  estimated_minutes: 33
+orchestration:
+  parallel_groups:
+  - - TASK-F009-001
+    - TASK-F009-002
+  - - TASK-F009-003
+    - TASK-F009-004
+    - TASK-F009-005
+  - - TASK-F009-006
+    - TASK-F009-007
+  - - TASK-F009-008
+  estimated_duration_minutes: 719
+  recommended_parallel: 3
+smoke_gates:
+  after_wave: [2, 3]
+  command: |
+    set -e
+    # After Wave 2: Python-only smoke (forge serve --help, ServeConfig import, healthz import)
+    # After Wave 3: full image smoke set (T6's @smoke pytest selection)
+    if [ -f scripts/build-image.sh ] && [ -f Dockerfile ]; then
+        # Wave 3 has landed — run the full image smoke set
+        pytest -m smoke tests/bdd/ -x --timeout=300
+    else
+        # Wave 2 only — Python-side smoke
+        python -c "from forge.cli.serve import DEFAULT_HEALTHZ_PORT, DEFAULT_DURABLE_NAME, ServeConfig; assert DEFAULT_HEALTHZ_PORT == 8080; assert DEFAULT_DURABLE_NAME == 'forge-serve'; ServeConfig()"
+        forge serve --help > /dev/null
+    fi
+  expected_exit: 0
+  timeout: 360
