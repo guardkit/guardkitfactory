@@ -17,6 +17,15 @@ dependencies = [
     "nats-core>=0.3.0,<0.4",
     "python-dotenv>=1.0",
     "pyyaml>=6.0",
+    # TASK-FIX-F09A1 (per TASK-REV-F09A §Reproduction C): `click` and `rich`
+    # are imported by `forge.cli.{main,status,skip,history,queue,cancel}`
+    # but were not pulled transitively by langchain/deepagents in the
+    # resolved set, so a fresh install left `forge serve --help` (the
+    # FEAT-FORGE-009 smoke gate) failing with ModuleNotFoundError.
+    # Major-line caps match what `pip install` resolves today; tighten if
+    # the codebase starts depending on click 9.x or rich 15.x APIs.
+    "click>=8.1,<9",
+    "rich>=13,<15",
 ]
 
 [project.optional-dependencies]
