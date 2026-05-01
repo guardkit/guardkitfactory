@@ -1,6 +1,6 @@
 # Forge Build Plan — Pipeline Orchestrator & Checkpoint Manager
 
-## Status: `/system-arch` ✅ · `/system-design` ✅ · `/feature-spec` ✅ **8 / 8 complete** (FEAT-FORGE-001..008 ✅) · `/feature-plan` ✅ **8 / 8 complete** (001..008 ✅) · `autobuild` ✅ **8 / 8 complete** (001..008 ✅) · Step 6 🟡 **Phases 0–3 ✅ canonical** (rerun 2026-04-30); Phases 4–6 ⏸ blocked on FCH-001 + FEAT-FORGE-009 · **Next: FCH-001 (`nats-infrastructure`) + FEAT-FORGE-009 production Dockerfile → Step 6 Phases 4–6 → Step 7 FinProxy first real run**
+## Status: `/system-arch` ✅ · `/system-design` ✅ · `/feature-spec` ✅ **9 / 9 complete** (FEAT-FORGE-001..009 ✅) · `/feature-plan` ✅ **9 / 9 complete** (001..009 ✅) · `autobuild` ✅ **9 / 9 complete** (001..009 ✅) · Step 6 🟡 **Phases 0–3 ✅ canonical** (rerun 2026-04-30); Phases 6.1 + 6.3 ✅ structurally reachable (FEAT-FORGE-009 landed `732408f`); FCH-001 artefacts ✅ shipped in `nats-infrastructure` (Phases 4–5 await operator GB10 deployment, not code); Phase 6.2 ⏸ blocked on specialist-agent production image; Phase 6.4 ⏸ blocked on 4–5 + 6.2 · **Next: deploy canonical NATS on GB10 (`docker compose up -d` + provision-streams.sh + provision-kv.sh) → Phases 4–5 · specialist-agent production image → Phase 6.2 · execute Phases 6.1/6.3 against the new forge production image → Step 7 FinProxy first real run**
 ## Repo: `guardkit/forge`
 ## Agent ID: `forge`
 ## Target: Post specialist-agent Phase 3 completion
@@ -12,10 +12,10 @@
 |---|---|---|---|---|---|
 | 1 | `/system-arch` | ✅ complete | 2026-04-18 | `9f41e22` (seeded by later refinements) | `docs/architecture/ARCHITECTURE.md`, `system-context.md`, `container.md`, `domain-model.md`, `assumptions.yaml`, **31 ADRs** (`ADR-ARCH-001`..`031`) |
 | 2 | `/system-design` | ✅ complete | 2026-04-23 | `b40365c` | `docs/design/` — **9 API contracts + 5 data models + 6 DDRs + 2 C4 L3 diagrams**; 20 artefacts seeded into Graphiti (`project_design` + `architecture_decisions`) |
-| 3 | `/feature-spec × 8` | ✅ complete (8 / 8) | 2026-04-24..27 | various | FEAT-FORGE-001..008 ✅ (see Step 3 for per-feature details) |
-| 4 | `/feature-plan × 8` | ✅ complete (8 / 8) | 2026-04-24..27 | `6a29ed3`, `065b73d`, FEAT-FORGE-001 plan, FEAT-FORGE-008 plan | FEAT-FORGE-001..008 ✅ — task breakdowns under `tasks/backlog/<slug>/`. 001 was re-planned post-001-gap-context with `forge-001-gap-context.md` to scope to the unbuilt slice (CLI + lifecycle persistence + state machine + recovery — 13 tasks). 008 (`mode-b-feature-and-mode-c-review-fix`) planned 2026-04-27 — **14 tasks across 7 waves, complexity 6/10, composition-only on FEAT-FORGE-001..007 substrate**; 56/56 BDD scenarios `@task:`-tagged via Step 11 BDD linker. |
-| 5 | `autobuild × 8` (Waves 1–6) | ✅ complete (8 / 8) | 2026-04-25..27 | `91f4de5`, `f63bcf5`, `9774351`, `042b83e`, `0361c21`, `6e5c577`, `ea7e60b`, `2f13eac` | FEAT-FORGE-002 (`91f4de5`), 003 (`f63bcf5`), 004 (`9774351`), 005 (`042b83e`), 006 (=`FEAT-8D10`, `0361c21`), 007 (=`FEAT-CBDE`, `6e5c577`), 001 (`ea7e60b`, 13/13 tasks across 5 waves, 0 ceiling hits), **008 (`2f13eac` merge; 14/14 tasks across 7 waves, 86% first-attempt pass, 2 SDK ceiling hits on TASK-MBC8-008/009)** ✅. |
-| 6 | Validation | 🟡 Phases 0–3 ✅ canonical (2026-04-30); Phases 4–6 ⏸ blocked | 2026-04-29 (initial walkthrough) → 2026-04-30 (rerun) | `c9fe3d8` (rerun + F008-RERUN-001 fold), `92ce8a4` (TASK-REV-F008 review) | `docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md` · `docs/runbooks/RESULTS-FEAT-FORGE-008-validation.md` (initial) · `docs/runbooks/RESULTS-FEAT-FORGE-008-validation-rerun.md` (Step 6 ✅ for Phases 0–3 — 3853p/0f/1s pytest, 64/64 BDD-008, 42/42 Mode A, Mode A/B/C CLI green, Mode C wire round-trip with `task_id` populated) · `docs/reviews/REVIEW-F008-validation-triage.md` · FEAT-F8 fan-out under `tasks/backlog/feat-f8-validation-fixes/` (8 tasks, 3 waves, all ✅). Phases 4–6 blocked on Wave 3 cross-repo: `FCH-001` in `nats-infrastructure` (canonical NATS provisioning — `docs/handoffs/F8-007a-nats-canonical-provisioning.md`) and `FEAT-FORGE-009` (production Dockerfile + `forge serve` — `docs/scoping/F8-007b-forge-production-dockerfile.md`). |
+| 3 | `/feature-spec × 9` | ✅ complete (9 / 9) | 2026-04-24..05-01 | various | FEAT-FORGE-001..009 ✅ (see Step 3 for per-feature details). 009 (`forge-production-image`) added 2026-04-30 to scope the production Dockerfile + `forge serve` daemon per TASK-F8-007b — 27 scenarios (5 key-example, 5 boundary, 6 negative, 12 edge-case), 10 assumptions (3 low-confidence flagged for review). |
+| 4 | `/feature-plan × 9` | ✅ complete (9 / 9) | 2026-04-24..05-01 | `6a29ed3`, `065b73d`, FEAT-FORGE-001 plan, FEAT-FORGE-008 plan, `e79096f` (FEAT-FORGE-009 plan) | FEAT-FORGE-001..009 ✅ — task breakdowns under `tasks/backlog/<slug>/`. 001 was re-planned post-001-gap-context with `forge-001-gap-context.md` to scope to the unbuilt slice (CLI + lifecycle persistence + state machine + recovery — 13 tasks). 008 (`mode-b-feature-and-mode-c-review-fix`) planned 2026-04-27 — **14 tasks across 7 waves, complexity 6/10, composition-only on FEAT-FORGE-001..007 substrate**; 56/56 BDD scenarios `@task:`-tagged via Step 11 BDD linker. 009 (`forge-production-image`) planned 2026-04-30 — **8 tasks across 4 waves**, scoped to LES1 §3/§4 parity gates (CMDW/PORT/ARFS) per `docs/scoping/F8-007b-forge-production-dockerfile.md`. |
+| 5 | `autobuild × 9` (Waves 1–7) | ✅ complete (9 / 9) | 2026-04-25..05-01 | `91f4de5`, `f63bcf5`, `9774351`, `042b83e`, `0361c21`, `6e5c577`, `ea7e60b`, `2f13eac`, `732408f` | FEAT-FORGE-002 (`91f4de5`), 003 (`f63bcf5`), 004 (`9774351`), 005 (`042b83e`), 006 (=`FEAT-8D10`, `0361c21`), 007 (=`FEAT-CBDE`, `6e5c577`), 001 (`ea7e60b`, 13/13 tasks across 5 waves, 0 ceiling hits), 008 (`2f13eac` merge; 14/14 tasks across 7 waves, 86% first-attempt pass, 2 SDK ceiling hits on TASK-MBC8-008/009), **009 (`732408f` merge + `225d279` feat-complete chore; 8/8 tasks across 4 waves, 9 total turns, 62m 26s, 100% clean execution, 0 SDK ceiling hits)** ✅. F009 bootstrap had two operator pre-step issues fixed before the green run: stale `autobuild/FEAT-FORGE-009` branch+worktree from prior failed runs (`git worktree remove --force` + `git branch -D`), and a missing `forge/.guardkit/worktrees/nats-core` symlink (uv resolves `[tool.uv.sources] nats-core = "../nats-core"` relative to the worktree's pyproject.toml, not forge root) — both captured in [`docs/runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md`](../../runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md). |
+| 6 | Validation | 🟡 Phases 0–3 ✅ canonical (2026-04-30); 6.1 + 6.3 ✅ structurally reachable (F009 landed); 4 + 5 + 6.2 + 6.4 ⏸ blocked | 2026-04-29 (initial walkthrough) → 2026-04-30 (rerun) → 2026-05-01 (F009 unblock) | `c9fe3d8` (rerun + F008-RERUN-001 fold), `92ce8a4` (TASK-REV-F008 review), `732408f` (F009 production image) | `docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md` · `docs/runbooks/RESULTS-FEAT-FORGE-008-validation.md` (initial) · `docs/runbooks/RESULTS-FEAT-FORGE-008-validation-rerun.md` (Step 6 ✅ for Phases 0–3 — 3853p/0f/1s pytest, 64/64 BDD-008, 42/42 Mode A, Mode A/B/C CLI green, Mode C wire round-trip with `task_id` populated) · `docs/reviews/REVIEW-F008-validation-triage.md` · FEAT-F8 fan-out under `tasks/backlog/feat-f8-validation-fixes/` (8 tasks, 3 waves, all ✅). **FEAT-FORGE-009 landed 2026-05-01 (`732408f` merge): production Dockerfile + `forge serve` daemon + `/healthz` endpoint + GitHub Actions image workflow** — Phase 6.1 (CMDW) and Phase 6.3 (ARFS) are now structurally reachable on the new image. Phase 6.2 (PORT) still blocked on specialist-agent production image. Phases 4 + 5 still blocked on `FCH-001` in `nats-infrastructure` (canonical NATS provisioning — `docs/handoffs/F8-007a-nats-canonical-provisioning.md`). Phase 6.4 (canonical-freeze) gated on all of 4 + 5 + 6.2 closing first. |
 | 7 | FinProxy first real run | ◻ pending (unblocked from forge's side post-rerun; awaits operator scheduling) | — | — | `docs/runbooks/RUNBOOK-FEAT-FORGE-008-finproxy-first-run.md` |
 
 ---
@@ -531,7 +531,19 @@ guardkit autobuild FEAT-FORGE-007   # ✅ commit 6e5c577 (autobuild ID: FEAT-CBD
 
 # Wave 6: Additional modes (depends on Wave 5)
 guardkit autobuild FEAT-FORGE-008   # ✅ commit 2f13eac (autobuild metadata 22c0b1f; cleanup 51ae6a6) — 14/14 tasks across 7 waves, 86% first-attempt pass rate, 2 SDK ceiling hits on TASK-MBC8-008/009 (resolved on turn 2)
+
+# Wave 7: Production deployment image (FEAT-FORGE-009 — added post-Wave-6 to unblock Phase 6 LES1 parity gates)
+guardkit autobuild feature FEAT-FORGE-009 --verbose --fresh   # ✅ commit 732408f (feat-complete chore 225d279) — 8/8 tasks across 4 waves, 9 total turns, 62m 26s, 100% clean execution, 0 SDK ceiling hits
 ```
+
+> **Operator pre-step before re-running F009-style autobuilds:** forge's
+> `[tool.uv.sources] nats-core = "../nats-core"` is resolved by uv relative
+> to the worktree's copy of `pyproject.toml`, not the project root, so a
+> one-time symlink at `.guardkit/worktrees/nats-core → ../../../nats-core`
+> is required on every machine. See
+> [`docs/runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md`](../../runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md)
+> for the full diagnosis (including why the original `.guardkit/preflight.sh`
+> approach is incomplete) and the verified MacBook + GB10 application steps.
 
 ### Step 6: Validation
 
@@ -551,30 +563,44 @@ contracts.
 | 3 — NATS pipeline-event observation (Mode B + Mode C round-trip) | ✅ canonical | rerun §3.x — `task_id="TASK-NATSCHECKC"`, threaded `correlation_id` | throwaway NATS |
 | 4 — Checkpoint forced-flag exercise (`pipeline.build-paused` / `build-resumed`) | ⏸ deferred | — | **FCH-001** (canonically-provisioned JetStream — streams + KV + durable consumer config) |
 | 5 — Degraded-mode exercise (Mode A specialists offline → FLAG_FOR_REVIEW) | ⏸ deferred | — | FCH-001 + a deployed specialist-agent fleet |
-| 6.1 — CMDW gate (production-image subscription round-trip) | ⏸ deferred | — | **FEAT-FORGE-009** (forge production `Dockerfile` + `forge serve`) |
-| 6.2 — PORT gate (`(role, stage)` dispatch matrix) | ⏸ deferred | — | FEAT-FORGE-009 + specialist-agent production image |
-| 6.3 — ARFS gate (per-tool handler completeness) | ⏸ deferred | — | FEAT-FORGE-009 |
+| 6.1 — CMDW gate (production-image subscription round-trip) | 🟡 structurally reachable (FEAT-FORGE-009 landed `732408f` 2026-05-01) | — | none from forge's side; needs operator runbook + GB10 NATS reachable |
+| 6.2 — PORT gate (`(role, stage)` dispatch matrix) | ⏸ deferred | — | specialist-agent production image (FEAT-FORGE-009 ✅) |
+| 6.3 — ARFS gate (per-tool handler completeness) | 🟡 structurally reachable (FEAT-FORGE-009 landed `732408f` 2026-05-01) | — | none from forge's side; needs operator runbook |
 | 6.4 — Canonical-freeze walkthrough (clean MacBook + GB10) | ⏸ deferred | — | All Phase 4–6.3 prerequisites green AND runbook in verbatim-runnable shape |
 | 7 — FinProxy first real run | ◻ pending (forge unblocked) | runbook stub: [`RUNBOOK-FEAT-FORGE-008-finproxy-first-run.md`](../../runbooks/RUNBOOK-FEAT-FORGE-008-finproxy-first-run.md) | operator scheduling |
 
 **Cross-repo / sibling-feature handoffs gating Phases 4–6:**
 
-- **FCH-001 — canonical NATS provisioning** (gates Phases 4 + 5 + 6.x).
-  Owned by [`nats-infrastructure`](../../../../nats-infrastructure) on an
-  independent timeline. The contract `forge` consumes is enumerated verbatim
-  in [`docs/handoffs/F8-007a-nats-canonical-provisioning.md`](../../handoffs/F8-007a-nats-canonical-provisioning.md)
-  (streams, KV buckets, durable consumer config, retention floors, ACL).
-  Tracked from `forge`'s side by `TASK-F8-007a` (✅ closed; the cross-repo
-  delegation artefact landed). When FCH-001 ships, Phases 4–5 unblock and the
-  runbook's §0.6 throwaway-NATS hint stops being needed.
+- **FCH-001 — canonical NATS provisioning artefacts: ✅ shipped in
+  [`nats-infrastructure`](../../../../nats-infrastructure)** (verified
+  2026-05-01 — full audit in this commit's session). Provisioning surface:
+  `docker-compose.yml` + `streams/provision-streams.sh` (7 streams:
+  PIPELINE, AGENTS, JARVIS, FLEET, NOTIFICATIONS, SYSTEM, FINPROXY) +
+  `kv/provision-kv.sh` (4 KV buckets: agent-status, agent-registry,
+  pipeline-state, jarvis-session) + `scripts/verify-nats.sh`. The contract
+  `forge` consumes is enumerated verbatim in
+  [`docs/handoffs/F8-007a-nats-canonical-provisioning.md`](../../handoffs/F8-007a-nats-canonical-provisioning.md);
+  tracked from `forge`'s side by `TASK-F8-007a` (✅ closed). **What still
+  gates Phases 4–5 is operator deployment runtime, not the artefacts** —
+  namely `docker compose up -d` + `provision-streams.sh` + `provision-kv.sh`
+  having been run on GB10 in the current session. Confirm with
+  `verify-nats.sh` before re-running validation Phases 4–5; if the GB10
+  volume is fresh, re-run provisioning per LES1 §7 (TASK-MDF-PRVS / TASK-NI-PSBUG).
 
-- **FEAT-FORGE-009 — forge production `Dockerfile` + `forge serve` daemon**
-  (gates Phase 6.1 / 6.2 / 6.3 / 6.4). Scoped at
-  [`docs/scoping/F8-007b-forge-production-dockerfile.md`](../../scoping/F8-007b-forge-production-dockerfile.md)
-  (gate-by-gate requirements, base-image baseline, multi-stage layout, open
-  questions). Backlog handoff at [`tasks/backlog/FEAT-FORGE-009-production-image.md`](../../../tasks/backlog/FEAT-FORGE-009-production-image.md).
-  Tracked from this build plan's side by `TASK-F8-007b` (✅ closed). When
-  FEAT-FORGE-009 ships, Phase 6 LES1 gates become structurally reachable.
+- **FEAT-FORGE-009 — forge production `Dockerfile` + `forge serve` daemon** ✅
+  **landed 2026-05-01** (`732408f` merge + `225d279` feat-complete chore).
+  8/8 tasks, 9 total turns, 62m 26s, 100% clean execution. Implementation:
+  multi-stage Dockerfile with digest-pinned base + non-root user + BuildKit
+  nats-core context + HEALTHCHECK; `forge serve` CLI with JetStream durable
+  consumer daemon (`src/forge/cli/serve.py`, `_serve_config.py`,
+  `_serve_daemon.py`, `_serve_state.py`); `/healthz` HTTP endpoint
+  (`_serve_healthz.py`); `scripts/build-image.sh` wrapper; GitHub Actions
+  workflow (`.github/workflows/forge-image.yml`). Phase 6.1 (CMDW) and 6.3
+  (ARFS) are now structurally reachable on the new image; 6.2 (PORT)
+  remains blocked on the specialist-agent production image. Original
+  scoping at [`docs/scoping/F8-007b-forge-production-dockerfile.md`](../../scoping/F8-007b-forge-production-dockerfile.md);
+  autobuild transcript at [`docs/history/autobuild-FEAT-FORGE-009-success-history.md`](../../history/autobuild-FEAT-FORGE-009-success-history.md);
+  bootstrap-recovery runbook at [`docs/runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md`](../../runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md).
 
 **Re-run sequencing once each prerequisite lands:**
 
@@ -583,10 +609,12 @@ contracts.
    `RESULTS-FEAT-FORGE-008-validation-phases-4-5.md`. If green, mark Phases 4–5
    ✅ canonical in this table. Step 7 was already unblocked from `forge`'s side
    at the 2026-04-30 rerun, so this does **not** gate Step 7.
-2. **FEAT-FORGE-009 lands** → re-run Phase 6 (CMDW / PORT / ARFS / canonical-
-   freeze) against the production image. The canonical-freeze gate (6.4)
-   additionally requires a verbatim walkthrough on a clean machine logged in
-   `command-history.md`. Capture in `RESULTS-FEAT-FORGE-008-validation-phases-6.md`.
+2. **FEAT-FORGE-009 landed 2026-05-01** ✅ — production image is on `main`.
+   Run Phases 6.1 (CMDW) and 6.3 (ARFS) against the new image now (no
+   further forge-side prerequisites). Phase 6.2 (PORT) waits for the
+   specialist-agent production image. Phase 6.4 (canonical-freeze) waits
+   for 4 + 5 + 6.2. Capture each tier as it greens in
+   `RESULTS-FEAT-FORGE-008-validation-phases-6.md`.
 3. Update the row above + the Status header on this build plan when each
    tier closes.
 
@@ -987,5 +1015,7 @@ guardkit feature-spec FEAT-FORGE-004 \
 *Updated: 29 April 2026 — `autobuild FEAT-FORGE-008` complete and merged (`2f13eac`; autobuild metadata `22c0b1f`; worktree cleanup `51ae6a6`). 14/14 tasks across 7 waves, 86% first-attempt pass rate, 2 SDK ceiling hits on TASK-MBC8-008/009 (resolved on turn 2). **8/8 specs, 8/8 plans, 8/8 autobuilds — Steps 1–5 done.** Next: Step 6 Validation gates → Step 7 FinProxy first real run.*
 *Updated: 29 April 2026 (later) — Initial Step 6 walkthrough hit four reds (Mode A `Supervisor._dispatch` no `TASK_REVIEW` route, AC-008 single-ownership regression in `recovery.py`, stale idempotency assertion, Mode C wire-schema rejecting `TASK-*`). Captured in `RESULTS-FEAT-FORGE-008-validation.md`; triaged via `/task-review TASK-REV-F008` (`docs/reviews/REVIEW-F008-validation-triage.md`). FEAT-F8 fan-out: 8 tasks across 3 waves under `tasks/backlog/feat-f8-validation-fixes/`. Wave 1 fixes (TASK-F8-003/004/005) landed; AC-6 GO gate green (3804p/4f/1s → 3804p/0f/1s, Mode A 40/42 → 42/42).*
 *Updated: 30 April 2026 — Wave 2 + Wave 3 of FEAT-F8 landed. TASK-F8-002 (`nats-core 0.3.0` `ae20423` + forge wiring `8ef2c3e`) added `task_id` + `mode` fields to `BuildQueuedPayload` with the bidirectional invariant `mode == "mode-c" <=> task_id is not None`; Mode C now round-trips through the wire with `TASK-*` populated. TASK-F8-001 (`d0c2f81`) landed `forge.build.git_operations` + `test_verification`. TASK-F8-006 (`35952fd`) folded the runbook gaps. TASK-F8-007a (`1c005f5`/`118764c`) filed the canonical NATS provisioning handoff to `nats-infrastructure` (FCH-001). TASK-F8-007b (`4d953cf`) scoped the forge production Dockerfile as `FEAT-FORGE-009`. **Operator runbook rerun (`RESULTS-FEAT-FORGE-008-validation-rerun.md`, commit `c9fe3d8`): Step 6 ✅ canonical for Phases 0–3** — 3853p/0f/1s pytest (NO `--ignore`), 64/64 BDD-008, 42/42 Mode A, Mode A/B/C CLI all green incl. Mode C `TASK-*` canonical form, Mode B + Mode C NATS round-trip with threaded `correlation_id` and `task_id="TASK-NATSCHECKC"`. Five copy-paste defects in the runbook surfaced and folded back as F008-RERUN-001 (`--config` placement, allowlist-tilde-expansion, `--repo` placeholder, Mode A `--feature-yaml`, `nats sub --headers`). Phases 4–6 stay blocked on FCH-001 (`nats-infrastructure`) + FEAT-FORGE-009.*
-*Status: Forge orchestrator is feature-complete. Step 6 ✅ canonical for Phases 0–3 (rerun 2026-04-30). Step 7 (FinProxy first real run) is unblocked from forge's side. Phases 4–6 deferred until FCH-001 + FEAT-FORGE-009 land — both have independent timelines and dedicated tracking artefacts.*
+*Updated: 1 May 2026 — `autobuild FEAT-FORGE-009` complete and merged (`732408f` merge + `225d279` feat-complete chore). 8/8 tasks across 4 waves, 9 total turns, 62m 26s, 100% clean execution, 0 SDK ceiling hits. Production Dockerfile + `forge serve` daemon + `/healthz` endpoint + GitHub Actions image workflow now on main. **9/9 specs, 9/9 plans, 9/9 autobuilds.** Bootstrap-recovery runbook landed at `docs/runbooks/RUNBOOK-FEAT-FORGE-009-nats-core-symlink-fix.md` after diagnosing two operator pre-step issues on macOS (stale `autobuild/FEAT-FORGE-009` branch+worktree, missing `forge/.guardkit/worktrees/nats-core` symlink — both required because `[tool.uv.sources]` resolves the relative path against the worktree's pyproject.toml, not the project root). Step 6 Phase 6.1 (CMDW) + 6.3 (ARFS) are now structurally reachable on the new image — execute against the production container to close them. Phase 6.2 (PORT) waits on specialist-agent production image; Phases 4–5 still on FCH-001; 6.4 canonical-freeze on all of the above.*
+
+*Status: Forge orchestrator is feature-complete and dockerized. Step 6 ✅ canonical for Phases 0–3 (rerun 2026-04-30). FEAT-FORGE-009 ✅ landed 2026-05-01 — Phases 6.1 + 6.3 unblocked. Step 7 (FinProxy first real run) is unblocked from forge's side. Remaining gates: Phases 4–5 (FCH-001 in `nats-infrastructure`), Phase 6.2 (specialist-agent production image), Phase 6.4 (canonical-freeze, depends on 4–5 + 6.2).*
 *"The Forge is the capstone. It's the last major agent to build because it coordinates everything else. But it's also the highest-leverage: once it works, the Software Factory is real."*
