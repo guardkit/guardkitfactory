@@ -1,9 +1,14 @@
 ---
 id: TASK-FORGE-FRR-002
 title: Wire `logging.basicConfig` in `forge serve` so `FORGE_LOG_LEVEL` actually produces visible logs
-status: backlog
+status: completed
 created: 2026-05-01T00:00:00Z
 updated: 2026-05-01T00:00:00Z
+completed: 2026-05-01T00:00:00Z
+previous_state: in_review
+completed_location: tasks/completed/TASK-FORGE-FRR-002/
+organized_files:
+  - TASK-FORGE-FRR-002-wire-logging-basicconfig-for-forge-log-level.md
 priority: high
 task_type: fix
 tags:
@@ -23,9 +28,13 @@ discovered_on:
   machine: GB10 (promaxgb10-41b1)
   context: "co-resident first walkthrough of jarvis FEAT-JARVIS-INTERNAL-001 runbook"
 test_results:
-  status: pending
+  status: passed
   coverage: null
-  last_run: null
+  last_run: 2026-05-01
+  passed: 8
+  failed: 0
+  command: "pytest tests/forge/test_cli_serve_logging.py"
+  regression_check: "pytest tests/forge/test_cli_serve_skeleton.py tests/forge/test_cli_serve_daemon.py tests/forge/test_serve_healthz.py — 61 passed"
 ---
 
 # Task: Wire `logging.basicConfig` in `forge serve` so `FORGE_LOG_LEVEL` actually produces visible logs
@@ -232,4 +241,70 @@ the container's stderr (and therefore `docker logs forge-prod`,
 
 ## Test Execution Log
 
-[Automatically populated by /task-work and downstream test runs]
+### 2026-05-01 — /task-work TASK-FORGE-FRR-002 (intensity=minimal)
+
+**Implementation:**
+
+- `src/forge/cli/serve.py`: added `_configure_logging(level_name)` and
+  invoked it from `serve_cmd` immediately after `ServeConfig.from_env()`
+  (smaller blast radius than placing it inside `_run_serve` — the
+  test suite directly drives `_run_serve` in several places and they
+  prefer to control the root logger themselves).
+- Format: `"%(asctime)s [%(levelname)s] %(name)s: %(message)s"`,
+  datefmt `"%Y-%m-%dT%H:%M:%S"`, stream `sys.stderr`, `force=False`
+  (default — re-entrant calls are no-ops, matches AC "no
+  double-handler regression").
+- Invalid `FORGE_LOG_LEVEL` (`getattr(logging, X.upper(), None)`
+  returning a non-int) writes a one-line stderr warning and falls
+  back to `logging.INFO` — no exception, daemon does not crash.
+
+**New tests** (`tests/forge/test_cli_serve_logging.py`, 8 cases mapped
+to acceptance criteria):
+
+- `TestInfoLevelEmitsRecords` — INFO record reaches `caplog` after
+  `serve_cmd` boots; root level set to INFO for `"info"`.
+- `TestDebugLevelLowersThreshold` — root level set to DEBUG for
+  `"debug"`.
+- `TestInvalidLevelFallsBackToInfo` — `"banana"` falls back to INFO
+  with a one-line stderr warning; bogus values do not raise.
+- `TestNoDoubleHandlerRegression` — second `_configure_logging` call
+  does not duplicate handlers on the root logger.
+- `TestFormatString` — format string contains the four required
+  tokens; datefmt is the documented ISO-8601 layout.
+- `TestServeCmdInvokesConfigureLogging` — `serve_cmd` actually wires
+  `_configure_logging(config.log_level)` into the boot path.
+
+**Test runs:**
+
+- New file: `pytest tests/forge/test_cli_serve_logging.py` →
+  **8 passed** in 0.27s.
+- Regression check (all serve-related tests):
+  `pytest tests/forge/test_cli_serve_skeleton.py
+  tests/forge/test_cli_serve_daemon.py
+  tests/forge/test_serve_healthz.py` →
+  **61 passed** in 0.79s, no regressions.
+- Combined: **69 passed** in 0.79s.
+
+**Black:** both touched files pass `black --check` (test file was
+reformatted post-write — single-statement collapse on lines 70 and
+75-76).
+
+**Runbook updates** (AC 9 — operator now knows what to expect):
+
+- `docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md` (line ~789):
+  one-line example of the post-fix log line emitted by
+  `forge.cli._serve_healthz`.
+- `docs/runbooks/RUNBOOK-FEAT-FORGE-008-finproxy-first-run.md`
+  (line ~84): paragraph explaining what `info` and `debug` levels
+  surface, plus the misconfig-fallback behaviour.
+
+**Quality gates:**
+
+- ✅ Code compiles
+- ✅ All 8 new tests pass (100%)
+- ✅ All 61 pre-existing serve tests still pass (no regressions)
+- ✅ `black --check` clean
+- ✅ Acceptance criteria 1-9 covered (1-3 by the implementation +
+  per-receipt AC verified at the daemon-logger seam, 4-7 by the new
+  test classes, 8 implicit in re-entrant test), runbook AC 9 by the
+  documentation edits above.

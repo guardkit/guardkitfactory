@@ -82,6 +82,8 @@ docker run -d --name forge-prod \
     forge serve
 ```
 
+**Log-level note (post TASK-FORGE-FRR-002):** `-e FORGE_LOG_LEVEL=info` now produces visible records on stderr — `docker logs forge-prod` shows lines like `2026-05-01T12:34:56 [INFO] forge.cli._serve_daemon: dispatching FEAT-XXXX (correlation_id=…)`. Set `FORGE_LOG_LEVEL=debug` to also surface the consume-loop's signal-handler / unsubscribe / close debug lines. An unrecognised value (e.g. `FORGE_LOG_LEVEL=banana`) does not crash the daemon — it falls back to INFO with a one-line warning.
+
 **Volume note:** mounting `-v ~/forge-state:/var/forge` makes the SQLite history survive container restarts. Without this, a container restart loses every build's state — which is exactly the failure mode that led to FEAT-FORGE-001's recovery work.
 
 ### 0.3 Confirm specialist agents are NATS-callable end-to-end

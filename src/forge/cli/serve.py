@@ -27,6 +27,8 @@ criteria::
 from __future__ import annotations
 
 import asyncio
+import logging
+import sys
 
 import click
 
@@ -38,6 +40,46 @@ from forge.cli._serve_config import (
 from forge.cli._serve_daemon import run_daemon
 from forge.cli._serve_healthz import run_healthz_server
 from forge.cli._serve_state import SubscriptionState
+
+# stdlib ``logging`` format chosen for daemon-grep readability across
+# replicas: ISO-8601 timestamp, level, logger name, message. If the
+# project ever moves to structlog/JSON, ``_configure_logging`` is the
+# single swap point — keep that in mind before scattering more
+# ``basicConfig`` calls.
+_LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+_LOG_DATEFMT = "%Y-%m-%dT%H:%M:%S"
+
+
+def _configure_logging(level_name: str) -> None:
+    """Attach a stderr handler honouring ``FORGE_LOG_LEVEL``.
+
+    TASK-FORGE-FRR-002. Before this call, every ``logger.info(...)``
+    inside ``_serve_daemon`` and ``_serve_healthz`` was silently
+    dropped at INFO and below because the root logger had no handler
+    — see the 2026-05-01 GB10 first-real-run where ``docker logs
+    forge-prod`` was empty despite a successful consume + ack.
+
+    An unrecognised value (``FORGE_LOG_LEVEL=banana``) does not crash
+    the daemon: it falls back to INFO with a one-line stderr warning
+    so an obvious operator typo never blocks startup.
+
+    ``logging.basicConfig`` is invoked with ``force=False`` (the
+    default), which makes re-entrant calls in the same process a
+    no-op. Tests that invoke ``serve_cmd`` more than once therefore
+    do not pile up duplicate handlers on the root logger.
+    """
+    resolved = getattr(logging, level_name.upper(), None)
+    if not isinstance(resolved, int):
+        sys.stderr.write(
+            f"unrecognised FORGE_LOG_LEVEL={level_name!r}, defaulting to INFO\n"
+        )
+        resolved = logging.INFO
+    logging.basicConfig(
+        level=resolved,
+        format=_LOG_FORMAT,
+        datefmt=_LOG_DATEFMT,
+        stream=sys.stderr,
+    )
 
 
 async def _run_serve(config: ServeConfig, state: SubscriptionState) -> None:
@@ -90,6 +132,12 @@ async def _run_serve(config: ServeConfig, state: SubscriptionState) -> None:
 def serve_cmd() -> None:
     """Run the long-lived forge daemon (JetStream consumer + healthz)."""
     config = ServeConfig.from_env()
+    # Attach the stderr handler BEFORE _run_serve schedules the daemon
+    # / healthz coroutines, so their first ``logger.info`` lines (the
+    # consumer-attach log and the healthz-listening log) reach
+    # ``docker logs`` and ``journalctl`` instead of the silent root
+    # logger. TASK-FORGE-FRR-002.
+    _configure_logging(config.log_level)
     state = SubscriptionState()
     asyncio.run(_run_serve(config, state))
 
