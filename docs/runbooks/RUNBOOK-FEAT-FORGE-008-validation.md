@@ -769,13 +769,17 @@ Build the forge production container, run `forge serve` inside it, publish one r
 
 ```bash
 ssh promaxgb10-41b1
-# Run from forge's parent directory so that the BuildKit named context
-# `--build-context nats-core=../nats-core` resolves the sibling working
-# tree. This is the canonical invocation — no host-side mutation.
-cd ~/Projects/appmilla_github
+# Run from inside forge/ so that the BuildKit named context
+# `--build-context nats-core=../nats-core` resolves to the sibling
+# `nats-core` working tree (one level up from forge/, alongside it).
+# This is the canonical invocation — no host-side mutation. Fixed in
+# TASK-FORGE-FRR-003 after the GB10 first-real-run revealed the
+# previous "cd to forge's parent" form pointed `../nats-core` at the
+# wrong directory.
+cd ~/Projects/appmilla_github/forge
 
 # Build the production image (Contract A — canonical BuildKit invocation)
-docker buildx build --build-context nats-core=../nats-core -t forge:production-validation -f forge/Dockerfile forge/
+docker buildx build --build-context nats-core=../nats-core -t forge:production-validation -f Dockerfile .
 
 # Run forge serve inside it, with NATS pointing at the GB10 host
 docker run -d --name forge-cmdw \
@@ -786,6 +790,9 @@ docker run -d --name forge-cmdw \
     forge serve
 
 # Wait for subscription to be ready (look for the subscribe log line)
+# Post TASK-FORGE-FRR-002: ``-e FORGE_LOG_LEVEL=info`` now produces
+# visible log lines in stderr. Expected output (one-line example):
+#   2026-05-01T12:34:56 [INFO] forge.cli._serve_healthz: healthz listening on 0.0.0.0:8080
 sleep 10
 docker logs forge-cmdw 2>&1 | grep -iE "subscribed|listening|ready" | head -5
 

@@ -1,9 +1,15 @@
 ---
 id: TASK-FORGE-FRR-003
 title: Fix `scripts/build-image.sh` so `--build-context nats-core=../nats-core` resolves on the canonical sibling layout
-status: backlog
+status: completed
 created: 2026-05-01T00:00:00Z
-updated: 2026-05-01T00:00:00Z
+updated: 2026-05-01T11:40:00Z
+completed: 2026-05-01T11:40:00Z
+completed_location: tasks/completed/TASK-FORGE-FRR-003/
+previous_state: in_review
+state_transition_reason: "/task-complete — all quality gates passed (fast tier 3884/3884, integration 154/154+5 docker-gated skips)"
+organized_files:
+  - TASK-FORGE-FRR-003-fix-build-image-script-context-path.md
 priority: high
 task_type: fix
 tags:
@@ -24,9 +30,11 @@ discovered_on:
   machine: GB10 (promaxgb10-41b1)
   context: "co-resident first walkthrough of jarvis FEAT-JARVIS-INTERNAL-001 runbook"
 test_results:
-  status: pending
-  coverage: null
-  last_run: null
+  status: passed
+  coverage: null  # minimal intensity — coverage not enforced
+  last_run: 2026-05-01T11:35:00Z
+  fast_tier: "3884 passed"
+  integration_tier: "154 passed, 5 skipped (docker-gated slow tier)"
 ---
 
 # Task: Fix `scripts/build-image.sh` so `--build-context nats-core=../nats-core` resolves on the canonical sibling layout
@@ -281,4 +289,77 @@ misleading even under Option B (you'd want
 
 ## Test Execution Log
 
-[Automatically populated by /task-work and downstream test runs]
+### 2026-05-01 — /task-work execution (minimal intensity)
+
+**Approach**: Option A from the Goal section — script cd's into `forge/`,
+buildx invoked with `-f Dockerfile .`. Sanity checks now check
+`../nats-core` (the same path buildx dereferences). Leading comment block
+rewritten; `FORGE_DIR` variable now meaningfully used in the
+sanity-check error messages. Drift-detector consumers (test constants
+`CONTRACT_A_INVOCATION`, `CANONICAL_BUILDKIT`, `CANONICAL_INVOCATION`,
+runbook §6.1, workflow comments) all updated in lockstep so the literal
+`docker buildx build --build-context nats-core=../nats-core
+-t forge:production-validation -f Dockerfile .` is byte-identical
+across producer + consumers.
+
+**Files changed**:
+
+- `scripts/build-image.sh` — Option A applied, comment block rewritten,
+  reference to "§0.4 / §6.1" narrowed to "§6.1" (§0.4 is the Python-env
+  section, never referenced this invocation).
+- `tests/dockerfile/test_install_layer.py` — `CONTRACT_A_INVOCATION`
+  updated; `test_script_changes_to_forge_parent_directory` renamed to
+  `test_script_changes_into_forge_directory` and regex updated to assert
+  the one-parent-up cd pattern.
+- `tests/integration/test_runbook_section6_fold.py` — `CANONICAL_BUILDKIT`
+  updated; `test_runbook_section6_documents_parent_directory_cd`
+  renamed to `test_runbook_section6_documents_forge_directory_cd` and
+  prose check updated to look for "forge/" / "forge directory".
+- `tests/integration/test_forge_production_image.py` —
+  `CANONICAL_INVOCATION` updated.
+- `docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md` §6.1 — operator
+  instruction now `cd ~/Projects/appmilla_github/forge` (not its parent)
+  and buildx args match the script.
+- `.github/workflows/forge-image.yml` — three comment blocks updated to
+  describe Option A accurately. The actual `bash forge/scripts/build-image.sh`
+  invocation is unchanged (still works because the sibling-checkout
+  pattern still holds and the script is now cwd-independent).
+
+**Path-resolution verification (dry-run from `/`)**:
+
+```
+Script invoked from: /
+FORGE_DIR resolved to: /Users/richardwoollcott/Projects/appmilla_github/forge
+After cd, pwd: /Users/richardwoollcott/Projects/appmilla_github/forge
+Does ../nats-core exist? yes
+Does ../nats-core/src/nats_core exist? yes
+Resolved path: /Users/richardwoollcott/Projects/appmilla_github/nats-core
+```
+
+The script is cwd-independent: invoked from `/`, `~/`, or anywhere
+else, it correctly resolves to `forge/` via `$0` and the sanity check
+matches what buildx will dereference.
+
+**Test results**:
+
+- `pytest tests/dockerfile/test_install_layer.py
+  tests/dockerfile/test_forge_image_workflow.py
+  tests/integration/test_runbook_section6_fold.py
+  tests/integration/test_forge_production_image.py
+  tests/bdd/test_forge_production_image.py` — **89 passed, 4 skipped**
+  (the 4 skips are `@slow` tests that require a running docker daemon).
+- `pytest tests/ --ignore=tests/integration` — **3884 passed**.
+- `pytest tests/integration/` — **154 passed, 5 skipped** (docker-gated).
+
+**End-to-end docker build NOT executed in /task-work**: that's the
+slow-tier `test_canonical_build_script_runs_to_a_tagged_image`
+integration test, which will run on next CI invocation (or when an
+operator runs `bash scripts/build-image.sh` with a docker daemon
+present and the canonical sibling layout). The path-resolution dry-run
+above plus the static drift-detector tests give high confidence the
+build itself will succeed; the empirical workaround on GB10
+(`docker buildx build --build-context nats-core=../nats-core -t
+forge:production-validation -f Dockerfile .` from inside `forge/`,
+which is byte-equivalent to what the fixed script now invokes) already
+demonstrated that this exact buildx invocation produces a 430 MB
+tagged image on the canonical layout.

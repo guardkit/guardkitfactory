@@ -28,14 +28,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE_PATH = REPO_ROOT / "Dockerfile"
 BUILD_SCRIPT_PATH = REPO_ROOT / "scripts" / "build-image.sh"
 
-# Canonical BuildKit invocation per Contract A (TASK-F009-005). The
-# exact string must literal-match the runbook
-# ``RUNBOOK-FEAT-FORGE-008-validation.md`` §0.4 / §6.1 so a copy-paste
-# from one file to the other reproduces the build (LES1 §3 DKRX). Do
-# not soften this match — the literal-grep is the contract.
+# Canonical BuildKit invocation per Contract A (TASK-F009-005,
+# updated by TASK-FORGE-FRR-003). The exact string must literal-match
+# the runbook ``RUNBOOK-FEAT-FORGE-008-validation.md`` §6.1 so a
+# copy-paste from one file to the other reproduces the build
+# (LES1 §3 DKRX). Do not soften this match — the literal-grep is the
+# contract. Note: the invocation runs from inside forge/ (the script
+# cd's there before invoking buildx), so the Dockerfile path is
+# ``Dockerfile`` (no ``forge/`` prefix) and the context root is ``.``
+# (forge/). ``../nats-core`` resolves to the sibling working tree.
 CONTRACT_A_INVOCATION = (
     "docker buildx build --build-context nats-core=../nats-core "
-    "-t forge:production-validation -f forge/Dockerfile forge/"
+    "-t forge:production-validation -f Dockerfile ."
 )
 
 # Layout-validation gate (R3 mitigation). Must appear verbatim in the
@@ -128,21 +132,24 @@ class TestBuildScriptContractA:
             f"invocation: {CONTRACT_A_INVOCATION!r}"
         )
 
-    def test_script_changes_to_forge_parent_directory(
+    def test_script_changes_into_forge_directory(
         self, build_script_text: str
     ) -> None:
         # The relative ``../nats-core`` path is resolved against the
-        # buildx invocation cwd. Running from anywhere but forge's
-        # parent would dereference into the wrong tree. The canonical
-        # incantation is ``cd "$(dirname "$0")/../.."`` (script lives
-        # at forge/scripts/build-image.sh — two parents up = forge's
-        # parent).
+        # buildx invocation cwd. From inside forge/, ``../nats-core``
+        # dereferences to the sibling working tree (the right place);
+        # from forge's PARENT the same relative path would dereference
+        # to the grandparent's nats-core (wrong) — that was the bug
+        # TASK-FORGE-FRR-003 fixed. The canonical incantation cd's one
+        # parent up from the script's dirname (script lives at
+        # forge/scripts/build-image.sh — one parent up = forge/).
         assert re.search(
-            r'cd\s+"\$\(dirname\s+"\$0"\)/\.\./\.\."',
+            r'cd\s+"\$\(dirname\s+"\$0"\)/\.\."',
             build_script_text,
         ), (
-            "scripts/build-image.sh must cd to forge's parent directory "
-            'via cd "$(dirname "$0")/../.." before invoking buildx'
+            "scripts/build-image.sh must cd into forge/ via "
+            'cd "$(dirname "$0")/.." before invoking buildx so '
+            "``../nats-core`` resolves to the sibling working tree"
         )
 
     def test_script_uses_strict_bash_modes(self, build_script_text: str) -> None:

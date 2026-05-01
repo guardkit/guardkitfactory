@@ -20,8 +20,8 @@
 # Sibling-checkout pattern: forge is checked out at
 # $GITHUB_WORKSPACE/forge and nats-core at $GITHUB_WORKSPACE/nats-core
 # so the BuildKit named context ``--build-context nats-core=../nats-core``
-# resolves correctly when the build script runs from
-# $GITHUB_WORKSPACE.
+# resolves correctly when scripts/build-image.sh cd's into
+# $GITHUB_WORKSPACE/forge before running buildx (TASK-FORGE-FRR-003).
 # =============================================================================
 
 name: forge-production-image
@@ -80,10 +80,11 @@ jobs:
       #
       # ``--build-context nats-core=../nats-core`` in
       # scripts/build-image.sh resolves relative to the directory
-      # buildx is invoked from. The script cd's to forge's parent
-      # (i.e. $GITHUB_WORKSPACE) before running buildx, so a sibling
-      # ``nats-core/`` directory is what the named-context flag picks
-      # up.
+      # buildx is invoked from. The script cd's into forge/
+      # (i.e. $GITHUB_WORKSPACE/forge) before running buildx, so
+      # ``../nats-core`` resolves to $GITHUB_WORKSPACE/nats-core —
+      # the sibling working tree this checkout step lays down
+      # (TASK-FORGE-FRR-003).
       # ---------------------------------------------------------------
       - name: Check out nats-core (sibling working tree)
         uses: actions/checkout@v4
@@ -136,9 +137,11 @@ jobs:
       # is invoked, and it is invoked through scripts/build-image.sh,
       # never inlined. T6's drift detector and the unit-level grep in
       # tests/dockerfile/test_forge_image_workflow.py both enforce
-      # this. The script cd's to its parent directory ($GITHUB_WORKSPACE
-      # in the runner layout) before executing buildx, which is why
-      # the sibling-checkout pattern above works.
+      # this. The script cd's into forge/ ($GITHUB_WORKSPACE/forge in
+      # the runner layout) before executing buildx, which is why the
+      # sibling-checkout pattern above works: ``../nats-core`` from
+      # inside forge/ resolves to $GITHUB_WORKSPACE/nats-core
+      # (TASK-FORGE-FRR-003).
       # ---------------------------------------------------------------
       - name: Build production image (scripts/build-image.sh)
         run: bash forge/scripts/build-image.sh

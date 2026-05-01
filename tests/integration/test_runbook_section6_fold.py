@@ -29,7 +29,7 @@ RUNBOOK = REPO_ROOT / "docs" / "runbooks" / "RUNBOOK-FEAT-FORGE-008-validation.m
 
 CANONICAL_BUILDKIT = (
     "docker buildx build --build-context nats-core=../nats-core "
-    "-t forge:production-validation -f forge/Dockerfile forge/"
+    "-t forge:production-validation -f Dockerfile ."
 )
 PRE_FOLD_BUILD = "docker build -t forge:production-validation -f Dockerfile ."
 PRE_FOLD_CALLOUT = "Gated on FEAT-FORGE-009"
@@ -80,10 +80,12 @@ def test_runbook_section6_pre_fold_build_command_removed() -> None:
 
 @pytest.mark.seam
 @pytest.mark.integration_contract("BUILDKIT_INVOCATION")
-def test_runbook_section6_documents_parent_directory_cd() -> None:
+def test_runbook_section6_documents_forge_directory_cd() -> None:
     """The §6.1 shell block must direct the operator to invoke buildx
-    from forge's parent directory (canonical-freeze §3.4 requirement —
-    no host-side mutation of pyproject/symlinks/.env).
+    from inside forge/ (TASK-FORGE-FRR-003), so the BuildKit named
+    context ``--build-context nats-core=../nats-core`` resolves to the
+    sibling working tree (canonical-freeze §3.4 requirement — no
+    host-side mutation of pyproject/symlinks/.env).
     """
     assert RUNBOOK.exists(), f"runbook missing at {RUNBOOK}"
 
@@ -96,10 +98,10 @@ def test_runbook_section6_documents_parent_directory_cd() -> None:
     assert canonical_lower in content
     pre_build_section = content.split(canonical_lower, maxsplit=1)[0]
 
-    assert "parent" in pre_build_section, (
+    assert "forge/" in pre_build_section or "forge directory" in pre_build_section, (
         "Runbook §6.1 must say the operator runs the build from "
-        "forge's parent directory; 'parent' not found in the prose "
-        "preceding the canonical invocation."
+        "inside forge/; 'forge/' (or 'forge directory') not found in "
+        "the prose preceding the canonical invocation."
     )
     assert "cd " in pre_build_section, (
         "Runbook §6.1 must include a copy-pastable `cd` step before "

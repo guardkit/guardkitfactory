@@ -80,7 +80,7 @@ RUNBOOK_PATH: Path = (
 # (e.g. by collapsing whitespace) — the literal-grep is the contract.
 CANONICAL_INVOCATION: str = (
     "docker buildx build --build-context nats-core=../nats-core "
-    "-t forge:production-validation -f forge/Dockerfile forge/"
+    "-t forge:production-validation -f Dockerfile ."
 )
 
 # Canonical fleet tools per ASSUM-009 — must match the BDD bindings.
