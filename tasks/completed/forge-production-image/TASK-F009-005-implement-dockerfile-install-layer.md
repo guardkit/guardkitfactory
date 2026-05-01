@@ -17,7 +17,7 @@ id: TASK-F009-005
 implementation_mode: task-work
 parent_review: TASK-REV-F009
 priority: high
-status: design_approved
+status: completed
 tags:
 - dockerfile
 - buildkit
@@ -29,7 +29,7 @@ task_type: feature
 test_results:
   coverage: null
   last_run: null
-  status: pending
+  status: completed
 title: Implement Dockerfile install layer with BuildKit nats-core context and HEALTHCHECK
 updated: 2026-04-30 00:00:00+00:00
 wave: 2

@@ -1,28 +1,35 @@
 ---
-id: TASK-F009-003
-title: Implement forge serve daemon body with JetStream durable consumer
-task_type: feature
-status: backlog
-priority: high
-created: 2026-04-30T00:00:00Z
-updated: 2026-04-30T00:00:00Z
-parent_review: TASK-REV-F009
-feature_id: FEAT-FORGE-009
-wave: 2
-implementation_mode: task-work
 complexity: 7
-dependencies: [TASK-F009-001]
-tags: [forge-serve, daemon, jetstream, durable-consumer, feat-forge-009]
 consumer_context:
-  - task: TASK-F009-001
-    consumes: JETSTREAM_DURABLE_NAME
-    framework: "nats-core JetStream client (forge.fleet's existing nats-core wrapper)"
-    driver: "nats-core (sibling editable install)"
-    format_note: "String 'forge-serve' exactly — case-sensitive; durable name typo silently creates a second consumer (the ASSUM-006 failure mode)"
+- consumes: JETSTREAM_DURABLE_NAME
+  driver: nats-core (sibling editable install)
+  format_note: String 'forge-serve' exactly — case-sensitive; durable name typo silently
+    creates a second consumer (the ASSUM-006 failure mode)
+  framework: nats-core JetStream client (forge.fleet's existing nats-core wrapper)
+  task: TASK-F009-001
+created: 2026-04-30 00:00:00+00:00
+dependencies:
+- TASK-F009-001
+feature_id: FEAT-FORGE-009
+id: TASK-F009-003
+implementation_mode: task-work
+parent_review: TASK-REV-F009
+priority: high
+status: completed
+tags:
+- forge-serve
+- daemon
+- jetstream
+- durable-consumer
+- feat-forge-009
+task_type: feature
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: completed
+title: Implement forge serve daemon body with JetStream durable consumer
+updated: 2026-04-30 00:00:00+00:00
+wave: 2
 ---
 
 # Task: Implement `forge serve` daemon body with JetStream durable consumer

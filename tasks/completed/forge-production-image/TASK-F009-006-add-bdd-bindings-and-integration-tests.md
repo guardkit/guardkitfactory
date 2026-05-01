@@ -1,38 +1,49 @@
 ---
-id: TASK-F009-006
-title: Add BDD bindings and integration tests for the production image
-task_type: testing
-status: backlog
-priority: high
-created: 2026-04-30T00:00:00Z
-updated: 2026-04-30T00:00:00Z
-parent_review: TASK-REV-F009
-feature_id: FEAT-FORGE-009
-wave: 3
-implementation_mode: task-work
 complexity: 6
-dependencies: [TASK-F009-003, TASK-F009-004, TASK-F009-005]
-tags: [testing, bdd, pytest-bdd, integration, feat-forge-009]
 consumer_context:
-  - task: TASK-F009-005
-    consumes: BUILDKIT_INVOCATION
-    framework: "pytest fixtures invoking subprocess"
-    driver: "subprocess.run"
-    format_note: "Tests must invoke scripts/build-image.sh — never reproduce the docker buildx command inline (drift-prevention)"
-  - task: TASK-F009-001
-    consumes: HEALTHZ_PORT
-    framework: "httpx HTTP client probing the running container"
-    driver: "httpx"
-    format_note: "Test client must read forge.cli.serve.DEFAULT_HEALTHZ_PORT — never hardcode 8080"
-  - task: TASK-F009-001
-    consumes: JETSTREAM_DURABLE_NAME
-    framework: "nats-core JetStream client used in test fixtures"
-    driver: "nats-core (sibling editable)"
-    format_note: "Multi-replica test (D2) must read forge.cli.serve.DEFAULT_DURABLE_NAME and assert JetStream consumer_info() reports the same name"
+- consumes: BUILDKIT_INVOCATION
+  driver: subprocess.run
+  format_note: Tests must invoke scripts/build-image.sh — never reproduce the docker
+    buildx command inline (drift-prevention)
+  framework: pytest fixtures invoking subprocess
+  task: TASK-F009-005
+- consumes: HEALTHZ_PORT
+  driver: httpx
+  format_note: Test client must read forge.cli.serve.DEFAULT_HEALTHZ_PORT — never
+    hardcode 8080
+  framework: httpx HTTP client probing the running container
+  task: TASK-F009-001
+- consumes: JETSTREAM_DURABLE_NAME
+  driver: nats-core (sibling editable)
+  format_note: Multi-replica test (D2) must read forge.cli.serve.DEFAULT_DURABLE_NAME
+    and assert JetStream consumer_info() reports the same name
+  framework: nats-core JetStream client used in test fixtures
+  task: TASK-F009-001
+created: 2026-04-30 00:00:00+00:00
+dependencies:
+- TASK-F009-003
+- TASK-F009-004
+- TASK-F009-005
+feature_id: FEAT-FORGE-009
+id: TASK-F009-006
+implementation_mode: task-work
+parent_review: TASK-REV-F009
+priority: high
+status: completed
+tags:
+- testing
+- bdd
+- pytest-bdd
+- integration
+- feat-forge-009
+task_type: testing
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: completed
+title: Add BDD bindings and integration tests for the production image
+updated: 2026-04-30 00:00:00+00:00
+wave: 3
 ---
 
 # Task: Add BDD bindings and integration tests for the production image

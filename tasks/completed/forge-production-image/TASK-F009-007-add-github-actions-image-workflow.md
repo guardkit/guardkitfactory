@@ -16,7 +16,7 @@ id: TASK-F009-007
 implementation_mode: task-work
 parent_review: TASK-REV-F009
 priority: high
-status: design_approved
+status: completed
 tags:
 - ci
 - github-actions
@@ -28,7 +28,7 @@ task_type: feature
 test_results:
   coverage: null
   last_run: null
-  status: pending
+  status: completed
 title: Add GitHub Actions workflow that builds and smoke-tests the production image
 updated: 2026-04-30 00:00:00+00:00
 wave: 3

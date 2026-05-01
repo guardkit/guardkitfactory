@@ -216,5 +216,8 @@ __marimo__/
 .guardkit/autobuild/*/events.jsonl
 .guardkit/graphiti-query-log.jsonl
 
+# GuardKit feature-complete archive (local-only audit trail per /feature-complete spec)
+.guardkit/archive/
+
 # Per-machine Claude Code overrides
 .claude/settings.local.json

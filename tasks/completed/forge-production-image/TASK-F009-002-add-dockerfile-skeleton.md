@@ -7,7 +7,7 @@ id: TASK-F009-002
 implementation_mode: task-work
 parent_review: TASK-REV-F009
 priority: high
-status: design_approved
+status: completed
 tags:
 - dockerfile
 - scaffolding
@@ -17,7 +17,7 @@ task_type: scaffolding
 test_results:
   coverage: null
   last_run: null
-  status: pending
+  status: completed
 title: Add multi-stage Dockerfile skeleton with digest-pinned base and non-root user
 updated: 2026-04-30 00:00:00+00:00
 wave: 1

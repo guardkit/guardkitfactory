@@ -2,7 +2,7 @@
 id: TASK-F009-001
 title: Add forge serve skeleton, ServeConfig, and shared SubscriptionState
 task_type: scaffolding
-status: backlog
+status: completed
 priority: high
 created: 2026-04-30T00:00:00Z
 updated: 2026-04-30T00:00:00Z
@@ -14,7 +14,7 @@ complexity: 3
 dependencies: []
 tags: [forge-serve, scaffolding, cli, feat-forge-009]
 test_results:
-  status: pending
+  status: completed
   coverage: null
   last_run: null
 ---

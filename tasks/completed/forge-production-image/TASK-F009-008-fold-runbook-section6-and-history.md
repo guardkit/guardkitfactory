@@ -2,7 +2,7 @@
 id: TASK-F009-008
 title: Fold runbook §6 gating callout and append history entry
 task_type: documentation
-status: backlog
+status: completed
 priority: high
 created: 2026-04-30T00:00:00Z
 updated: 2026-04-30T00:00:00Z
@@ -20,7 +20,7 @@ consumer_context:
     driver: "verbatim copy-paste"
     format_note: "Runbook §6.1 must replace the current 'docker build -t forge:production-validation -f Dockerfile .' with the canonical BuildKit invocation. Operator runs the shell block from forge's parent directory; the runbook must say so."
 test_results:
-  status: pending
+  status: completed
   coverage: null
   last_run: null
 ---

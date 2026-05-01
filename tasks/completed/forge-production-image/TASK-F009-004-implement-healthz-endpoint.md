@@ -16,7 +16,7 @@ id: TASK-F009-004
 implementation_mode: task-work
 parent_review: TASK-REV-F009
 priority: high
-status: design_approved
+status: completed
 tags:
 - forge-serve
 - healthz
@@ -27,7 +27,7 @@ task_type: feature
 test_results:
   coverage: null
   last_run: null
-  status: pending
+  status: completed
 title: Implement /healthz HTTP endpoint reporting JetStream subscription state
 updated: 2026-04-30 00:00:00+00:00
 wave: 2
