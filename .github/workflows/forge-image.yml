@@ -1,0 +1,230 @@
+# =============================================================================
+# forge-production-image — TASK-F009-007 (FEAT-FORGE-009 wave 3)
+#
+# Builds and smoke-tests the canonical forge production image on every
+# pull request that touches the production-image surface. Closes
+# binding-shape item 7 and acceptance criteria AC-F (no real provider
+# keys), AC-I (CI gate on PR), and the image-size budget regression
+# check (B4 / ASSUM-003).
+#
+# Status-check name registered with GitHub:
+#   forge-production-image / build-and-smoke-test
+#
+# This workflow is a Contract A *consumer* — it invokes
+# scripts/build-image.sh (the canonical producer, TASK-F009-005) and
+# MUST NOT inline the ``docker buildx build --build-context ...``
+# command. T6's drift detector enforces this in the BDD tier; the
+# unit-level check in tests/dockerfile/test_forge_image_workflow.py
+# gives a faster signal.
+#
+# Sibling-checkout pattern: forge is checked out at
+# $GITHUB_WORKSPACE/forge and nats-core at $GITHUB_WORKSPACE/nats-core
+# so the BuildKit named context ``--build-context nats-core=../nats-core``
+# resolves correctly when the build script runs from
+# $GITHUB_WORKSPACE.
+# =============================================================================
+
+name: forge-production-image
+
+# Quoted ``"on":`` avoids the YAML 1.1 ``on -> True`` boolean coercion
+# that some parsers apply.
+"on":
+  pull_request:
+    paths:
+      - Dockerfile
+      - pyproject.toml
+      - src/forge/**
+      - scripts/build-image.sh
+      - .github/workflows/forge-image.yml
+
+# ``contents: read`` is the only permission the build needs. The
+# secret-scan step does not require GITHUB_TOKEN write access — it
+# only reads the local image.
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke-test:
+    name: Build and smoke-test the production image
+    # ubuntu-latest pins the runner architecture to linux/amd64. The
+    # E3.2 scenario (architecture-mismatch) is meaningful only because
+    # the runner architecture is a known constant — see the
+    # "Verify image architecture" step below.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      # 1.0 GB uncompressed image-size budget per ASSUM-003 (B4).
+      # Declared once here so a future budget change is a single edit.
+      IMAGE_SIZE_BUDGET_BYTES: "1073741824"
+      # Tag baked into scripts/build-image.sh — reused here so the size
+      # / arch / smoke / scan steps all reference the same image.
+      IMAGE_TAG: forge:production-validation
+
+    steps:
+      # ---------------------------------------------------------------
+      # Step 1: Check out forge at $GITHUB_WORKSPACE/forge
+      #
+      # The default actions/checkout target is $GITHUB_WORKSPACE. We
+      # override path: forge so the layout matches the runbook
+      # (RUNBOOK-FEAT-FORGE-008-validation.md §0.4): forge and
+      # nats-core as siblings under one parent directory.
+      # ---------------------------------------------------------------
+      - name: Check out forge
+        uses: actions/checkout@v4
+        with:
+          path: forge
+
+      # ---------------------------------------------------------------
+      # Step 2: Check out nats-core at $GITHUB_WORKSPACE/nats-core
+      #
+      # ``--build-context nats-core=../nats-core`` in
+      # scripts/build-image.sh resolves relative to the directory
+      # buildx is invoked from. The script cd's to forge's parent
+      # (i.e. $GITHUB_WORKSPACE) before running buildx, so a sibling
+      # ``nats-core/`` directory is what the named-context flag picks
+      # up.
+      # ---------------------------------------------------------------
+      - name: Check out nats-core (sibling working tree)
+        uses: actions/checkout@v4
+        with:
+          repository: appmilla/nats-core
+          path: nats-core
+          # ref left as default branch — nats-core ships from main on
+          # tagged releases; if a future task needs a pinned ref it
+          # belongs in this block.
+
+      # ---------------------------------------------------------------
+      # Step 3: Set up BuildKit-capable Docker
+      #
+      # actions/checkout's runner image already ships Docker, but
+      # ``buildx`` is opt-in. setup-buildx-action wires up the buildx
+      # plugin scripts/build-image.sh expects.
+      # ---------------------------------------------------------------
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # ---------------------------------------------------------------
+      # Step 4: Set up Python for the BDD smoke run
+      #
+      # The smoke step (Step 8 below) runs ``pytest -m smoke
+      # tests/bdd/`` against the built image, which executes from the
+      # forge working tree on the runner host (not inside the
+      # container). Python and the test deps must be installed here.
+      # ---------------------------------------------------------------
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: forge/pyproject.toml
+
+      - name: Install forge test dependencies
+        working-directory: forge
+        run: |
+          python -m pip install --upgrade pip
+          # Install forge with dev extras so pytest, pytest-bdd, and
+          # pytest-asyncio resolve. ``[providers]`` is intentionally
+          # omitted — the smoke-set only exercises @smoke scenarios,
+          # which do not import provider SDKs.
+          python -m pip install -e ".[dev]"
+
+      # ---------------------------------------------------------------
+      # Step 5: Build the image via the canonical producer script
+      #
+      # Contract A: this is the ONLY place the docker buildx command
+      # is invoked, and it is invoked through scripts/build-image.sh,
+      # never inlined. T6's drift detector and the unit-level grep in
+      # tests/dockerfile/test_forge_image_workflow.py both enforce
+      # this. The script cd's to its parent directory ($GITHUB_WORKSPACE
+      # in the runner layout) before executing buildx, which is why
+      # the sibling-checkout pattern above works.
+      # ---------------------------------------------------------------
+      - name: Build production image (scripts/build-image.sh)
+        run: bash forge/scripts/build-image.sh
+
+      # ---------------------------------------------------------------
+      # Step 6: Image-size budget gate (ASSUM-003 / B4 scenario)
+      #
+      # The budget is uncompressed bytes per ASSUM-003. ``docker image
+      # inspect --format '{{.Size}}'`` returns the uncompressed size
+      # in bytes, which is what ``-gt`` compares against the budget
+      # constant.
+      #
+      # The failure message names both the budget and the actual size
+      # so a developer can see the magnitude of the regression
+      # without re-running the workflow.
+      # ---------------------------------------------------------------
+      - name: Assert image size is within the 1.0 GB budget
+        run: |
+          set -euo pipefail
+          SIZE=$(docker image inspect "${IMAGE_TAG}" --format '{{.Size}}')
+          BUDGET="${IMAGE_SIZE_BUDGET_BYTES}"
+          echo "Built image size: ${SIZE} bytes (budget: ${BUDGET} bytes)"
+          if [ "${SIZE}" -gt "${BUDGET}" ]; then
+            echo "::error::Image size ${SIZE} exceeds budget ${BUDGET} bytes (1.0 GB uncompressed, ASSUM-003)" >&2
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # Step 7: Architecture-mismatch dry-check (E3.2 scenario)
+      #
+      # The runner is ubuntu-latest (linux/amd64). If a future
+      # refactor ever moves builds to an ARM runner without updating
+      # the runbook, the inspected ``.Architecture`` field will not
+      # match ``amd64`` and this step fails with a named diagnostic
+      # — documenting the cross-arch failure mode rather than letting
+      # users trip over it at deploy time.
+      # ---------------------------------------------------------------
+      - name: Verify image architecture matches linux/amd64
+        run: |
+          set -euo pipefail
+          ARCH=$(docker image inspect "${IMAGE_TAG}" --format '{{.Architecture}}')
+          OS=$(docker image inspect "${IMAGE_TAG}" --format '{{.Os}}')
+          echo "Built image platform: ${OS}/${ARCH}"
+          if [ "${OS}" != "linux" ] || [ "${ARCH}" != "amd64" ]; then
+            echo "::error::Image platform ${OS}/${ARCH} does not match runner platform linux/amd64 (E3.2 cross-arch failure mode)" >&2
+            exit 1
+          fi
+
+      # ---------------------------------------------------------------
+      # Step 8: BDD smoke set (T6 bindings)
+      #
+      # ``pytest -m smoke tests/bdd/`` runs the @smoke scenarios from
+      # the FEAT-FORGE-009 feature against the built image. The
+      # paired step modules in tests/bdd/ delegate the
+      # container-runtime work to the Docker daemon already populated
+      # by Step 5.
+      # ---------------------------------------------------------------
+      - name: Run @smoke BDD scenarios against the built image
+        working-directory: forge
+        env:
+          FORGE_IMAGE_TAG: ${{ env.IMAGE_TAG }}
+        run: |
+          pytest -m smoke tests/bdd/ -v
+
+      # ---------------------------------------------------------------
+      # Step 9: Provider-key scan (AC-F / C1 scenario)
+      #
+      # Scans every layer of the built image for real provider key
+      # material. We use trufflehog's ``docker`` mode because it has
+      # a well-tuned allowlist for placeholders such as
+      # ``EXAMPLE_KEY_FOR_TESTING`` and avoids the false-positive
+      # trap of a roll-your-own regex. The regex prefixes called out
+      # by the AC (sk-, AIza, xoxb-) are part of trufflehog's default
+      # ruleset.
+      #
+      # ``--fail`` exits non-zero on any verified or unverified
+      # finding outside the allowlist, which fails the job as the AC
+      # requires.
+      # ---------------------------------------------------------------
+      - name: Scan image layers for provider key material (sk-, AIza, xoxb-)
+        uses: trufflesecurity/trufflehog@main
+        with:
+          # ``docker`` mode reads the local image straight from the
+          # daemon — no registry push required.
+          extra_args: >-
+            --fail
+            --no-update
+            docker
+            --image=${{ env.IMAGE_TAG }}

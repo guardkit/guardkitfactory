@@ -161,4 +161,13 @@ markers = [
     "edge-case: synonym for ``edge_case`` emitted by /feature-spec",
     "data-integrity: synonym for ``data_integrity`` emitted by /feature-spec",
     "regression: regression-tagged scenarios surface from /feature-spec",
+    # FEAT-FORGE-009 (production image) — registered by TASK-F009-006 so the
+    # 27 forge-production-image scenarios bind cleanly without unknown-mark
+    # warnings. ``slow`` gates the docker-build / multi-replica / broker-outage
+    # tests so the default ``pytest`` invocation excludes them; CI runs them
+    # explicitly via ``pytest -m slow``.
+    "feat-forge-009: feature-level tag for FEAT-FORGE-009 Forge Production Image",
+    "production-image: feature-slug tag for FEAT-FORGE-009",
+    "seam: TASK-F009-006 cross-file seam tests (Contract A drift detector)",
+    "slow: tests that require docker / live NATS — excluded by default",
 ]

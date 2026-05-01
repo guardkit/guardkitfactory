@@ -754,34 +754,28 @@ curl -s http://localhost:5000/health
 
 Per build plan §"Specialist-agent LES1 Parity Gates" — these are the gates that proved necessary on the specialist-agent build (TASK-MDF-CMDW / PORT / ARFS). Do not skip. Each must be green on the production image, not on a dev build.
 
-> **🚧 Gated on FEAT-FORGE-009 (production image).** Phase 6 is
-> **structurally unreachable today** — the runbook calls
-> `docker build -t forge:production-validation -f Dockerfile .` in §6.1
-> but no `Dockerfile` ships in this repo. Phase 6 belongs in the runbook
-> (the LES1 parity contract is canonical and unchanged), but **do not
-> attempt to execute these blocks** until **FEAT-FORGE-009** (forge
-> production `Dockerfile` + `forge serve` daemon) lands.
->
-> - Scoping doc (gate-by-gate requirements, base-image baseline, multi-
->   stage layout, open questions): [`docs/scoping/F8-007b-forge-production-dockerfile.md`](../scoping/F8-007b-forge-production-dockerfile.md).
-> - Originating task: TASK-F8-007b (closed once the scoping doc + this
->   runbook reference + a backlog handoff for `FEAT-FORGE-009-production-image`
->   exist; the Dockerfile build itself is FEAT-FORGE-009's delivery).
-> - Backlog pointer: `tasks/backlog/FEAT-FORGE-009-production-image.md`.
->
-> Earlier drafts of this runbook implied Phase 6 could run today; that
-> claim was incorrect.
-
 ### 6.1 CMDW gate — production-image subscription round-trip
 
 Build the forge production container, run `forge serve` inside it, publish one real `pipeline.build-queued` from outside the container, verify the subscribed JetStream pull consumer delivers it to an actual pipeline run.
 
+> **Build context prerequisite.** The canonical BuildKit invocation
+> below uses `--build-context nats-core=../nats-core`, which means the
+> sibling `nats-core` working tree **must be present at `../nats-core`**
+> (i.e. as a peer of the `forge/` working tree) before the build is
+> invoked. If the sibling is missing, `docker buildx build` fails fast
+> at the named-context resolution step. No host-side mutation of
+> `pyproject.toml`, symlinks, or `.env` is required (canonical-freeze
+> §3.4 / scenario A5); the build is fully container-native.
+
 ```bash
 ssh promaxgb10-41b1
-cd ~/Projects/appmilla_github/forge
+# Run from forge's parent directory so that the BuildKit named context
+# `--build-context nats-core=../nats-core` resolves the sibling working
+# tree. This is the canonical invocation — no host-side mutation.
+cd ~/Projects/appmilla_github
 
-# Build the production image (path depends on this repo's Dockerfile location)
-docker build -t forge:production-validation -f Dockerfile .
+# Build the production image (Contract A — canonical BuildKit invocation)
+docker buildx build --build-context nats-core=../nats-core -t forge:production-validation -f forge/Dockerfile forge/
 
 # Run forge serve inside it, with NATS pointing at the GB10 host
 docker run -d --name forge-cmdw \

@@ -2,10 +2,11 @@
 id: FEAT-FORGE-009
 title: "Forge Production Image (Dockerfile + forge serve daemon)"
 type: feature_stub
-status: backlog
+status: completed
 priority: high
 created: 2026-04-30T00:00:00Z
-updated: 2026-04-30T00:00:00Z
+updated: 2026-05-01T00:00:00Z
+completed: 2026-05-01T00:00:00Z
 recommended_complexity: 4
 recommended_effort: "2–4 sessions (/feature-spec + /feature-plan + autobuild)"
 parent_review: TASK-REV-F008
@@ -81,3 +82,26 @@ That document is the seed input to `/feature-spec`.
 This stub is replaced by a real feature folder
 (`tasks/backlog/feat-forge-009-production-image/`) once
 `/feature-spec FEAT-FORGE-009-production-image` runs.
+
+---
+
+## Closure footer
+
+**Closed by FEAT-FORGE-009 merge `<merge-sha-pending>`** (2026-05-01).
+
+This stub is retained for traceability. The realised feature shipped:
+
+- `Dockerfile` (multi-stage, `python:3.14-slim-bookworm`) at the forge
+  repo root.
+- `forge serve` subcommand wiring the NATS JetStream pull consumer
+  to the existing pipeline runner.
+- Canonical BuildKit invocation
+  `docker buildx build --build-context nats-core=../nats-core -t forge:production-validation -f forge/Dockerfile forge/`
+  (Contract A — sibling `nats-core` source resolved via named build
+  context, no host-side mutation of `pyproject.toml`/symlinks/.env).
+- Runbook fold of `docs/runbooks/RUNBOOK-FEAT-FORGE-008-validation.md`
+  §6 (gating callout removed; §6.1 now executes against the canonical
+  image) — TASK-F009-008.
+
+See `docs/history/command-history.md` "FEAT-FORGE-009 merge" entry
+for the full canonical-freeze record.

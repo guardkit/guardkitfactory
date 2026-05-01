@@ -1,22 +1,26 @@
 ---
-id: TASK-F009-002
-title: Add multi-stage Dockerfile skeleton with digest-pinned base and non-root user
-task_type: scaffolding
-status: backlog
-priority: high
-created: 2026-04-30T00:00:00Z
-updated: 2026-04-30T00:00:00Z
-parent_review: TASK-REV-F009
-feature_id: FEAT-FORGE-009
-wave: 1
-implementation_mode: task-work
 complexity: 4
+created: 2026-04-30 00:00:00+00:00
 dependencies: []
-tags: [dockerfile, scaffolding, supply-chain, feat-forge-009]
+feature_id: FEAT-FORGE-009
+id: TASK-F009-002
+implementation_mode: task-work
+parent_review: TASK-REV-F009
+priority: high
+status: design_approved
+tags:
+- dockerfile
+- scaffolding
+- supply-chain
+- feat-forge-009
+task_type: scaffolding
 test_results:
-  status: pending
   coverage: null
   last_run: null
+  status: pending
+title: Add multi-stage Dockerfile skeleton with digest-pinned base and non-root user
+updated: 2026-04-30 00:00:00+00:00
+wave: 1
 ---
 
 # Task: Add multi-stage Dockerfile skeleton with digest-pinned base and non-root user

@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# .dockerignore — build-context filter for the forge production image
+# (TASK-F009-002, AC-F).
+#
+# Goals:
+#   * Keep the build context small (a fast `docker build` on a slow
+#     network depends on this).
+#   * Prevent host-side state from leaking into the image — VCS history,
+#     local virtualenvs, .guardkit autobuild scratch, .env secrets.
+#   * Avoid invalidating the build cache when only tests, docs, or
+#     task-tracking files change.
+# ---------------------------------------------------------------------------
+
+# Version control & local-only worktrees.
+.git
+.gitignore
+.gitattributes
+.guardkit
+
+# Editor / OS metadata.
+.vscode
+.idea
+.DS_Store
+*.swp
+*.swo
+
+# Python virtualenvs and toolchain caches.
+.venv
+venv
+env
+.tox
+.nox
+.mypy_cache
+.ruff_cache
+.pytest_cache
+.coverage
+.coverage.*
+htmlcov
+*.egg-info
+build/
+dist/
+
+# Byte-compiled artefacts.
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+
+# Source trees that the production image deliberately does NOT ship:
+#   * tests/   — runtime image must not carry test code (image size, attack surface)
+#   * docs/    — published docs site is separate
+#   * tasks/   — GuardKit task-tracking markdown, never runtime input
+#   * spikes/  — exploratory code, not production-ready
+#   * features/ — Gherkin spec source, not runtime input
+.dockerignore.local
+tests/
+docs/
+tasks/
+spikes/
+features/
+
+# Secrets & local environment overlays — defence in depth. The
+# Dockerfile already refuses to COPY .env, but a stray `COPY . .` in a
+# future stage must still be safe.
+.env
+.env.*
+*.pem
+*.key
+secrets/
+
+# Docker / CI scratch.
+Dockerfile.local
+docker-compose*.yml
+docker-compose*.yaml
+.github/
+
+# IDE/test reports.
+*.log
+coverage.xml
+junit*.xml

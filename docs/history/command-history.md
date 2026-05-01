@@ -8190,3 +8190,11 @@ Recommended next step: /task-work TASK-FIX-F09A1 to ship Layer 1 and unblock FEA
 
 
 GUARDKIT_LOG_LEVEL=DEBUG guardkit autobuild feature FEAT-CBDE --verbose --max-turns 30
+
+
+
+/feature-merge FEAT-FORGE-009
+
+FEAT-FORGE-009 merge
+
+[as of commit <merge-sha-pending>] FEAT-FORGE-009 (Forge Production Image — Dockerfile + `forge serve` daemon) landed. The feature shipped a multi-stage `Dockerfile` at the forge repo root (builder + runtime, `python:3.14-slim-bookworm` baseline, non-root runtime user, `HEALTHCHECK` against `/healthz`), a new `forge serve` subcommand (`src/forge/cli/main.py`) wiring the NATS JetStream pull consumer to the existing pipeline runner, the canonical BuildKit invocation `docker buildx build --build-context nats-core=../nats-core -t forge:production-validation -f forge/Dockerfile forge/` (Contract A — sibling `nats-core` source resolved via named build context, no host-side mutation of `pyproject.toml`/symlinks/.env), BDD bindings + integration tests for the LES1 parity gates (CMDW, PORT, ARFS, canonical-freeze §3.4), and the runbook fold of `RUNBOOK-FEAT-FORGE-008-validation.md` §6 (gating callout removed; §6.1 now executes against the canonical image). Phase 6 of the FEAT-FORGE-008 validation runbook is now structurally reachable on `main`.
