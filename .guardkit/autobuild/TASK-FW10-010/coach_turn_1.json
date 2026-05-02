@@ -1,0 +1,173 @@
+{
+  "task_id": "TASK-FW10-010",
+  "turn": 1,
+  "decision": "feedback",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/forge/test_pause_resume_publish.py tests/forge/test_pipeline_consumer_validation.py tests/integration/test_pause_resume_e2e.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_pipeline_consumer_validation.py::TestDispatchErrorIsContained::test_dispatch_error_does_not_block_next_message PASSED [ 87%]\ntests/forge/test_pipeline_consumer_validation.py::TestDispatchErrorIsContained::test_dispatch_error_and_ack_failure_does_not_propagate PASSED [ 91%]\ntests/integration/test_pause_resume_e2e.py::TestPauseResumeRoundTrip::test_pause_restart_resume_round_trip PASSED [ 95%]\ntests/integration/test_pause_resume_e2e.py::TestPauseResumeRoundTrip::test_only_first_approval_advances_orchestrator PASSED [100%]\n======================== 24 passed, 1 warning in 1.60s =========================",
+      "duration_seconds": 3.2217750549316406
+    },
+    "requirements": {
+      "criteria_total": 7,
+      "criteria_met": 6,
+      "all_criteria_met": false,
+      "missing": [
+        "All modified files pass project-configured lint/format checks"
+      ]
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "When the autobuild_runner's `_update_state` writes",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added LifecycleEmitterAdapter class to src/forge/subagents/autobuild_runner.py with LIFECYCLE_TO_PIPELINE_EMIT routing table mapping 'awaiting_approval' -> 'emit_paused'. The adapter implements SubagentEmitter Protocol, schedules emit_paused on the running event loop, and threads the BuildContext.correlation_id onto the envelope. Verified by TestPausePublishAwaitingApproval::test_update_state_awaiting_approval_publishes_build_paused which asserts subject == 'pipeline.build-paused.FEAT-X' and envelope.correlation_id == 'corr-001'.",
+      "notes": "Added LifecycleEmitterAdapter class to src/forge/subagents/autobuild_runner.py with LIFECYCLE_TO_PIPELINE_EMIT routing table mapping 'awaiting_approval' -> 'emit_paused'. The adapter implements SubagentEmitter Protocol, schedules emit_paused on the running event loop, and threads the BuildContext.correlation_id onto the envelope. Verified by TestPausePublishAwaitingApproval::test_update_state_awaiting_approval_publishes_build_paused which asserts subject == 'pipeline.build-paused.FEAT-X' and envelope.correlation_id == 'corr-001'."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "When the approval subscriber matches an approval response with",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added optional lifecycle_emitter, build_context, expected_correlation_id parameters to ApprovalSubscriber.await_response. Added per-build _resume_publish_ctx mapping populated on await_response and consumed in _on_envelope. When a first-arrival valid response is enqueued, the subscriber awaits emitter.emit_resumed() BEFORE queue.put(payload). Verified by TestResumePublishOnApproval::test_first_arrival_publishes_build_resumed and test_resume_published_before_orchestrator_advances which assert publish ordering precedes queue dequeue.",
+      "notes": "Added optional lifecycle_emitter, build_context, expected_correlation_id parameters to ApprovalSubscriber.await_response. Added per-build _resume_publish_ctx mapping populated on await_response and consumed in _on_envelope. When a first-arrival valid response is enqueued, the subscriber awaits emitter.emit_resumed() BEFORE queue.put(payload). Verified by TestResumePublishOnApproval::test_first_arrival_publishes_build_resumed and test_resume_published_before_orchestrator_advances which assert publish ordering precedes queue dequeue."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "An approval response with a mismatched correlation_id does NOT",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Added correlation-id allowlist check in ApprovalSubscriber._on_envelope (Step 2b): when expected_correlation_id is registered for the build and envelope.correlation_id mismatches, the subscriber logs WARNING and returns early \u2014 emit_resumed is NOT called and the response is not enqueued. Verified by TestMismatchedCorrelationIdRejected::test_mismatched_correlation_does_not_publish_resumed.",
+      "notes": "Added correlation-id allowlist check in ApprovalSubscriber._on_envelope (Step 2b): when expected_correlation_id is registered for the build and envelope.correlation_id mismatches, the subscriber logs WARNING and returns early \u2014 emit_resumed is NOT called and the response is not enqueued. Verified by TestMismatchedCorrelationIdRejected::test_mismatched_correlation_does_not_publish_resumed."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "After a daemon restart while a build is paused, the build",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Verified by tests/integration/test_pause_resume_e2e.py::TestPauseResumeRoundTrip::test_pause_restart_resume_round_trip which simulates a daemon restart by re-instantiating LifecycleEmitterAdapter with the SAME emitter+ctx and calling _update_state(awaiting_approval) on the rehydrated state. Asserts that two build-paused publishes occur and the second envelope's correlation_id == CORRELATION_ID (verbatim reuse, ADR-ARCH-021). Existing recover_paused_builds in src/forge/gating/wrappers.py already handles approval-request re-emission with the persisted request_id (R5 closure).",
+      "notes": "Verified by tests/integration/test_pause_resume_e2e.py::TestPauseResumeRoundTrip::test_pause_restart_resume_round_trip which simulates a daemon restart by re-instantiating LifecycleEmitterAdapter with the SAME emitter+ctx and calling _update_state(awaiting_approval) on the rehydrated state. Asserts that two build-paused publishes occur and the second envelope's correlation_id == CORRELATION_ID (verbatim reuse, ADR-ARCH-021). Existing recover_paused_builds in src/forge/gating/wrappers.py already handles approval-request re-emission with the persisted request_id (R5 closure)."
+    },
+    {
+      "criterion_id": "AC-005",
+      "criterion_text": "Only the first approval response wins (idempotent first-wins",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "The existing _check_and_record dedup buffer in ApprovalSubscriber arbitrates duplicates under asyncio.Lock. The new emit_resumed call is gated AFTER dedup so a second matching response is dropped before reaching the publish path. Verified by TestFirstResponseWins::test_second_matching_response_is_dedup_dropped (sequential dedup) and test_only_first_approval_advances_orchestrator in the e2e suite (concurrent dedup via asyncio.gather on two identical envelopes). Both assert exactly one build-resumed publish and one queue entry.",
+      "notes": "The existing _check_and_record dedup buffer in ApprovalSubscriber arbitrates duplicates under asyncio.Lock. The new emit_resumed call is gated AFTER dedup so a second matching response is dropped before reaching the publish path. Verified by TestFirstResponseWins::test_second_matching_response_is_dedup_dropped (sequential dedup) and test_only_first_approval_advances_orchestrator in the e2e suite (concurrent dedup via asyncio.gather on two identical envelopes). Both assert exactly one build-resumed publish and one queue entry."
+    },
+    {
+      "criterion_id": "AC-006",
+      "criterion_text": "Publish failures on `emit_build_paused` / `emit_build_resumed`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "LifecycleEmitterAdapter._safe_run wraps every scheduled coroutine in try/except, logging at WARNING (DDR-007 \u00a7Failure-mode contract). ApprovalSubscriber._on_envelope wraps the emit_resumed call in try/except, logging at WARNING; the queue still receives the payload so the orchestrator can resume even on a transient publish hiccup. PipelineLifecycleEmitter._safe_publish (existing) already swallows PublishFailure. Verified by TestPublishFailureContract::test_publish_failure_on_pause_logs_warning and test_publish_failure_on_resume_logs_warning \u2014 both assert state continues, queue receives, and WARNING/ERROR is logged.",
+      "notes": "LifecycleEmitterAdapter._safe_run wraps every scheduled coroutine in try/except, logging at WARNING (DDR-007 \u00a7Failure-mode contract). ApprovalSubscriber._on_envelope wraps the emit_resumed call in try/except, logging at WARNING; the queue still receives the payload so the orchestrator can resume even on a transient publish hiccup. PipelineLifecycleEmitter._safe_publish (existing) already swallows PublishFailure. Verified by TestPublishFailureContract::test_publish_failure_on_pause_logs_warning and test_publish_failure_on_resume_logs_warning \u2014 both assert state continues, queue receives, and WARNING/ERROR is logged."
+    },
+    {
+      "criterion_id": "AC-007",
+      "criterion_text": "All modified files pass project-configured lint/format checks",
+      "result": "rejected",
+      "status": "rejected",
+      "evidence": "Promise status: uncertain",
+      "notes": "Promise status: uncertain"
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "When the autobuild_runner's `_update_state` writes",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added LifecycleEmitterAdapter class to src/forge/subagents/autobuild_runner.py with LIFECYCLE_TO_PIPELINE_EMIT routing table mapping 'awaiting_approval' -> 'emit_paused'. The adapter implements SubagentEmitter Protocol, schedules emit_paused on the running event loop, and threads the BuildContext.correlation_id onto the envelope. Verified by TestPausePublishAwaitingApproval::test_update_state_awaiting_approval_publishes_build_paused which asserts subject == 'pipeline.build-paused.FEAT-X' and envelope.correlation_id == 'corr-001'.",
+        "notes": "Added LifecycleEmitterAdapter class to src/forge/subagents/autobuild_runner.py with LIFECYCLE_TO_PIPELINE_EMIT routing table mapping 'awaiting_approval' -> 'emit_paused'. The adapter implements SubagentEmitter Protocol, schedules emit_paused on the running event loop, and threads the BuildContext.correlation_id onto the envelope. Verified by TestPausePublishAwaitingApproval::test_update_state_awaiting_approval_publishes_build_paused which asserts subject == 'pipeline.build-paused.FEAT-X' and envelope.correlation_id == 'corr-001'."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "When the approval subscriber matches an approval response with",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added optional lifecycle_emitter, build_context, expected_correlation_id parameters to ApprovalSubscriber.await_response. Added per-build _resume_publish_ctx mapping populated on await_response and consumed in _on_envelope. When a first-arrival valid response is enqueued, the subscriber awaits emitter.emit_resumed() BEFORE queue.put(payload). Verified by TestResumePublishOnApproval::test_first_arrival_publishes_build_resumed and test_resume_published_before_orchestrator_advances which assert publish ordering precedes queue dequeue.",
+        "notes": "Added optional lifecycle_emitter, build_context, expected_correlation_id parameters to ApprovalSubscriber.await_response. Added per-build _resume_publish_ctx mapping populated on await_response and consumed in _on_envelope. When a first-arrival valid response is enqueued, the subscriber awaits emitter.emit_resumed() BEFORE queue.put(payload). Verified by TestResumePublishOnApproval::test_first_arrival_publishes_build_resumed and test_resume_published_before_orchestrator_advances which assert publish ordering precedes queue dequeue."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "An approval response with a mismatched correlation_id does NOT",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Added correlation-id allowlist check in ApprovalSubscriber._on_envelope (Step 2b): when expected_correlation_id is registered for the build and envelope.correlation_id mismatches, the subscriber logs WARNING and returns early \u2014 emit_resumed is NOT called and the response is not enqueued. Verified by TestMismatchedCorrelationIdRejected::test_mismatched_correlation_does_not_publish_resumed.",
+        "notes": "Added correlation-id allowlist check in ApprovalSubscriber._on_envelope (Step 2b): when expected_correlation_id is registered for the build and envelope.correlation_id mismatches, the subscriber logs WARNING and returns early \u2014 emit_resumed is NOT called and the response is not enqueued. Verified by TestMismatchedCorrelationIdRejected::test_mismatched_correlation_does_not_publish_resumed."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "After a daemon restart while a build is paused, the build",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Verified by tests/integration/test_pause_resume_e2e.py::TestPauseResumeRoundTrip::test_pause_restart_resume_round_trip which simulates a daemon restart by re-instantiating LifecycleEmitterAdapter with the SAME emitter+ctx and calling _update_state(awaiting_approval) on the rehydrated state. Asserts that two build-paused publishes occur and the second envelope's correlation_id == CORRELATION_ID (verbatim reuse, ADR-ARCH-021). Existing recover_paused_builds in src/forge/gating/wrappers.py already handles approval-request re-emission with the persisted request_id (R5 closure).",
+        "notes": "Verified by tests/integration/test_pause_resume_e2e.py::TestPauseResumeRoundTrip::test_pause_restart_resume_round_trip which simulates a daemon restart by re-instantiating LifecycleEmitterAdapter with the SAME emitter+ctx and calling _update_state(awaiting_approval) on the rehydrated state. Asserts that two build-paused publishes occur and the second envelope's correlation_id == CORRELATION_ID (verbatim reuse, ADR-ARCH-021). Existing recover_paused_builds in src/forge/gating/wrappers.py already handles approval-request re-emission with the persisted request_id (R5 closure)."
+      },
+      {
+        "criterion_id": "AC-005",
+        "criterion_text": "Only the first approval response wins (idempotent first-wins",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "The existing _check_and_record dedup buffer in ApprovalSubscriber arbitrates duplicates under asyncio.Lock. The new emit_resumed call is gated AFTER dedup so a second matching response is dropped before reaching the publish path. Verified by TestFirstResponseWins::test_second_matching_response_is_dedup_dropped (sequential dedup) and test_only_first_approval_advances_orchestrator in the e2e suite (concurrent dedup via asyncio.gather on two identical envelopes). Both assert exactly one build-resumed publish and one queue entry.",
+        "notes": "The existing _check_and_record dedup buffer in ApprovalSubscriber arbitrates duplicates under asyncio.Lock. The new emit_resumed call is gated AFTER dedup so a second matching response is dropped before reaching the publish path. Verified by TestFirstResponseWins::test_second_matching_response_is_dedup_dropped (sequential dedup) and test_only_first_approval_advances_orchestrator in the e2e suite (concurrent dedup via asyncio.gather on two identical envelopes). Both assert exactly one build-resumed publish and one queue entry."
+      },
+      {
+        "criterion_id": "AC-006",
+        "criterion_text": "Publish failures on `emit_build_paused` / `emit_build_resumed`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "LifecycleEmitterAdapter._safe_run wraps every scheduled coroutine in try/except, logging at WARNING (DDR-007 \u00a7Failure-mode contract). ApprovalSubscriber._on_envelope wraps the emit_resumed call in try/except, logging at WARNING; the queue still receives the payload so the orchestrator can resume even on a transient publish hiccup. PipelineLifecycleEmitter._safe_publish (existing) already swallows PublishFailure. Verified by TestPublishFailureContract::test_publish_failure_on_pause_logs_warning and test_publish_failure_on_resume_logs_warning \u2014 both assert state continues, queue receives, and WARNING/ERROR is logged.",
+        "notes": "LifecycleEmitterAdapter._safe_run wraps every scheduled coroutine in try/except, logging at WARNING (DDR-007 \u00a7Failure-mode contract). ApprovalSubscriber._on_envelope wraps the emit_resumed call in try/except, logging at WARNING; the queue still receives the payload so the orchestrator can resume even on a transient publish hiccup. PipelineLifecycleEmitter._safe_publish (existing) already swallows PublishFailure. Verified by TestPublishFailureContract::test_publish_failure_on_pause_logs_warning and test_publish_failure_on_resume_logs_warning \u2014 both assert state continues, queue receives, and WARNING/ERROR is logged."
+      },
+      {
+        "criterion_id": "AC-007",
+        "criterion_text": "All modified files pass project-configured lint/format checks",
+        "result": "rejected",
+        "status": "rejected",
+        "evidence": "Promise status: uncertain",
+        "notes": "Promise status: uncertain"
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "must_fix",
+      "category": "missing_requirement",
+      "description": "Not all acceptance criteria met",
+      "missing_criteria": [
+        "All modified files pass project-configured lint/format checks"
+      ]
+    }
+  ],
+  "rationale": "Missing 1 acceptance criteria: All modified files pass project-configured lint/format checks",
+  "context_used": "## Job-Specific Context\n\nBudget: 1062/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- HAS_SEQUENCE_STEP\n- IS_USED_FOR\n\n### \u26a0\ufe0f Warnings\n- IS_IMPLEMENTED_AS\n- USES_ENDPOINT\n\n### \ud83c\udfad Role Constraints\n- IS_CREATED_FOR\n- HAS_ROLE_MUST_DO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- HAS_STATE_RECOVERY_STRATEGY\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false,
+  "environment_conditional_approval": false
+}

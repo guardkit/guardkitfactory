@@ -1,0 +1,7 @@
+{
+  "tests_run": 24,
+  "tests_failed": 0,
+  "coverage_pct": 65.33,
+  "output_summary": "pytest: 24 passed, 0 failed; coverage 65% across approval_subscriber.py, pipeline_consumer.py, autobuild_runner.py (548 stmts / 190 miss)",
+  "quality_gates_passed": true
+}
