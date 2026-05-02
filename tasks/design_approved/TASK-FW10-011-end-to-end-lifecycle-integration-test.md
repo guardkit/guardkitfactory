@@ -1,16 +1,27 @@
 ---
-id: TASK-FW10-011
-title: "End-to-end lifecycle integration test (build-queued → terminal envelope, all subjects)"
-task_type: testing
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 4
-implementation_mode: task-work
 complexity: 6
-dependencies: [TASK-FW10-007, TASK-FW10-008, TASK-FW10-009, TASK-FW10-010]
+dependencies:
+- TASK-FW10-007
+- TASK-FW10-008
+- TASK-FW10-009
+- TASK-FW10-010
 estimated_minutes: 120
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-011
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
 priority: high
-tags: [integration-test, e2e, lifecycle, correlation-id, capstone]
+status: design_approved
+tags:
+- integration-test
+- e2e
+- lifecycle
+- correlation-id
+- capstone
+task_type: testing
+title: End-to-end lifecycle integration test (build-queued → terminal envelope, all
+  subjects)
+wave: 4
 ---
 
 # TASK-FW10-011 — End-to-end lifecycle integration test
