@@ -1,22 +1,31 @@
 ---
-id: TASK-FW10-010
-title: "Pause/resume publish round-trip via emit_build_paused and emit_build_resumed"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 4
-implementation_mode: task-work
 complexity: 3
-dependencies: [TASK-FW10-007, TASK-FW10-008]
-estimated_minutes: 60
-priority: high
-tags: [pause-resume, approval, lifecycle-emitter, ddr-007]
 consumer_context:
-  - task: TASK-FW10-006
-    consumes: PipelineLifecycleEmitter
-    framework: "approval_subscriber resume path + autobuild_runner _update_state"
-    driver: "in-process Python object"
-    format_note: "emit_build_paused fires from _update_state at lifecycle='awaiting_approval'; emit_build_resumed fires from forge.adapters.nats.approval_subscriber's resume path. Both are single-line additions per DDR-007 §Decision."
+- consumes: PipelineLifecycleEmitter
+  driver: in-process Python object
+  format_note: emit_build_paused fires from _update_state at lifecycle='awaiting_approval';
+    emit_build_resumed fires from forge.adapters.nats.approval_subscriber's resume
+    path. Both are single-line additions per DDR-007 §Decision.
+  framework: approval_subscriber resume path + autobuild_runner _update_state
+  task: TASK-FW10-006
+dependencies:
+- TASK-FW10-007
+- TASK-FW10-008
+estimated_minutes: 60
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-010
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- pause-resume
+- approval
+- lifecycle-emitter
+- ddr-007
+task_type: feature
+title: Pause/resume publish round-trip via emit_build_paused and emit_build_resumed
+wave: 4
 ---
 
 # TASK-FW10-010 — Pause/resume publish round-trip

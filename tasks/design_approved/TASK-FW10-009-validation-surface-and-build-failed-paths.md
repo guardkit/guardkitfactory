@@ -1,16 +1,23 @@
 ---
-id: TASK-FW10-009
-title: "Validation surface (malformed payload, duplicate, allowlist) emits build-failed and acks"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 4
-implementation_mode: task-work
 complexity: 4
-dependencies: [TASK-FW10-007]
+dependencies:
+- TASK-FW10-007
 estimated_minutes: 60
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-009
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
 priority: high
-tags: [validation, build-failed, security, allowlist]
+status: design_approved
+tags:
+- validation
+- build-failed
+- security
+- allowlist
+task_type: feature
+title: Validation surface (malformed payload, duplicate, allowlist) emits build-failed
+  and acks
+wave: 4
 ---
 
 # TASK-FW10-009 — Validation surface emits `build-failed` and acks

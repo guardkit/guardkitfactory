@@ -255,6 +255,49 @@ def _failure_payload(
     )
 
 
+async def _safe_publish_failure(
+    deps: PipelineConsumerDeps,
+    failure: BuildFailedPayload,
+    feature_id: str,
+) -> None:
+    """Publish ``build-failed`` while absorbing transport-level errors.
+
+    TASK-FW10-009 / Group C "publish failure does not regress" — per
+    ADR-ARCH-008 a NATS publish failure on a validation-rejection path
+    MUST NOT propagate out of :func:`handle_message`. The recorded
+    transition (which on these paths is empty — the message is rejected
+    before any state-machine entry) stays untouched, the inbound message
+    is still acked, and the fetch loop continues to the next message.
+
+    Args:
+        deps: Pipeline-consumer dependency container.
+        failure: The :class:`BuildFailedPayload` to publish.
+        feature_id: Feature identifier used for the
+            ``pipeline.build-failed.{feature_id}`` subject.
+
+    Notes:
+        We deliberately catch :class:`Exception` rather than a narrower
+        type. The publish surface depends on the injected publisher's
+        transport; in production it is ``nats-py``'s asyncio JetStream
+        publish which can raise a wide family of transient errors
+        (connection reset, backpressure, no-responders, …). Logging at
+        WARNING preserves operator visibility without crashing the
+        daemon.
+    """
+
+    try:
+        await deps.publish_build_failed(failure, feature_id)
+    except Exception as exc:
+        logger.warning(
+            "pipeline_consumer: publish_build_failed raised (%s) for "
+            "feature_id=%s reason=%r; recorded transition unchanged, "
+            "daemon continues",
+            exc,
+            feature_id,
+            failure.failure_reason,
+        )
+
+
 # ---------------------------------------------------------------------------
 # Core message handler
 # ---------------------------------------------------------------------------
@@ -297,7 +340,8 @@ async def handle_message(msg: _MsgLike, deps: PipelineConsumerDeps) -> None:
             exc,
         )
         await msg.ack()
-        await deps.publish_build_failed(
+        await _safe_publish_failure(
+            deps,
             _failure_payload(
                 feature_id=UNKNOWN_FEATURE_ID,
                 build_id=UNKNOWN_FEATURE_ID,
@@ -321,7 +365,8 @@ async def handle_message(msg: _MsgLike, deps: PipelineConsumerDeps) -> None:
             exc,
         )
         await msg.ack()
-        await deps.publish_build_failed(
+        await _safe_publish_failure(
+            deps,
             _failure_payload(
                 feature_id=feature_id,
                 build_id=feature_id,
@@ -342,7 +387,8 @@ async def handle_message(msg: _MsgLike, deps: PipelineConsumerDeps) -> None:
             payload.feature_id,
         )
         await msg.ack()
-        await deps.publish_build_failed(
+        await _safe_publish_failure(
+            deps,
             _failure_payload(
                 feature_id=payload.feature_id,
                 build_id=payload.feature_id,
@@ -362,7 +408,8 @@ async def handle_message(msg: _MsgLike, deps: PipelineConsumerDeps) -> None:
             payload.feature_id,
         )
         await msg.ack()
-        await deps.publish_build_failed(
+        await _safe_publish_failure(
+            deps,
             _failure_payload(
                 feature_id=payload.feature_id,
                 build_id=payload.feature_id,
@@ -392,7 +439,45 @@ async def handle_message(msg: _MsgLike, deps: PipelineConsumerDeps) -> None:
         payload.correlation_id,
         payload.originating_adapter,
     )
-    await deps.dispatch_build(payload, ack_callback)
+    try:
+        await deps.dispatch_build(payload, ack_callback)
+    except Exception as exc:
+        # TASK-FW10-009 / Group C "dispatch error contained": the state
+        # machine raised out of the dispatch path before reaching a
+        # terminal transition. We MUST stop the message from blocking
+        # the consumer (``max_ack_pending=1`` per ADR-ARCH-014) so the
+        # next delivered build is processed. Approach:
+        #
+        #   1. Log at WARNING with the failed identity for triage.
+        #   2. Best-effort ack via the idempotent callback so JetStream
+        #      releases the slot. If the state machine had already
+        #      transitioned to a terminal state and acked, the second
+        #      call is a no-op (see :func:`_build_ack_callback`).
+        #   3. Swallow the exception — the daemon stays running.
+        #
+        # We do NOT publish ``build-failed`` here: if the state machine
+        # got far enough to record any transition it owns the publish,
+        # and emitting a duplicate from the consumer would violate the
+        # single-source-of-truth contract (ADR-ARCH-008). Operators
+        # detect dispatch crashes via the WARNING log line.
+        logger.warning(
+            "pipeline_consumer: dispatch_build raised (%s) for "
+            "feature_id=%s correlation_id=%s; acking and continuing so "
+            "the next build can be processed",
+            exc,
+            payload.feature_id,
+            payload.correlation_id,
+        )
+        try:
+            await ack_callback()
+        except Exception as ack_exc:
+            logger.warning(
+                "pipeline_consumer: ack_callback raised (%s) after "
+                "dispatch error for feature_id=%s; daemon continues "
+                "without ack — JetStream will redeliver after ack_wait",
+                ack_exc,
+                payload.feature_id,
+            )
 
 
 def _build_ack_callback(msg: _MsgLike) -> AckCallback:
@@ -459,8 +544,8 @@ IN_FLIGHT_BUILD_STATES: frozenset[str] = frozenset({"RUNNING", "FINALISING"})
 #: scratch via the same ``INTERRUPTED → PREPARING`` transition. We
 #: include ``PREPARING`` here so a crash mid-worktree-creation does not
 #: leave the build wedged.
-RESTART_FROM_PREPARING_STATES: frozenset[str] = (
-    IN_FLIGHT_BUILD_STATES | frozenset({"PREPARING"})
+RESTART_FROM_PREPARING_STATES: frozenset[str] = IN_FLIGHT_BUILD_STATES | frozenset(
+    {"PREPARING"}
 )
 
 #: Single literal value: the persisted state for paused builds. Pulled
@@ -526,9 +611,7 @@ IterPausedBuilds = Callable[[], Awaitable["list[PausedBuildSnapshot]"]]
 PublishBuildPausedFn = Callable[[BuildPausedPayload], Awaitable[None]]
 """Re-emit ``pipeline.build-paused.{feature_id}``."""
 
-PublishApprovalRequestFn = Callable[
-    [ApprovalRequestPayload, str], Awaitable[None]
-]
+PublishApprovalRequestFn = Callable[[ApprovalRequestPayload, str], Awaitable[None]]
 """``async (payload, approval_subject) -> None`` — re-emit the approval
 request on its original subject."""
 

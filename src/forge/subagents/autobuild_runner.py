@@ -72,13 +72,17 @@ flips this contract.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Literal, Protocol, get_args, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, get_args, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only
+    from forge.pipeline import BuildContext, PipelineLifecycleEmitter
 
 logger = logging.getLogger(__name__)
 
@@ -447,6 +451,301 @@ def build_stage_complete_kwargs(state: AutobuildState) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
+# LifecycleEmitterAdapter — DDR-007 production wiring (TASK-FW10-010)
+# ---------------------------------------------------------------------------
+
+
+#: Mapping from DDR-006 lifecycle strings to the
+#: :class:`PipelineLifecycleEmitter` async coroutine name that publishes the
+#: matching ``pipeline.*`` envelope. ``None`` means "no publish for this
+#: lifecycle" — the channel write still happens via ``_update_state``;
+#: only the wire emit is suppressed (e.g. ``starting`` is observable via
+#: ``async_tasks`` but produces no separate envelope).
+#:
+#: ``awaiting_approval`` routes to ``emit_paused`` (DDR-007 pause publish)
+#: and the canonical resume edge ``awaiting_approval → running_wave``
+#: routes to ``emit_resumed`` (DDR-007 resume publish). The latter is
+#: keyed on the *destination* lifecycle plus a transition hint passed in
+#: ``state.waiting_for is None`` semantics.
+LIFECYCLE_TO_PIPELINE_EMIT: dict[str, str | None] = {
+    "starting": None,
+    "planning_waves": None,
+    "running_wave": None,
+    "awaiting_approval": "emit_paused",
+    "pushing_pr": None,
+    "completed": "emit_complete",
+    "cancelled": "emit_cancelled",
+    "failed": "emit_failed",
+}
+
+
+class LifecycleEmitterAdapter:
+    """Bridge :class:`SubagentEmitter` (sync) → :class:`PipelineLifecycleEmitter` (async).
+
+    DDR-007 §Decision (Option A) threads the in-process
+    :class:`PipelineLifecycleEmitter` onto the subagent's context payload.
+    The runner calls :meth:`SubagentEmitter.on_transition` synchronously
+    from inside :func:`_update_state`; this adapter routes that single
+    sync entry point to the async ``emit_*`` coroutines on the wrapped
+    :class:`PipelineLifecycleEmitter`.
+
+    Routing table (TASK-FW10-010):
+
+    * ``awaiting_approval`` → ``emit_paused`` (publishes
+      ``pipeline.build-paused.<feature_id>``).
+    * ``running_wave`` reached *after* ``awaiting_approval`` (via the
+      ``_resume_pending`` flag set by :meth:`mark_resume_pending`) →
+      ``emit_resumed`` (publishes ``pipeline.build-resumed.<feature_id>``).
+    * ``completed`` / ``cancelled`` / ``failed`` → terminal emits.
+    * Other lifecycles are observable via the ``async_tasks`` channel
+      only; the adapter is a no-op for them so this task stays scoped.
+
+    Failure-mode contract (DDR-007 §Failure-mode contract, ADR-ARCH-008):
+    every scheduled coroutine is wrapped so any :class:`PublishFailure`
+    or unexpected exception is logged at ``WARNING`` and swallowed —
+    SQLite remains authoritative.
+
+    Args:
+        emitter: The in-process :class:`PipelineLifecycleEmitter` produced
+            by ``forge.cli._serve_deps_lifecycle.build_publisher_and_emitter``.
+        ctx: The originating :class:`BuildContext` (carries the
+            correlation_id threaded onto every envelope per AC-002 of
+            TASK-NFI-008).
+        loop: Optional event loop. When omitted, the adapter resolves the
+            running loop at call time (the autobuild_runner executes
+            inside the daemon's running loop, so this is the typical
+            production path).
+    """
+
+    def __init__(
+        self,
+        emitter: "PipelineLifecycleEmitter",
+        ctx: "BuildContext",
+        *,
+        loop: asyncio.AbstractEventLoop | None = None,
+    ) -> None:
+        self._emitter = emitter
+        self._ctx = ctx
+        self._loop = loop
+        # Track whether the previous lifecycle was awaiting_approval so
+        # the next running_wave transition knows it is a resume edge,
+        # not an initial entry into running_wave. The runner's own
+        # ``state.waiting_for`` field clears on resume but is per-state;
+        # this flag is per-adapter and survives across _update_state calls.
+        self._resume_pending: bool = False
+        # Last lifecycle observed (for transition awareness).
+        self._last_lifecycle: str | None = None
+
+    # ------------------------------------------------------------------
+    # SubagentEmitter Protocol
+    # ------------------------------------------------------------------
+
+    def on_transition(self, state: AutobuildState) -> None:
+        """Route ``state.lifecycle`` to the matching async emit coroutine.
+
+        Synchronous entry point that schedules the async ``emit_*`` call
+        on the running event loop. The autobuild_runner subagent always
+        executes inside an async runtime so a running loop is expected;
+        if no loop is found the adapter falls back to running the
+        coroutine to completion via :func:`asyncio.run` so unit tests
+        that drive ``_update_state`` synchronously still observe the
+        publish.
+        """
+        try:
+            method_name = LIFECYCLE_TO_PIPELINE_EMIT.get(state.lifecycle)
+
+            # Resume edge: awaiting_approval → running_wave fires emit_resumed.
+            if (
+                state.lifecycle == "running_wave"
+                and self._last_lifecycle == "awaiting_approval"
+                and self._resume_pending
+            ):
+                method_name = "emit_resumed"
+                self._resume_pending = False
+
+            # Track the awaiting_approval entry so the next running_wave
+            # transition is recognised as a resume.
+            if state.lifecycle == "awaiting_approval":
+                self._resume_pending = True
+
+            self._last_lifecycle = state.lifecycle
+
+            if method_name is None:
+                # No publish for this lifecycle — async_tasks channel
+                # write already happened in _update_state, which is the
+                # authoritative observability surface.
+                return
+
+            coro = self._build_coroutine(method_name, state)
+            if coro is None:
+                return
+
+            self._schedule(coro, method_name=method_name, lifecycle=state.lifecycle)
+        except Exception as exc:  # noqa: BLE001 — DDR-007 swallow+log
+            logger.warning(
+                "LifecycleEmitterAdapter: routing failed lifecycle=%s err=%s "
+                "— SQLite remains authoritative",
+                state.lifecycle,
+                exc,
+            )
+
+    def mark_resume_pending(self) -> None:
+        """Force the next ``running_wave`` transition to be treated as resume.
+
+        Used by the approval-subscriber wiring when it knows a resume is
+        imminent (e.g. an approval response just matched). Production
+        wiring relies on the natural ``awaiting_approval → running_wave``
+        edge to flip this flag automatically; this helper exists for
+        exotic recovery paths where the lifecycle was not observed
+        moving through ``awaiting_approval`` in this adapter instance
+        (daemon restart with rehydrated state).
+        """
+        self._resume_pending = True
+
+    # ------------------------------------------------------------------
+    # Coroutine builders — one per emit method we route to
+    # ------------------------------------------------------------------
+
+    def _build_coroutine(
+        self, method_name: str, state: AutobuildState
+    ) -> Any | None:
+        """Construct the awaitable for the given emit method.
+
+        Each emit method on :class:`PipelineLifecycleEmitter` requires a
+        different keyword set; we synthesise minimal but contract-honest
+        defaults from the :class:`AutobuildState` so the publish is a
+        valid envelope. Operators wanting richer payloads (real coach
+        score, real rationale, etc.) wire a richer emitter at the
+        composition root — this adapter is the *floor*, not the ceiling.
+        """
+        emit = getattr(self._emitter, method_name, None)
+        if emit is None:
+            logger.warning(
+                "LifecycleEmitterAdapter: emitter has no method %r — "
+                "skipping emit for lifecycle=%s",
+                method_name,
+                state.lifecycle,
+            )
+            return None
+
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if method_name == "emit_paused":
+            return emit(
+                self._ctx,
+                stage_label=state.waiting_for or "awaiting_approval",
+                gate_mode="MANDATORY_HUMAN_APPROVAL",
+                coach_score=state.last_coach_score,
+                rationale=state.waiting_for or "autobuild paused for approval",
+                approval_subject=(
+                    f"agents.approval.forge.{state.build_id}"
+                ),
+                paused_at=now_iso,
+            )
+        if method_name == "emit_resumed":
+            return emit(
+                self._ctx,
+                stage_label="awaiting_approval",
+                decision="approve",
+                responder="approval-subscriber",
+                resumed_at=now_iso,
+            )
+        if method_name == "emit_complete":
+            return emit(
+                self._ctx,
+                repo=None,
+                branch=None,
+                tasks_completed=state.tasks_completed,
+                tasks_failed=state.tasks_failed,
+                tasks_total=state.tasks_completed + state.tasks_failed,
+                pr_url=None,
+                duration_seconds=0,
+                summary="autobuild completed",
+            )
+        if method_name == "emit_cancelled":
+            return emit(
+                self._ctx,
+                reason="autobuild cancelled",
+                cancelled_by="autobuild_runner",
+                cancelled_at=now_iso,
+            )
+        if method_name == "emit_failed":
+            return emit(
+                self._ctx,
+                failure_reason="autobuild failed",
+                recoverable=False,
+                failed_task_id=state.task_id,
+            )
+        # Unknown method — the routing table is the source of truth, so
+        # an unrecognised entry is a programmer error.
+        logger.warning(
+            "LifecycleEmitterAdapter: no coroutine builder for method=%r "
+            "lifecycle=%s — emit skipped",
+            method_name,
+            state.lifecycle,
+        )
+        return None
+
+    # ------------------------------------------------------------------
+    # Scheduling — schedules the async coroutine on the running loop
+    # ------------------------------------------------------------------
+
+    def _schedule(self, coro: Any, *, method_name: str, lifecycle: str) -> None:
+        """Schedule ``coro`` on the running loop or run-to-completion.
+
+        In production the autobuild_runner runs inside an async runtime,
+        so :func:`asyncio.get_running_loop` resolves and we attach via
+        :meth:`asyncio.AbstractEventLoop.create_task`. In synchronous
+        unit tests, no loop is running; we fall back to
+        :func:`asyncio.run` so the publish still happens (and tests
+        can assert against the captured envelope).
+        """
+        loop = self._loop
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+        if loop is not None and loop.is_running():
+            task = loop.create_task(self._safe_run(coro, method_name, lifecycle))
+            # Detach by name only — caller does not own the task lifetime.
+            task.set_name(
+                f"lifecycle-emit-{method_name}-{lifecycle}"
+            )
+            return
+
+        # No running loop — run the coroutine to completion synchronously.
+        try:
+            asyncio.run(self._safe_run(coro, method_name, lifecycle))
+        except Exception as exc:  # noqa: BLE001 — DDR-007 swallow+log
+            logger.warning(
+                "LifecycleEmitterAdapter: synchronous emit failed "
+                "method=%s lifecycle=%s err=%s",
+                method_name,
+                lifecycle,
+                exc,
+            )
+
+    async def _safe_run(
+        self, coro: Any, method_name: str, lifecycle: str
+    ) -> None:
+        """Await ``coro`` and swallow any non-cancellation error."""
+        try:
+            await coro
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — DDR-007 swallow+log
+            logger.warning(
+                "LifecycleEmitterAdapter: emit coroutine raised "
+                "method=%s lifecycle=%s err=%s",
+                method_name,
+                lifecycle,
+                exc,
+            )
+
+
+# ---------------------------------------------------------------------------
 # Compiled graph — exported for langgraph.json
 # ---------------------------------------------------------------------------
 
@@ -556,7 +855,9 @@ __all__ = [
     "AUTOBUILD_RUNNER_NAME",
     "AutobuildLifecycle",
     "AutobuildState",
+    "LIFECYCLE_TO_PIPELINE_EMIT",
     "LIFECYCLE_VALUES",
+    "LifecycleEmitterAdapter",
     "StateChannelWriter",
     "SubagentEmitter",
     "TERMINAL_LIFECYCLES",

@@ -1,0 +1,7 @@
+{
+  "tests_run": 116,
+  "tests_failed": 0,
+  "coverage_pct": 83.0,
+  "output_summary": "116 passed, 0 failed; coverage 83% across pipeline_consumer (94%), approval_subscriber (91%), autobuild_runner (57%).",
+  "quality_gates_passed": true
+}
