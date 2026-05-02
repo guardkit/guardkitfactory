@@ -1,7 +1,0 @@
-{
-  "tests_run": 11,
-  "tests_failed": 0,
-  "coverage_pct": 48.87,
-  "output_summary": "11 passed, 0 failed in 1.81s; coverage on changed files: serve.py 55%, autobuild_async.py 91%, supervisor.py 42% (total 48.87%)",
-  "quality_gates_passed": true
-}
