@@ -52,7 +52,6 @@ from nats_core.events import (
     BuildResumedPayload,
 )
 
-
 # ---------------------------------------------------------------------------
 # Test doubles
 # ---------------------------------------------------------------------------
@@ -92,9 +91,7 @@ def _make_ctx() -> BuildContext:
     )
 
 
-def _build_emitter() -> tuple[
-    PipelineLifecycleEmitter, FakeNatsClient
-]:
+def _build_emitter() -> tuple[PipelineLifecycleEmitter, FakeNatsClient]:
     nc = FakeNatsClient()
     publisher = PipelinePublisher(nc)
     config = PipelineConfig(progress_interval_seconds=60)
@@ -118,9 +115,7 @@ class TestPausePublishAwaitingApproval:
         self,
     ) -> None:
         """The DDR-007 routing table dispatches ``awaiting_approval``."""
-        assert (
-            LIFECYCLE_TO_PIPELINE_EMIT["awaiting_approval"] == "emit_paused"
-        ), (
+        assert LIFECYCLE_TO_PIPELINE_EMIT["awaiting_approval"] == "emit_paused", (
             "TASK-FW10-010: awaiting_approval lifecycle MUST route to "
             "emit_paused so pipeline.build-paused.<feature_id> is published "
             "at the same boundary as the async_tasks channel write."
@@ -143,9 +138,9 @@ class TestPausePublishAwaitingApproval:
         )
 
         # Exactly one envelope on the canonical subject.
-        assert len(nc.published) == 1, (
-            f"Expected one publish, got {[s for s, _ in nc.published]}"
-        )
+        assert (
+            len(nc.published) == 1
+        ), f"Expected one publish, got {[s for s, _ in nc.published]}"
         subject, body = nc.published[0]
         assert subject == "pipeline.build-paused.FEAT-X"
 
@@ -175,9 +170,7 @@ class TestPausePublishAwaitingApproval:
             emitter=adapter,
         )
 
-        paused_subjects = [
-            s for s, _ in nc.published if "build-paused" in s
-        ]
+        paused_subjects = [s for s, _ in nc.published if "build-paused" in s]
         assert paused_subjects == []
 
 
@@ -197,9 +190,7 @@ class TestResumePublishOnApproval:
 
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
 
@@ -224,9 +215,9 @@ class TestResumePublishOnApproval:
         )
 
         resumed = [s for s, _ in nc.published if "build-resumed" in s]
-        assert resumed == ["pipeline.build-resumed.FEAT-X"], (
-            f"Expected build-resumed publish, got {nc.published}"
-        )
+        assert resumed == [
+            "pipeline.build-resumed.FEAT-X"
+        ], f"Expected build-resumed publish, got {nc.published}"
 
         body = next(b for s, b in nc.published if "build-resumed" in s)
         env = _decode_envelope(body)
@@ -257,9 +248,7 @@ class TestResumePublishOnApproval:
 
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
         sub._resume_publish_ctx[ctx.build_id] = (  # type: ignore[attr-defined]
@@ -285,9 +274,7 @@ class TestResumePublishOnApproval:
         await queue.get()
         order.append("queue-popped")
 
-        publish_idx = next(
-            i for i, e in enumerate(order) if e.startswith("publish:")
-        )
+        publish_idx = next(i for i, e in enumerate(order) if e.startswith("publish:"))
         pop_idx = order.index("queue-popped")
         assert publish_idx < pop_idx, (
             "TASK-FW10-010: build-resumed must be published BEFORE the "
@@ -313,9 +300,7 @@ class TestMismatchedCorrelationIdRejected:
 
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
         sub._resume_publish_ctx[ctx.build_id] = (  # type: ignore[attr-defined]
@@ -361,9 +346,7 @@ class TestFirstResponseWins:
 
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
         sub._resume_publish_ctx[ctx.build_id] = (  # type: ignore[attr-defined]
@@ -390,9 +373,7 @@ class TestFirstResponseWins:
             build_id=ctx.build_id, envelope=envelope
         )
 
-        resumed_publishes = [
-            s for s, _ in nc.published if "build-resumed" in s
-        ]
+        resumed_publishes = [s for s, _ in nc.published if "build-resumed" in s]
         assert len(resumed_publishes) == 1, (
             f"FEAT-FORGE-004 first-wins: expected ONE build-resumed "
             f"publish, got {len(resumed_publishes)} ({resumed_publishes})"
@@ -451,9 +432,7 @@ class TestPublishFailureContract:
 
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
         sub._resume_publish_ctx[ctx.build_id] = (  # type: ignore[attr-defined]
@@ -502,9 +481,7 @@ class TestLifecycleAdapterResumeEdge:
 
         state = _make_state(lifecycle="running_wave")
         # First go to awaiting_approval (sets _resume_pending).
-        state = _update_state(
-            state, lifecycle="awaiting_approval", emitter=adapter
-        )
+        state = _update_state(state, lifecycle="awaiting_approval", emitter=adapter)
         # Then resume: awaiting_approval → running_wave fires resumed.
         _update_state(state, lifecycle="running_wave", emitter=adapter)
 

@@ -1,17 +1,17 @@
 {
   "phase_4": {
     "status": "passed",
-    "duration_seconds": 52.36787600000389,
+    "duration_seconds": 81.5196797089884,
     "error": null,
-    "tests_run": 24,
+    "tests_run": 661,
     "tests_failed": 0,
-    "coverage_pct": 65.33,
-    "output_summary": "pytest: 24 passed, 0 failed; coverage 65% across approval_subscriber.py, pipeline_consumer.py, autobuild_runner.py (548 stmts / 190 miss)",
+    "coverage_pct": 91.0,
+    "output_summary": "661 passed, 0 failed; coverage 91% (approval_subscriber 97%, pipeline_consumer 94%, autobuild_runner 82%) across changed modules.",
     "quality_gates_passed": true
   },
   "phase_5": {
     "status": "passed",
-    "duration_seconds": 347.9396980839665,
+    "duration_seconds": 233.99624075001338,
     "error": null,
     "issues": [],
     "quality_score": 0.0,

@@ -118,9 +118,7 @@ LIFECYCLE_VALUES: frozenset[str] = frozenset(get_args(AutobuildLifecycle))
 #: in one of these, no further transitions are emitted from the
 #: subagent. The supervisor reads the terminal state via
 #: ``check_async_task`` and reconciles with SQLite on restart.
-TERMINAL_LIFECYCLES: frozenset[str] = frozenset(
-    {"completed", "cancelled", "failed"}
-)
+TERMINAL_LIFECYCLES: frozenset[str] = frozenset({"completed", "cancelled", "failed"})
 
 
 #: Subagent name registered with DeepAgents ``AsyncSubAgentMiddleware``.
@@ -205,9 +203,7 @@ class AutobuildState(BaseModel):
     pending_directives: list[str] = Field(default_factory=list)
 
     # Timing
-    started_at: datetime = Field(
-        default_factory=lambda: datetime.now(timezone.utc)
-    )
+    started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     last_activity_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
@@ -606,9 +602,7 @@ class LifecycleEmitterAdapter:
     # Coroutine builders — one per emit method we route to
     # ------------------------------------------------------------------
 
-    def _build_coroutine(
-        self, method_name: str, state: AutobuildState
-    ) -> Any | None:
+    def _build_coroutine(self, method_name: str, state: AutobuildState) -> Any | None:
         """Construct the awaitable for the given emit method.
 
         Each emit method on :class:`PipelineLifecycleEmitter` requires a
@@ -637,9 +631,7 @@ class LifecycleEmitterAdapter:
                 gate_mode="MANDATORY_HUMAN_APPROVAL",
                 coach_score=state.last_coach_score,
                 rationale=state.waiting_for or "autobuild paused for approval",
-                approval_subject=(
-                    f"agents.approval.forge.{state.build_id}"
-                ),
+                approval_subject=(f"agents.approval.forge.{state.build_id}"),
                 paused_at=now_iso,
             )
         if method_name == "emit_resumed":
@@ -710,9 +702,7 @@ class LifecycleEmitterAdapter:
         if loop is not None and loop.is_running():
             task = loop.create_task(self._safe_run(coro, method_name, lifecycle))
             # Detach by name only — caller does not own the task lifetime.
-            task.set_name(
-                f"lifecycle-emit-{method_name}-{lifecycle}"
-            )
+            task.set_name(f"lifecycle-emit-{method_name}-{lifecycle}")
             return
 
         # No running loop — run the coroutine to completion synchronously.
@@ -727,9 +717,7 @@ class LifecycleEmitterAdapter:
                 exc,
             )
 
-    async def _safe_run(
-        self, coro: Any, method_name: str, lifecycle: str
-    ) -> None:
+    async def _safe_run(self, coro: Any, method_name: str, lifecycle: str) -> None:
         """Await ``coro`` and swallow any non-cancellation error."""
         try:
             await coro

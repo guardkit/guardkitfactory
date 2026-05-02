@@ -158,9 +158,7 @@ class TestPauseResumeRoundTrip:
             (s, b) for s, b in nc.published if "build-paused" in s
         ]
         assert len(paused_publishes_phase1) == 1
-        assert paused_publishes_phase1[0][0] == (
-            f"pipeline.build-paused.{FEATURE_ID}"
-        )
+        assert paused_publishes_phase1[0][0] == (f"pipeline.build-paused.{FEATURE_ID}")
         env1 = MessageEnvelope.model_validate_json(
             paused_publishes_phase1[0][1].decode("utf-8")
         )
@@ -198,16 +196,14 @@ class TestPauseResumeRoundTrip:
         env2 = MessageEnvelope.model_validate_json(
             paused_publishes_total[1][1].decode("utf-8")
         )
-        assert env2.correlation_id == CORRELATION_ID, (
-            "ADR-ARCH-021: re-emit MUST reuse the original correlation_id"
-        )
+        assert (
+            env2.correlation_id == CORRELATION_ID
+        ), "ADR-ARCH-021: re-emit MUST reuse the original correlation_id"
 
         # ----- Phase 3: approval response arrives -----
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
         # Register publish ctx as await_response would.
@@ -225,9 +221,7 @@ class TestPauseResumeRoundTrip:
             envelope=_approval_response_envelope(request_id="req-1"),
         )
 
-        resumed_publishes = [
-            s for s, _ in nc.published if "build-resumed" in s
-        ]
+        resumed_publishes = [s for s, _ in nc.published if "build-resumed" in s]
         assert resumed_publishes == [
             f"pipeline.build-resumed.{FEATURE_ID}"
         ], f"Expected one build-resumed, got {resumed_publishes}"
@@ -238,9 +232,7 @@ class TestPauseResumeRoundTrip:
             envelope=_approval_response_envelope(request_id="req-1"),
         )
 
-        resumed_after_second = [
-            s for s, _ in nc.published if "build-resumed" in s
-        ]
+        resumed_after_second = [s for s, _ in nc.published if "build-resumed" in s]
         assert len(resumed_after_second) == 1, (
             "FEAT-FORGE-004 first-wins: a second matching response "
             "MUST NOT publish a second build-resumed envelope."
@@ -254,9 +246,7 @@ class TestPauseResumeRoundTrip:
 
         deps = ApprovalSubscriberDeps(
             nats_client=_FakeSubscribeClient(),
-            config=ApprovalConfig(
-                default_wait_seconds=60, max_wait_seconds=60
-            ),
+            config=ApprovalConfig(default_wait_seconds=60, max_wait_seconds=60),
         )
         sub = ApprovalSubscriber(deps)
         sub._resume_publish_ctx[BUILD_ID] = (  # type: ignore[attr-defined]
