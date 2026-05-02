@@ -1,0 +1,120 @@
+{
+  "task_id": "TASK-FW10-003",
+  "turn": 1,
+  "decision": "approve",
+  "validation_results": {
+    "quality_gates": {
+      "tests_passed": true,
+      "coverage_met": true,
+      "arch_review_passed": true,
+      "plan_audit_passed": true,
+      "all_gates_passed": true
+    },
+    "independent_tests": {
+      "tests_passed": true,
+      "test_command": "pytest tests/cli/test_serve_deps_stage_log.py tests/cli/test_serve_deps_state_channel.py tests/forge/test_autobuild_runner.py tests/forge/test_autobuild_runner_emit_taxonomy.py tests/forge/test_cli_serve_deps_forward_context.py tests/forge/test_lifecycle_factory.py -v --tb=short",
+      "test_output_summary": "Result:\ntests/forge/test_lifecycle_factory.py::TestOnTransitionDispatchMatrix::test_finalising_to_complete_dispatches_emit_complete PASSED [ 96%]\ntests/forge/test_lifecycle_factory.py::TestOnTransitionDispatchMatrix::test_running_to_failed_dispatches_emit_failed PASSED [ 97%]\ntests/forge/test_lifecycle_factory.py::TestOnTransitionDispatchMatrix::test_running_to_cancelled_dispatches_emit_cancelled PASSED [ 98%]\ntests/forge/test_lifecycle_factory.py::TestOnTransitionDispatchMatrix::test_paused_to_cancelled_dispatches_emit_cancelled PASSED [100%]\n======================== 91 passed, 1 warning in 1.92s =========================",
+      "duration_seconds": 3.609078884124756
+    },
+    "requirements": {
+      "criteria_total": 4,
+      "criteria_met": 4,
+      "all_criteria_met": true,
+      "missing": []
+    }
+  },
+  "criteria_verification": [
+    {
+      "criterion_id": "AC-001",
+      "criterion_text": "`build_forward_context_builder` accepts `(sqlite_pool, forge_config)`",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Implemented build_forward_context_builder(sqlite_pool: Any, forge_config: ForgeConfig) -> ForwardContextBuilder in src/forge/cli/_serve_deps_forward_context.py. The factory wires sqlite_pool as the StageLogReader (duck-typed via the runtime_checkable Protocol) and constructs ForgeConfigWorktreeAllowlist as the WorktreeAllowlist, then returns a ForwardContextBuilder(stage_log_reader=..., worktree_allowlist=...). Both positional and keyword call shapes are tested. TestFactoryShape::test_factory_returns_forward_context_builder_instance asserts isinstance(builder, ForwardContextBuilder); test_factory_signature_accepts_sqlite_pool_and_forge_config asserts both call shapes work.",
+      "notes": "Implemented build_forward_context_builder(sqlite_pool: Any, forge_config: ForgeConfig) -> ForwardContextBuilder in src/forge/cli/_serve_deps_forward_context.py. The factory wires sqlite_pool as the StageLogReader (duck-typed via the runtime_checkable Protocol) and constructs ForgeConfigWorktreeAllowlist as the WorktreeAllowlist, then returns a ForwardContextBuilder(stage_log_reader=..., worktree_allowlist=...). Both positional and keyword call shapes are tested. TestFactoryShape::test_factory_returns_forward_context_builder_instance asserts isinstance(builder, ForwardContextBuilder); test_factory_signature_accepts_sqlite_pool_and_forge_config asserts both call shapes work."
+    },
+    {
+      "criterion_id": "AC-002",
+      "criterion_text": "The returned builder honours `forge_config`'s worktree allowlist.",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "ForgeConfigWorktreeAllowlist reads forge_config.permissions.filesystem.allowlist and exposes is_allowed(build_id, path). Containment is computed via os.path.normpath + os.path.commonpath so sibling-prefix attacks (/work/build-1 vs /work/build-12345), traversal sequences (..) and absolute/relative mismatches are all rejected correctly. Disallowed paths are filtered out before the builder returns the entries to the caller \u2014 this matches the existing ForwardContextBuilder semantics (filter individually with structured WARNING) which lets the caller (TASK-FW10-009) translate empty/partial forward context into a build-failed envelope. AC-002 is verified by TestAllowlistAdapter (5 tests covering allowed/rejected/sibling-prefix/empty-allowlist/root-itself) and TestAllowlistRejection (3 tests covering filtering, WARNING log, and partial path-list rejection).",
+      "notes": "ForgeConfigWorktreeAllowlist reads forge_config.permissions.filesystem.allowlist and exposes is_allowed(build_id, path). Containment is computed via os.path.normpath + os.path.commonpath so sibling-prefix attacks (/work/build-1 vs /work/build-12345), traversal sequences (..) and absolute/relative mismatches are all rejected correctly. Disallowed paths are filtered out before the builder returns the entries to the caller \u2014 this matches the existing ForwardContextBuilder semantics (filter individually with structured WARNING) which lets the caller (TASK-FW10-009) translate empty/partial forward context into a build-failed envelope. AC-002 is verified by TestAllowlistAdapter (5 tests covering allowed/rejected/sibling-prefix/empty-allowlist/root-itself) and TestAllowlistRejection (3 tests covering filtering, WARNING log, and partial path-list rejection)."
+    },
+    {
+      "criterion_id": "AC-003",
+      "criterion_text": "Unit tests cover the happy path (allowed worktree \u2192 context",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "TestRoundTripHappyPath::test_builder_returns_path_entry_when_path_inside_allowlist exercises the full happy-path round trip: an approved FEATURE_PLAN entry whose artefact_paths sits under the configured allowlist root produces a ContextEntry(flag='--context', kind='path'). TestRoundTripHappyPath::test_builder_round_trips_text_artefact_through_factory_wired_reader exercises the text-kind branch through the factory-wired reader. TestAllowlistRejection covers the rejected path: a single outside-allowlist artefact yields an empty context (test_path_outside_allowlist_is_filtered_from_returned_context), the rejection emits a structured WARNING that names the path and 'outside worktree allowlist' (test_path_outside_allowlist_emits_warning_log), and a path-list with mixed allowed/disallowed entries keeps only the allowed ones (test_partial_path_list_filters_only_disallowed_entries). The builder filters individually rather than raising \u2014 this is the existing ForwardContextBuilder Protocol contract; AC-002 explicitly delegates the build-failed envelope translation to TASK-FW10-009.",
+      "notes": "TestRoundTripHappyPath::test_builder_returns_path_entry_when_path_inside_allowlist exercises the full happy-path round trip: an approved FEATURE_PLAN entry whose artefact_paths sits under the configured allowlist root produces a ContextEntry(flag='--context', kind='path'). TestRoundTripHappyPath::test_builder_round_trips_text_artefact_through_factory_wired_reader exercises the text-kind branch through the factory-wired reader. TestAllowlistRejection covers the rejected path: a single outside-allowlist artefact yields an empty context (test_path_outside_allowlist_is_filtered_from_returned_context), the rejection emits a structured WARNING that names the path and 'outside worktree allowlist' (test_path_outside_allowlist_emits_warning_log), and a path-list with mixed allowed/disallowed entries keeps only the allowed ones (test_partial_path_list_filters_only_disallowed_entries). The builder filters individually rather than raising \u2014 this is the existing ForwardContextBuilder Protocol contract; AC-002 explicitly delegates the build-failed envelope translation to TASK-FW10-009."
+    },
+    {
+      "criterion_id": "AC-004",
+      "criterion_text": "All modified files pass project-configured lint/format checks",
+      "result": "verified",
+      "status": "verified",
+      "evidence": "Both files pass ruff check (zero errors) and ruff format --check (clean after a one-shot ruff format on the test file). Test file format adjusted to align dataclass field annotation per the project's ruff config.",
+      "notes": "Both files pass ruff check (zero errors) and ruff format --check (clean after a one-shot ruff format on the test file). Test file format adjusted to align dataclass field annotation per the project's ruff config."
+    }
+  ],
+  "acceptance_criteria_verification": {
+    "criteria_results": [
+      {
+        "criterion_id": "AC-001",
+        "criterion_text": "`build_forward_context_builder` accepts `(sqlite_pool, forge_config)`",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Implemented build_forward_context_builder(sqlite_pool: Any, forge_config: ForgeConfig) -> ForwardContextBuilder in src/forge/cli/_serve_deps_forward_context.py. The factory wires sqlite_pool as the StageLogReader (duck-typed via the runtime_checkable Protocol) and constructs ForgeConfigWorktreeAllowlist as the WorktreeAllowlist, then returns a ForwardContextBuilder(stage_log_reader=..., worktree_allowlist=...). Both positional and keyword call shapes are tested. TestFactoryShape::test_factory_returns_forward_context_builder_instance asserts isinstance(builder, ForwardContextBuilder); test_factory_signature_accepts_sqlite_pool_and_forge_config asserts both call shapes work.",
+        "notes": "Implemented build_forward_context_builder(sqlite_pool: Any, forge_config: ForgeConfig) -> ForwardContextBuilder in src/forge/cli/_serve_deps_forward_context.py. The factory wires sqlite_pool as the StageLogReader (duck-typed via the runtime_checkable Protocol) and constructs ForgeConfigWorktreeAllowlist as the WorktreeAllowlist, then returns a ForwardContextBuilder(stage_log_reader=..., worktree_allowlist=...). Both positional and keyword call shapes are tested. TestFactoryShape::test_factory_returns_forward_context_builder_instance asserts isinstance(builder, ForwardContextBuilder); test_factory_signature_accepts_sqlite_pool_and_forge_config asserts both call shapes work."
+      },
+      {
+        "criterion_id": "AC-002",
+        "criterion_text": "The returned builder honours `forge_config`'s worktree allowlist.",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "ForgeConfigWorktreeAllowlist reads forge_config.permissions.filesystem.allowlist and exposes is_allowed(build_id, path). Containment is computed via os.path.normpath + os.path.commonpath so sibling-prefix attacks (/work/build-1 vs /work/build-12345), traversal sequences (..) and absolute/relative mismatches are all rejected correctly. Disallowed paths are filtered out before the builder returns the entries to the caller \u2014 this matches the existing ForwardContextBuilder semantics (filter individually with structured WARNING) which lets the caller (TASK-FW10-009) translate empty/partial forward context into a build-failed envelope. AC-002 is verified by TestAllowlistAdapter (5 tests covering allowed/rejected/sibling-prefix/empty-allowlist/root-itself) and TestAllowlistRejection (3 tests covering filtering, WARNING log, and partial path-list rejection).",
+        "notes": "ForgeConfigWorktreeAllowlist reads forge_config.permissions.filesystem.allowlist and exposes is_allowed(build_id, path). Containment is computed via os.path.normpath + os.path.commonpath so sibling-prefix attacks (/work/build-1 vs /work/build-12345), traversal sequences (..) and absolute/relative mismatches are all rejected correctly. Disallowed paths are filtered out before the builder returns the entries to the caller \u2014 this matches the existing ForwardContextBuilder semantics (filter individually with structured WARNING) which lets the caller (TASK-FW10-009) translate empty/partial forward context into a build-failed envelope. AC-002 is verified by TestAllowlistAdapter (5 tests covering allowed/rejected/sibling-prefix/empty-allowlist/root-itself) and TestAllowlistRejection (3 tests covering filtering, WARNING log, and partial path-list rejection)."
+      },
+      {
+        "criterion_id": "AC-003",
+        "criterion_text": "Unit tests cover the happy path (allowed worktree \u2192 context",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "TestRoundTripHappyPath::test_builder_returns_path_entry_when_path_inside_allowlist exercises the full happy-path round trip: an approved FEATURE_PLAN entry whose artefact_paths sits under the configured allowlist root produces a ContextEntry(flag='--context', kind='path'). TestRoundTripHappyPath::test_builder_round_trips_text_artefact_through_factory_wired_reader exercises the text-kind branch through the factory-wired reader. TestAllowlistRejection covers the rejected path: a single outside-allowlist artefact yields an empty context (test_path_outside_allowlist_is_filtered_from_returned_context), the rejection emits a structured WARNING that names the path and 'outside worktree allowlist' (test_path_outside_allowlist_emits_warning_log), and a path-list with mixed allowed/disallowed entries keeps only the allowed ones (test_partial_path_list_filters_only_disallowed_entries). The builder filters individually rather than raising \u2014 this is the existing ForwardContextBuilder Protocol contract; AC-002 explicitly delegates the build-failed envelope translation to TASK-FW10-009.",
+        "notes": "TestRoundTripHappyPath::test_builder_returns_path_entry_when_path_inside_allowlist exercises the full happy-path round trip: an approved FEATURE_PLAN entry whose artefact_paths sits under the configured allowlist root produces a ContextEntry(flag='--context', kind='path'). TestRoundTripHappyPath::test_builder_round_trips_text_artefact_through_factory_wired_reader exercises the text-kind branch through the factory-wired reader. TestAllowlistRejection covers the rejected path: a single outside-allowlist artefact yields an empty context (test_path_outside_allowlist_is_filtered_from_returned_context), the rejection emits a structured WARNING that names the path and 'outside worktree allowlist' (test_path_outside_allowlist_emits_warning_log), and a path-list with mixed allowed/disallowed entries keeps only the allowed ones (test_partial_path_list_filters_only_disallowed_entries). The builder filters individually rather than raising \u2014 this is the existing ForwardContextBuilder Protocol contract; AC-002 explicitly delegates the build-failed envelope translation to TASK-FW10-009."
+      },
+      {
+        "criterion_id": "AC-004",
+        "criterion_text": "All modified files pass project-configured lint/format checks",
+        "result": "verified",
+        "status": "verified",
+        "evidence": "Both files pass ruff check (zero errors) and ruff format --check (clean after a one-shot ruff format on the test file). Test file format adjusted to align dataclass field annotation per the project's ruff config.",
+        "notes": "Both files pass ruff check (zero errors) and ruff format --check (clean after a one-shot ruff format on the test file). Test file format adjusted to align dataclass field annotation per the project's ruff config."
+      }
+    ]
+  },
+  "issues": [
+    {
+      "severity": "warning",
+      "category": "agent_invocations_advisory",
+      "description": "Advisory (non-blocking): task-work produced a report with 2 of 3 expected agent invocations. Missing phases: 3 (Implementation). Consider invoking these agents via the Task tool to strengthen stack-specific quality:\n- Phase 3: `python-api-specialist` (Implementation)",
+      "details": {
+        "missing_phases": [
+          "3"
+        ],
+        "expected_phases": 3,
+        "actual_invocations": 2
+      }
+    },
+    {
+      "severity": "consider",
+      "category": "seam_test_recommendation",
+      "description": "No seam tests detected for cross-boundary feature. Consider adding seam/contract/boundary tests to validate technology boundary interactions. This is a recommendation, not a blocking gate."
+    }
+  ],
+  "rationale": "All quality gates passed. Independent verification confirmed. All acceptance criteria met. Architecture context: 280 chars provided.",
+  "context_used": "## Job-Specific Context\n\nBudget: 1091/5200 tokens\n\n### \ud83c\udfa8 Relevant Patterns\n- HAS_DEFAULT_FACTORY\n- HAS_FIELD_WITH_DEFAULT\n\n### \u26a0\ufe0f Warnings\n- REQUIRES_USE_OF\n- CREATES\n\n### \ud83c\udfad Role Constraints\n- INTERACTS_WITH\n- HAS_ROLE_MUST_DO\n\n### \ud83d\udee0\ufe0f Implementation Modes\n- HAS_INVOCATION_METHOD\n",
+  "approved_without_independent_tests": false,
+  "is_configuration_error": false,
+  "environment_conditional_approval": false
+}

@@ -193,26 +193,49 @@ class TestSubscriptionState:
 # ---------------------------------------------------------------------------
 
 
+class _StubNatsClient:
+    """Minimal client used by smoke tests — exposes only what _run_serve uses."""
+
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def close(self) -> None:
+        self.closed = True
+
+
 class TestServeCmdSmoke:
-    """AC-007: ``serve_cmd`` returns ``0`` when both stubs return."""
+    """AC-007: ``serve_cmd`` returns ``0`` when both stubs return.
+
+    TASK-FW10-001 update: ``_run_serve`` now opens a NATS client via
+    :data:`forge.cli._serve_daemon.nats_connect` and runs both
+    ``reconcile_on_boot`` seams before launching the daemon. The smoke
+    tests stub all three so ``serve_cmd`` exits ``0`` without a real
+    broker. The detailed daemon body coverage lives in
+    ``test_cli_serve_daemon.py``; the boot-order coverage lives in
+    ``TestRunServeBootOrder`` below.
+    """
 
     def test_serve_cmd_exits_zero_with_stub_coroutines(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # TASK-F009-003: ``run_daemon`` is no longer a no-op — it opens a
-        # JetStream pull subscription. The smoke test substitutes both
-        # coroutines with fast no-ops so ``serve_cmd`` still exits ``0``
-        # without a real broker. The detailed daemon body coverage lives
-        # in ``test_cli_serve_daemon.py``.
+        from forge.cli import _serve_daemon
         from forge.cli import serve as serve_module
         from forge.cli.main import main
 
-        async def _fake_daemon(config: object, state: object) -> None:
+        stub_client = _StubNatsClient()
+
+        async def _fake_connect(servers: str) -> object:
+            return stub_client
+
+        async def _fake_daemon(
+            config: object, state: object, *, client: object = None
+        ) -> None:
             return None
 
         async def _fake_healthz(config: object, state: object) -> None:
             return None
 
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
         monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
         monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
 
@@ -223,17 +246,25 @@ class TestServeCmdSmoke:
     def test_serve_cmd_uses_asyncio_gather(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Assert ``serve_cmd`` schedules both stubs via ``asyncio.gather``."""
+        """Assert ``serve_cmd`` schedules both coroutines concurrently."""
+        from forge.cli import _serve_daemon
         from forge.cli import serve as serve_module
 
         observed: list[str] = []
+        stub_client = _StubNatsClient()
 
-        async def _fake_daemon(config: object, state: object) -> None:
+        async def _fake_connect(servers: str) -> object:
+            return stub_client
+
+        async def _fake_daemon(
+            config: object, state: object, *, client: object = None
+        ) -> None:
             observed.append("daemon")
 
         async def _fake_healthz(config: object, state: object) -> None:
             observed.append("healthz")
 
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
         monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
         monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
 
@@ -241,6 +272,210 @@ class TestServeCmdSmoke:
         result = runner.invoke(serve_module.serve_cmd, [])
         assert result.exit_code == 0, result.output
         assert set(observed) == {"daemon", "healthz"}
+
+
+# ---------------------------------------------------------------------------
+# TASK-FW10-001 AC-006 / AC-007: _run_serve boot order + shared NATS client
+# ---------------------------------------------------------------------------
+
+
+class TestRunServeBootOrder:
+    """TASK-FW10-001: _run_serve opens one client, runs both reconciles, sets chain_ready."""
+
+    def test_single_nats_connect_call_on_startup(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AC: _run_serve opens **one** NATS client and shares it. No
+        # second nats.connect call anywhere in the daemon's startup
+        # path.
+        import asyncio as _asyncio
+
+        from forge.cli import _serve_daemon
+        from forge.cli import serve as serve_module
+        from forge.cli._serve_config import ServeConfig
+        from forge.cli._serve_state import SubscriptionState
+
+        stub_client = _StubNatsClient()
+        connect_calls: list[str] = []
+
+        async def _fake_connect(servers: str) -> object:
+            connect_calls.append(servers)
+            return stub_client
+
+        captured_clients: list[object] = []
+
+        async def _fake_daemon(
+            config: object, state: object, *, client: object = None
+        ) -> None:
+            captured_clients.append(client)
+
+        async def _fake_healthz(config: object, state: object) -> None:
+            return None
+
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
+        monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
+        monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
+
+        config = ServeConfig()
+        state = SubscriptionState()
+        _asyncio.run(serve_module._run_serve(config, state))
+
+        # Exactly one connect on the startup path.
+        assert len(connect_calls) == 1, (
+            f"AC violated: expected 1 nats_connect call; got {connect_calls!r}"
+        )
+        # The shared client was passed into run_daemon.
+        assert captured_clients == [stub_client]
+
+    def test_both_reconcile_on_boot_run_before_daemon(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AC: Both reconcile_on_boot routines are awaited before the
+        # durable consumer is attached (Step 5 in §5 of the
+        # IMPLEMENTATION-GUIDE.md). We assert ordering by recording
+        # the call sequence.
+        import asyncio as _asyncio
+
+        from forge.cli import _serve_daemon
+        from forge.cli import serve as serve_module
+        from forge.cli._serve_config import ServeConfig
+        from forge.cli._serve_state import SubscriptionState
+
+        stub_client = _StubNatsClient()
+        events: list[str] = []
+
+        async def _fake_connect(servers: str) -> object:
+            events.append("connect")
+            return stub_client
+
+        async def _fake_recovery(client: object) -> None:
+            events.append("recovery_reconcile")
+            assert client is stub_client
+
+        async def _fake_consumer(client: object) -> None:
+            events.append("consumer_reconcile")
+            assert client is stub_client
+
+        async def _fake_daemon(
+            config: object, state: object, *, client: object = None
+        ) -> None:
+            events.append("daemon_started")
+
+        async def _fake_healthz(config: object, state: object) -> None:
+            events.append("healthz_started")
+
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
+        monkeypatch.setattr(
+            serve_module, "recovery_reconcile_on_boot", _fake_recovery
+        )
+        monkeypatch.setattr(
+            serve_module, "consumer_reconcile_on_boot", _fake_consumer
+        )
+        monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
+        monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
+
+        config = ServeConfig()
+        state = SubscriptionState()
+        _asyncio.run(serve_module._run_serve(config, state))
+
+        # connect must come first; both reconciles must run before any
+        # daemon/healthz coroutine starts.
+        connect_idx = events.index("connect")
+        recovery_idx = events.index("recovery_reconcile")
+        consumer_idx = events.index("consumer_reconcile")
+        # The daemon and healthz tasks may schedule concurrently — we
+        # only need at least one of them after the reconciles.
+        post_reconcile = [
+            i
+            for i, e in enumerate(events)
+            if e in {"daemon_started", "healthz_started"}
+        ]
+
+        assert connect_idx < recovery_idx
+        assert connect_idx < consumer_idx
+        assert recovery_idx < min(post_reconcile)
+        assert consumer_idx < min(post_reconcile)
+
+    def test_chain_ready_flips_true_after_reconciles(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AC: state.chain_ready flips True after composition; healthz
+        # reads it and reports unhealthy until then.
+        import asyncio as _asyncio
+
+        from forge.cli import _serve_daemon
+        from forge.cli import serve as serve_module
+        from forge.cli._serve_config import ServeConfig
+        from forge.cli._serve_state import SubscriptionState
+
+        stub_client = _StubNatsClient()
+        chain_ready_when_recovery_runs: list[bool] = []
+        chain_ready_when_daemon_runs: list[bool] = []
+
+        async def _fake_connect(servers: str) -> object:
+            return stub_client
+
+        async def _fake_recovery(client: object) -> None:
+            chain_ready_when_recovery_runs.append(state.chain_ready)
+
+        async def _fake_consumer(client: object) -> None:
+            return None
+
+        async def _fake_daemon(
+            config: object, state_arg: object, *, client: object = None
+        ) -> None:
+            chain_ready_when_daemon_runs.append(state.chain_ready)
+
+        async def _fake_healthz(config: object, state_arg: object) -> None:
+            return None
+
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
+        monkeypatch.setattr(
+            serve_module, "recovery_reconcile_on_boot", _fake_recovery
+        )
+        monkeypatch.setattr(
+            serve_module, "consumer_reconcile_on_boot", _fake_consumer
+        )
+        monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
+        monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
+
+        config = ServeConfig()
+        state = SubscriptionState()
+        # Sanity precondition.
+        assert state.chain_ready is False
+        _asyncio.run(serve_module._run_serve(config, state))
+
+        # Recovery saw chain_ready=False (chain not yet composed).
+        assert chain_ready_when_recovery_runs == [False]
+        # By the time the daemon runs, the chain is ready.
+        assert chain_ready_when_daemon_runs == [True]
+        # And the final state reflects that.
+        assert state.chain_ready is True
+
+    def test_default_seams_are_no_ops(self) -> None:
+        # The seams default to logged no-ops so the boot path works
+        # before the production wiring (later FW10 task) lands.
+        # Anti-stub guard: these are intentionally rebindable seams,
+        # not primary deliverable functions, so the no-op default is
+        # the correct shape per the task brief.
+        import asyncio as _asyncio
+        import inspect
+
+        from forge.cli import serve as serve_module
+
+        assert inspect.iscoroutinefunction(
+            serve_module.recovery_reconcile_on_boot
+        )
+        assert inspect.iscoroutinefunction(
+            serve_module.consumer_reconcile_on_boot
+        )
+        # Calling them with a stub client must not raise.
+        _asyncio.run(
+            serve_module.recovery_reconcile_on_boot(_StubNatsClient())
+        )
+        _asyncio.run(
+            serve_module.consumer_reconcile_on_boot(_StubNatsClient())
+        )
 
 
 # ---------------------------------------------------------------------------

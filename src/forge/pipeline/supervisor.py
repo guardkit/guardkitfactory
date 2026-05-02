@@ -107,6 +107,7 @@ from forge.pipeline.stage_taxonomy import PER_FEATURE_STAGES, StageClass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - import-time only
+    from forge.pipeline import PipelineLifecycleEmitter
     from forge.pipeline.mode_b_planner import (
         ModeBChainPlanner,
         ModeBPlan,
@@ -607,6 +608,25 @@ class Supervisor:
     fix_task_context_builder: (
         Callable[[str, str, Any], Mapping[str, Any]] | None
     ) = None
+    # ----- TASK-FW10-008: AsyncSubAgentMiddleware tool surface --------
+    # ``tools`` carries the ``AsyncSubAgentMiddleware`` start/check/
+    # update/cancel/list tools so the supervisor's reasoning model can
+    # dispatch (and observe) the autobuild stage as an
+    # :class:`AsyncSubAgent` per ADR-ARCH-031. Defaults to an empty
+    # tuple so existing TASK-MAG7-010 / TASK-MBC8-008 callers compose
+    # the dataclass unchanged; ``forge.cli.serve._build_supervisor``
+    # populates it from the production middleware.
+    #
+    # ``lifecycle_emitter`` is the FEAT-FORGE-002 :class:`PipelineLifecycleEmitter`
+    # threaded into ``dispatch_autobuild_async``'s context payload (DDR-007
+    # Option A). The supervisor does not call the emitter directly — it
+    # only forwards it to the autobuild dispatcher so the same instance
+    # is shared with the autobuild_runner subagent. ``None`` means the
+    # caller has not wired the production emitter; the supervisor still
+    # dispatches but downstream lifecycle publishes are skipped (the
+    # SQLite row stays intact per ADR-ARCH-008).
+    tools: tuple[Any, ...] = field(default_factory=tuple)
+    lifecycle_emitter: PipelineLifecycleEmitter | None = None
 
     # Stage groupings — pre-computed once so per-turn routing is a
     # single dict lookup rather than a chain of ``in`` checks.

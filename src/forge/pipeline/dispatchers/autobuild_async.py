@@ -71,13 +71,16 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Any, Mapping, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Mapping, Protocol, runtime_checkable
 
 from forge.pipeline.forward_context_builder import (
     ContextEntry,
     ForwardContextBuilder,
 )
 from forge.pipeline.stage_taxonomy import StageClass
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only
+    from forge.pipeline import PipelineLifecycleEmitter
 
 __all__ = [
     "AUTOBUILD_RUNNER_NAME",
@@ -298,6 +301,7 @@ def dispatch_autobuild_async(
     async_task_starter: AsyncTaskStarter,
     stage_log_recorder: StageLogRecorder,
     state_channel: AutobuildStateInitialiser,
+    lifecycle_emitter: "PipelineLifecycleEmitter | None" = None,
 ) -> AutobuildDispatchHandle:
     """Dispatch ``feature_id``'s autobuild as a long-running async subagent.
 
@@ -358,6 +362,21 @@ def dispatch_autobuild_async(
             satisfying :class:`StageLogRecorder`.
         state_channel: Upsert-shaped ``async_tasks`` state-channel
             writer, satisfying :class:`AutobuildStateInitialiser`.
+        lifecycle_emitter: Optional :class:`PipelineLifecycleEmitter`
+            (TASK-FW10-006) threaded into the launched task's context
+            payload as ``ctx['lifecycle_emitter']`` per DDR-007 §Decision
+            (Option A — in-process Python object via the
+            ``start_async_task`` context). The
+            :data:`AUTOBUILD_RUNNER_NAME` subagent reads it from
+            ``ctx['lifecycle_emitter']`` and calls
+            ``emitter.on_transition(new_state)`` from its
+            ``_update_state`` helper so every lifecycle progression
+            ``(starting → planning_waves → running_wave → ...)`` is
+            published on the same NATS connection that wrote the
+            ``stage_log`` row. Defaults to ``None`` for backwards
+            compatibility with the wave-2 dispatcher tests; production
+            callers (TASK-FW10-008) MUST pass an emitter so the
+            five-collaborator wiring contract is honoured.
 
     Returns:
         :class:`AutobuildDispatchHandle` carrying the minted ``task_id``
@@ -437,12 +456,19 @@ def dispatch_autobuild_async(
 
     # 3. Invoke start_async_task. Returns synchronously with the
     #    minted task_id; the runner's actual work happens in the
-    #    background.
+    #    background. DDR-007 §Decision Option A: the
+    #    ``lifecycle_emitter`` is threaded onto the launched task's
+    #    context payload as an in-process Python object so the
+    #    autobuild_runner subagent (TASK-FW10-002) can read it back as
+    #    ``ctx['lifecycle_emitter']`` and invoke
+    #    ``emitter.on_transition(state)`` from its single transition
+    #    site.
     launch_payload: dict[str, Any] = {
         "build_id": build_id,
         "feature_id": feature_id,
         "correlation_id": correlation_id,
         "context_entries": serialised_context,
+        "lifecycle_emitter": lifecycle_emitter,
     }
     task_id = async_task_starter.start_async_task(
         subagent_name=AUTOBUILD_RUNNER_NAME,

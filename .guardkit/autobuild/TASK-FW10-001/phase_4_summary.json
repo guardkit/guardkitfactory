@@ -1,0 +1,7 @@
+{
+  "tests_run": 230,
+  "tests_failed": 0,
+  "coverage_pct": 85.0,
+  "output_summary": "230 CLI tests passed (88 directly on changed serve daemon/healthz/state/serve modules); 85% line coverage across forge.cli; modified files at 89%.",
+  "quality_gates_passed": true
+}

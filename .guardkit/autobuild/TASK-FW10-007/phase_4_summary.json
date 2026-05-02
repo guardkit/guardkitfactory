@@ -1,0 +1,7 @@
+{
+  "tests_run": 58,
+  "tests_failed": 0,
+  "coverage_pct": 59.89,
+  "output_summary": "58 tests passed, 0 failed; line coverage across 5 changed modules: 59.89% (range 42%-100%, supervisor.py is partially covered).",
+  "quality_gates_passed": true
+}

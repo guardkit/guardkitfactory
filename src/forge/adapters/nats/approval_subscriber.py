@@ -47,7 +47,16 @@ import logging
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, Final, Protocol, runtime_checkable
+from datetime import datetime, timezone
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Final,
+    Protocol,
+    runtime_checkable,
+)
 
 from nats_core.envelope import MessageEnvelope
 from nats_core.events import ApprovalResponsePayload
@@ -56,6 +65,9 @@ from pydantic import ValidationError
 
 from forge.config.models import ApprovalConfig
 from forge.gating.identity import derive_request_id
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only
+    from forge.pipeline import BuildContext, PipelineLifecycleEmitter
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +265,21 @@ class ApprovalSubscriber:
         # for a different build (or after the wait loop exited) are
         # logged and dropped.
         self._queues: dict[str, asyncio.Queue[ApprovalResponsePayload]] = {}
+        # Per-build resume-publish context (TASK-FW10-010). Populated by
+        # :meth:`await_response` when the caller threads a
+        # ``lifecycle_emitter`` + ``build_context`` so ``_on_envelope``
+        # can publish ``pipeline.build-resumed.<feature_id>`` BEFORE
+        # the orchestrator advances. Each entry is dropped on
+        # ``await_response`` exit, mirroring the per-build queue.
+        self._resume_publish_ctx: dict[
+            str,
+            tuple[
+                "PipelineLifecycleEmitter",
+                "BuildContext",
+                str | None,  # expected correlation_id
+                str,  # stage_label
+            ],
+        ] = {}
 
     # ------------------------------------------------------------------
     # Subject helper
@@ -327,6 +354,9 @@ class ApprovalSubscriber:
         stage_label: str,
         attempt_count: int = 0,
         timeout_seconds: int | None = None,
+        lifecycle_emitter: "PipelineLifecycleEmitter | None" = None,
+        build_context: "BuildContext | None" = None,
+        expected_correlation_id: str | None = None,
     ) -> ApprovalResponsePayload | None:
         """Subscribe and await the first-arrival approval response.
 
@@ -388,6 +418,21 @@ class ApprovalSubscriber:
         # per build, but this keeps the contract robust.
         queue: asyncio.Queue[ApprovalResponsePayload] = asyncio.Queue()
         self._queues[build_id] = queue
+
+        # TASK-FW10-010: register resume-publish context so the inbound
+        # handler can publish ``pipeline.build-resumed.<feature_id>``
+        # the moment a matching response arrives — strictly *before*
+        # the orchestrator advances to the next stage. The context is
+        # cleared on the ``finally`` block below; only one concurrent
+        # await_response per build_id is supported (the state machine
+        # enforces this — ASSUM-002).
+        if lifecycle_emitter is not None and build_context is not None:
+            self._resume_publish_ctx[build_id] = (
+                lifecycle_emitter,
+                build_context,
+                expected_correlation_id,
+                stage_label,
+            )
 
         clock = self._deps.clock
         start = clock.monotonic()
@@ -478,6 +523,7 @@ class ApprovalSubscriber:
                     return None
         finally:
             self._queues.pop(build_id, None)
+            self._resume_publish_ctx.pop(build_id, None)
             try:
                 await sub.unsubscribe()
             except Exception as exc:  # noqa: BLE001
@@ -562,6 +608,34 @@ class ApprovalSubscriber:
             )
             return
 
+        # --- 2b. Correlation-id allowlist (Group E @security, DDR-001) --
+        # TASK-FW10-010: when the caller threaded an
+        # ``expected_correlation_id`` via :meth:`await_response`, refuse
+        # responses whose envelope correlation_id mismatches. This
+        # closes the per-build correlation guard cited in DDR-001 /
+        # ASSUM-016: even on the per-build response subject, an attacker
+        # who knows ``build_id`` cannot inject an approval for a
+        # different build's correlation context.
+        publish_ctx = self._resume_publish_ctx.get(build_id)
+        if publish_ctx is not None:
+            _emitter, _ctx, expected_corr, _stage = publish_ctx
+            envelope_corr = getattr(envelope, "correlation_id", None)
+            if (
+                expected_corr is not None
+                and envelope_corr is not None
+                and envelope_corr != expected_corr
+            ):
+                logger.warning(
+                    "approval_subscriber: correlation_id mismatch "
+                    "(envelope=%r expected=%r) build_id=%s request_id=%s "
+                    "— anomaly, NOT resuming (DDR-001 / ASSUM-016)",
+                    envelope_corr,
+                    expected_corr,
+                    build_id,
+                    payload.request_id,
+                )
+                return
+
         # --- 3. Dedup — atomic check-and-record (R4) -----------------
         is_duplicate = await self._check_and_record(payload.request_id)
         if is_duplicate:
@@ -574,7 +648,7 @@ class ApprovalSubscriber:
             )
             return
 
-        # --- 4. First-arrival → enqueue ------------------------------
+        # --- 4. First-arrival → publish build-resumed + enqueue ------
         queue = self._queues.get(build_id)
         if queue is None:
             # No active wait loop for this build. This is normal in two
@@ -590,6 +664,42 @@ class ApprovalSubscriber:
                 payload.request_id,
             )
             return
+
+        # TASK-FW10-010 AC: publish ``pipeline.build-resumed.<feature_id>``
+        # BEFORE the orchestrator advances. The order is part of the
+        # contract — observers must see the resume on the wire before
+        # the gate's wait loop returns and the state machine runs the
+        # PAUSED → RUNNING transition. Failures are logged at WARNING
+        # and swallowed (DDR-007 §Failure-mode contract, ADR-ARCH-008):
+        # SQLite remains authoritative; the build does not regress on
+        # a transient publish hiccup.
+        if publish_ctx is not None:
+            emitter, ctx, _expected_corr, stage_label = publish_ctx
+            try:
+                await emitter.emit_resumed(
+                    ctx,
+                    stage_label=stage_label,
+                    decision=payload.decision,
+                    responder=payload.decided_by,
+                    resumed_at=datetime.now(timezone.utc).isoformat(),
+                )
+                logger.info(
+                    "approval_subscriber: published build-resumed "
+                    "build_id=%s feature_id=%s request_id=%s decision=%s",
+                    build_id,
+                    ctx.feature_id,
+                    payload.request_id,
+                    payload.decision,
+                )
+            except Exception as exc:  # noqa: BLE001 — DDR-007 swallow+log
+                logger.warning(
+                    "approval_subscriber: emit_resumed failed "
+                    "build_id=%s request_id=%s err=%s "
+                    "— SQLite remains authoritative (ADR-ARCH-008)",
+                    build_id,
+                    payload.request_id,
+                    exc,
+                )
 
         await queue.put(payload)
 

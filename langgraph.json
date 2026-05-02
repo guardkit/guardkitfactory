@@ -1,7 +1,8 @@
 {
     "dependencies": ["."],
     "graphs": {
-        "orchestrator": "./src/forge/agent.py:agent"
+        "orchestrator": "./src/forge/agent.py:agent",
+        "autobuild_runner": "./src/forge/subagents/autobuild_runner.py:graph"
     },
     "env": ".env"
 }

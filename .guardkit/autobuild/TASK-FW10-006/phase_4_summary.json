@@ -1,0 +1,7 @@
+{
+  "tests_run": 15,
+  "tests_failed": 0,
+  "coverage_pct": 100.0,
+  "output_summary": "pytest tests/forge/test_lifecycle_factory.py: 15 passed, 0 failed; coverage on src/forge/cli/_serve_deps_lifecycle.py: 100% (17/17 stmts)",
+  "quality_gates_passed": true
+}
