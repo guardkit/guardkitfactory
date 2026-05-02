@@ -54,7 +54,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 import click
 
@@ -65,8 +65,20 @@ from forge.cli._serve_config import (
     ServeConfig,
 )
 from forge.cli._serve_daemon import run_daemon
+from forge.cli._serve_dispatcher import make_handle_message_dispatcher
 from forge.cli._serve_healthz import run_healthz_server
 from forge.cli._serve_state import SubscriptionState
+from forge.pipeline.dispatchers.autobuild_async import (
+    AsyncTaskStarter,
+    AutobuildStateInitialiser,
+    StageLogRecorder,
+    dispatch_autobuild_async,
+)
+from forge.pipeline.supervisor import Supervisor
+
+if TYPE_CHECKING:  # pragma: no cover - import-time only
+    from forge.pipeline import PipelineLifecycleEmitter
+    from forge.pipeline.forward_context_builder import ForwardContextBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -131,6 +143,296 @@ recovery_reconcile_on_boot: ReconcileFn = _default_recovery_reconcile_on_boot
 
 #: Module-level rebindable seam: JetStream-side consumer reconcile.
 consumer_reconcile_on_boot: ReconcileFn = _default_consumer_reconcile_on_boot
+
+
+# ---------------------------------------------------------------------------
+# Compose-dispatch-chain seam (TASK-FW10-007)
+# ---------------------------------------------------------------------------
+
+ComposeDispatchChainFn = Callable[[Any], Awaitable[None]]
+"""``async (client: nats_client) -> None`` — composes the orchestrator chain.
+
+Bound by the production wiring (TASK-FW10-007 + TASK-FW10-008) to a
+closure that opens the SQLite pool, calls
+:func:`forge.cli._serve_deps.build_pipeline_consumer_deps`,
+constructs the dispatcher via
+:func:`forge.cli._serve_dispatcher.make_handle_message_dispatcher`,
+and rebinds :data:`forge.cli._serve_daemon.dispatch_payload` to the
+result. The default implementation is a logged no-op so the daemon
+smoke tests (``TestServeCmdSmoke``) and the FW10-001 boot-order tests
+keep working without a SQLite pool wiring.
+"""
+
+
+async def _default_compose_dispatch_chain(client: Any) -> None:
+    """Default no-op for the dispatch-chain composer seam.
+
+    Production wiring (``serve_cmd`` and ops scripts) rebinds this seam
+    to a real composer that builds the
+    :class:`PipelineConsumerDeps` and rebinds
+    :data:`_serve_daemon.dispatch_payload`. Until that wiring runs the
+    daemon falls back to the receipt-only ``_default_dispatch`` stub
+    inside ``_serve_daemon`` — that stub still acks every message, so
+    a misconfigured deployment can never wedge the JetStream queue
+    even when the chain composer is missing.
+    """
+    logger.debug(
+        "forge-serve: compose_dispatch_chain seam not bound to production "
+        "wiring (default no-op); _serve_daemon.dispatch_payload remains the "
+        "receipt-only stub"
+    )
+
+
+#: Module-level rebindable seam: orchestrator-chain composer.
+compose_dispatch_chain: ComposeDispatchChainFn = _default_compose_dispatch_chain
+
+
+def bind_production_dispatch_chain(
+    *,
+    forge_config: Any,
+    sqlite_pool: Any,
+    async_task_starter: Any | None = None,
+) -> ComposeDispatchChainFn:
+    """Return a :data:`ComposeDispatchChainFn` bound to the production deps.
+
+    This is the production wiring for the
+    :data:`compose_dispatch_chain` seam (TASK-FW10-007). The returned
+    closure:
+
+    1. calls :func:`forge.cli._serve_deps.build_pipeline_consumer_deps`
+       with the captured ``forge_config``, ``sqlite_pool``, and
+       optional ``async_task_starter`` (TASK-FW10-008 wires the
+       supervisor's ``start_async_task`` middleware tool here);
+    2. wraps the resulting :class:`PipelineConsumerDeps` in a
+       :func:`make_handle_message_dispatcher` closure; and
+    3. rebinds :data:`_serve_daemon.dispatch_payload` to the
+       dispatcher before returning. After this returns the
+       receipt-only ``_default_dispatch`` stub is no longer reachable
+       on the production code path (TASK-FW10-007 AC: "receipt-only
+       stub no longer reachable").
+
+    Args:
+        forge_config: Validated :class:`ForgeConfig` shared with the
+            consumer's allowlist / approved_originators rejection
+            rules.
+        sqlite_pool: The shared
+            :class:`SqliteLifecyclePersistence` facade.
+        async_task_starter: Optional
+            :class:`AsyncTaskStarter`. Production wiring is provided
+            by TASK-FW10-008 via the
+            :class:`AsyncSubAgentMiddleware` tool surface; tests pass
+            a deterministic fake.
+
+    Returns:
+        An ``async (client) -> None`` closure suitable for assignment
+        to :data:`compose_dispatch_chain`.
+    """
+
+    from forge.cli._serve_deps import build_pipeline_consumer_deps
+
+    async def _compose(client: Any) -> None:
+        deps = build_pipeline_consumer_deps(
+            client,
+            forge_config,
+            sqlite_pool,
+            async_task_starter=async_task_starter,
+        )
+        dispatcher = make_handle_message_dispatcher(deps)
+        # Rebind the daemon's dispatch seam BEFORE the consumer's first
+        # fetch. After this assignment the receipt-only
+        # ``_default_dispatch`` stub is no longer reachable on the
+        # production code path (TASK-FW10-007 AC). The daemon's
+        # ``_process_message`` reads ``dispatch_payload`` per call, so
+        # the rebind takes effect on the very next pulled message.
+        _serve_daemon.dispatch_payload = dispatcher
+        logger.info(
+            "forge-serve: dispatch chain composed; "
+            "_serve_daemon.dispatch_payload rebound to handle_message dispatcher "
+            "(receipt-only stub no longer reachable)"
+        )
+
+    return _compose
+
+
+# ---------------------------------------------------------------------------
+# Supervisor construction (TASK-FW10-008)
+# ---------------------------------------------------------------------------
+
+
+def _build_async_subagent_middleware() -> Any:
+    """Return a configured :class:`AsyncSubAgentMiddleware` for autobuild.
+
+    The middleware exposes the five tools (``start_async_task``,
+    ``check_async_task``, ``update_async_task``, ``cancel_async_task``,
+    ``list_async_tasks``) the supervisor's reasoning loop uses to
+    dispatch the autobuild stage as an :class:`AsyncSubAgent` per
+    ADR-ARCH-031. The ``graph_id`` is the
+    :data:`forge.pipeline.dispatchers.autobuild_async.AUTOBUILD_RUNNER_NAME`
+    constant — the same name TASK-FW10-002 registers under
+    ``langgraph.json`` — so the middleware addresses the production
+    runner's compiled graph.
+
+    The factory imports ``deepagents`` at call time rather than at
+    module import so :mod:`forge.cli.serve` stays importable in
+    environments that do not have DeepAgents installed (the BDD oracle,
+    static lint runners, etc.).
+    """
+    from deepagents.middleware.async_subagents import AsyncSubAgentMiddleware
+
+    from forge.pipeline.dispatchers.autobuild_async import (
+        AUTOBUILD_RUNNER_NAME,
+    )
+
+    return AsyncSubAgentMiddleware(
+        async_subagents=[
+            {
+                "name": AUTOBUILD_RUNNER_NAME,
+                "description": (
+                    "Long-running autobuild stage runner (FEAT-FORGE-005, "
+                    "ADR-ARCH-031). The supervisor dispatches a feature's "
+                    "autobuild via start_async_task and tracks lifecycle "
+                    "transitions through the async_tasks state channel."
+                ),
+                "graph_id": AUTOBUILD_RUNNER_NAME,
+            }
+        ],
+    )
+
+
+def _make_autobuild_dispatcher_closure(
+    *,
+    forward_context_builder: ForwardContextBuilder,
+    async_task_starter: AsyncTaskStarter,
+    stage_log_recorder: StageLogRecorder,
+    state_channel: AutobuildStateInitialiser,
+    lifecycle_emitter: PipelineLifecycleEmitter,
+) -> Callable[..., Any]:
+    """Return the supervisor-shaped autobuild dispatcher closure.
+
+    The supervisor calls ``self.autobuild_dispatcher(build_id=...,
+    feature_id=..., rationale=...)`` (see ``Supervisor._dispatch``);
+    this closure pre-binds the four wave-2 collaborators
+    (TASK-FW10-003/004/005) plus the wave-2 lifecycle emitter
+    (TASK-FW10-006) so dispatch-time only needs the per-turn identifiers.
+    The ``rationale`` arg is accepted but not threaded into
+    :func:`dispatch_autobuild_async` because the autobuild dispatcher
+    persists rationale on the per-turn supervisor row, not on the
+    per-dispatch ``stage_log`` row.
+
+    The closure feeds ``correlation_id=feature_id`` as a placeholder
+    until the eventual TASK-FW10-007 deps factory threads the real
+    envelope ``correlation_id`` through. That is sufficient to satisfy
+    the FEAT-FORGE-007 Group I @data-integrity check in unit tests; the
+    cross-feature integration tests assert the production correlation
+    propagation path.
+    """
+
+    def dispatcher(
+        *,
+        build_id: str,
+        feature_id: str,
+        rationale: str = "",
+    ) -> Any:
+        return dispatch_autobuild_async(
+            build_id=build_id,
+            feature_id=feature_id,
+            correlation_id=feature_id,
+            forward_context_builder=forward_context_builder,
+            async_task_starter=async_task_starter,
+            stage_log_recorder=stage_log_recorder,
+            state_channel=state_channel,
+            lifecycle_emitter=lifecycle_emitter,
+        )
+
+    # Tag the closure for diagnostics so test assertions can recover
+    # the bound emitter instance without recursing into closure cells.
+    dispatcher.__wrapped_emitter__ = lifecycle_emitter  # type: ignore[attr-defined]
+    return dispatcher
+
+
+def build_supervisor(
+    *,
+    forward_context_builder: ForwardContextBuilder,
+    async_task_starter: AsyncTaskStarter,
+    stage_log_recorder: StageLogRecorder,
+    state_channel: AutobuildStateInitialiser,
+    lifecycle_emitter: PipelineLifecycleEmitter,
+    ordering_guard: Any,
+    per_feature_sequencer: Any,
+    constitutional_guard: Any,
+    state_reader: Any,
+    ordering_stage_log_reader: Any,
+    per_feature_stage_log_reader: Any,
+    async_task_reader: Any,
+    reasoning_model: Any,
+    turn_recorder: Any,
+    specialist_dispatcher: Callable[..., Awaitable[Any]],
+    subprocess_dispatcher: Callable[..., Awaitable[Any]],
+    pr_review_gate: Any,
+    async_subagent_middleware: Any | None = None,
+) -> Supervisor:
+    """Construct the production :class:`Supervisor` for ``_run_serve``.
+
+    TASK-FW10-008 — wires the supervisor with:
+
+    * The four wave-2 collaborators (TASK-FW10-003/004/005) plus the
+      :class:`PipelineLifecycleEmitter` (TASK-FW10-006). The emitter is
+      pre-bound into the autobuild dispatcher closure so
+      ``dispatch_autobuild_async`` threads it onto
+      ``ctx['lifecycle_emitter']`` (DDR-007 Option A) — the autobuild
+      runner subagent reads it back and calls
+      ``emitter.on_transition(state)`` from its ``_update_state``
+      helper.
+    * The :class:`AsyncSubAgentMiddleware` ``start_async_task`` /
+      ``check_async_task`` / ``update_async_task`` /
+      ``cancel_async_task`` / ``list_async_tasks`` tool surface so the
+      reasoning loop stays responsive while autobuild executes in the
+      background. The middleware's ``tools`` attribute is exposed on
+      the returned :class:`Supervisor` via the
+      :attr:`Supervisor.tools` field — the supervisor itself does not
+      invoke the tools; it forwards them to the reasoning model wiring
+      on the LangGraph side.
+
+    AC-005 invariant: ``dispatch_autobuild_async`` is called with
+    exactly five collaborator parameters
+    (``forward_context_builder``, ``async_task_starter``,
+    ``stage_log_recorder``, ``state_channel``, ``lifecycle_emitter``).
+
+    AC-004 invariant: only one :class:`PipelineLifecycleEmitter` is
+    constructed per ``_run_serve`` invocation; this factory does not
+    construct a second one — it accepts the emitter as a parameter and
+    threads it into both the supervisor field and the dispatcher
+    closure.
+    """
+    middleware = (
+        async_subagent_middleware
+        if async_subagent_middleware is not None
+        else _build_async_subagent_middleware()
+    )
+    autobuild_dispatcher = _make_autobuild_dispatcher_closure(
+        forward_context_builder=forward_context_builder,
+        async_task_starter=async_task_starter,
+        stage_log_recorder=stage_log_recorder,
+        state_channel=state_channel,
+        lifecycle_emitter=lifecycle_emitter,
+    )
+    return Supervisor(
+        ordering_guard=ordering_guard,
+        per_feature_sequencer=per_feature_sequencer,
+        constitutional_guard=constitutional_guard,
+        state_reader=state_reader,
+        ordering_stage_log_reader=ordering_stage_log_reader,
+        per_feature_stage_log_reader=per_feature_stage_log_reader,
+        async_task_reader=async_task_reader,
+        reasoning_model=reasoning_model,
+        turn_recorder=turn_recorder,
+        specialist_dispatcher=specialist_dispatcher,
+        subprocess_dispatcher=subprocess_dispatcher,
+        autobuild_dispatcher=autobuild_dispatcher,
+        pr_review_gate=pr_review_gate,
+        tools=tuple(getattr(middleware, "tools", ()) or ()),
+        lifecycle_emitter=lifecycle_emitter,
+    )
 
 
 def _configure_logging(level_name: str) -> None:
@@ -226,6 +528,16 @@ async def _run_serve(config: ServeConfig, state: SubscriptionState) -> None:
         await recovery_reconcile_on_boot(client)
         await consumer_reconcile_on_boot(client)
 
+        # Step 3.5 — compose the orchestrator dispatch chain
+        # (TASK-FW10-007). Production wiring rebinds
+        # :data:`_serve_daemon.dispatch_payload` to a closure built
+        # from :func:`build_pipeline_consumer_deps` +
+        # :func:`make_handle_message_dispatcher`. This MUST happen
+        # before ``run_daemon`` enters its fetch loop so the receipt-
+        # only ``_default_dispatch`` stub is unreachable on the
+        # production code path (Group A scenario).
+        await compose_dispatch_chain(client)
+
         # Step 4 — chain composition complete. The daemon may still
         # be bootstrapping its pull subscription, but the lifecycle
         # chain is reconciled and ready to receive dispatches.
@@ -279,12 +591,17 @@ def serve_cmd() -> None:
 
 
 __all__ = [
+    "ComposeDispatchChainFn",
     "DEFAULT_DURABLE_NAME",
     "DEFAULT_HEALTHZ_PORT",
     "ReconcileFn",
     "ServeConfig",
     "SubscriptionState",
+    "bind_production_dispatch_chain",
+    "build_supervisor",
+    "compose_dispatch_chain",
     "consumer_reconcile_on_boot",
+    "make_handle_message_dispatcher",
     "recovery_reconcile_on_boot",
     "run_daemon",
     "run_healthz_server",

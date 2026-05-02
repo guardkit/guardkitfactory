@@ -1,27 +1,39 @@
 ---
-id: TASK-FW10-008
-title: "Wire AsyncSubAgentMiddleware into supervisor; thread emitter into autobuild dispatcher context"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 3
-implementation_mode: task-work
 complexity: 5
-dependencies: [TASK-FW10-002, TASK-FW10-006]
-estimated_minutes: 75
-priority: high
-tags: [composition, supervisor, async-subagent-middleware, deepagents]
 consumer_context:
-  - task: TASK-FW10-002
-    consumes: AUTOBUILD_RUNNER_NAME
-    framework: "DeepAgents AsyncSubAgent registration"
-    driver: "langgraph.json graph entry"
-    format_note: "Supervisor's AutobuildDispatcher uses AUTOBUILD_RUNNER_NAME = 'autobuild_runner' to address the registered graph; the constant must match the langgraph.json entry created in TASK-FW10-002."
-  - task: TASK-FW10-006
-    consumes: PipelineLifecycleEmitter
-    framework: "dispatch_autobuild_async context payload (DDR-007 Option A)"
-    driver: "in-process Python object via DeepAgents AsyncSubAgent context"
-    format_note: "Emitter is threaded through dispatch_autobuild_async's context payload; the autobuild_runner subagent receives it as ctx['lifecycle_emitter'] and calls emitter.on_transition(new_state) from _update_state."
+- consumes: AUTOBUILD_RUNNER_NAME
+  driver: langgraph.json graph entry
+  format_note: Supervisor's AutobuildDispatcher uses AUTOBUILD_RUNNER_NAME = 'autobuild_runner'
+    to address the registered graph; the constant must match the langgraph.json entry
+    created in TASK-FW10-002.
+  framework: DeepAgents AsyncSubAgent registration
+  task: TASK-FW10-002
+- consumes: PipelineLifecycleEmitter
+  driver: in-process Python object via DeepAgents AsyncSubAgent context
+  format_note: Emitter is threaded through dispatch_autobuild_async's context payload;
+    the autobuild_runner subagent receives it as ctx['lifecycle_emitter'] and calls
+    emitter.on_transition(new_state) from _update_state.
+  framework: dispatch_autobuild_async context payload (DDR-007 Option A)
+  task: TASK-FW10-006
+dependencies:
+- TASK-FW10-002
+- TASK-FW10-006
+estimated_minutes: 75
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-008
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- composition
+- supervisor
+- async-subagent-middleware
+- deepagents
+task_type: feature
+title: Wire AsyncSubAgentMiddleware into supervisor; thread emitter into autobuild
+  dispatcher context
+wave: 3
 ---
 
 # TASK-FW10-008 — Wire `AsyncSubAgentMiddleware` into the supervisor; thread the emitter through the dispatcher context

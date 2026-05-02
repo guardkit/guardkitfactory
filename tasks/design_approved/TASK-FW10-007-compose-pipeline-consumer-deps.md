@@ -1,42 +1,58 @@
 ---
-id: TASK-FW10-007
-title: "Compose PipelineConsumerDeps factory and dispatcher closure; replace receipt-only stub"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 3
-implementation_mode: task-work
 complexity: 6
-dependencies: [TASK-FW10-002, TASK-FW10-003, TASK-FW10-004, TASK-FW10-005, TASK-FW10-006]
-estimated_minutes: 90
-priority: high
-tags: [composition, deps-factory, dispatcher, pipeline-consumer]
 consumer_context:
-  - task: TASK-FW10-001
-    consumes: DispatchFn
-    framework: "_serve_daemon dispatch seam"
-    driver: "Python type alias Callable[[_MsgLike], Awaitable[None]]"
-    format_note: "The dispatcher closure must conform to the new (_MsgLike) -> None signature; ack lifecycle is deferred to pipeline_consumer.handle_message's ack_callback."
-  - task: TASK-FW10-006
-    consumes: PipelinePublisher
-    framework: "PipelineConsumerDeps.publish_build_failed binding"
-    driver: "in-process Python object bound to the daemon's single shared NATS client"
-    format_note: "PipelinePublisher instance from TASK-FW10-006 is held by the deps factory and bound into PipelineConsumerDeps.publish_build_failed."
-  - task: TASK-FW10-003
-    consumes: ForwardContextBuilder
-    framework: "dispatch_autobuild_async collaborator"
-    driver: "Protocol implementation"
-    format_note: "ForwardContextBuilder Protocol implementation from TASK-FW10-003 is composed into the deps factory and threaded into the autobuild dispatch closure."
-  - task: TASK-FW10-004
-    consumes: StageLogRecorder
-    framework: "dispatch_autobuild_async collaborator"
-    driver: "Protocol implementation"
-    format_note: "StageLogRecorder Protocol implementation from TASK-FW10-004 is composed into the deps factory."
-  - task: TASK-FW10-005
-    consumes: AutobuildStateInitialiser
-    framework: "dispatch_autobuild_async collaborator"
-    driver: "Protocol implementation"
-    format_note: "AutobuildStateInitialiser Protocol implementation from TASK-FW10-005 is composed into the deps factory; writes lifecycle='starting' on dispatch."
+- consumes: DispatchFn
+  driver: Python type alias Callable[[_MsgLike], Awaitable[None]]
+  format_note: The dispatcher closure must conform to the new (_MsgLike) -> None signature;
+    ack lifecycle is deferred to pipeline_consumer.handle_message's ack_callback.
+  framework: _serve_daemon dispatch seam
+  task: TASK-FW10-001
+- consumes: PipelinePublisher
+  driver: in-process Python object bound to the daemon's single shared NATS client
+  format_note: PipelinePublisher instance from TASK-FW10-006 is held by the deps factory
+    and bound into PipelineConsumerDeps.publish_build_failed.
+  framework: PipelineConsumerDeps.publish_build_failed binding
+  task: TASK-FW10-006
+- consumes: ForwardContextBuilder
+  driver: Protocol implementation
+  format_note: ForwardContextBuilder Protocol implementation from TASK-FW10-003 is
+    composed into the deps factory and threaded into the autobuild dispatch closure.
+  framework: dispatch_autobuild_async collaborator
+  task: TASK-FW10-003
+- consumes: StageLogRecorder
+  driver: Protocol implementation
+  format_note: StageLogRecorder Protocol implementation from TASK-FW10-004 is composed
+    into the deps factory.
+  framework: dispatch_autobuild_async collaborator
+  task: TASK-FW10-004
+- consumes: AutobuildStateInitialiser
+  driver: Protocol implementation
+  format_note: AutobuildStateInitialiser Protocol implementation from TASK-FW10-005
+    is composed into the deps factory; writes lifecycle='starting' on dispatch.
+  framework: dispatch_autobuild_async collaborator
+  task: TASK-FW10-005
+dependencies:
+- TASK-FW10-002
+- TASK-FW10-003
+- TASK-FW10-004
+- TASK-FW10-005
+- TASK-FW10-006
+estimated_minutes: 90
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-007
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- composition
+- deps-factory
+- dispatcher
+- pipeline-consumer
+task_type: feature
+title: Compose PipelineConsumerDeps factory and dispatcher closure; replace receipt-only
+  stub
+wave: 3
 ---
 
 # TASK-FW10-007 — Compose `PipelineConsumerDeps` factory + dispatcher closure
