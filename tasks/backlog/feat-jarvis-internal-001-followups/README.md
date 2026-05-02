@@ -23,27 +23,43 @@ tracked in the jarvis repo separately.
 
 ## Tasks in this folder
 
-| Task | Title | Priority | Complexity |
-|---|---|---|---|
-| [TASK-FORGE-FRR-001](./TASK-FORGE-FRR-001-wire-dispatch-payload-to-real-orchestrator.md) | Wire `forge serve`'s `dispatch_payload` to the real autobuild orchestrator + stage-complete publish path | high | 7 |
-| [TASK-FORGE-FRR-002](./TASK-FORGE-FRR-002-wire-logging-basicconfig-for-forge-log-level.md) | Wire `logging.basicConfig` in `forge serve` so `FORGE_LOG_LEVEL` actually produces visible logs | high | 2 |
-| [TASK-FORGE-FRR-003](./TASK-FORGE-FRR-003-fix-build-image-script-context-path.md) | Fix `scripts/build-image.sh` so `--build-context nats-core=../nats-core` resolves on the canonical sibling layout | high | 2 |
+| Task | Title | Priority | Complexity | Status |
+|---|---|---|---|---|
+| [TASK-FORGE-FRR-001](../../completed/TASK-FORGE-FRR-001/TASK-FORGE-FRR-001-wire-dispatch-payload-to-real-orchestrator.md) | Wire `forge serve`'s `dispatch_payload` to the real autobuild orchestrator + stage-complete publish path | high | 6 | ⚠ superseded-by-feature (2026-05-02) |
+| [TASK-FORGE-FRR-001b](../../completed/TASK-FORGE-FRR-001b/TASK-FORGE-FRR-001b-publish-pipeline-lifecycle-from-autobuild-orchestrator.md) | Publish pipeline lifecycle events (build-started, stage-complete×N, build-complete) from the autobuild orchestrator | high | 7 | ⚠ superseded-by-feature (2026-05-02) |
+| [TASK-FORGE-FRR-002](../../completed/TASK-FORGE-FRR-002/TASK-FORGE-FRR-002-wire-logging-basicconfig-for-forge-log-level.md) | Wire `logging.basicConfig` in `forge serve` so `FORGE_LOG_LEVEL` actually produces visible logs | high | 2 | ✅ completed (b1da833, 2026-05-01) |
+| [TASK-FORGE-FRR-003](../../completed/TASK-FORGE-FRR-003/TASK-FORGE-FRR-003-fix-build-image-script-context-path.md) | Fix `scripts/build-image.sh` so `--build-context nats-core=../nats-core` resolves on the canonical sibling layout | high | 2 | ✅ completed (fc7fd9a, 2026-05-01) |
 
-## Recommended order
+> **Supersession note (2026-05-02)**: FRR-001 + FRR-001b were both
+> closed as `superseded-by-feature` after the FRR-001 Phase 3
+> investigation discovered that the entire pipeline orchestration
+> chain (`Supervisor`, `PipelineConsumerDeps`,
+> `PipelineLifecycleEmitter`, `ForwardContextBuilder`, the
+> `autobuild_runner` AsyncSubAgent, plus four Protocol
+> implementations) is unwired in production. F009 deferred more than
+> "wire `dispatch_payload`" — it deferred the entire orchestration
+> tail. The remaining work is being re-scoped through
+> `/feature-spec` + `/feature-plan` against the findings document
+> `docs/research/forge-orchestrator-wiring-gap.md` and the
+> `--context` evaluation
+> `docs/research/forge-orchestrator-wiring-feature-context.md`. When
+> the new feature ID lands, both task files'
+> `superseded_by` frontmatter fields should be updated from the
+> findings-doc pointer to the feature ID.
 
-1. **TASK-FORGE-FRR-003** first (45 min) — unblocks
-   `RUNBOOK-FEAT-FORGE-008-validation.md` §2.1 so the production image
-   can be built with one command from a clean clone.
-2. **TASK-FORGE-FRR-002** second (60 min) — quick, high-value
-   observability fix; makes TASK-FORGE-FRR-001's e2e wire test
-   actually debuggable when it fails.
-3. **TASK-FORGE-FRR-001** last (1-2 days) — the structural piece. Its
-   e2e test depends on having visible logs (FRR-002) to debug
-   regressions, and on a buildable image (FRR-003) to test against.
+## Sequence (current state)
 
-After all three land, the jarvis runbook's Phase 7 close criterion
-(stage-complete events flow back into the chat REPL, threaded by
-`correlation_id`) becomes structurally satisfiable for the first time.
+1. ~~**TASK-FORGE-FRR-003**~~ ✅ **shipped** (`fc7fd9a`, 2026-05-01) — `scripts/build-image.sh` now `cd`s into forge's parent directory before invoking buildx, so `--build-context nats-core=../nats-core` resolves correctly on the canonical sibling layout.
+2. ~~**TASK-FORGE-FRR-002**~~ ✅ **shipped** (`b1da833`, 2026-05-01) — `serve_cmd` now calls `logging.basicConfig(level=config.log_level, ...)` immediately after `ServeConfig.from_env()`. `docker logs forge-prod` now actually shows the `_serve_daemon` and `_serve_healthz` log lines that were silently dropped before.
+3. ~~**TASK-FORGE-FRR-001**~~ + ~~**TASK-FORGE-FRR-001b**~~ ⚠ **superseded** (2026-05-02) — see supersession note above. The runbook's Phase 7 close criterion ("real per-stage notifications render in the chat REPL") will be satisfied by the new orchestrator-wiring feature once `/feature-spec` + `/feature-plan` produce its plan and the work ships.
+4. **Next: `/feature-spec` for the orchestrator-wiring feature** — see `docs/research/forge-orchestrator-wiring-feature-context.md` for the suggested invocation and `--context` set.
+
+The jarvis runbook
+(`/home/richardwoollcott/Projects/appmilla_github/jarvis/docs/runbooks/RUNBOOK-FEAT-JARVIS-INTERNAL-001-first-real-run.md`)
+has been updated alongside this supersession to test for the real
+per-stage envelope sequence the new feature will produce, not the
+synthetic single-envelope output FRR-001 was originally going to
+ship.
 
 ## Naming
 

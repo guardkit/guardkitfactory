@@ -1,9 +1,12 @@
 ---
 id: TASK-FORGE-FRR-001
 title: Wire `forge serve`'s `dispatch_payload` to the real autobuild orchestrator + stage-complete publish path
-status: backlog
+status: superseded
 created: 2026-05-01T00:00:00Z
-updated: 2026-05-01T00:00:00Z
+updated: 2026-05-02T00:00:00Z
+closed_at: 2026-05-02T00:00:00Z
+closed_reason: superseded-by-feature
+superseded_by: docs/research/forge-orchestrator-wiring-gap.md  # the new feature's spec/plan are pending /feature-spec + /feature-plan
 priority: high
 task_type: feature
 tags:
@@ -15,22 +18,77 @@ tags:
   - dispatch
   - feat-forge-009-followup
   - first-real-run-followup
-complexity: 7
-estimated_minutes: 480
-estimated_effort: "1-2 days (architecture choice + wire-up + e2e test)"
+  - superseded-by-feature
+complexity: 6
+estimated_minutes: 600
+estimated_effort: "~2.5 days (daemon wire + synthetic dispatch publish + e2e test) — see SUPERSESSION below"
 parent_feature: FEAT-FORGE-009
 related_tasks:
-  - TASK-REV-F009  # FEAT-FORGE-009 plan that explicitly deferred this
+  - TASK-REV-F009            # FEAT-FORGE-009 plan that explicitly deferred this
+  - TASK-FORGE-FRR-001b      # sibling — also superseded
 correlation_id: a58ec9a7-27c6-485a-beac-e18675639a10
 discovered_on:
   date: 2026-05-01
   machine: GB10 (promaxgb10-41b1)
   context: "co-resident first walkthrough of jarvis FEAT-JARVIS-INTERNAL-001 runbook"
+design:
+  status: superseded
+  notes: "Phase 2.8 checkpoint produced an Option 2 + max_ack_pending=1 + scope-split-γ design. That design's synthetic dispatch-stage publish was a stub by another name — it satisfied AC #2 literally but with an envelope that didn't reflect real autobuild behaviour. Phase 3 (Implementation) discovered the supersession during file #1 of the deps factory and stopped. The seam-refactor portion of the design is still load-bearing and is preserved in docs/state/TASK-FORGE-FRR-001/implementation_plan.md for the new feature's plan to reuse."
+  implementation_plan: docs/state/TASK-FORGE-FRR-001/implementation_plan.md
 test_results:
-  status: pending
+  status: not-applicable
   coverage: null
   last_run: null
 ---
+
+> ## ⚠ SUPERSEDED BY FEATURE (2026-05-02)
+>
+> This task was filed against the assumption that `forge serve`'s
+> `dispatch_payload` was the only missing wire between the daemon and
+> the existing pipeline orchestrator. The Phase 2.8 design checkpoint
+> investigation discovered that the entire orchestrator chain
+> (`Supervisor`, `PipelineConsumerDeps`, `PipelineLifecycleEmitter`,
+> `ForwardContextBuilder`, the `autobuild_runner` AsyncSubAgent, plus
+> the four Protocol implementations `dispatch_autobuild_async`
+> requires) is **never constructed in production today**. F009
+> shipped the daemon process; the orchestrator it was supposed to
+> host was deferred wholesale.
+>
+> The honest scope to satisfy this task's ACs without stubs is
+> multi-week, feature-level work. It is being re-scoped through
+> `/feature-spec` + `/feature-plan` against
+> `docs/research/forge-orchestrator-wiring-gap.md` (the findings
+> document) and
+> `docs/research/forge-orchestrator-wiring-feature-context.md` (the
+> `--context` evaluation for the two commands).
+>
+> When the new feature's ID lands, this file's `superseded_by`
+> frontmatter field should be updated from the findings-doc pointer
+> to the feature ID.
+>
+> **Still load-bearing from this task**:
+> - The `_serve_daemon._process_message` seam-refactor design (change
+>   `DispatchFn` from `(bytes) -> None` to `(_MsgLike) -> None`,
+>   set `max_ack_pending=1` on the durable, remove post-dispatch ack
+>   on the success path). Captured in
+>   `docs/state/TASK-FORGE-FRR-001/implementation_plan.md` for the
+>   new feature's plan to reuse verbatim.
+> - The originator-allowlist finding (jarvis chat REPL publishes with
+>   `originating_adapter="terminal"`, which is in
+>   `DEFAULT_APPROVED_ORIGINATORS`; `triggered_by="jarvis"` is a
+>   separate field) — captured in the findings doc.
+>
+> **No longer load-bearing**:
+> - The "synthetic dispatch-stage publish to satisfy AC #2 literally"
+>   recommendation. That was a stub. The new feature publishes the
+>   real per-stage envelope sequence from inside the autobuild_runner
+>   subagent.
+>
+> The task's original Description, Why-this-matters, Acceptance
+> Criteria, Out-of-Scope, Implementation Notes, and References
+> sections are preserved below as historical context.
+>
+> ---
 
 # Task: Wire `forge serve`'s `dispatch_payload` to the real autobuild orchestrator + stage-complete publish path
 
@@ -187,22 +245,83 @@ single-process daemon.
 
 ## Implementation Notes
 
-- **Confirm the dispatcher's contract first**: read
-  `forge.adapters.nats.pipeline_consumer`'s public surface before
-  picking option 1 / 2 / 3. If it already exposes
-  `async dispatch(envelope: MessageEnvelope) -> None` (or close), option
-  1 is a one-liner. If it owns its own NATS subscription (the existing
-  pre-F009 path), option 3 may be the cleanest way to share the client
-  with `_serve_daemon`.
-- **Outbound publish**: `pipeline.stage-complete.<feature_id>` —
-  reuse the existing publisher in
-  `forge.adapters.nats.pipeline_publisher` (per the FEAT-FORGE-002 NFI
-  task layout). Do NOT roll a new publisher.
-- **Logging**: this task assumes TASK-FORGE-FRR-002 (logging.basicConfig
+### Design decisions (Phase 2.8 checkpoint, 2026-05-02)
+
+**Option 2 chosen** — fold the dispatcher into `_serve_daemon`. The seam
+contract `dispatch_payload: DispatchFn` changes from
+`Callable[[bytes], Awaitable[None]]` to `Callable[[_MsgLike], Awaitable[None]]`
+so the dispatcher owns the ack lifecycle. `_process_message` no longer acks
+after the dispatch returns — that responsibility moves to
+`pipeline_consumer.handle_message`'s deferred `ack_callback`, preserving E2.1
+(crash mid-build → redelivery).
+
+Option 1 was rejected because rebinding `dispatch_payload` while
+`_process_message` still calls `await msg.ack()` post-dispatch would defeat
+the deferred-ack contract.
+
+**`max_ack_pending=1` on the `forge-serve` durable** — added to
+`_attach_consumer`'s `ConsumerConfig`. Matches
+`pipeline_consumer.build_consumer_config()` and honours ADR-ARCH-014
+(sequential-build constraint). Multi-replica D2 still works: JetStream hands
+the one outstanding-ack slot to whichever replica fetched it; the others
+sit idle until the slot frees. **Operational note:** changing
+`max_ack_pending` on an existing JetStream consumer requires recreating it.
+Roll out with a one-time `nats consumer rm PIPELINE forge-serve` before
+deploying the new image.
+
+**Scope split (γ)** — investigation surfaced that
+`PipelineLifecycleEmitter` (`src/forge/pipeline/__init__.py:273`) has
+`emit_stage_complete` and the seven other lifecycle methods, but is **never
+constructed in production**. `dispatch_autobuild_async` launches a
+DeepAgents subagent and returns immediately; the subagent has no path back
+to publish lifecycle events. So even with this task's daemon wire in place,
+nothing inside the autobuild orchestrator publishes `stage-complete`.
+
+To keep this task shippable, FRR-001 satisfies AC #2 ("at least one
+stage-complete envelope back") via a **synthetic dispatch-stage publish**:
+the new `_serve_dispatcher` calls `PipelinePublisher.publish_stage_complete`
+once after `dispatch_build` returns its `AutobuildDispatchHandle`. The
+envelope is shaped as:
+
+- `feature_id = payload.feature_id`
+- `build_id = payload.build_id` (or derived if not in `BuildQueuedPayload`)
+- `stage_label = "dispatch"` (literal — marks the synthetic origin)
+- `target_kind = "subagent"`
+- `target_identifier = handle.task_id`
+- `status = "PASSED"` (dispatch succeeded; the autobuild's outcome is FRR-001b's surface)
+- `correlation_id = payload.correlation_id` (round-trip — AC #7)
+
+Per-stage publishing inside the autobuild orchestrator is split into
+**TASK-FORGE-FRR-001b**. That task wires `PipelineLifecycleEmitter` into
+the autobuild subagent context so each real stage transition publishes its
+own `stage-complete` envelope. Once FRR-001b lands, the synthetic
+dispatch-stage envelope from this task is still useful (it lets jarvis
+acknowledge "dispatch happened" before the first real stage completes) and
+should remain.
+
+### Sources to read during implementation
+
+- **Confirm the dispatcher's contract**: `pipeline_consumer.handle_message`
+  signature `(_MsgLike, PipelineConsumerDeps) -> None` is the integration
+  point. The dispatcher closure built in `_serve_dispatcher.py` calls into
+  it.
+- **Outbound publish**: reuse `forge.adapters.nats.pipeline_publisher.PipelinePublisher`.
+  Do NOT roll a new publisher.
+- **`approved_originators` is a non-issue for the e2e test**: the runbook
+  envelope from the jarvis chat REPL uses `originating_adapter="terminal"`
+  (the physical interface), which is in
+  `DEFAULT_APPROVED_ORIGINATORS`. `triggered_by="jarvis"` is a separate
+  field that the consumer does not gate on.
+- **Logging**: this task assumes TASK-FORGE-FRR-002 (`logging.basicConfig`
   wire-up) has either landed or is in flight. Without that, the
   orchestrator's per-stage logs will continue to disappear into
   `docker logs forge-prod`. Not a hard dependency — they can ship in
   either order — but worth coordinating.
+
+### Detailed implementation plan
+
+See `docs/state/TASK-FORGE-FRR-001/implementation_plan.md` for the
+file-by-file scope, test plan, and effort breakdown.
 
 ## References
 
