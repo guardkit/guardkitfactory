@@ -38,26 +38,28 @@ tracked in the jarvis repo separately.
 > `autobuild_runner` AsyncSubAgent, plus four Protocol
 > implementations) is unwired in production. F009 deferred more than
 > "wire `dispatch_payload`" — it deferred the entire orchestration
-> tail. The remaining work is being re-scoped through
-> `/feature-spec` + `/feature-plan` against the findings document
+> tail. The remaining work has been re-scoped to **FEAT-FORGE-010**
+> (slug `forge-serve-orchestrator-wiring` — see
+> [`tasks/backlog/forge-serve-orchestrator-wiring/`](../forge-serve-orchestrator-wiring/README.md)).
+> The feature was filed against the findings document
 > `docs/research/forge-orchestrator-wiring-gap.md` and the
 > `--context` evaluation
-> `docs/research/forge-orchestrator-wiring-feature-context.md`. When
-> the new feature ID lands, both task files'
-> `superseded_by` frontmatter fields should be updated from the
-> findings-doc pointer to the feature ID.
+> `docs/research/forge-orchestrator-wiring-feature-context.md`; both
+> remain valid as pre-feature reference material. The
+> `superseded_by` frontmatter on both FRR-001 and FRR-001b has been
+> updated to point at FEAT-FORGE-010.
 
 ## Sequence (current state)
 
 1. ~~**TASK-FORGE-FRR-003**~~ ✅ **shipped** (`fc7fd9a`, 2026-05-01) — `scripts/build-image.sh` now `cd`s into forge's parent directory before invoking buildx, so `--build-context nats-core=../nats-core` resolves correctly on the canonical sibling layout.
 2. ~~**TASK-FORGE-FRR-002**~~ ✅ **shipped** (`b1da833`, 2026-05-01) — `serve_cmd` now calls `logging.basicConfig(level=config.log_level, ...)` immediately after `ServeConfig.from_env()`. `docker logs forge-prod` now actually shows the `_serve_daemon` and `_serve_healthz` log lines that were silently dropped before.
-3. ~~**TASK-FORGE-FRR-001**~~ + ~~**TASK-FORGE-FRR-001b**~~ ⚠ **superseded** (2026-05-02) — see supersession note above. The runbook's Phase 7 close criterion ("real per-stage notifications render in the chat REPL") will be satisfied by the new orchestrator-wiring feature once `/feature-spec` + `/feature-plan` produce its plan and the work ships.
-4. **Next: `/feature-spec` for the orchestrator-wiring feature** — see `docs/research/forge-orchestrator-wiring-feature-context.md` for the suggested invocation and `--context` set.
+3. ~~**TASK-FORGE-FRR-001**~~ + ~~**TASK-FORGE-FRR-001b**~~ ⚠ **superseded** (2026-05-02) — see supersession note above. Subsumed by **FEAT-FORGE-010** (`forge-serve-orchestrator-wiring`). The runbook's Phase 7 close criterion ("real per-stage notifications render in the chat REPL") will be satisfied when FEAT-FORGE-010 ships.
+4. **Active: [FEAT-FORGE-010](../forge-serve-orchestrator-wiring/README.md)** — feature scoped, Wave 1-4 task plan filed in `tasks/backlog/forge-serve-orchestrator-wiring/`. Anchor decision: DDR-007 (emitter wiring path).
 
 The jarvis runbook
 (`/home/richardwoollcott/Projects/appmilla_github/jarvis/docs/runbooks/RUNBOOK-FEAT-JARVIS-INTERNAL-001-first-real-run.md`)
 has been updated alongside this supersession to test for the real
-per-stage envelope sequence the new feature will produce, not the
+per-stage envelope sequence FEAT-FORGE-010 will produce, not the
 synthetic single-envelope output FRR-001 was originally going to
 ship.
 

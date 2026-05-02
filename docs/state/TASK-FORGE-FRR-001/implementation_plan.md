@@ -11,10 +11,14 @@
 > `ForwardContextBuilder`, the `autobuild_runner` AsyncSubAgent, plus
 > the four Protocol implementations `dispatch_autobuild_async`
 > requires) is unwired in production. The honest scope is
-> feature-level work, being routed through `/feature-spec` +
-> `/feature-plan` against
-> `docs/research/forge-orchestrator-wiring-gap.md` and
-> `docs/research/forge-orchestrator-wiring-feature-context.md`.
+> feature-level work; it landed as **FEAT-FORGE-010**
+> (`forge-serve-orchestrator-wiring`) — see
+> `tasks/backlog/forge-serve-orchestrator-wiring/README.md`. The
+> findings doc
+> (`docs/research/forge-orchestrator-wiring-gap.md`) and the context
+> evaluation
+> (`docs/research/forge-orchestrator-wiring-feature-context.md`)
+> drove the spec and remain pre-feature reference material.
 >
 > **The one piece of this plan that is still load-bearing** is the
 > seam-refactor design for `src/forge/cli/_serve_daemon.py` (file

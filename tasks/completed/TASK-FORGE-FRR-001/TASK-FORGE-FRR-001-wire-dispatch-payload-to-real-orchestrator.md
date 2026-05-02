@@ -6,7 +6,9 @@ created: 2026-05-01T00:00:00Z
 updated: 2026-05-02T00:00:00Z
 closed_at: 2026-05-02T00:00:00Z
 closed_reason: superseded-by-feature
-superseded_by: docs/research/forge-orchestrator-wiring-gap.md  # the new feature's spec/plan are pending /feature-spec + /feature-plan
+superseded_by: FEAT-FORGE-010  # forge-serve-orchestrator-wiring; see tasks/backlog/forge-serve-orchestrator-wiring/README.md
+findings_doc: docs/research/forge-orchestrator-wiring-gap.md
+context_doc: docs/research/forge-orchestrator-wiring-feature-context.md
 priority: high
 task_type: feature
 tags:
@@ -55,16 +57,15 @@ test_results:
 > host was deferred wholesale.
 >
 > The honest scope to satisfy this task's ACs without stubs is
-> multi-week, feature-level work. It is being re-scoped through
-> `/feature-spec` + `/feature-plan` against
-> `docs/research/forge-orchestrator-wiring-gap.md` (the findings
-> document) and
-> `docs/research/forge-orchestrator-wiring-feature-context.md` (the
-> `--context` evaluation for the two commands).
->
-> When the new feature's ID lands, this file's `superseded_by`
-> frontmatter field should be updated from the findings-doc pointer
-> to the feature ID.
+> multi-week, feature-level work. It has been re-scoped to
+> **FEAT-FORGE-010** (slug `forge-serve-orchestrator-wiring`) — the
+> feature folder lives at
+> `tasks/backlog/forge-serve-orchestrator-wiring/`. That feature was
+> filed against the findings document
+> `docs/research/forge-orchestrator-wiring-gap.md` and the
+> `--context` evaluation
+> `docs/research/forge-orchestrator-wiring-feature-context.md`; both
+> remain useful as pre-feature reference material.
 >
 > **Still load-bearing from this task**:
 > - The `_serve_daemon._process_message` seam-refactor design (change
