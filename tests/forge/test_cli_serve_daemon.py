@@ -1,13 +1,27 @@
-"""Tests for the ``forge serve`` daemon body (TASK-F009-003).
+"""Tests for the ``forge serve`` daemon body (TASK-F009-003 + TASK-FW10-001).
 
-Each ``Test*`` class maps to one acceptance criterion of TASK-F009-003 so
-the criterion → verifier mapping stays explicit (per the project's
-testing rules — AAA pattern, descriptive names, AC traceability).
+Each ``Test*`` class maps to one acceptance criterion of either
+TASK-F009-003 (original daemon body) or TASK-FW10-001 (seam refactor +
+``max_ack_pending=1`` + paired reconcile_on_boot wiring) so the
+criterion → verifier mapping stays explicit (per the project's testing
+rules — AAA pattern, descriptive names, AC traceability).
 
 Production collaborators (NATS connect, JetStream subscribe, dispatch)
 are stubbed with ``unittest.mock.AsyncMock`` and small in-process fakes.
 The only real external library exercised here is ``nats-py``'s
 ``ConsumerConfig`` / ``AckPolicy`` enums for shape verification.
+
+TASK-FW10-001 seam contract:
+
+* ``DispatchFn`` is ``Callable[[_MsgLike], Awaitable[None]]``. All
+  monkey-patched ``dispatch_payload`` fakes accept the whole message,
+  not just its bytes payload.
+* ``_process_message`` does NOT ack on the success path — the
+  dispatcher (or the state machine) owns terminal-only ack.
+* ``_process_message`` DOES ack on the ``except Exception`` failure
+  path — releasing the durable's single ack slot keeps the daemon
+  available (E3.1).
+* The pull-subscribe ``ConsumerConfig`` sets ``max_ack_pending=1``.
 """
 
 from __future__ import annotations
@@ -394,7 +408,8 @@ class TestUnackedOnCrash:
         # run, so JetStream redelivers on restart.
         dispatch_started = asyncio.Event()
 
-        async def _hang(body: bytes) -> None:
+        async def _hang(msg: Any) -> None:
+            # TASK-FW10-001 seam: receives the whole message, not bytes.
             dispatch_started.set()
             await asyncio.Event().wait()  # never returns
 
@@ -446,10 +461,15 @@ class TestDispatchFailureIsolated:
 
         seen: list[bytes] = []
 
-        async def _dispatch(body: bytes) -> None:
-            seen.append(body)
+        async def _dispatch(msg: Any) -> None:
+            # TASK-FW10-001 seam: receives the whole message; the
+            # success path must NOT ack from inside _process_message,
+            # so for the "good" branch we ack from the dispatcher to
+            # mirror the production state-machine ack_callback.
+            seen.append(msg.data)
             if len(seen) == 1:
                 raise RuntimeError("provider unavailable")
+            await msg.ack()
 
         monkeypatch.setattr(_serve_daemon, "nats_connect", _connect)
         monkeypatch.setattr(_serve_daemon, "dispatch_payload", _dispatch)
@@ -602,13 +622,231 @@ class TestPublicSurface:
 
 
 class TestDefaultDispatchHandlesMalformed:
-    """Defensive: the default dispatch helper never raises."""
+    """Defensive: the default dispatch helper never raises (TASK-FW10-001)."""
 
     @pytest.mark.asyncio
     async def test_default_dispatch_swallows_garbage_bytes(self) -> None:
         # ``_default_dispatch`` is the production seam — it logs warnings
         # but must NEVER propagate an exception, otherwise the daemon's
         # main loop catches it and the bad message blocks the queue.
-        await _serve_daemon._default_dispatch(b"not-json")
-        await _serve_daemon._default_dispatch(b"")
+        # TASK-FW10-001 seam: now takes a _MsgLike, not bytes; acks the
+        # message itself before returning.
+        bad = _FakeMsg(b"not-json")
+        empty = _FakeMsg(b"")
+        await _serve_daemon._default_dispatch(bad)
+        await _serve_daemon._default_dispatch(empty)
         # Reaching here is the assertion: no exception escaped.
+        # TASK-FW10-001: malformed envelopes are still acked so they do
+        # not jam the durable's single ack slot (max_ack_pending=1).
+        assert bad.acked is True
+        assert empty.acked is True
+
+
+# ---------------------------------------------------------------------------
+# TASK-FW10-001 AC-001: DispatchFn is Callable[[_MsgLike], Awaitable[None]]
+# ---------------------------------------------------------------------------
+
+
+class TestDispatchFnSignature:
+    """TASK-FW10-001 AC-001: ``DispatchFn`` accepts a message, not bytes."""
+
+    def test_dispatch_fn_alias_uses_msglike(self) -> None:
+        # The alias is the producer-side seam contract for TASK-FW10-007.
+        # ``__args__`` exposes ``(arg_type, return_type)`` for a
+        # ``Callable[[arg], ret]`` alias.
+        assert hasattr(_serve_daemon, "DispatchFn")
+        dispatch_fn = _serve_daemon.DispatchFn
+        # Either the alias resolves to typing.Callable with __args__, or
+        # it stringifies to mention ``_MsgLike``. Both are acceptable
+        # contracts — typing internals vary across 3.10/3.11/3.12.
+        rendered = repr(dispatch_fn)
+        assert "_MsgLike" in rendered or "MsgLike" in rendered, (
+            f"DispatchFn must reference _MsgLike; got {rendered!r}"
+        )
+
+    def test_default_dispatch_signature_takes_one_param_named_msg(self) -> None:
+        import inspect
+
+        sig = inspect.signature(_serve_daemon._default_dispatch)
+        params = list(sig.parameters.values())
+        assert len(params) == 1
+        assert params[0].name == "msg"
+
+
+# ---------------------------------------------------------------------------
+# TASK-FW10-001 AC-002 / AC-003: ack semantics on success vs failure
+# ---------------------------------------------------------------------------
+
+
+class TestProcessMessageAckSemantics:
+    """TASK-FW10-001 AC-002 / AC-003: success no-ack; failure acks."""
+
+    @pytest.mark.asyncio
+    async def test_success_path_does_not_ack(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AC-002: the dispatcher (or the state machine via
+        # handle_message's ack_callback) owns terminal-only ack.
+        # _process_message must not ack on the success path.
+        msg = _FakeMsg(b"{}")
+
+        async def _dispatch_no_ack(received: Any) -> None:
+            # Mirror the production contract: dispatcher returns
+            # successfully without acking; state machine would ack on
+            # terminal completion.
+            return None
+
+        monkeypatch.setattr(_serve_daemon, "dispatch_payload", _dispatch_no_ack)
+
+        await _serve_daemon._process_message(msg)
+
+        assert msg.acked is False
+
+    @pytest.mark.asyncio
+    async def test_failure_path_acks_before_logging(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # AC-003: ``_process_message``'s ``except Exception`` path acks
+        # the message before logging. The ack release the durable's
+        # single ack slot so the daemon stays available.
+        msg = _FakeMsg(b"{}")
+
+        async def _dispatch_raises(received: Any) -> None:
+            raise RuntimeError("dispatcher exploded")
+
+        monkeypatch.setattr(_serve_daemon, "dispatch_payload", _dispatch_raises)
+
+        with caplog.at_level("WARNING", logger="forge.cli._serve_daemon"):
+            await _serve_daemon._process_message(msg)
+
+        assert msg.acked is True, (
+            "AC-003 violated: failure path must ack to release the "
+            "max_ack_pending=1 queue slot"
+        )
+        # And the warning was emitted (observability is preserved).
+        assert any(
+            "dispatch failed" in rec.message for rec in caplog.records
+        )
+
+    @pytest.mark.asyncio
+    async def test_cancelled_error_does_not_ack(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # CancelledError mid-dispatch propagates without acking; the
+        # message stays pending for redelivery (E2.1).
+        msg = _FakeMsg(b"{}")
+
+        async def _dispatch_cancels(received: Any) -> None:
+            raise asyncio.CancelledError()
+
+        monkeypatch.setattr(_serve_daemon, "dispatch_payload", _dispatch_cancels)
+
+        with pytest.raises(asyncio.CancelledError):
+            await _serve_daemon._process_message(msg)
+
+        assert msg.acked is False
+
+
+# ---------------------------------------------------------------------------
+# TASK-FW10-001 AC-004: ConsumerConfig sets max_ack_pending=1
+# ---------------------------------------------------------------------------
+
+
+class TestMaxAckPendingIsOne:
+    """TASK-FW10-001 AC-004: durable's ConsumerConfig has ``max_ack_pending=1``."""
+
+    @pytest.mark.asyncio
+    async def test_consumer_config_sets_max_ack_pending_one(
+        self, patched_seams: _FakeNatsClient
+    ) -> None:
+        config = ServeConfig()
+        state = SubscriptionState()
+
+        await _drive_daemon(
+            config, state, until=lambda: state.live, timeout=2.0,
+        )
+
+        kwargs = patched_seams.jetstream().pull_subscribe_kwargs
+        assert kwargs is not None
+        cfg = kwargs.get("config")
+        assert isinstance(cfg, ConsumerConfig)
+        # ADR-ARCH-014 / TASK-FW10-001 §2: strict serial processing.
+        assert cfg.max_ack_pending == 1
+        assert cfg.max_ack_pending == _serve_daemon.MAX_ACK_PENDING
+
+    def test_module_constant_is_one(self) -> None:
+        # The constant is the source of truth for the ConsumerConfig
+        # field; freezing it at 1 keeps the rollout note honest
+        # (existing durable must be ``nats consumer rm``-ed before the
+        # value is changed because JetStream rejects edits to this
+        # field on a live consumer).
+        assert _serve_daemon.MAX_ACK_PENDING == 1
+
+
+# ---------------------------------------------------------------------------
+# TASK-FW10-001 AC-006: run_daemon accepts an injected client
+# ---------------------------------------------------------------------------
+
+
+class TestRunDaemonAcceptsInjectedClient:
+    """TASK-FW10-001 AC-006: ``run_daemon(client=...)`` reuses one connection."""
+
+    @pytest.mark.asyncio
+    async def test_first_attach_uses_injected_client_no_seam_call(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        injected = _FakeNatsClient()
+        connect_calls: list[str] = []
+
+        async def _should_not_be_called(url: str) -> Any:
+            connect_calls.append(url)
+            # Return a fresh client so the test can fail clearly if it
+            # is reached (instead of NoneType errors masking the bug).
+            return _FakeNatsClient()
+
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _should_not_be_called)
+
+        config = ServeConfig()
+        state = SubscriptionState()
+
+        task = asyncio.create_task(
+            run_daemon(config, state, client=injected)
+        )
+
+        # Wait until the durable is bound; once `state.live` is True
+        # the first attach has used the injected client.
+        for _ in range(200):
+            if state.live:
+                break
+            await asyncio.sleep(0.01)
+        assert state.live is True, "daemon did not attach"
+        task.cancel()
+        try:
+            await asyncio.wait_for(task, timeout=2.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+
+        # The seam must NOT have been invoked — the injected client
+        # was used for the first (and only) attach.
+        assert connect_calls == [], (
+            f"AC-006 violated: nats_connect was invoked despite an "
+            f"injected client; calls={connect_calls!r}"
+        )
+        # The injected client was used for the JetStream subscribe.
+        kwargs = injected.jetstream().pull_subscribe_kwargs
+        assert kwargs is not None
+        assert kwargs["durable"] == "forge-serve"
+
+    @pytest.mark.asyncio
+    async def test_no_client_falls_back_to_seam(
+        self, patched_seams: _FakeNatsClient
+    ) -> None:
+        # Backwards compat: existing callers and tests pass no client;
+        # the daemon then opens its own via the seam (legacy behaviour).
+        config = ServeConfig()
+        state = SubscriptionState()
+
+        await _drive_daemon(
+            config, state, until=lambda: state.live, timeout=2.0,
+        )
+        assert patched_seams.jetstream().pull_subscribe_kwargs is not None

@@ -68,20 +68,44 @@ STATE_KEY: web.AppKey[SubscriptionState] = web.AppKey(
 async def _healthz_handler(request: web.Request) -> web.Response:
     """Handle ``GET /healthz`` — read shared state, return JSON.
 
-    Returns ``200``/``healthy`` when the JetStream subscription is live
-    (Acceptance Criterion B5), otherwise ``503``/``unhealthy``. We do
-    not take the lock on the read side: ``SubscriptionState.is_live``
-    is documented as safe-without-lock under Python's GIL, and a
-    one-tick-stale read is the explicit contract for the readiness
-    probe (TASK-F009-001 AC-006).
+    Returns ``200``/``healthy`` only when **both** readiness flags are
+    True (TASK-FW10-001 ASSUM-012):
+
+    * ``state.live`` — JetStream subscription is bound (Acceptance
+      Criterion B5).
+    * ``state.chain_ready`` — orchestrator dispatch chain has been
+      composed and both ``reconcile_on_boot`` routines have completed.
+
+    Otherwise the endpoint returns ``503``/``unhealthy`` and the
+    ``reason`` field distinguishes which gate is closed:
+
+    * ``chain_not_ready`` — chain composition / reconcile_on_boot has
+      not finished (kubelet should keep the pod out of the Service
+      until reconcile completes).
+    * ``subscription_not_live`` — chain is ready but the broker is
+      gone (Group E scenario row 3 — the daemon is composed but the
+      pull subscription has dropped).
+
+    We do not take the lock on the read side: the booleans are atomic
+    attribute reads under Python's GIL, and a one-tick-stale read is
+    the explicit contract for the readiness probe (TASK-F009-001
+    AC-006). ``chain_ready`` order matters in the response: it is
+    checked first because an unready chain is a stronger signal — if
+    the chain has not been composed, the ``live`` flag is meaningless
+    (the daemon may not have attached yet).
     """
     state: SubscriptionState = request.app[STATE_KEY]
-    if state.is_live():
-        return web.json_response({"status": "healthy"}, status=200)
-    return web.json_response(
-        {"status": "unhealthy", "reason": "subscription_not_live"},
-        status=503,
-    )
+    if not state.is_chain_ready():
+        return web.json_response(
+            {"status": "unhealthy", "reason": "chain_not_ready"},
+            status=503,
+        )
+    if not state.is_live():
+        return web.json_response(
+            {"status": "unhealthy", "reason": "subscription_not_live"},
+            status=503,
+        )
+    return web.json_response({"status": "healthy"}, status=200)
 
 
 def build_healthz_app(state: SubscriptionState) -> web.Application:

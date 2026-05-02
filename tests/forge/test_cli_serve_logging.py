@@ -60,18 +60,31 @@ class TestInfoLevelEmitsRecords:
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        # Arrange — point env at INFO and stub both daemon coroutines so
-        # ``serve_cmd`` returns immediately without a real broker.
+        # Arrange — point env at INFO and stub the NATS connect seam +
+        # both coroutines so ``serve_cmd`` returns immediately without
+        # a real broker (TASK-FW10-001 changed _run_serve to open a
+        # client up-front).
         monkeypatch.setenv("FORGE_LOG_LEVEL", "info")
 
+        from forge.cli import _serve_daemon
         from forge.cli import serve as serve_module
 
-        async def _fake_daemon(config: object, state: object) -> None:
+        class _StubClient:
+            async def close(self) -> None:
+                return None
+
+        async def _fake_connect(servers: str) -> object:
+            return _StubClient()
+
+        async def _fake_daemon(
+            config: object, state: object, *, client: object = None
+        ) -> None:
             logging.getLogger("forge.cli._serve_daemon").info("fake-daemon-attach")
 
         async def _fake_healthz(config: object, state: object) -> None:
             return None
 
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
         monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
         monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
 
@@ -227,14 +240,25 @@ class TestServeCmdInvokesConfigureLogging:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # Arrange
+        from forge.cli import _serve_daemon
         from forge.cli import serve as serve_module
 
-        async def _fake_daemon(config: object, state: object) -> None:
+        class _StubClient:
+            async def close(self) -> None:
+                return None
+
+        async def _fake_connect(servers: str) -> object:
+            return _StubClient()
+
+        async def _fake_daemon(
+            config: object, state: object, *, client: object = None
+        ) -> None:
             return None
 
         async def _fake_healthz(config: object, state: object) -> None:
             return None
 
+        monkeypatch.setattr(_serve_daemon, "nats_connect", _fake_connect)
         monkeypatch.setattr(serve_module, "run_daemon", _fake_daemon)
         monkeypatch.setattr(serve_module, "run_healthz_server", _fake_healthz)
         monkeypatch.setenv("FORGE_LOG_LEVEL", "warning")

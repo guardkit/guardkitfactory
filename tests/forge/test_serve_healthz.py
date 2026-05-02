@@ -105,12 +105,19 @@ async def _stop_server(task: asyncio.Task[None]) -> None:
 
 
 class TestHealthzWhenLive:
-    """AC: ``GET /healthz`` returns 200 when ``state.live == True``."""
+    """AC: ``GET /healthz`` returns 200 only when both gates are True.
+
+    TASK-FW10-001 ASSUM-012 extended the gate from "live" to
+    "chain_ready AND live". A test that only flips ``live`` would now
+    correctly see 503 / ``chain_not_ready``; the production-ready test
+    must flip both flags.
+    """
 
     @pytest.mark.asyncio
     async def test_returns_200_with_healthy_payload(self) -> None:
-        # Arrange
+        # Arrange — flip both gates to True (chain composed AND live).
         state = SubscriptionState()
+        await state.set_chain_ready(True)
         await state.set_live(True)
         app = build_healthz_app(state)
 
@@ -134,7 +141,10 @@ class TestHealthzWhenNotLive:
 
     @pytest.mark.asyncio
     async def test_returns_503_with_unhealthy_payload_default(self) -> None:
-        # Arrange — fresh state defaults to live=False
+        # Arrange — fresh state defaults to live=False AND
+        # chain_ready=False. TASK-FW10-001 reports the
+        # chain-readiness gate first, so the default state surfaces as
+        # ``chain_not_ready``.
         state = SubscriptionState()
         app = build_healthz_app(state)
 
@@ -147,20 +157,25 @@ class TestHealthzWhenNotLive:
         assert resp.status == 503
         assert payload == {
             "status": "unhealthy",
-            "reason": "subscription_not_live",
+            "reason": "chain_not_ready",
         }
 
     @pytest.mark.asyncio
     async def test_returns_503_after_flip_back_to_false(self) -> None:
         state = SubscriptionState()
+        # Compose the chain so the chain_ready gate cannot mask the
+        # live-flip behaviour we are asserting here.
+        await state.set_chain_ready(True)
         await state.set_live(True)
         await state.set_live(False)
         app = build_healthz_app(state)
 
         async with TestClient(TestServer(app)) as client:
             resp = await client.get("/healthz")
+            payload = await resp.json()
 
         assert resp.status == 503
+        assert payload["reason"] == "subscription_not_live"
 
 
 # ---------------------------------------------------------------------------
@@ -201,6 +216,7 @@ class TestNoOtherPaths:
     ) -> None:
         """Only GET is registered, so other verbs receive 405."""
         state = SubscriptionState()
+        await state.set_chain_ready(True)
         await state.set_live(True)
         app = build_healthz_app(state)
 
@@ -299,6 +315,9 @@ class TestStateTransitionsAreReflected:
     async def test_503_then_200_after_set_live_true(self) -> None:
         port = _free_port()
         state = SubscriptionState()
+        # TASK-FW10-001: compose the chain up-front so the live-flip
+        # transitions exercise the subscription side of the gate.
+        await state.set_chain_ready(True)
 
         task = await _start_server(port, state)
         try:
@@ -402,6 +421,119 @@ class TestModuleShape:
         assert config.healthz_port == DEFAULT_HEALTHZ_PORT
         # Reference os to keep imports honest if linters complain
         assert os.environ.get("FORGE_LOG_LEVEL") == "debug"
+
+
+# ---------------------------------------------------------------------------
+# TASK-FW10-001 Group E healthz scenarios — chain_ready gate
+# ---------------------------------------------------------------------------
+
+
+class TestHealthzChainReadyGate:
+    """TASK-FW10-001 ASSUM-012: healthy iff chain_ready AND subscription live.
+
+    Mirrors the three rows of the Group E healthz Scenario Outline:
+
+    * Row 1: ``chain_ready=False`` → 503 / ``chain_not_ready`` regardless
+      of ``live``.
+    * Row 2: ``chain_ready=True`` and ``live=True`` → 200 / ``healthy``.
+    * Row 3: ``chain_ready=True`` and ``live=False`` → 503 /
+      ``subscription_not_live`` (subscription dropped after a healthy
+      window).
+    """
+
+    @pytest.mark.asyncio
+    async def test_row1_chain_not_ready_is_unhealthy_even_if_live(self) -> None:
+        # Row 1: chain not composed yet (boot still running). The
+        # daemon may have started attaching but the chain_ready gate
+        # is closed, so kubelet must keep the pod out of service.
+        state = SubscriptionState()
+        await state.set_live(True)  # subscription side already up
+        # chain_ready stays False
+        app = build_healthz_app(state)
+
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            payload = await resp.json()
+
+        assert resp.status == 503
+        assert payload == {
+            "status": "unhealthy",
+            "reason": "chain_not_ready",
+        }
+
+    @pytest.mark.asyncio
+    async def test_row2_chain_ready_and_live_is_healthy(self) -> None:
+        state = SubscriptionState()
+        await state.set_chain_ready(True)
+        await state.set_live(True)
+        app = build_healthz_app(state)
+
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            payload = await resp.json()
+
+        assert resp.status == 200
+        assert payload == {"status": "healthy"}
+
+    @pytest.mark.asyncio
+    async def test_row3_chain_ready_subscription_dropped_is_unhealthy(
+        self,
+    ) -> None:
+        # Row 3: chain composed, but the broker dropped the
+        # subscription. Healthz must report unhealthy with the
+        # ``subscription_not_live`` reason so kubelet can restart the
+        # pod (TASK-FW10-001 §AC: "Healthz reports unhealthy if the
+        # NATS subscription drops, even if chain_ready is True").
+        state = SubscriptionState()
+        await state.set_chain_ready(True)
+        # state.live stays False (default) — simulates "broker drop
+        # after a healthy window" from the Scenario Outline.
+        app = build_healthz_app(state)
+
+        async with TestClient(TestServer(app)) as client:
+            resp = await client.get("/healthz")
+            payload = await resp.json()
+
+        assert resp.status == 503
+        assert payload == {
+            "status": "unhealthy",
+            "reason": "subscription_not_live",
+        }
+
+
+class TestSubscriptionStateChainReady:
+    """TASK-FW10-001: ``SubscriptionState`` exposes ``chain_ready`` bool."""
+
+    def test_default_chain_ready_is_false(self) -> None:
+        state = SubscriptionState()
+        assert state.chain_ready is False
+        assert state.is_chain_ready() is False
+
+    def test_set_chain_ready_under_lock_updates_value(self) -> None:
+        state = SubscriptionState()
+
+        async def _flip() -> None:
+            await state.set_chain_ready(True)
+
+        asyncio.run(_flip())
+        assert state.chain_ready is True
+        assert state.is_chain_ready() is True
+
+    def test_is_healthy_requires_both_flags(self) -> None:
+        state = SubscriptionState()
+        assert state.is_healthy() is False  # default: nothing set
+
+        async def _only_live() -> None:
+            await state.set_live(True)
+
+        asyncio.run(_only_live())
+        assert state.is_healthy() is False
+
+        async def _flip_chain() -> None:
+            await state.set_chain_ready(True)
+
+        asyncio.run(_flip_chain())
+        assert state.is_healthy() is True
 
 
 # Keep ``web`` imported (used implicitly via aiohttp.test_utils) so tools
