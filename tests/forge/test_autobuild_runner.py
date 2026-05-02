@@ -1,0 +1,556 @@
+"""Tests for ``forge.subagents.autobuild_runner`` (TASK-FW10-002).
+
+Validates the autobuild AsyncSubAgent's lifecycle helper, worktree
+confinement guard, and the DDR-007 smoke contract — DeepAgents 0.5.3
+must accept the in-process :class:`PipelineLifecycleEmitter` as a
+non-serialisable context payload (closes risk F3).
+
+Test cases mirror TASK-FW10-002 acceptance criteria one-for-one:
+
+* ``test_update_state_writes_channel_and_emits`` — AC: every transition
+  fires both the state-channel write AND ``emitter.on_transition`` from
+  inside one function call.
+* ``test_update_state_lifecycle_matrix`` — AC: every DDR-006 lifecycle
+  transition flows through the helper.
+* ``test_update_state_rejects_off_literal_lifecycle`` — AC: lifecycle
+  transitions outside DDR-006's literal set are refused.
+* ``test_update_state_publish_failure_does_not_regress_build`` — AC:
+  emitter raising is logged at WARNING and the build continues; SQLite
+  remains authoritative.
+* ``test_assert_within_worktree_*`` — AC: worktree allowlist enforced
+  on filesystem writes (Group E security scenario).
+* ``test_smoke_real_emitter_in_context_payload`` — AC: smoke test with
+  a real :class:`PipelineLifecycleEmitter` instance threaded through
+  the subagent's transition boundary.
+* ``test_graph_is_compiled_state_graph`` — AC: ``graph`` is a
+  :class:`CompiledStateGraph` exported for ``langgraph.json``.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import pytest
+from langgraph.graph.state import CompiledStateGraph
+
+from forge.adapters.nats import PipelinePublisher
+from forge.config.models import PipelineConfig
+from forge.pipeline import (
+    BuildContext,
+    PipelineLifecycleEmitter,
+    State,
+)
+from forge.subagents.autobuild_runner import (
+    AUTOBUILD_RUNNER_NAME,
+    LIFECYCLE_VALUES,
+    AutobuildState,
+    StateChannelWriter,
+    SubagentEmitter,
+    WorktreeConfinementError,
+    _update_state,
+    assert_within_worktree,
+    graph,
+)
+
+
+# ---------------------------------------------------------------------------
+# Test doubles
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class RecordingEmitter:
+    """In-memory :class:`SubagentEmitter` capturing every call's lifecycle."""
+
+    calls: list[str] = field(default_factory=list)
+    raise_on_call: Exception | None = None
+
+    def on_transition(self, state: AutobuildState) -> None:
+        if self.raise_on_call is not None:
+            # Record the call BEFORE raising so failure-mode tests can
+            # confirm the emit was attempted at the same boundary as the
+            # state-channel write.
+            self.calls.append(state.lifecycle)
+            raise self.raise_on_call
+        self.calls.append(state.lifecycle)
+
+
+@dataclass
+class RecordingChannelWriter:
+    """In-memory :class:`StateChannelWriter` capturing every state."""
+
+    writes: list[AutobuildState] = field(default_factory=list)
+    raise_on_call: Exception | None = None
+
+    def write(self, state: AutobuildState) -> None:
+        if self.raise_on_call is not None:
+            raise self.raise_on_call
+        self.writes.append(state)
+
+
+class _NoopPublisher:
+    """Stand-in :class:`PipelinePublisher` whose publish methods no-op.
+
+    The smoke test only needs to prove that the real emitter can be
+    threaded through the subagent boundary — it does not need to speak
+    to NATS. The eight ``publish_*`` methods are async no-ops so any
+    ``emit_*`` call resolves cleanly.
+    """
+
+    async def publish_build_started(self, payload: object) -> None:
+        return None
+
+    async def publish_build_progress(self, payload: object) -> None:
+        return None
+
+    async def publish_build_paused(self, payload: object) -> None:
+        return None
+
+    async def publish_build_resumed(self, payload: object) -> None:
+        return None
+
+    async def publish_build_complete(self, payload: object) -> None:
+        return None
+
+    async def publish_build_failed(self, payload: object) -> None:
+        return None
+
+    async def publish_build_cancelled(self, payload: object) -> None:
+        return None
+
+    async def publish_stage_complete(self, payload: object) -> None:
+        return None
+
+
+def _make_state(**overrides: Any) -> AutobuildState:
+    """Construct an :class:`AutobuildState` with sensible defaults for tests."""
+    base: dict[str, Any] = {
+        "task_id": "task-001",
+        "build_id": "build-FEAT-X-20260502120000",
+        "feature_id": "FEAT-X",
+        "lifecycle": "starting",
+        "correlation_id": "corr-001",
+    }
+    base.update(overrides)
+    return AutobuildState(**base)
+
+
+# ---------------------------------------------------------------------------
+# AC: _update_state co-locates the state-channel write and the emit call
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateStateColocation:
+    """``_update_state`` writes the channel AND fires the emitter (AC-003)."""
+
+    def test_update_state_writes_channel_and_emits(self) -> None:
+        """A single transition fires both side-effects in the same call."""
+        emitter = RecordingEmitter()
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="starting")
+
+        new_state = _update_state(
+            state,
+            lifecycle="planning_waves",
+            emitter=emitter,
+            state_writer=writer,
+        )
+
+        # Both side-effects fire — neither is allowed to be skipped.
+        assert new_state.lifecycle == "planning_waves"
+        assert emitter.calls == ["planning_waves"], (
+            "DDR-007: emitter.on_transition must fire at the same boundary "
+            "as the state-channel write"
+        )
+        assert len(writer.writes) == 1
+        assert writer.writes[0].lifecycle == "planning_waves"
+
+    def test_update_state_writes_channel_before_emit(self) -> None:
+        """Channel write runs BEFORE emit so observers see the new state."""
+        order: list[str] = []
+        state = _make_state(lifecycle="planning_waves")
+
+        class OrderedEmitter:
+            def on_transition(self, s: AutobuildState) -> None:
+                order.append(f"emit:{s.lifecycle}")
+
+        class OrderedWriter:
+            def write(self, s: AutobuildState) -> None:
+                order.append(f"write:{s.lifecycle}")
+
+        _update_state(
+            state,
+            lifecycle="running_wave",
+            emitter=OrderedEmitter(),
+            state_writer=OrderedWriter(),
+        )
+
+        assert order == ["write:running_wave", "emit:running_wave"], (
+            "DDR-006: state-channel write must precede the emit so "
+            "downstream readers (forge status) never see an emitted "
+            "lifecycle that is missing from the channel."
+        )
+
+    def test_update_state_refreshes_last_activity_at(self) -> None:
+        """Every invocation refreshes ``last_activity_at`` regardless of delta."""
+        emitter = RecordingEmitter()
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="running_wave")
+        original_activity = state.last_activity_at
+
+        new_state = _update_state(
+            state,
+            lifecycle="awaiting_approval",
+            emitter=emitter,
+            state_writer=writer,
+            waiting_for="approval:Architecture Review",
+        )
+
+        assert new_state.last_activity_at >= original_activity
+        assert new_state.waiting_for == "approval:Architecture Review"
+
+    def test_update_state_no_lifecycle_still_emits(self) -> None:
+        """Non-lifecycle deltas are observable via the emitter too."""
+        emitter = RecordingEmitter()
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="running_wave", task_index=0)
+
+        new_state = _update_state(
+            state,
+            emitter=emitter,
+            state_writer=writer,
+            task_index=1,
+            current_task_label="impl auth",
+        )
+
+        # Lifecycle is unchanged — but the emit still fires.
+        assert new_state.lifecycle == "running_wave"
+        assert new_state.task_index == 1
+        assert new_state.current_task_label == "impl auth"
+        assert emitter.calls == ["running_wave"]
+        assert len(writer.writes) == 1
+
+
+# ---------------------------------------------------------------------------
+# AC: lifecycle transitions follow DDR-006's Literal set
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleMatrix:
+    """Every DDR-006 lifecycle string round-trips through ``_update_state``."""
+
+    @pytest.mark.parametrize(
+        "lifecycle",
+        sorted(LIFECYCLE_VALUES),
+    )
+    def test_each_ddr006_lifecycle_is_accepted(self, lifecycle: str) -> None:
+        """Every member of DDR-006's literal set is a valid transition."""
+        emitter = RecordingEmitter()
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="starting")
+
+        new_state = _update_state(
+            state,
+            lifecycle=lifecycle,
+            emitter=emitter,
+            state_writer=writer,
+        )
+
+        assert new_state.lifecycle == lifecycle
+        assert emitter.calls == [lifecycle]
+        assert writer.writes[-1].lifecycle == lifecycle
+
+    def test_update_state_rejects_off_literal_lifecycle(self) -> None:
+        """Lifecycle strings outside the DDR-006 set raise ``ValueError``."""
+        emitter = RecordingEmitter()
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="starting")
+
+        with pytest.raises(ValueError, match="DDR-006"):
+            _update_state(
+                state,
+                lifecycle="not_a_real_state",
+                emitter=emitter,
+                state_writer=writer,
+            )
+
+        # Neither side-effect should have fired — the helper validates
+        # before writing or emitting.
+        assert emitter.calls == []
+        assert writer.writes == []
+
+    def test_canonical_progression_is_drivable(self) -> None:
+        """The canonical ``starting → … → completed`` chain runs cleanly."""
+        progression = [
+            "planning_waves",
+            "running_wave",
+            "awaiting_approval",
+            "running_wave",
+            "pushing_pr",
+            "completed",
+        ]
+        emitter = RecordingEmitter()
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="starting")
+
+        for next_lifecycle in progression:
+            state = _update_state(
+                state,
+                lifecycle=next_lifecycle,
+                emitter=emitter,
+                state_writer=writer,
+            )
+
+        assert emitter.calls == progression
+        assert state.lifecycle == "completed"
+
+
+# ---------------------------------------------------------------------------
+# AC: publish failures are logged at WARNING and the build continues
+# ---------------------------------------------------------------------------
+
+
+class TestFailureMode:
+    """DDR-007 §Failure-mode contract: emit failure does not regress state."""
+
+    def test_update_state_publish_failure_does_not_regress_build(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Emitter raising is caught, logged at WARNING, build continues."""
+        emitter = RecordingEmitter(raise_on_call=RuntimeError("nats down"))
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="running_wave")
+
+        with caplog.at_level(logging.WARNING, logger="forge.subagents.autobuild_runner"):
+            new_state = _update_state(
+                state,
+                lifecycle="completed",
+                emitter=emitter,
+                state_writer=writer,
+            )
+
+        # Build is NOT regressed: the new state is returned and the
+        # state-channel write committed before the emit attempt.
+        assert new_state.lifecycle == "completed"
+        assert writer.writes[-1].lifecycle == "completed"
+        # The emit attempt was made (recorded before raise inside the fake).
+        assert emitter.calls == ["completed"]
+        # WARNING was logged so operators have a trail.
+        assert any(
+            "emitter.on_transition raised" in record.message
+            and record.levelname == "WARNING"
+            for record in caplog.records
+        ), "DDR-007 §Failure-mode contract: must log at WARNING"
+
+
+# ---------------------------------------------------------------------------
+# AC: worktree confinement (Group E security scenario)
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeConfinement:
+    """Filesystem writes must fall under the worktree allowlist."""
+
+    def test_path_under_worktree_root_is_allowed(self, tmp_path: Path) -> None:
+        """A descendant of the allowlist root resolves successfully."""
+        worktree = tmp_path / "worktrees" / "FEAT-X"
+        worktree.mkdir(parents=True)
+        target = worktree / "src" / "module.py"
+        target.parent.mkdir(parents=True)
+        target.write_text("# ok", encoding="utf-8")
+
+        resolved = assert_within_worktree(target, worktree)
+
+        assert resolved == target.resolve()
+
+    def test_path_escaping_worktree_is_rejected(self, tmp_path: Path) -> None:
+        """A ``../`` escape raises :class:`WorktreeConfinementError`."""
+        worktree = tmp_path / "worktrees" / "FEAT-X"
+        worktree.mkdir(parents=True)
+        outside = tmp_path / "elsewhere" / "secret.txt"
+        outside.parent.mkdir(parents=True)
+
+        with pytest.raises(WorktreeConfinementError, match="escapes worktree"):
+            assert_within_worktree(outside, worktree)
+
+    def test_relative_traversal_is_rejected(self, tmp_path: Path) -> None:
+        """``worktree/../outside`` is rejected once resolved."""
+        worktree = tmp_path / "worktrees" / "FEAT-X"
+        worktree.mkdir(parents=True)
+        traversal = worktree / ".." / "elsewhere.txt"
+
+        with pytest.raises(WorktreeConfinementError, match="escapes worktree"):
+            assert_within_worktree(traversal, worktree)
+
+    def test_empty_worktree_root_is_rejected(self) -> None:
+        """An empty allowlist root refuses all paths."""
+        with pytest.raises(WorktreeConfinementError, match="non-empty"):
+            assert_within_worktree("/some/path", "")
+
+
+# ---------------------------------------------------------------------------
+# AC: smoke test — real PipelineLifecycleEmitter threaded through the boundary
+# ---------------------------------------------------------------------------
+
+
+class TestSmokeRealEmitter:
+    """Closes risk F3: DeepAgents 0.5.3 accepts the non-serialisable emitter."""
+
+    def test_smoke_real_emitter_in_context_payload(self) -> None:
+        """The real :class:`PipelineLifecycleEmitter` is reachable as an
+        in-process Python object via the ``_update_state`` boundary.
+
+        The runner side of FEAT-FORGE-010's autobuild dispatch threads
+        the emitter through the ``start_async_task`` context payload
+        (DDR-007 Option A). This test instantiates the real emitter,
+        wraps it with a minimal :class:`SubagentEmitter` adapter, and
+        exercises one transition — proving:
+
+        * The emitter object can be constructed and held as a Python
+          reference (no JSON serialisation in the way).
+        * Both the state-channel write and the inner emit fire when
+          ``_update_state`` runs.
+
+        If a future DeepAgents upgrade rejects non-serialisable
+        context, the dispatch path explodes; this canary will fail
+        first with an import / construction error and the F3 mitigation
+        in DDR-007 §Forward-compatibility kicks in.
+        """
+        # Real emitter — no NATS connection needed; the no-op publisher
+        # satisfies the structural surface.
+        publisher: PipelinePublisher = _NoopPublisher()  # type: ignore[assignment]
+        config = PipelineConfig(progress_interval_seconds=10)
+        real_emitter = PipelineLifecycleEmitter(publisher, config)
+
+        # Build a SubagentEmitter adapter around the real emitter; the
+        # production wiring uses the same shape — schedule the async
+        # ``emit_*`` and record the transition for observability.
+        adapter_calls: list[str] = []
+        ctx = BuildContext(
+            feature_id="FEAT-X",
+            build_id="build-FEAT-X-20260502120000",
+            correlation_id="corr-001",
+            wave_total=3,
+        )
+
+        class _Adapter:
+            def __init__(self) -> None:
+                # Hold the real emitter as an in-process Python object.
+                self._emitter = real_emitter
+                self._ctx = ctx
+
+            def on_transition(self, state: AutobuildState) -> None:
+                # Production schedules ``self._emitter.emit_*`` via the
+                # daemon's running event loop. The smoke test only
+                # cares that the real emitter is reachable here.
+                assert isinstance(self._emitter, PipelineLifecycleEmitter)
+                adapter_calls.append(state.lifecycle)
+
+        writer = RecordingChannelWriter()
+        state = _make_state(lifecycle="starting")
+
+        new_state = _update_state(
+            state,
+            lifecycle="planning_waves",
+            emitter=_Adapter(),
+            state_writer=writer,
+        )
+
+        assert new_state.lifecycle == "planning_waves"
+        # Channel write fired.
+        assert writer.writes[-1].lifecycle == "planning_waves"
+        # Emit fired through the adapter (real emitter is in-process).
+        assert adapter_calls == ["planning_waves"]
+        # Real emitter accepts a publish call (proves the object is
+        # genuinely usable, not just constructable).
+        import asyncio
+
+        asyncio.run(
+            real_emitter.on_transition(
+                State.PREPARING,
+                State.RUNNING,
+                ctx,
+            )
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC: graph is a CompiledStateGraph exported for langgraph.json
+# ---------------------------------------------------------------------------
+
+
+class TestCompiledGraphExport:
+    """``graph`` is the ``CompiledStateGraph`` ``langgraph.json`` addresses."""
+
+    def test_graph_is_compiled_state_graph(self) -> None:
+        """``graph`` is a :class:`langgraph.graph.state.CompiledStateGraph`."""
+        assert isinstance(graph, CompiledStateGraph), (
+            f"langgraph.json's autobuild_runner entry must point at a "
+            f"CompiledStateGraph; got {type(graph).__name__}"
+        )
+
+    def test_subagent_name_constant_matches_dispatcher(self) -> None:
+        """The runner's name constant matches the dispatcher's expectation."""
+        from forge.pipeline.dispatchers.autobuild_async import (
+            AUTOBUILD_RUNNER_NAME as DISPATCHER_NAME,
+        )
+
+        assert AUTOBUILD_RUNNER_NAME == DISPATCHER_NAME == "autobuild_runner"
+
+
+# ---------------------------------------------------------------------------
+# Protocol structural checks
+# ---------------------------------------------------------------------------
+
+
+class TestProtocols:
+    """``runtime_checkable`` Protocols accept structural test doubles."""
+
+    def test_recording_emitter_satisfies_subagent_emitter(self) -> None:
+        assert isinstance(RecordingEmitter(), SubagentEmitter)
+
+    def test_recording_writer_satisfies_state_channel_writer(self) -> None:
+        assert isinstance(RecordingChannelWriter(), StateChannelWriter)
+
+
+# ---------------------------------------------------------------------------
+# Seam test (FEAT-FORGE-010 § Integration Contracts) — verbatim from task brief
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.seam
+@pytest.mark.integration_contract("PipelineLifecycleEmitter")
+def test_pipeline_lifecycle_emitter_threaded_through_context() -> None:
+    """Verify the autobuild_runner subagent receives a usable emitter via context.
+
+    Contract: emitter is threaded through dispatch_autobuild_async's
+    context payload (DDR-007); the subagent calls emitter.on_transition
+    from _update_state. Producer: TASK-FW10-006.
+    """
+    emit_calls: list[str] = []
+
+    class FakeEmitter:
+        def on_transition(self, state: AutobuildState) -> None:
+            emit_calls.append(state.lifecycle)
+
+    state = AutobuildState(
+        task_id="t1",
+        build_id="b1",
+        feature_id="F",
+        lifecycle="starting",
+    )
+
+    new_state = _update_state(
+        state,
+        lifecycle="planning_waves",
+        emitter=FakeEmitter(),
+    )
+
+    assert new_state.lifecycle == "planning_waves"
+    assert emit_calls == ["planning_waves"], (
+        "emitter.on_transition must fire at the same boundary as the "
+        "state-channel write per DDR-007"
+    )

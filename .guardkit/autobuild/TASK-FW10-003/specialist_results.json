@@ -1,0 +1,12 @@
+{
+  "phase_4": {
+    "status": "passed",
+    "duration_seconds": 36.49826616700739,
+    "error": null,
+    "tests_run": 14,
+    "tests_failed": 0,
+    "coverage_pct": 84.0,
+    "output_summary": "14 passed in 0.14s; coverage 84% on src/forge/cli/_serve_deps_forward_context.py",
+    "quality_gates_passed": true
+  }
+}

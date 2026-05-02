@@ -1,28 +1,41 @@
 ---
-id: TASK-FW10-002
-title: "Implement autobuild_runner AsyncSubAgent module with DDR-006/007 _update_state"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 2
-implementation_mode: task-work
 complexity: 8
-dependencies: [TASK-FW10-001]
-estimated_minutes: 180
-priority: high
-tags: [net-new, async-subagent, deepagents, ddr-007, lifecycle-emitter]
 conductor_workspace: wave2-autobuild-runner
 consumer_context:
-  - task: TASK-FW10-001
-    consumes: DispatchFn
-    framework: "DeepAgents AsyncSubAgent (start_async_task)"
-    driver: "DeepAgents AsyncSubAgentMiddleware"
-    format_note: "The subagent is invoked from the supervisor via start_async_task; the dispatcher closure built in TASK-FW10-007 against the new (_MsgLike) -> None DispatchFn calls handle_message which then calls dispatch_build which then dispatches autobuild_async."
-  - task: TASK-FW10-006
-    consumes: PipelineLifecycleEmitter
-    framework: "DeepAgents AsyncSubAgent context payload (ASGI co-deployment)"
-    driver: "in-process Python object (non-serialisable)"
-    format_note: "Emitter is threaded through dispatch_autobuild_async's context payload per DDR-007. The subagent calls emitter.on_transition(new_state) inside _update_state. Verify DeepAgents 0.5.3 accepts the non-serialisable payload via the smoke test in this task; if rejected, fall back to DDR-007 §Forward compatibility's RPC-shaped emitter wrapper."
+- consumes: DispatchFn
+  driver: DeepAgents AsyncSubAgentMiddleware
+  format_note: The subagent is invoked from the supervisor via start_async_task; the
+    dispatcher closure built in TASK-FW10-007 against the new (_MsgLike) -> None DispatchFn
+    calls handle_message which then calls dispatch_build which then dispatches autobuild_async.
+  framework: DeepAgents AsyncSubAgent (start_async_task)
+  task: TASK-FW10-001
+- consumes: PipelineLifecycleEmitter
+  driver: in-process Python object (non-serialisable)
+  format_note: Emitter is threaded through dispatch_autobuild_async's context payload
+    per DDR-007. The subagent calls emitter.on_transition(new_state) inside _update_state.
+    Verify DeepAgents 0.5.3 accepts the non-serialisable payload via the smoke test
+    in this task; if rejected, fall back to DDR-007 §Forward compatibility's RPC-shaped
+    emitter wrapper.
+  framework: DeepAgents AsyncSubAgent context payload (ASGI co-deployment)
+  task: TASK-FW10-006
+dependencies:
+- TASK-FW10-001
+estimated_minutes: 180
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-002
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- net-new
+- async-subagent
+- deepagents
+- ddr-007
+- lifecycle-emitter
+task_type: feature
+title: Implement autobuild_runner AsyncSubAgent module with DDR-006/007 _update_state
+wave: 2
 ---
 
 # TASK-FW10-002 — Implement `autobuild_runner` AsyncSubAgent module

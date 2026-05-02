@@ -1,17 +1,23 @@
 ---
-id: TASK-FW10-003
-title: "ForwardContextBuilder production factory bound to SQLite reader and worktree allowlist"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 2
-implementation_mode: task-work
 complexity: 4
-dependencies: [TASK-FW10-001]
-estimated_minutes: 60
-priority: high
-tags: [factory, forward-context, allowlist]
 conductor_workspace: wave2-forward-context-builder
+dependencies:
+- TASK-FW10-001
+estimated_minutes: 60
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-003
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- factory
+- forward-context
+- allowlist
+task_type: feature
+title: ForwardContextBuilder production factory bound to SQLite reader and worktree
+  allowlist
+wave: 2
 ---
 
 # TASK-FW10-003 — `ForwardContextBuilder` production factory

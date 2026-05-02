@@ -1,0 +1,7 @@
+{
+  "tests_run": 19,
+  "tests_failed": 0,
+  "coverage_pct": 94.0,
+  "output_summary": "19 passed, 0 failed; coverage 94% on src/forge/cli/_serve_deps_state_channel.py (TASK-FW10-005 state-channel initialiser)",
+  "quality_gates_passed": true
+}

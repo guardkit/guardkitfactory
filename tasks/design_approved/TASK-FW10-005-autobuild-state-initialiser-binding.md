@@ -1,17 +1,23 @@
 ---
-id: TASK-FW10-005
-title: "AutobuildStateInitialiser production binding to async_tasks SQLite writer"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 2
-implementation_mode: task-work
 complexity: 4
-dependencies: [TASK-FW10-001]
-estimated_minutes: 60
-priority: high
-tags: [factory, sqlite, async-tasks, state-channel]
 conductor_workspace: wave2-autobuild-state-initialiser
+dependencies:
+- TASK-FW10-001
+estimated_minutes: 60
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-005
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- factory
+- sqlite
+- async-tasks
+- state-channel
+task_type: feature
+title: AutobuildStateInitialiser production binding to async_tasks SQLite writer
+wave: 2
 ---
 
 # TASK-FW10-005 — `AutobuildStateInitialiser` production binding

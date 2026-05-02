@@ -1,17 +1,22 @@
 ---
-id: TASK-FW10-004
-title: "StageLogRecorder production binding to forge.lifecycle.persistence SQLite writer"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 2
-implementation_mode: task-work
 complexity: 3
-dependencies: [TASK-FW10-001]
-estimated_minutes: 45
-priority: high
-tags: [factory, sqlite, stage-log]
 conductor_workspace: wave2-stage-log-recorder
+dependencies:
+- TASK-FW10-001
+estimated_minutes: 45
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-004
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- factory
+- sqlite
+- stage-log
+task_type: feature
+title: StageLogRecorder production binding to forge.lifecycle.persistence SQLite writer
+wave: 2
 ---
 
 # TASK-FW10-004 — `StageLogRecorder` production binding

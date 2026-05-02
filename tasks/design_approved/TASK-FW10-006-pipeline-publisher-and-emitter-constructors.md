@@ -1,17 +1,23 @@
 ---
-id: TASK-FW10-006
-title: "PipelinePublisher and PipelineLifecycleEmitter production constructors"
-task_type: feature
-parent_review: TASK-REV-FW10
-feature_id: FEAT-FORGE-010
-wave: 2
-implementation_mode: task-work
 complexity: 3
-dependencies: [TASK-FW10-001]
-estimated_minutes: 45
-priority: high
-tags: [factory, lifecycle-emitter, pipeline-publisher, nats]
 conductor_workspace: wave2-publisher-emitter
+dependencies:
+- TASK-FW10-001
+estimated_minutes: 45
+feature_id: FEAT-FORGE-010
+id: TASK-FW10-006
+implementation_mode: task-work
+parent_review: TASK-REV-FW10
+priority: high
+status: design_approved
+tags:
+- factory
+- lifecycle-emitter
+- pipeline-publisher
+- nats
+task_type: feature
+title: PipelinePublisher and PipelineLifecycleEmitter production constructors
+wave: 2
 ---
 
 # TASK-FW10-006 — `PipelinePublisher` and `PipelineLifecycleEmitter` production constructors
