@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "guardkitfactory"
+version = "0.1.0"
+description = "LangGraph-based harness for the GuardKit AutoBuild adversarial-cooperation orchestrator"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+    { name = "Richard Woollcott", email = "rich@appmilla.com" },
+]
+# Open upper bound per the GuardKit portfolio Python pinning standard
+# (docs/guides/portfolio-python-pinning.md in the guardkit repo).
+# Defensive upper bounds belong in CI matrices, not requires-python.
+requires-python = ">=3.11"
+
+# deepagents>=0.5 ships the pluggable-backend protocol (deepagents v0.5.0
+# changelog, cited in TASK-REV-HMIG §14.7); the <1 bound is a soft guard
+# against a 1.0 API shift while accepting the well-supported 0.5.x line.
+# langgraph>=1, langchain>=1.2, langchain-core>=1.2 follow the same family
+# pattern.
+dependencies = [
+    "deepagents>=0.5,<1",
+    "langgraph>=1,<2",
+    "langchain>=1.2,<2",
+    "langchain-core>=1.2,<2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "ruff>=0.6",
+    "mypy>=1.10",
+]
+
+[project.urls]
+Homepage = "https://github.com/appmilla/guardkitfactory"
+"Parent review" = "https://github.com/appmilla/guardkit"
+
+# ---------------------------------------------------------------------------
+# setuptools layout
+# ---------------------------------------------------------------------------
+# The package lives under src/guardkitfactory/ (src layout), and the
+# vendored helpers under lib/ are also shipped as an importable top-level
+# `lib` package so `from lib.factory_guards import ...` works after a
+# `pip install -e .`.
+[tool.setuptools]
+package-dir = { "" = "src", "lib" = "lib" }
+packages = ["guardkitfactory", "guardkitfactory.harness", "lib"]
+
+# ---------------------------------------------------------------------------
+# Tooling
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = []
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true

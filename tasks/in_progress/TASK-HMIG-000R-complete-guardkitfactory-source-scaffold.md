@@ -1,10 +1,12 @@
 ---
 id: TASK-HMIG-000R
 title: Complete guardkitfactory source scaffold (pyproject + lib/ + src/ + CI)
-status: backlog
+status: in_progress
 task_type: implementation
 created: 2026-05-19T20:30:00Z
-updated: 2026-05-19T20:30:00Z
+updated: 2026-05-20T12:30:00Z
+previous_state: backlog
+state_transition_reason: "Started via /task-work"
 priority: critical
 complexity: 3
 deadline: 2026-06-15
