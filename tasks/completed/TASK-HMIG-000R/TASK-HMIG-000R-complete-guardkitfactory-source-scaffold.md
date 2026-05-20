@@ -1,13 +1,17 @@
 ---
 id: TASK-HMIG-000R
 title: Complete guardkitfactory source scaffold (pyproject + lib/ + src/ + CI)
-status: in_review
+status: completed
 task_type: implementation
 created: 2026-05-19T20:30:00Z
-updated: 2026-05-20T12:45:00Z
-previous_state: in_progress
-state_transition_reason: "All quality gates passed (8/8 tests, ruff clean, mypy clean, falsifier OK); committed as 955be83"
+updated: 2026-05-20T12:55:00Z
+completed: 2026-05-20T12:55:00Z
+previous_state: in_review
+state_transition_reason: "All acceptance criteria met; quality gates passed; reviewed and finalized via /task-complete"
 implementation_commit: 955be83
+completed_location: tasks/completed/TASK-HMIG-000R/
+organized_files:
+  - TASK-HMIG-000R-complete-guardkitfactory-source-scaffold.md
 priority: critical
 complexity: 3
 deadline: 2026-06-15
@@ -109,3 +113,75 @@ This task is intentionally narrow (~4h). It is the *substrate* on which the
 real LangGraphHarness work (001B + 002R + 007) sits. If the scaffold has bugs,
 those bugs will surface as TASK-HMIG-001B fails to import — surface those
 quickly rather than blocking on a perfect scaffold.
+
+## Implementation Summary
+
+**Outcome:** Success. All 11 acceptance criteria met. Scaffold landed in commit
+`955be83` (single non-merge commit on `main`, the falsifier for AC-011).
+
+**Approach:**
+- Direct mechanical implementation (no multi-agent ceremony — task was concrete
+  template-copy + config-write with explicit, deterministic AC).
+- `lib/factory_guards.py`, `lib/json_extractor.py`, `lib/retry_context.py`,
+  `lib/session_logging.py` vendored verbatim from
+  `guardkit/installer/core/templates/langchain-deepagents/lib/`. A minimal
+  `lib/__init__.py` re-exports only the four modules needed (the template's
+  full `__init__.py` imports 8+ modules we deliberately don't ship at this
+  stage).
+- `pyproject.toml` uses src layout with `tool.setuptools.package-dir = { "" =
+  "src", "lib" = "lib" }` so both the `guardkitfactory` package (under `src/`)
+  and the parallel `lib/` helpers tree are installable from one project root.
+- `requires-python = ">=3.11"` open upper bound per the portfolio-Python-
+  pinning standard; pins `deepagents>=0.5,<1` / `langgraph>=1,<2` /
+  `langchain>=1.2,<2` / `langchain-core>=1.2,<2` per parent review §14.7.
+- `HarnessAdapter` placeholder deliberately raises `NotImplementedError` so
+  any accidental runtime use surfaces immediately rather than silently
+  returning a no-op.
+
+**Falsifier results (AC-008/falsifier line):**
+- `uv sync --extra dev` → resolved deepagents 0.5.x, langgraph 1.2.0,
+  langchain 1.3.1, langchain-core 1.4.0.
+- `uv run pytest tests/ -v` → 8 passed in 0.02 s.
+- `uv run ruff check src/ lib/ tests/` → clean (after a one-shot auto-fix of
+  three style issues: `typing.Sequence` → `collections.abc.Sequence` per
+  UP035, and import-block sorting in two files; vendored sources accept these
+  modernisations).
+- `uv run mypy src/` → no issues found in 2 source files.
+- `python -c 'from guardkitfactory import HarnessAdapter'` → ok.
+
+**Tests written:** 8 smoke tests in `tests/test_smoke.py` covering AC-002
+(top-level package surface, `HarnessAdapter` exposed and raises),
+AC-003 (harness subpackage imports), and AC-004..007 (each lib helper
+importable and minimally exercised — e.g. `assert_no_system_messages` is
+exercised against both a valid `user`-only message dict and a `system`-tainted
+one to confirm the `ValueError` raise; `JsonExtractor.extract` is exercised
+against a trivial `{"decision": "accept"}` to confirm strategy 1 is wired).
+Coverage was not explicitly measured (smoke-only test surface; later harness
+tasks will introduce behavioural tests and the 80%-line / 75%-branch
+thresholds from the testing rule).
+
+**Lessons learned:**
+- The pre-existing `.gitignore` carried boilerplate `/lib/` and `/lib64/`
+  rules from the Python `.gitignore` template, which silently excluded the
+  vendored helpers despite a comment claiming "but not source code lib
+  folders". Removing those two lines was a one-line side-quest but easy to
+  miss — flagging it here so TASK-HMIG-001B and 002R don't trip over the
+  same pattern if they add new top-level package directories. `.venv/` etc.
+  already cover the virtualenv use case the original rules targeted.
+- `tool.setuptools.package-dir = { "" = "src", "lib" = "lib" }` combined
+  with an explicit `packages = ["guardkitfactory", "guardkitfactory.harness",
+  "lib"]` is the cleanest way to ship a src-layout package alongside a
+  parallel top-level `lib/` tree. `[tool.setuptools.packages.find]` with
+  multiple `where` entries is also possible but more fragile.
+- Ruff's `UP035` will flag any `typing.Sequence` import in vendored sources
+  (the template still ships the deprecated form). Auto-fix lands the
+  modernised import without behavioural change; future template-sync passes
+  should expect to apply the same fix or land it upstream.
+
+**Related work:**
+- Parent review: TASK-REV-HMIG (lives in the `guardkit` repo).
+- Follow-up: TASK-HMIG-001B (LangGraphHarness), TASK-HMIG-002R (pluggable
+  backend), TASK-HMIG-007 (Player/Coach wiring) — all unblocked by this
+  commit.
+- Pin rationale: parent review §14.7; pinning standard:
+  `guardkit/docs/guides/portfolio-python-pinning.md`.
