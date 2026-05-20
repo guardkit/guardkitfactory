@@ -1,10 +1,13 @@
 ---
 id: TASK-HMIG-001B
 title: Implement LangGraphHarness skeleton (guardkitfactory-side)
-status: backlog
+status: completed
 task_type: implementation
 created: 2026-05-19T20:30:00Z
-updated: 2026-05-19T20:30:00Z
+updated: 2026-05-20T12:40:00Z
+completed: 2026-05-20T12:40:00Z
+previous_state: in_review
+completed_location: tasks/completed/TASK-HMIG-001B/
 priority: critical
 complexity: 4
 deadline: 2026-06-15

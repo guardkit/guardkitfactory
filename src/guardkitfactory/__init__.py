@@ -17,29 +17,36 @@ deliberately so accidental runtime use surfaces immediately.
 
 from __future__ import annotations
 
+from guardkitfactory.harness import LangGraphHarness, LangGraphHarnessError
+
 __version__ = "0.1.0"
 
 
 class HarnessAdapter:
     """Placeholder for the LangGraph harness adapter (TASK-HMIG-000R).
 
-    Concrete behaviour is implemented in:
-
-    - TASK-HMIG-001B (``LangGraphHarness`` in :mod:`guardkitfactory.harness`)
-    - TASK-HMIG-002R (backend configuration)
-
-    Instantiation raises ``NotImplementedError`` on purpose — this symbol
-    exists only so import-time consumers and the AC-002 smoke test have a
-    stable public name to bind against while the real implementation is in
-    flight.
+    Concrete behaviour is now available as :class:`LangGraphHarness` (see
+    :mod:`guardkitfactory.harness`, landed in TASK-HMIG-001B). The real
+    ABC is :class:`guardkit.orchestrator.harness.HarnessAdapter`;
+    ``LangGraphHarness`` subclasses it directly. This placeholder is
+    retained only for the TASK-HMIG-000R smoke-test contract (an
+    instantiation attempt raises ``NotImplementedError`` so accidental
+    runtime use surfaces immediately) and will be removed once that
+    contract is migrated.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         raise NotImplementedError(
-            "HarnessAdapter is a TASK-HMIG-000R placeholder. "
-            "The concrete implementation lands in TASK-HMIG-001B "
-            "(LangGraphHarness) and TASK-HMIG-002R (backend configuration)."
+            "HarnessAdapter is the TASK-HMIG-000R placeholder. "
+            "Use guardkitfactory.LangGraphHarness (TASK-HMIG-001B) for the "
+            "concrete LangGraph implementation, or "
+            "guardkit.orchestrator.harness.HarnessAdapter for the ABC."
         )
 
 
-__all__ = ["HarnessAdapter", "__version__"]
+__all__ = [
+    "HarnessAdapter",
+    "LangGraphHarness",
+    "LangGraphHarnessError",
+    "__version__",
+]
