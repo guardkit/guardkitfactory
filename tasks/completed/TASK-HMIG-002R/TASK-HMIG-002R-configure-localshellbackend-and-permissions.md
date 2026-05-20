@@ -1,10 +1,16 @@
 ---
 id: TASK-HMIG-002R
 title: Configure LocalShellBackend + FilesystemPermission for AutoBuild's worktree needs
-status: backlog
+status: completed
 task_type: implementation
 created: 2026-05-19T20:30:00Z
-updated: 2026-05-19T20:30:00Z
+updated: 2026-05-20T13:35:00Z
+completed: 2026-05-20T13:35:00Z
+completed_location: tasks/completed/TASK-HMIG-002R/
+previous_state: in_review
+state_transition_reason: "User-invoked /task-complete after green pytest + lint"
+organized_files:
+  - TASK-HMIG-002R-configure-localshellbackend-and-permissions.md
 priority: critical
 complexity: 4
 deadline: 2026-06-15
@@ -46,38 +52,38 @@ TASK-HMIG-001B.
 
 ## Acceptance Criteria
 
-- [ ] AC-001: New module `src/guardkitfactory/harness/backend_config.py`
+- [x] AC-001: New module `src/guardkitfactory/harness/backend_config.py`
       exposing a `build_autobuild_backend(worktree: Path) -> LocalShellBackend`
       factory.
-- [ ] AC-002: The factory returns
+- [x] AC-002: The factory returns
       `LocalShellBackend(root_dir=worktree, virtual_mode=True, env=<safe-env-dict>, inherit_env=False, timeout=600, max_output_bytes=1_000_000)`.
   - `<safe-env-dict>` minimally: `{"PATH": "/usr/bin:/bin", "HOME": str(worktree), "TMPDIR": str(worktree / ".tmp")}`. Add `PYTHONPATH` to the worktree's venv if present.
   - `inherit_env=False` is deliberate — we control what the agent sees.
-- [ ] AC-003: New module `src/guardkitfactory/harness/permissions.py` exposing
+- [x] AC-003: New module `src/guardkitfactory/harness/permissions.py` exposing
       a `build_autobuild_permissions() -> list[FilesystemPermission]` factory
       returning deny-rules for:
   - `.git/**` (deny write and edit)
   - `.guardkit/state_transitions.json` (deny write and edit — orchestrator owns this file)
   - `.guardkit/autobuild/*/coach_*.json` (deny — Coach writes this via orchestrator, not via Player tools)
   - `tasks/**` (deny write and edit — Player should not modify task files directly)
-- [ ] AC-004: Integration test at
+- [x] AC-004: Integration test at
       `tests/harness/test_backend_config.py` covering the four falsifier
       dimensions:
   - Positive tool flow (all built-in tools succeed in a fixture worktree)
   - Permission denial (write to `.git/HEAD` returns an error, file unchanged)
   - Timeout (`execute("sleep 700")` returns a timeout result within 600s + a small fuzz)
   - Traversal block (`read_file("../../../etc/passwd")` is rejected)
-- [ ] AC-005: Documentation block at the top of `backend_config.py` explains:
+- [x] AC-005: Documentation block at the top of `backend_config.py` explains:
   - Why `virtual_mode=True` is set even though it "provides no security with shell access enabled" (we rely on it for filesystem-tool path-confinement; the `execute` tool security is operator-trust + worktree boundary)
   - The choice of `inherit_env=False` (explicit env control)
   - Why these specific deny-rules (each is traced to a specific risk: state-bridge consistency, Coach trust boundary, etc.)
-- [ ] AC-006: `PolicyWrapper` extension point documented but not implemented.
+- [x] AC-006: `PolicyWrapper` extension point documented but not implemented.
       A comment in `backend_config.py` notes: "If GuardKit-specific
       atomic-write or backup-on-edit semantics are required later, layer a
       `PolicyWrapper` around the returned backend per the
       [deepagents/backends policy-hook pattern](https://docs.langchain.com/oss/python/deepagents/backends).
       Do NOT fork custom `@tool` implementations."
-- [ ] AC-007: `src/guardkitfactory/__init__.py` exposes both factories as
+- [x] AC-007: `src/guardkitfactory/__init__.py` exposes both factories as
       top-level symbols.
 
 ## Implementation Notes

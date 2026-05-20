@@ -10,9 +10,16 @@ compose with this class but live elsewhere.
 
 from __future__ import annotations
 
+from guardkitfactory.harness.backend_config import build_autobuild_backend
 from guardkitfactory.harness.langgraph_harness import (
     LangGraphHarness,
     LangGraphHarnessError,
 )
+from guardkitfactory.harness.permissions import build_autobuild_permissions
 
-__all__ = ["LangGraphHarness", "LangGraphHarnessError"]
+__all__ = [
+    "LangGraphHarness",
+    "LangGraphHarnessError",
+    "build_autobuild_backend",
+    "build_autobuild_permissions",
+]

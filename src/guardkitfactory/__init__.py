@@ -17,7 +17,12 @@ deliberately so accidental runtime use surfaces immediately.
 
 from __future__ import annotations
 
-from guardkitfactory.harness import LangGraphHarness, LangGraphHarnessError
+from guardkitfactory.harness import (
+    LangGraphHarness,
+    LangGraphHarnessError,
+    build_autobuild_backend,
+    build_autobuild_permissions,
+)
 
 __version__ = "0.1.0"
 
@@ -48,5 +53,7 @@ __all__ = [
     "HarnessAdapter",
     "LangGraphHarness",
     "LangGraphHarnessError",
+    "build_autobuild_backend",
+    "build_autobuild_permissions",
     "__version__",
 ]
