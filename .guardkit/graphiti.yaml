@@ -1,0 +1,19 @@
+project_id: guardkitfactory
+enabled: true
+graph_store: falkordb
+falkordb_host: whitestocks
+falkordb_port: 6379
+timeout: 30.0
+max_concurrent_episodes: 3
+chunk_extraction_concurrency: 4
+llm_provider: vllm
+llm_base_url: http://promaxgb10-41b1:9000/v1
+llm_model: qwen-graphiti
+llm_max_tokens: 4096
+embedding_provider: vllm
+embedding_base_url: http://promaxgb10-41b1:9000/v1
+embedding_model: nomic-embed
+group_ids:
+- product_knowledge
+- command_workflows
+- architecture_decisions
