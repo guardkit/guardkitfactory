@@ -1,12 +1,13 @@
 ---
 id: TASK-HMIG-000R
 title: Complete guardkitfactory source scaffold (pyproject + lib/ + src/ + CI)
-status: in_progress
+status: in_review
 task_type: implementation
 created: 2026-05-19T20:30:00Z
-updated: 2026-05-20T12:30:00Z
-previous_state: backlog
-state_transition_reason: "Started via /task-work"
+updated: 2026-05-20T12:45:00Z
+previous_state: in_progress
+state_transition_reason: "All quality gates passed (8/8 tests, ruff clean, mypy clean, falsifier OK); committed as 955be83"
+implementation_commit: 955be83
 priority: critical
 complexity: 3
 deadline: 2026-06-15
