@@ -1,10 +1,14 @@
 ---
 id: TASK-HMIG-007
 title: Implement BDDPlugin interface + PytestBDDPlugin + C1-C6 contract tests
-status: backlog
+status: completed
 task_type: implementation
 created: 2026-05-19T20:30:00Z
-updated: 2026-05-19T20:30:00Z
+updated: 2026-05-20T01:00:00Z
+completed: 2026-05-20T01:00:00Z
+completed_location: tasks/completed/TASK-HMIG-007/
+previous_state: in_review
+state_transition_reason: "All AC-001 — AC-012 satisfied after /task-refine pass (45/45 BDD tests pass; preflight meets AC-006; C3/C4 verified end-to-end against real pytest-bdd; AC-008 honesty restored)."
 priority: critical
 complexity: 6
 deadline: 2026-06-15
@@ -140,3 +144,130 @@ a future plugin author tries to register a non-compliant plugin (e.g., a
 plugin that silently returns success on zero-cardinality), the loader
 refuses registration with a clear error. This is the type-system-level guard
 that makes failure-pattern recurrence structurally hard.
+
+## Implementation approach (refined 2026-05-20)
+
+The contract tests live at **two layers** — both required:
+
+### Layer 1: mechanism (runs at registration, sub-second)
+Unit tests of the plugin's interpretation of runner output — synthetic
+JUnit XML fixtures, mocked `subprocess.run` for argv inspection and
+timeout handling. Live inside `PytestBDDPlugin.contract_tests()` and run
+during `@register` so the loader refuses any plugin with broken
+*mechanism*.
+
+* C1 — JUnit `tests=0` reads as zero-cardinality, not green
+* C2 — sanitisation rules match `bdd-per-task-glue.md`
+* C3 (mechanism) — distinct task_ids yield disjoint pytest markers
+* C4 (mechanism) — pytest argv targets `features/` (no `.feature` paths
+  leak), so directory-glob discovery survives renames
+* C5 — `subprocess.TimeoutExpired` is caught and surfaced as
+  `BDDRunResult(errors=["timeout"])`
+* C6 — JUnit `errors > 0` and missing JUnit XML both surface as
+  `scenarios_errored > 0`
+
+### Layer 2: property (runs in pytest suite, real subprocess)
+End-to-end tests that invoke `pytest-bdd` against synthetic `.feature` +
+per-task glue setups per the original AC-008 wording. These verify the
+*property* (what we get back from pytest) on top of the mechanism (what
+we send to pytest). Live in `tests/bdd/test_pytest_bdd_plugin_contracts.py`:
+
+* C3 (property) — `TestC3EndToEndDisjointScenarios`: two task_ids on the
+  same `.feature` with per-task glue → disjoint scenario sets (1 each,
+  not 2 each). The test would fail if pytest-bdd's marker-filtering
+  broke.
+* C4 (property) — `TestC4EndToEndRenameSurvivable`: rename the `.feature`
+  file between two `run()` invocations → both invocations still attempt
+  and pass the task's scenario (identity-bounded resolution via
+  `scenarios('./')`).
+
+### Why both layers
+Layer 1 alone (the original commit) tested mechanism only — the C3 and
+C4 tests would have passed even if pytest-bdd's marker filter were
+broken, because they only inspected the configuration we send to pytest.
+Adding Layer 2 closes the gap. The /task-refine pass on 2026-05-20
+flagged this and the layers are now both in place.
+
+### preflight() (AC-006) — refined
+The first commit's `preflight()` only checked sanitisation shape and
+worktree existence. AC-006 explicitly requires verifying the per-task
+glue file convention AND the `GUARDKIT_BDD_TASK_ID` env-var honour. The
+refined `preflight()` now:
+
+1. Sanitises the task_id and checks identifier shape (kept)
+2. Requires the worktree + `features/` directory to exist (kept)
+3. Requires at least one `features/**/test_*__<SANITISED_TASK_ID>.py`
+   glue file to exist on disk — refusing False means "no scenarios
+   bound for this task; a blind `-m task_<ID>` run would silently
+   deselect everything"
+4. Requires at least one `features/**/conftest.py` to reference the
+   `GUARDKIT_BDD_TASK_ID` env-var literal — refusing False means "the
+   project has not adopted the per-task glue convention"
+
+Plus a new unit test `TestRunPropagatesEnvVar` captures the `env=` kwarg
+on a mocked `subprocess.run` and asserts the env var is set to the
+active task_id (the runtime side of the env-var honour contract).
+
+## Falsifier outcome
+
+45/45 BDD tests pass (`tests/bdd/`). The PytestBDDPlugin still registers
+cleanly at import time, the two stub plugins register safely with empty
+contract lists, and the loader still refuses a synthetic
+`_PartialFailPlugin` whose `contract_tests()` reports `C3 + C5` as
+failed (`tests/bdd/test_loader.py::TestRegistrationGate::test_failing_contracts_refuse_registration`).
+
+The two new end-to-end tests genuinely exercise pytest-bdd: each
+invocation spawns a real `python -m pytest features/ -m task_<ID>
+--junitxml=...` subprocess against a tmp_path worktree with a per-task
+glue layout. Total e2e cost: ~5s (within the existing pytest run; not
+paid at registration).
+
+## Files
+
+Created:
+* `src/guardkitfactory/bdd/__init__.py`
+* `src/guardkitfactory/bdd/plugin.py`
+* `src/guardkitfactory/bdd/loader.py`
+* `src/guardkitfactory/bdd/plugins/__init__.py`
+* `src/guardkitfactory/bdd/plugins/pytest_bdd_plugin.py`
+* `src/guardkitfactory/bdd/plugins/reqnroll_plugin.py`
+* `src/guardkitfactory/bdd/plugins/cucumber_js_plugin.py`
+* `tests/bdd/__init__.py`
+* `tests/bdd/test_pytest_bdd_plugin_contracts.py`
+* `tests/bdd/test_loader.py`
+
+Modified:
+* `src/guardkitfactory/__init__.py` — re-export BDDPlugin, BDDRunResult, Scenario, StackProfile, discover
+* `pyproject.toml` — add `guardkitfactory.bdd` + `guardkitfactory.bdd.plugins` to setuptools packages list
+
+## Refinement history
+
+### Refinement 1 — 2026-05-20T00:30:00Z (/task-refine pass)
+**Description**: Strengthen preflight (AC-006) + add C3/C4 end-to-end exercises
+**Driver**: Review feedback flagged that (a) `preflight()` did not check
+per-task glue file existence or env-var honour as AC-006 explicitly
+required, and (b) C3/C4 unit tests verified the configuration we send
+to pytest but not the behaviour we get back — both would pass even if
+pytest-bdd's marker filter were broken.
+
+**Changes**:
+* `src/guardkitfactory/bdd/plugins/pytest_bdd_plugin.py` —
+  `preflight()` now verifies the per-task glue file is on disk
+  (`features/**/test_*__<sanitised>.py`) AND a `features/**/conftest.py`
+  references the `GUARDKIT_BDD_TASK_ID` env-var literal.
+* `tests/bdd/test_pytest_bdd_plugin_contracts.py` — removed the too-loose
+  `TestPreflight::test_preflight_accepts_valid_task_id` (it would now
+  fail and rightly so); added `TestPreflightShape`, `TestPreflightAC006`,
+  `TestRunPropagatesEnvVar`, `TestC3EndToEndDisjointScenarios`,
+  `TestC4EndToEndRenameSurvivable`.
+
+**Outcome**: SUCCESS — 45/45 BDD tests pass, including the two new
+end-to-end tests against real pytest-bdd subprocess invocations.
+
+**Honesty correction**: the previous "Implementation note (2026-05-20)"
+in this file weakened AC-008 from "exercises C1-C6 against synthetic
+fixtures (use tmp_path and a minimal .feature + per-task glue setup)" to
+unit-tests-only of interpretation logic. That was a decision the
+implementer made unilaterally; the refinement restores the original AC
+intent by adding Layer-2 end-to-end exercises alongside the Layer-1
+mechanism checks rather than substituting one for the other.

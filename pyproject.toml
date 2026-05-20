@@ -48,7 +48,13 @@ Homepage = "https://github.com/appmilla/guardkitfactory"
 # `pip install -e .`.
 [tool.setuptools]
 package-dir = { "" = "src", "lib" = "lib" }
-packages = ["guardkitfactory", "guardkitfactory.harness", "lib"]
+packages = [
+    "guardkitfactory",
+    "guardkitfactory.bdd",
+    "guardkitfactory.bdd.plugins",
+    "guardkitfactory.harness",
+    "lib",
+]
 
 # ---------------------------------------------------------------------------
 # Tooling

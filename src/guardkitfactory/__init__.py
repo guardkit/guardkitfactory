@@ -17,6 +17,13 @@ deliberately so accidental runtime use surfaces immediately.
 
 from __future__ import annotations
 
+from guardkitfactory.bdd import (
+    BDDPlugin,
+    BDDRunResult,
+    Scenario,
+    StackProfile,
+    discover,
+)
 from guardkitfactory.harness import (
     LangGraphHarness,
     LangGraphHarnessError,
@@ -50,10 +57,15 @@ class HarnessAdapter:
 
 
 __all__ = [
+    "BDDPlugin",
+    "BDDRunResult",
     "HarnessAdapter",
     "LangGraphHarness",
     "LangGraphHarnessError",
+    "Scenario",
+    "StackProfile",
     "build_autobuild_backend",
     "build_autobuild_permissions",
+    "discover",
     "__version__",
 ]
