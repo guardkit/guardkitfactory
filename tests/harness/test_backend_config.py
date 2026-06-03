@@ -201,16 +201,37 @@ def test_positive_tool_flow_execute_returns_zero_for_simple_command(
 
 # ---------------------------------------------------------------------------
 # (b) Permission denial — falsifier dimension (b)
+#
+# TASK-HMIG-002R-NOPERMS (2026-06-03): the deny-rule body tests below are
+# skipped because ``build_autobuild_permissions()`` currently returns ``[]``
+# pending DeepAgents upstream support for permissions on execute-capable
+# backends (issue #2894, closed/declined — see permissions.py docstring).
+#
+# The single regression test
+# ``test_build_autobuild_permissions_is_empty_until_upstream_lands_or_custom_middleware_ships``
+# (AC-004) replaces the previous "list is not empty" assertion. When
+# restoring, unskip the rule-body tests and delete the regression test.
 # ---------------------------------------------------------------------------
 
 
-def test_build_autobuild_permissions_returns_list_of_filesystem_permission() -> None:
-    perms = build_autobuild_permissions()
-    assert isinstance(perms, list)
-    assert all(isinstance(p, FilesystemPermission) for p in perms)
-    assert perms, "deny-rule list must not be empty"
+def test_build_autobuild_permissions_is_empty_until_upstream_lands_or_custom_middleware_ships() -> None:
+    """AC-004 regression — catches accidental restoration before upstream catches up.
+
+    See ``src/guardkitfactory/harness/permissions.py`` docstring and
+    ``TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE`` for the restore path.
+    """
+    assert build_autobuild_permissions() == []
 
 
+_NOPERMS_SKIP_REASON = (
+    "TASK-HMIG-002R-NOPERMS — build_autobuild_permissions() returns [] until "
+    "DeepAgents upstream supports permissions on execute-capable backends "
+    "(#2894 declined) or TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE ships an "
+    "in-tree custom middleware. See permissions.py docstring for restore."
+)
+
+
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_build_autobuild_permissions_targets_write_operations() -> None:
     perms = build_autobuild_permissions()
     for perm in perms:
@@ -218,6 +239,7 @@ def test_build_autobuild_permissions_targets_write_operations() -> None:
         assert perm.mode == "deny"
 
 
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_permissions_deny_writes_to_dot_git_inside_worktree() -> None:
     perms = build_autobuild_permissions()
     assert _evaluate_rules(perms, "write", "/tmp/wt-xyz/.git/HEAD") == "deny"
@@ -226,6 +248,7 @@ def test_permissions_deny_writes_to_dot_git_inside_worktree() -> None:
     )
 
 
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_permissions_deny_writes_to_state_transitions_json() -> None:
     perms = build_autobuild_permissions()
     assert (
@@ -236,6 +259,7 @@ def test_permissions_deny_writes_to_state_transitions_json() -> None:
     )
 
 
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_permissions_deny_writes_to_coach_verdict_files() -> None:
     perms = build_autobuild_permissions()
     assert (
@@ -248,6 +272,7 @@ def test_permissions_deny_writes_to_coach_verdict_files() -> None:
     )
 
 
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_permissions_deny_writes_inside_tasks_tree() -> None:
     perms = build_autobuild_permissions()
     assert _evaluate_rules(perms, "write", "/tmp/wt/tasks/TASK-001.md") == "deny"
@@ -259,6 +284,7 @@ def test_permissions_deny_writes_inside_tasks_tree() -> None:
     )
 
 
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_permissions_allow_writes_to_normal_source_paths() -> None:
     perms = build_autobuild_permissions()
     assert (
@@ -269,6 +295,7 @@ def test_permissions_allow_writes_to_normal_source_paths() -> None:
     )
 
 
+@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)
 def test_permissions_allow_reads_under_denied_paths() -> None:
     # Reads remain permissive even where writes are denied — the rule
     # operations list only covers "write". See the permissions module

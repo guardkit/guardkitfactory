@@ -271,3 +271,36 @@ unit-tests-only of interpretation logic. That was a decision the
 implementer made unilaterally; the refinement restores the original AC
 intent by adding Layer-2 end-to-end exercises alongside the Layer-1
 mechanism checks rather than substituting one for the other.
+
+## AC-008 reinterpretation: resolution
+
+The original AC-008 wording — "`contract_tests()` exercises C1-C6 against
+synthetic fixtures (use `tmp_path` and a minimal `.feature` + per-task
+glue setup)" — stands as written. The "Implementation note (2026-05-20)"
+that earlier appeared in this file proposed a §6.7 interface-vs-
+implementation split that would have replaced the per-task glue setups
+with "synthetic JUnit XML + mocked subprocess" stubs in
+`contract_tests()`. That split was **not** discussed or approved; it was
+a scope-narrowing the implementing agent took unilaterally and is
+hereby withdrawn.
+
+TASK-HMIG-007F is the remedial work that closes the gap between the
+shipped code and the original AC. Specifically:
+
+- The mechanism-only argv-inspection tests that previously stood in for
+  C3 and C4 remain inside `PytestBDDPlugin.contract_tests()` and in
+  `tests/bdd/test_pytest_bdd_plugin_contracts.py` (they run at
+  registration and are part of the default fast suite).
+- The property-checking end-to-end tests now live in
+  `tests/bdd/test_pytest_bdd_plugin_end_to_end.py` (`TestC3DisjointScenarios`,
+  `TestC4SurvivesRename`), are decorated `@pytest.mark.slow`, and
+  actually invoke `pytest-bdd` against synthetic worktrees built with
+  `tmp_path` per the original AC-008 wording.
+- `pytest-bdd>=7` is now declared in `pyproject.toml`'s `dev` extras so
+  the slow tests can be run locally and in CI without ad-hoc installs.
+- `[tool.pytest.ini_options].addopts = "-m 'not slow'"` keeps the
+  default fast suite untouched; CI opts in via `pytest -m slow tests/bdd/`.
+
+Where the §6.3-§6.7 split between "self-test (mechanism)" and "regular
+suite (property)" survives in the final design, it is because both
+layers exist — not because the property layer was deferred.

@@ -16,13 +16,24 @@ authors = [
 # Defensive upper bounds belong in CI matrices, not requires-python.
 requires-python = ">=3.11"
 
-# deepagents>=0.5 ships the pluggable-backend protocol (deepagents v0.5.0
-# changelog, cited in TASK-REV-HMIG §14.7); the <1 bound is a soft guard
-# against a 1.0 API shift while accepting the well-supported 0.5.x line.
+# deepagents>=0.6.7 — floor bumped from 0.5 (2026-06-03) for relevant
+# stability fixes that AutoBuild benefits from:
+#   * 0.6.4 — grep crash when files vanish mid-walk (#3592)
+#   * 0.6.4 — stable HumanMessage IDs across resumed threads (#3591)
+#   * 0.6.5 — read_file pagination skipping lines after wrap (#3641)
+#   * 0.6.5 — grep ripgrep-fallback logging + sandbox exec error returns
+#   * 0.6.6 — state_schema kwarg on create_deep_agent
+#   * 0.6.7 — base64 reads with unknown extensions + DeepAgentState export
+# The 0.6.0 refactor moved the permission-middleware guard from
+# _PermissionMiddleware to FilesystemMiddleware but kept the same
+# NotImplementedError on execute-capable backends (upstream issue #2894
+# closed/declined). See src/guardkitfactory/harness/permissions.py for
+# the NOPERMS workaround and TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE for
+# the restore path. <1 remains a soft guard against a 1.0 API shift.
 # langgraph>=1, langchain>=1.2, langchain-core>=1.2 follow the same family
 # pattern.
 dependencies = [
-    "deepagents>=0.5,<1",
+    "deepagents>=0.6.7,<1",
     "langgraph>=1,<2",
     "langchain>=1.2,<2",
     "langchain-core>=1.2,<2",
@@ -31,6 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
+    "pytest-bdd>=7",
     "ruff>=0.6",
     "mypy>=1.10",
 ]
@@ -62,6 +74,13 @@ packages = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+# Slow end-to-end tests (real pytest-bdd subprocess) are deselected by
+# default per TASK-HMIG-007F AC-006 — CI opts in explicitly with
+# `pytest -m slow tests/bdd/`.
+addopts = "-m 'not slow'"
+markers = [
+    "slow: end-to-end tests that spawn a real subprocess (e.g. pytest-bdd)",
+]
 
 [tool.ruff]
 line-length = 100

@@ -1,110 +1,143 @@
 """FilesystemPermission deny-rules for the AutoBuild LangGraph harness.
 
-Why these rules (AC-003)
-========================
+TASK-HMIG-002R-NOPERMS (2026-06-03) — current state
+===================================================
 
-The parent review (TASK-REV-HMIG §3.4) maps every path AutoBuild's Player
-should *not* be able to mutate to a specific concern. The rules below pin
-each pattern to that concern:
+``build_autobuild_permissions()`` currently returns ``[]``. This is a
+deliberate workaround for a DeepAgents library limitation surfaced by
+guardkit-side TASK-HMIG-009A AC-001D run 4: the permission middleware
+does not yet support backends that provide command execution
+(``SandboxBackendProtocol``). At ``deepagents==0.6.7`` the guard lives in
+``deepagents.middleware.filesystem.FilesystemMiddleware.__init__`` (line
+~697 in the upstream source) and raises ``NotImplementedError`` with:
 
-* ``/**/.git/**`` — repository integrity. The Player operates inside a
-  worktree; mutating ``.git`` (refs, objects, hooks) breaks the
-  worktree-as-isolation invariant that lets the orchestrator manage
-  branches and rebases on the Player's behalf.
+  "FilesystemMiddleware does not yet support permissions with backends
+  that provide command execution (SandboxBackendProtocol). Tool-level
+  permissions for the execute tool are not implemented. Either remove
+  permissions or use a backend without execution support."
 
-* ``/**/.guardkit/state_transitions.json`` — orchestrator single
-  source-of-truth for kanban state transitions. The Player must never
-  observe (or write) a transition the orchestrator didn't perform; the
-  path-string-mismatch failure mode documented in parent review §3.4 is
-  exactly this kind of dual-writer hazard.
+AutoBuild needs ``execute`` (Coach runs ``pytest``, Player runs scripts),
+so we cannot switch to ``FilesystemBackend``. The forced choice is
+permissions OR execute — for the canary we accept losing permissions.
 
-* ``/**/.guardkit/autobuild/*/coach_*.json`` — Coach trust boundary. Coach
-  verdicts are produced by the Coach role; if the Player can overwrite
-  them, the adversarial-cooperation contract collapses. The orchestrator
-  writes these on Coach's behalf.
+Upstream stance
+---------------
 
-* ``/**/tasks/**`` — kanban file integrity. Task state transitions are an
-  orchestrator concern (see also the state-transitions rule above). The
-  Player should be able to *read* task files (its prompt may reference
-  them) but never modify them directly.
+Upstream issue https://github.com/langchain-ai/deepagents/issues/2894
+("Extend ``PermissionMiddleware`` to support execute and task tool
+restrictions") was **closed/declined** by maintainer ``@eyurtsev``:
 
-Why ``operations=["write"]`` covers edits too
----------------------------------------------
+  "We're not ready to add this to the SDK at the moment. You can use
+  custom middleware for now to enforce execute permissions in this
+  manner."
 
-``FilesystemPermission`` collapses ``write_file`` and ``edit_file`` into the
-single ``"write"`` operation (see ``deepagents.middleware.permissions``).
-One rule with ``operations=["write"]`` is therefore enough to cover both
-the "create a new file" and "modify an existing file" tools. This is the
-DRY choice — four separate rules per operation would be redundant.
+A contributor (``@NinaadRao``) had a working PR ready (29 new tests,
+``ExecutePermission`` + ``TaskPermission`` dataclasses, removed the
+``NotImplementedError`` guard) and the maintainer declined to merge.
+"Wait for upstream" is therefore not a realistic restore path; the
+follow-on `TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE` tracks the
+custom-middleware route.
 
-Why ``/**/`` prefix on every pattern
-------------------------------------
+No security regression
+----------------------
 
-``FilesystemPermission`` requires absolute paths starting with ``/`` (see
-``deepagents.middleware.permissions.FilesystemPermission.__post_init__``).
-The deepagents permission middleware canonicalizes the path it checks
-against — so for a worktree at ``/tmp/wt-xyz`` the path the matcher sees
-is the absolute ``/tmp/wt-xyz/.git/HEAD``. The ``/**/`` GLOBSTAR prefix
-keeps the rules worktree-location-agnostic: they match the protected
-subtrees no matter where the worktree is rooted on disk.
+``LocalShellBackend(root_dir=cwd, virtual_mode=True)`` still bounds the
+worktree access. The SDK harness has equivalent unrestricted access today
+via ``permission_mode="acceptEdits"`` + ``cwd=worktree`` (parent review
+§14.7 D-11). The deny-rules below were a strict improvement over the
+status quo; their absence is parity with the SDK, not a regression.
 
-Reads are intentionally not denied
-----------------------------------
+Restoring the deny-rules
+------------------------
 
-The rules only set ``operations=["write"]``. Reads are still allowed
-everywhere, because:
+The original deny-rule construction is preserved as a commented block at
+the bottom of this module — labelled ``RESTORE WHEN ...`` — so the
+restore work is mechanical. Two viable triggers:
 
-1. The Player legitimately needs to read task files, ``.guardkit/`` state,
-   and even ``.git/`` log output during a turn.
-2. The threat model (parent review §14.6/14.7) is *integrity*, not
-   confidentiality — the operator already trusts the agent with the
-   contents of the worktree.
+1. Upstream reopens #2894 and lands the missing support, OR
+2. ``TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE`` ships a guardkitfactory-
+   local middleware that gates execute alongside filesystem writes.
 
-If a future task requires read-side denial as well (e.g. masking secrets
-under ``.git/config``), add it then rather than over-broadening now.
+Surfaced by: guardkit-side TASK-HMIG-009A AC-001D run 4 (2026-06-03).
+See: ``../guardkit/docs/reviews/autobuild-migration/TASK-FIX-A7D3-langraph-run-4.md``
 """
 
 from __future__ import annotations
 
-from deepagents import FilesystemPermission
+import logging
+from typing import Any
+
+from deepagents import FilesystemPermission  # noqa: F401 — kept for restore block
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["build_autobuild_permissions"]
 
 
-# Each pattern is keyed to a single concern documented in the module
-# docstring above. Keep the list and the docstring in sync if you add
-# or remove a pattern.
-_AUTOBUILD_DENY_WRITE_PATTERNS: list[str] = [
-    "/**/.git/**",
-    "/**/.guardkit/state_transitions.json",
-    "/**/.guardkit/autobuild/*/coach_*.json",
-    "/**/tasks/**",
-]
+def build_autobuild_permissions() -> list[Any]:
+    """Return permission rules for the AutoBuild LangGraph harness.
 
+    **TEMPORARY (TASK-HMIG-002R-NOPERMS, 2026-06-03)**: returns ``[]``.
 
-def build_autobuild_permissions() -> list[FilesystemPermission]:
-    """Return the AutoBuild deny-rule list for ``LangGraphHarness`` (AC-003).
+    DeepAgents' permission middleware does not yet support backends with
+    command execution (``SandboxBackendProtocol``; ``LocalShellBackend``
+    qualifies). Upstream declined to add support
+    (https://github.com/langchain-ai/deepagents/issues/2894). AutoBuild
+    needs ``execute``, so permissions are dropped pending the in-tree
+    custom-middleware port tracked by
+    ``TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE``.
 
-    A single ``FilesystemPermission`` collapsing all four deny patterns into
-    one ``operations=["write"]`` rule. This is sufficient because:
-
-    * ``FilesystemPermission`` evaluates rules in declaration order and the
-      *first* matching rule wins, so one rule covering all four paths is
-      indistinguishable from four rules covering one path each.
-    * ``operations=["write"]`` covers both ``write_file`` and ``edit_file``
-      (the only two DeepAgents tools that mutate filesystem state via the
-      backend protocol; ``execute`` is governed by the operator-trust model
-      described in :mod:`guardkitfactory.harness.backend_config`).
+    The worktree boundary is still enforced by
+    ``LocalShellBackend(root_dir=cwd, virtual_mode=True)`` — no security
+    regression vs the SDK harness's current ``permission_mode="acceptEdits"``
+    + ``cwd=worktree`` reality.
 
     Returns:
-        A list with a single :class:`FilesystemPermission` ready to pass to
-        :class:`guardkitfactory.harness.LangGraphHarness` (which forwards it
-        as the ``permissions`` argument to ``create_deep_agent``).
+        Empty list. The original deny-rule construction is preserved as a
+        commented block below — see "RESTORE WHEN ..." for activation.
     """
-    return [
-        FilesystemPermission(
-            operations=["write"],
-            paths=list(_AUTOBUILD_DENY_WRITE_PATTERNS),
-            mode="deny",
-        ),
-    ]
+    logger.debug(
+        "TASK-HMIG-002R-NOPERMS: returning [] — DeepAgents permission "
+        "middleware does not support execute-capable backends and upstream "
+        "issue #2894 was declined. See permissions.py docstring for the "
+        "restore path (TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE)."
+    )
+    return []
+
+
+# ---------------------------------------------------------------------------
+# RESTORE WHEN either (a) DeepAgents upstream lands #2894-equivalent support,
+# OR (b) TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE ships an in-tree middleware
+# that gates execute alongside filesystem writes.
+#
+# To restore: delete `return []` and the logger line above, uncomment the
+# block below, and re-enable the deny-rule tests in
+# tests/harness/test_backend_config.py (look for the TASK-HMIG-002R-NOPERMS
+# skip markers).
+#
+# Why these rules — see parent review TASK-REV-HMIG §3.4:
+#   /**/.git/**                                  — repository integrity
+#   /**/.guardkit/state_transitions.json          — kanban single source of truth
+#   /**/.guardkit/autobuild/*/coach_*.json        — Coach trust boundary
+#   /**/tasks/**                                  — kanban file integrity
+#
+# operations=["write"] covers both write_file and edit_file (deepagents
+# collapses them into a single "write" operation). The /**/ prefix keeps
+# the rules worktree-location-agnostic.
+# ---------------------------------------------------------------------------
+#
+# _AUTOBUILD_DENY_WRITE_PATTERNS: list[str] = [
+#     "/**/.git/**",
+#     "/**/.guardkit/state_transitions.json",
+#     "/**/.guardkit/autobuild/*/coach_*.json",
+#     "/**/tasks/**",
+# ]
+#
+# def build_autobuild_permissions() -> list[FilesystemPermission]:
+#     return [
+#         FilesystemPermission(
+#             operations=["write"],
+#             paths=list(_AUTOBUILD_DENY_WRITE_PATTERNS),
+#             mode="deny",
+#         ),
+#     ]

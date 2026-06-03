@@ -43,6 +43,7 @@ What this skeleton does **not** ship
 
 from __future__ import annotations
 
+import logging
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,8 @@ from guardkit.orchestrator.harness import (
 
 from guardkitfactory.harness.extractors import extract_last_ai_message
 from lib.factory_guards import assert_no_system_messages
+
+logger = logging.getLogger(__name__)
 
 __all__ = ["LangGraphHarness", "LangGraphHarnessError"]
 
@@ -143,10 +146,43 @@ class LangGraphHarness(HarnessAdapter):
         input_data = self._build_input(prompt)
         assert_no_system_messages(input_data)
 
+        # TASK-FIX-LGTOOLS (2026-06-03): drop the caller's ``tools`` list on
+        # the Wave-2 path. The orchestrator passes SDK tool-name strings
+        # (``["Read", "Write", "Bash", ...]``) which downstream — through
+        # ``deepagents.create_deep_agent`` → ``SubAgentMiddleware`` →
+        # ``langchain.agents.create_agent`` → ``langgraph.prebuilt.ToolNode``
+        # — get iterated as if they were ``BaseTool`` instances. ToolNode
+        # does ``tool_.name`` on each element and crashes with
+        # ``'function' object has no attribute 'name'`` (the strings get
+        # processed into raw functions somewhere in DeepAgents' built-in
+        # tool merge). Surfaced by GuardKit TASK-HMIG-009A AC-001D
+        # (langraph-run-2, 2026-06-03).
+        #
+        # Wave-2 contract per this module's docstring + the selector at
+        # guardkit.orchestrator.harness.selector._translate_kwargs_for_langgraph
+        # (docstring lines 56-58): "the LangGraph path receives its tool
+        # surface through ... DeepAgents' built-in tool set (filesystem +
+        # execute + planning + sub-agents)". The SDK tool-name strings are
+        # meaningless to DeepAgents anyway — its built-ins cover the same
+        # ground under different names. Passing ``tools=[]`` lets DeepAgents
+        # use only its built-ins, which is the documented Wave-2 intent.
+        #
+        # Faithful tool translation (SDK names → BaseTool wrappers around
+        # the operator's preferred implementations) is TASK-HMIG-002R's
+        # scope, not the Wave-2 skeleton's.
+        if tools:
+            logger.debug(
+                "LangGraphHarness Wave-2: dropping %d caller-supplied tool(s) "
+                "(%s) — DeepAgents' built-in tool set is used instead. See "
+                "TASK-HMIG-002R for faithful SDK→LangGraph tool translation.",
+                len(tools),
+                [t if isinstance(t, str) else type(t).__name__ for t in tools[:5]],
+            )
+
         try:
             agent = create_deep_agent(
                 model=self.model,
-                tools=tools,
+                tools=[],  # TASK-FIX-LGTOOLS — see note above
                 backend=self.backend,
                 permissions=self.permissions,
                 system_prompt=role,
