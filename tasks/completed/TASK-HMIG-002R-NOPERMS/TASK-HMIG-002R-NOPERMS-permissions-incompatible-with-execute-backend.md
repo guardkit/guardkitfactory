@@ -2,14 +2,19 @@
 id: TASK-HMIG-002R-NOPERMS
 title: build_autobuild_permissions() must return [] until DeepAgents supports permissions on execute-capable backends
 task_type: implementation
-status: backlog
+status: completed
 created: 2026-06-03T11:15:00Z
-updated: 2026-06-03T11:15:00Z
+updated: 2026-06-03T12:30:00Z
+completed: 2026-06-03T12:30:00Z
+completed_location: tasks/completed/TASK-HMIG-002R-NOPERMS/
 priority: critical
 complexity: 1
 effort_hours: 0.5
 parent_task: TASK-HMIG-002R   # Completed 2026-05-20 in this repo; this is a follow-on adjustment
 deadline: 2026-06-15
+landed_in_commit: 5d6fd31   # Implementation shipped alongside TASK-HMIG-007F (deepagents 0.6.7 bump)
+followon_tasks:
+  - TASK-HMIG-002R-TRAILING-NL   # Triages 2 pre-existing LocalShellBackend trailing-newline test failures surfaced during verification
 cross_repo:
   notes: |
     Surfaced by guardkit-side TASK-HMIG-009A AC-001D run 4 (2026-06-03)
@@ -89,12 +94,12 @@ Keep the **original deny-rule code commented out below the return statement** (n
 
 ## Acceptance Criteria
 
-- [ ] **AC-001** — `build_autobuild_permissions()` returns `[]` with the documented rationale + log line.
-- [ ] **AC-002** — Original deny-rule construction code preserved as a commented block immediately below the `return []`, labelled "RESTORE WHEN UPSTREAM SUPPORTS execute-capable backends" with the upstream issue link (or "TBD" if not yet filed).
-- [ ] **AC-003** — Existing integration test `tests/harness/test_backend_config.py` that asserts deny-rules block writes to `.git/`, `.guardkit/state_transitions.json`, `tasks/**` is updated: either marked `@pytest.mark.skip(reason="TASK-HMIG-002R-NOPERMS — see permissions.py")` with a comment pointing here, or replaced with an assertion that `build_autobuild_permissions() == []` for the duration of the workaround.
-- [ ] **AC-004** — New regression test: `build_autobuild_permissions()` returns `[]` (caught if someone accidentally restores the deny-rules before upstream is ready).
+- [x] **AC-001** — `build_autobuild_permissions()` returns `[]` with the documented rationale + log line. Verified at `src/guardkitfactory/harness/permissions.py:77-105`.
+- [x] **AC-002** — Original deny-rule construction code preserved as a commented block immediately below the `return []`, labelled "RESTORE WHEN ..." with the upstream issue link. Verified at `src/guardkitfactory/harness/permissions.py:108-143`.
+- [x] **AC-003** — Existing integration deny-rule tests in `tests/harness/test_backend_config.py` are marked `@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)` (lines 226-307). Seven tests skip with the consolidated `_NOPERMS_SKIP_REASON` pointing back to this task and `permissions.py`. Confirmed by pytest run: `7 skipped`.
+- [x] **AC-004** — Regression test `test_build_autobuild_permissions_is_empty_until_upstream_lands_or_custom_middleware_ships` (line 217) asserts `build_autobuild_permissions() == []`. PASSES.
 - [x] **AC-005** — Upstream issue already exists and was **closed/declined**: [langchain-ai/deepagents#2894](https://github.com/langchain-ai/deepagents/issues/2894) ("Extend `PermissionMiddleware` to support execute and task tool restrictions"). Maintainer @eyurtsev: *"We're not ready to add this to the SDK at the moment. You can use custom middleware for now to enforce execute permissions in this manner."* Cross-linked from the docstring in `permissions.py`. Because upstream declined, the "Restoring permissions when upstream lands" follow-on is reframed as `TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE` (custom middleware in-tree).
-- [ ] **AC-006** — Cross-repo falsifier: guardkit-side TASK-HMIG-009A AC-001D run 5 smoke (same command as run 4 but post-fix) no longer fails with `_PermissionMiddleware does not yet support backends with command execution`. Reaches at least Coach turn 1 with non-empty `files_modified`. Note in this task's completion when the cross-repo falsifier passes.
+- [ ] **AC-006** — Cross-repo falsifier: guardkit-side TASK-HMIG-009A AC-001D run 5 smoke (same command as run 4 but post-fix) no longer fails with `_PermissionMiddleware does not yet support backends with command execution`. Reaches at least Coach turn 1 with non-empty `files_modified`. **Pending guardkit-side verification** — implementation in this repo is complete; cross-repo smoke run owns this AC.
 
 ## Trade-off worth being explicit about
 
@@ -121,3 +126,28 @@ If the threat model later requires production-grade isolation (multi-tenant or u
 - **DeepAgents 0.6.7 source confirming guard still in place**: `libs/deepagents/deepagents/middleware/filesystem.py:697` at tag `deepagents==0.6.7`
 - **Follow-on (custom middleware path)**: `tasks/backlog/autobuild-harness-migration/TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE-port-declined-upstream-pr-locally.md`
 - **Parent-review threat model**: `../guardkit/.claude/reviews/TASK-REV-HMIG-review-report.md` §14.7 D-03 + §8 D-11
+
+## Implementation Summary
+
+The implementation landed in commit `5d6fd31` (folded into TASK-HMIG-007F's deepagents 0.6.7 bump), not in a dedicated commit. Verification via `/task-work TASK-HMIG-002R-NOPERMS` on 2026-06-03 confirmed all five in-repo ACs (001–005) are satisfied by the on-disk source:
+
+- `src/guardkitfactory/harness/permissions.py:77-105` — `build_autobuild_permissions()` returns `[]` with a debug log line and the documented rationale (AC-001).
+- `src/guardkitfactory/harness/permissions.py:108-143` — the original FilesystemPermission deny-rule construction is preserved verbatim as a commented `RESTORE WHEN ...` block, with the upstream issue link (AC-002).
+- `tests/harness/test_backend_config.py:226-307` — seven existing deny-rule tests are decorated with `@pytest.mark.skip(reason=_NOPERMS_SKIP_REASON)` pointing back to this task and `permissions.py` (AC-003). Pytest reports `7 skipped` as expected.
+- `tests/harness/test_backend_config.py:217` — new regression test `test_build_autobuild_permissions_is_empty_until_upstream_lands_or_custom_middleware_ships` PASSES, catching any accidental restoration of deny-rules before upstream support exists (AC-004).
+- The `permissions.py` module docstring cross-links the declined upstream issue [langchain-ai/deepagents#2894](https://github.com/langchain-ai/deepagents/issues/2894) and the follow-on custom-middleware task (AC-005).
+
+## Cross-Repo AC-006 Status
+
+AC-006 (guardkit-side AC-001D run 5 smoke) is **not satisfied by this repo's work** and is **transferred to the cross-repo consumer task** `TASK-FIX-002R-CONSUME` in `../guardkit/tasks/backlog/autobuild-harness-migration/`. The in-repo work is complete and is the *enabler* of AC-006, but the smoke run itself must execute against guardkit's selector wiring. Closing this task does **not** close AC-006.
+
+## Follow-on Work Surfaced
+
+Verification surfaced **2 pre-existing test failures unrelated to permissions** (`test_positive_tool_flow_write_then_read_round_trips`, `test_positive_tool_flow_edit_replaces_existing_content`) — `LocalShellBackend.read()` now strips a trailing `\n` from `file_data["content"]` against `deepagents==0.6.7` where it didn't against the 0.5.x line at the time TASK-HMIG-002R landed. Triage is tracked in [`TASK-HMIG-002R-TRAILING-NL`](../../backlog/autobuild-harness-migration/TASK-HMIG-002R-TRAILING-NL-localshellbackend-read-edit-strip-trailing-newline.md) (parented to TASK-HMIG-002R, related to TASK-HMIG-007F).
+
+## Lessons
+
+- **Don't trust frontmatter status against on-disk source.** This task sat in `backlog/` while the implementation had already landed in a sibling task's commit (TASK-HMIG-007F's deepagents 0.6.7 bump rolled in the `permissions.py` rewrite). The verification-first workflow (read the source, then check ACs) caught it; an implement-first workflow would have re-implemented working code.
+- **Cross-repo ACs belong to whoever can falsify them.** AC-006 stays open against the guardkit-side smoke run because that's where the falsifier executes. Closing this task on the strength of AC-001–005 is correct; conflating in-repo completion with cross-repo verification would have been wrong.
+- **Verification often surfaces orthogonal regressions.** The trailing-newline failures had nothing to do with permissions but would have been masked indefinitely if the verification run hadn't gone broad enough to include falsifier dimension (a). Worth filing a follow-on the moment you spot it, rather than narrowing the test scope.
+
