@@ -12,7 +12,8 @@ parent_task: TASK-HMIG-002R-NOPERMS
 deadline: null   # not blocking the cutover — see "Why parked"
 related_tasks:
   - TASK-HMIG-002R          # ✅ completed 2026-05-20 — original wiring
-  - TASK-HMIG-002R-NOPERMS  # 🔧 in-flight — current workaround (returns [])
+  - TASK-HMIG-002R-NOPERMS  # ✅ completed 2026-06-03 — current workaround (returns [])
+  - TASK-HMIG-002R-NOVMODE  # ✅ completed 2026-06-03 — sibling fix (virtual_mode=False)
 tags:
   - permissions
   - deepagents-upstream-declined

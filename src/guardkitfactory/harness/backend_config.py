@@ -18,28 +18,51 @@ deny-rule list; this module ships the backend factory.
 Design rationale (AC-005)
 =========================
 
-``virtual_mode=True``
----------------------
+``virtual_mode=False`` (TASK-HMIG-002R-NOVMODE, 2026-06-03)
+-----------------------------------------------------------
 
-``LocalShellBackend``'s upstream docs explicitly note that ``virtual_mode=True``
-"provides NO security with shell access enabled, since commands can access
-any path on the system". Setting it anyway is deliberate. AutoBuild relies on
-``virtual_mode=True`` for *filesystem-tool* path-confinement only:
+Originally this was ``virtual_mode=True`` for filesystem-tool path-
+confinement. AC-001D run 5 (see
+``docs/reviews/autobuild-migration/TASK-FIX-A7D3-run-5.md``) showed why
+that doesn't work for AutoBuild: the Coach LLM (and specialists) are fed
+**absolute filesystem paths** by guardkit's orchestrator prompt
+(``/Users/.../coach_turn_1.json``). Under ``virtual_mode=True``,
+``LocalShellBackend`` interprets every path as virtual — rooted at
+``root_dir`` — and silently prefixes the entire absolute string onto the
+worktree, producing doubly-nested paths the orchestrator never finds:
 
-* ``read_file`` / ``write_file`` / ``edit_file`` / ``ls`` / ``glob`` / ``grep``
-  go through the backend's path-resolution layer, which blocks ``..`` and
-  ``~`` traversal and treats ``root_dir`` as a virtual filesystem root. This
-  is the falsifier (d) guarantee in TASK-HMIG-002R — a tool call that asks
-  for ``../../../etc/passwd`` is rejected before it leaves the backend.
+  Coach asked to write:        /Users/.../<wt>/.guardkit/.../coach_turn_1.json
+  LocalShellBackend wrote:     <wt>/Users/.../<wt>/.guardkit/.../coach_turn_1.json
+  Orchestrator looked at:      /Users/.../<wt>/.guardkit/.../coach_turn_1.json
 
-* ``execute`` security is *not* delivered by this flag. It comes from the
-  surrounding operator-trust model (single-tenant, local-vLLM, an operator
-  watching the run) plus the worktree boundary itself: the agent's
-  ``cwd`` is the worktree and ``inherit_env=False`` strips environment
-  leakage. If the threat model later requires production-grade isolation
-  for ``execute``, parent review decision D-11 says to swap
-  ``LocalShellBackend`` for a sandbox backend (Modal, Daytona, …) — that's
-  a one-line change here.
+No error, no audit — the file just landed in the wrong place. The Coach's
+verdict content was correct; only the plumbing was broken.
+
+The security cost of flipping is documented and accepted:
+
+* Upstream's own docs (cited in the original AC-005 rationale) note that
+  ``virtual_mode=True`` "provides NO security with shell access enabled,
+  since commands can access any path on the system". AutoBuild has
+  shell access (``execute`` is required). The flag was only ever
+  protecting filesystem-tool ``..`` traversal — which the SDK harness
+  never had either (``permission_mode="acceptEdits"`` + ``cwd=worktree``
+  does not sandbox path resolution at all). No regression vs the harness
+  we're migrating from.
+
+* Threat model (parent review §14.7 D-11): single-tenant, local-vLLM,
+  operator-supervised runs. If that ever changes (multi-tenant or
+  untrusted-model deployment) swap ``LocalShellBackend`` for a sandbox
+  backend (Modal / Daytona / E2B) — that's a one-line change here.
+
+The companion change in
+:mod:`guardkitfactory.harness.permissions` (``TASK-HMIG-002R-NOPERMS``)
+already removed the filesystem deny-rules, so the previously-claimed
+"falsifier (d) guarantee" was already weakened. This flip closes the
+remaining symptom rather than introducing a new gap.
+
+``execute`` security still comes from the surrounding operator-trust
+model plus the worktree boundary itself: the agent's ``cwd`` is the
+worktree and ``inherit_env=False`` strips environment leakage.
 
 ``inherit_env=False``
 ---------------------
@@ -117,10 +140,12 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
 def build_autobuild_backend(worktree: Path) -> LocalShellBackend:
     """Construct the AutoBuild ``LocalShellBackend`` for a given worktree (AC-001/002).
 
-    The returned backend is configured per the AC-002 contract:
+    The returned backend is configured per the AC-002 contract, as
+    amended by TASK-HMIG-002R-NOVMODE (2026-06-03):
 
     * ``root_dir=worktree`` — the agent's filesystem root
-    * ``virtual_mode=True`` — path-confinement for filesystem tools
+    * ``virtual_mode=False`` — absolute paths resolve literally (was
+      ``True``; flipped after AC-001D run 5 — see module docstring)
     * ``env`` — minimal explicit environment (``PATH``, ``HOME``,
       ``TMPDIR``, and ``PYTHONPATH`` if a ``.venv`` is detected)
     * ``inherit_env=False`` — no leakage from the operator's shell
@@ -154,7 +179,7 @@ def build_autobuild_backend(worktree: Path) -> LocalShellBackend:
 
     return LocalShellBackend(
         root_dir=worktree,
-        virtual_mode=True,
+        virtual_mode=False,  # TASK-HMIG-002R-NOVMODE — see module docstring
         env=env,
         inherit_env=False,
         timeout=_AUTOBUILD_EXECUTE_TIMEOUT_SECONDS,

@@ -79,9 +79,16 @@ def test_build_autobuild_backend_uses_worktree_as_root(tmp_path: Path) -> None:
     assert backend.cwd == tmp_path.resolve()
 
 
-def test_build_autobuild_backend_enables_virtual_mode(tmp_path: Path) -> None:
+def test_build_autobuild_backend_disables_virtual_mode(tmp_path: Path) -> None:
+    """TASK-HMIG-002R-NOVMODE (2026-06-03): virtual_mode flipped to False.
+
+    The Coach LLM is fed absolute filesystem paths by guardkit's
+    orchestrator prompt. Under virtual_mode=True those paths were being
+    silently rewritten into worktree-nested twins (see backend_config.py
+    docstring and docs/reviews/autobuild-migration/TASK-FIX-A7D3-run-5.md).
+    """
     backend = build_autobuild_backend(tmp_path)
-    assert backend.virtual_mode is True
+    assert backend.virtual_mode is False
 
 
 def test_build_autobuild_backend_configures_execute_timeout_to_600(
@@ -135,15 +142,24 @@ def test_build_autobuild_backend_omits_pythonpath_when_no_venv(
 
 # ---------------------------------------------------------------------------
 # (a) Positive tool flow — falsifier dimension (a)
+#
+# TASK-HMIG-002R-NOVMODE (2026-06-03): these tests now use real absolute
+# paths under tmp_path rather than virtual paths rooted at "/". The flip
+# from virtual_mode=True to virtual_mode=False means "/sample.txt" would
+# target the real OS root rather than <tmp_path>/sample.txt. The tool
+# contract we want to verify is "absolute paths the orchestrator hands the
+# LLM are interpreted literally" — that's exactly what these tests now
+# exercise.
 # ---------------------------------------------------------------------------
 
 
 def test_positive_tool_flow_write_then_read_round_trips(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
-    write_result = backend.write("/sample.txt", "hello world\n")
+    sample = str(tmp_path / "sample.txt")
+    write_result = backend.write(sample, "hello world\n")
     assert write_result.error is None
 
-    read_result = backend.read("/sample.txt")
+    read_result = backend.read(sample)
     assert read_result.error is None
     assert read_result.file_data is not None
     assert read_result.file_data["content"] == "hello world\n"
@@ -151,28 +167,34 @@ def test_positive_tool_flow_write_then_read_round_trips(tmp_path: Path) -> None:
 
 def test_positive_tool_flow_ls_lists_written_file(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
-    backend.write("/sample.txt", "hello\n")
-    ls_result = backend.ls("/")
+    sample = str(tmp_path / "sample.txt")
+    backend.write(sample, "hello\n")
+    ls_result = backend.ls(str(tmp_path))
     assert ls_result.error is None
     assert ls_result.entries is not None
-    assert any(entry["path"] == "/sample.txt" for entry in ls_result.entries)
+    assert any(entry["path"] == sample for entry in ls_result.entries)
 
 
 def test_positive_tool_flow_glob_matches_written_file(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
-    backend.write("/sample.txt", "hello\n")
+    sample = str(tmp_path / "sample.txt")
+    backend.write(sample, "hello\n")
+    # glob patterns remain relative to root_dir even with virtual_mode=False.
+    # Match by basename to stay portable across macOS /var → /private/var
+    # symlink resolution in the returned absolute paths.
     glob_result = backend.glob("**/*.txt")
     assert glob_result.error is None
     assert glob_result.matches is not None
-    assert any(m["path"] == "/sample.txt" for m in glob_result.matches)
+    assert any(m["path"].endswith("/sample.txt") for m in glob_result.matches)
 
 
 def test_positive_tool_flow_grep_finds_content_in_written_file(
     tmp_path: Path,
 ) -> None:
     backend = build_autobuild_backend(tmp_path)
-    backend.write("/sample.txt", "hello world\n")
-    grep_result = backend.grep("hello", path="/")
+    sample = str(tmp_path / "sample.txt")
+    backend.write(sample, "hello world\n")
+    grep_result = backend.grep("hello", path=str(tmp_path))
     assert grep_result.error is None
     assert grep_result.matches is not None
     assert len(grep_result.matches) >= 1
@@ -180,12 +202,13 @@ def test_positive_tool_flow_grep_finds_content_in_written_file(
 
 def test_positive_tool_flow_edit_replaces_existing_content(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
-    backend.write("/sample.txt", "hello world\n")
-    edit_result = backend.edit("/sample.txt", "world", "there")
+    sample = str(tmp_path / "sample.txt")
+    backend.write(sample, "hello world\n")
+    edit_result = backend.edit(sample, "world", "there")
     assert edit_result.error is None
     assert edit_result.occurrences == 1
 
-    read_result = backend.read("/sample.txt")
+    read_result = backend.read(sample)
     assert read_result.file_data is not None
     assert read_result.file_data["content"] == "hello there\n"
 
@@ -197,6 +220,29 @@ def test_positive_tool_flow_execute_returns_zero_for_simple_command(
     result = backend.execute("echo done")
     assert result.exit_code == 0
     assert "done" in result.output
+
+
+def test_absolute_path_no_longer_doubled_under_worktree(tmp_path: Path) -> None:
+    """TASK-HMIG-002R-NOVMODE regression — the run-5 failure mode.
+
+    Before the flip, ``write(absolute_path_inside_tmp_path, ...)`` under
+    ``virtual_mode=True`` would create the file at
+    ``<tmp_path>/<absolute_path_string>`` (doubly nested). With
+    ``virtual_mode=False`` the absolute path must land at the absolute
+    path literally. See ``docs/reviews/autobuild-migration/TASK-FIX-A7D3-run-5.md``.
+    """
+    backend = build_autobuild_backend(tmp_path)
+    nested = tmp_path / "a" / "b" / "coach_turn_1.json"
+    nested.parent.mkdir(parents=True)
+    backend.write(str(nested), '{"decision": "accept"}')
+
+    # The file must exist at the absolute path we asked for.
+    assert nested.is_file()
+    # And NOT at the doubly-nested path the virtual_mode=True bug produced.
+    doubled = tmp_path / str(nested).lstrip("/")
+    assert not doubled.exists(), (
+        f"virtual_mode regression: file landed at the doubled path {doubled}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -328,9 +374,30 @@ def test_execute_honours_per_call_timeout_override(tmp_path: Path) -> None:
 
 # ---------------------------------------------------------------------------
 # (d) Traversal block — falsifier dimension (d)
+#
+# TASK-HMIG-002R-NOVMODE (2026-06-03): the original falsifier-(d) was
+# delivered by virtual_mode=True's path-confinement layer, which we
+# deliberately flipped off. Upstream's docs already noted virtual_mode
+# "provides NO security with shell access enabled" — the SDK harness we're
+# migrating away from never had this protection either (acceptEdits +
+# cwd=worktree does not sandbox path resolution). The test is preserved
+# as a skip so the behavioural change is visible in test output and to
+# anchor the restore conversation if AutoBuild's threat model later moves
+# to multi-tenant (which would call for swapping LocalShellBackend for a
+# real sandbox per parent review D-11, not for re-enabling virtual_mode).
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.skip(
+    reason=(
+        "TASK-HMIG-002R-NOVMODE — virtual_mode=False intentionally removes "
+        "the path-confinement layer that rejected ../../../etc/passwd at "
+        "the backend boundary. See backend_config.py docstring and "
+        "docs/reviews/autobuild-migration/TASK-FIX-A7D3-run-5.md for "
+        "rationale (Coach LLM was fed absolute paths and they were being "
+        "rewritten into doubly-nested worktree-relative paths)."
+    )
+)
 def test_traversal_above_worktree_is_blocked(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
     with pytest.raises(ValueError, match="traversal"):
