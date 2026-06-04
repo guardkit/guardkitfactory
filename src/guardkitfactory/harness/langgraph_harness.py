@@ -54,6 +54,7 @@ from guardkit.orchestrator.harness import (
     HarnessAdapter,
     HarnessEvent,
     ResultMessageEvent,
+    ToolUseEvent,
 )
 
 from guardkitfactory.harness.extractors import extract_last_ai_message
@@ -62,6 +63,48 @@ from lib.factory_guards import assert_no_system_messages
 logger = logging.getLogger(__name__)
 
 __all__ = ["LangGraphHarness", "LangGraphHarnessError"]
+
+
+def _iter_tool_use_events(result: Any) -> list[ToolUseEvent]:
+    """Extract ``ToolUseEvent`` values from a DeepAgents ``ainvoke`` result.
+
+    TASK-HMIG-006.2: every ``AIMessage`` in ``result["messages"]`` can
+    carry a ``.tool_calls`` list (LangChain v0.3 shape:
+    ``[{"name": str, "args": dict, "id": str}, ...]``). Iterating the
+    full messages list (not just the last) captures multi-step agent
+    runs where intermediate AIMessages drive tool calls and a later
+    AIMessage carries the final text. Duck-typed so non-AIMessage
+    elements (HumanMessage, ToolMessage, dict-form messages) are
+    silently skipped.
+
+    Returns
+    -------
+    list[ToolUseEvent]
+        Ordered by appearance in ``result["messages"]``. Empty when the
+        result has no tool-call activity.
+    """
+    if not isinstance(result, dict):
+        return []
+    messages = result.get("messages", []) or []
+    events: list[ToolUseEvent] = []
+    for msg in messages:
+        tool_calls = getattr(msg, "tool_calls", None)
+        if not tool_calls:
+            continue
+        for call in tool_calls:
+            if not isinstance(call, dict):
+                continue
+            args = call.get("args", {}) or {}
+            if not isinstance(args, dict):
+                args = {}
+            events.append(
+                ToolUseEvent(
+                    tool_use_id=str(call.get("id", "") or ""),
+                    name=str(call.get("name", "") or ""),
+                    input=args,
+                )
+            )
+    return events
 
 
 class LangGraphHarnessError(RuntimeError):
@@ -202,6 +245,17 @@ class LangGraphHarness(HarnessAdapter):
             ) from exc
 
         text = extract_last_ai_message(result) or ""
+
+        # TASK-HMIG-006.2: emit one ToolUseEvent per AIMessage.tool_calls
+        # entry encountered in the result stream BEFORE the
+        # AssistantMessageEvent. Mirrors the SDK harness's
+        # ToolUseBlock-per-content-block extraction so the migrated
+        # _track_tool_use / _extract_partial_from_messages consumers see
+        # the same typed events on both substrates. LangChain AIMessage
+        # exposes `.tool_calls` as a list of dicts (LangChain v0.3+):
+        # ``{"name": str, "args": dict, "id": str}``.
+        for tool_event in _iter_tool_use_events(result):
+            yield tool_event
 
         yield AssistantMessageEvent(text=text, raw=result)
         yield ResultMessageEvent(
