@@ -15,11 +15,17 @@ from guardkitfactory.harness.langgraph_harness import (
     LangGraphHarness,
     LangGraphHarnessError,
 )
+from guardkitfactory.harness.model_config import (
+    MODEL_CONTEXT_WINDOWS,
+    resolve_autobuild_model,
+)
 from guardkitfactory.harness.permissions import build_autobuild_permissions
 
 __all__ = [
+    "MODEL_CONTEXT_WINDOWS",
     "LangGraphHarness",
     "LangGraphHarnessError",
     "build_autobuild_backend",
     "build_autobuild_permissions",
+    "resolve_autobuild_model",
 ]

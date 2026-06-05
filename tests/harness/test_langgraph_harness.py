@@ -285,3 +285,104 @@ class TestStreamIsAsyncIterable:
         # Close the generator to avoid a "coroutine was never awaited"
         # style warning on the unawaited body.
         asyncio.run(stream.aclose())
+
+
+# ---------------------------------------------------------------------------
+# TASK-HMIG-002R-MODEL-PROFILE — known operator models get profile injected
+# before reaching ``create_deep_agent``. This is what makes deepagents'
+# summarisation middleware switch from the no-profile fallback trigger
+# (``("tokens", 170000)``) to the fraction-based trigger
+# (``("fraction", 0.85)``) and start firing before sub-Sonnet contexts
+# overflow. See ``autobuild-FEAT-AOF-run-2.md`` line 350.
+# ---------------------------------------------------------------------------
+
+
+def _fake_resolve_model(_spec: str) -> Any:
+    """Stand-in for deepagents' ``resolve_model`` — no real provider deps.
+
+    The dev venv may not have ``langchain-openai`` installed (production
+    installs it via ``.[providers]``). Patching ``resolve_model`` at the
+    model_config import site decouples these tests from that dependency.
+    """
+    from langchain_core.language_models.fake_chat_models import FakeListChatModel
+
+    return FakeListChatModel(responses=["ok"])
+
+
+class TestModelProfileInjection:
+    def test_known_model_string_is_resolved_with_profile_before_create_deep_agent(
+        self,
+    ) -> None:
+        """qwen36-workhorse resolves to a BaseChatModel carrying max_input_tokens.
+
+        The resolved model — not the original string — must be what reaches
+        ``create_deep_agent``. We assert by inspecting the patched
+        ``create_deep_agent``'s kwargs.
+        """
+        from langchain_core.language_models import BaseChatModel
+
+        harness = LangGraphHarness(model="openai:qwen36-workhorse")
+        fake_agent = _make_fake_agent()
+
+        with (
+            patch(
+                "guardkitfactory.harness.model_config.resolve_model",
+                side_effect=_fake_resolve_model,
+            ),
+            patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ) as create_mock,
+        ):
+            _drain(harness)
+
+        passed_model = create_mock.call_args.kwargs["model"]
+        assert isinstance(passed_model, BaseChatModel), (
+            f"expected resolved BaseChatModel, got {type(passed_model)}"
+        )
+        assert passed_model.profile == {"max_input_tokens": 131_072}
+
+    def test_unresolvable_model_string_passes_through_unchanged(self) -> None:
+        """Resolution failures must not crash the harness.
+
+        The harness preserves the original model so the downstream
+        ``create_deep_agent`` call surfaces the failure with the existing
+        attribution shape. This protects sentinel strings used by other
+        tests (``"ignored"``, ``"ignored-stub-model"``) and any future
+        provider misconfiguration.
+        """
+        harness = LangGraphHarness(model="ignored-stub-model")
+        fake_agent = _make_fake_agent()
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ) as create_mock:
+            _drain(harness)
+
+        # Sentinel falls through as-is — no profile injection attempted.
+        assert create_mock.call_args.kwargs["model"] == "ignored-stub-model"
+
+    def test_self_model_is_not_mutated_by_invoke(self) -> None:
+        """The cached ``self.model`` stays the original input shape.
+
+        Resolution happens per-invoke and produces a fresh BaseChatModel
+        each time; ``self.model`` itself is unchanged. AC-002
+        (``test_constructor_stores_model_backend_permissions``) depends on
+        this stability.
+        """
+        harness = LangGraphHarness(model="openai:qwen36-workhorse")
+        fake_agent = _make_fake_agent()
+        with (
+            patch(
+                "guardkitfactory.harness.model_config.resolve_model",
+                side_effect=_fake_resolve_model,
+            ),
+            patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ),
+        ):
+            _drain(harness)
+
+        assert harness.model == "openai:qwen36-workhorse"

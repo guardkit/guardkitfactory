@@ -15,6 +15,49 @@ implementations.
 The companion module :mod:`guardkitfactory.harness.permissions` ships the
 deny-rule list; this module ships the backend factory.
 
+Why this returns a ``CompositeBackend`` (TASK-HMIG-002R-SUMM-ROOT, 2026-06-04)
+-----------------------------------------------------------------------------
+
+We wrap the ``LocalShellBackend`` in a ``CompositeBackend`` with
+``artifacts_root=str(worktree)`` and an empty ``routes`` dict. The composite
+is a pass-through for every operation — its only function here is to carry
+the ``artifacts_root`` attribute that
+``deepagents.middleware.summarization._DeepAgentsSummarizationMiddleware``
+reads to compute its offload prefix
+(``f"{artifacts_root.rstrip('/')}/conversation_history"``,
+``summarization.py`` line 294-296 in deepagents 0.6.x). When the backend is
+**not** a ``CompositeBackend``, the SDK falls back to ``"/"`` as the root —
+producing a literal ``/conversation_history/<thread>.md`` write path.
+
+That literal path collided fatally with TASK-HMIG-002R-NOVMODE's
+``virtual_mode=False`` flip. Under ``virtual_mode=True``, the path would
+have been silently re-rooted inside the worktree; under ``virtual_mode=False``
+it now resolves to host root, which is read-only. The downstream symptom:
+``SummarizationMiddleware`` cannot offload its first 60-message buffer
+(``[Errno 30] Read-only file system: '/conversation_history'``), summarisation
+aborts, and the next LLM call ships the full conversation, exceeding the
+model's context window. Observed on qwen36-workhorse (131k ctx) in
+``docs/reviews/autobuild-migration/autobuild-FEAT-AOF-run-2.md`` lines
+342-350 with a 569,665-token prompt.
+
+Wrapping in ``CompositeBackend(default=lsb, routes={}, artifacts_root=worktree)``
+moves the offload prefix to ``<worktree>/conversation_history/`` — a real,
+writable path. The composite is transparent for every other call: empty
+``routes`` means every operation falls through to the ``LocalShellBackend``
+default, preserving NOVMODE's literal-absolute-path semantics for
+orchestrator-fed Coach JSON paths. NOVMODE and SUMM-ROOT are symmetric
+fixes on the two ends of the same path-resolution gap:
+
+* NOVMODE (Coach JSON writes): want absolute paths interpreted literally.
+* SUMM-ROOT (conversation history writes): want SDK-hard-coded ``/conversation_history``
+  re-rooted under the worktree.
+
+The companion fix that makes summarisation actually *fire* on sub-Sonnet
+context windows is TASK-HMIG-002R-MODEL-PROFILE in
+:mod:`guardkitfactory.harness.model_config` — without it, the SDK's no-profile
+fallback trigger (``("tokens", 170000)``) is larger than qwen's 131k context,
+so summarisation never runs even when the offload path works.
+
 Design rationale (AC-005)
 =========================
 
@@ -102,6 +145,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 
 __all__ = ["build_autobuild_backend"]
@@ -137,11 +181,20 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
     return None
 
 
-def build_autobuild_backend(worktree: Path) -> LocalShellBackend:
-    """Construct the AutoBuild ``LocalShellBackend`` for a given worktree (AC-001/002).
+def build_autobuild_backend(worktree: Path) -> CompositeBackend:
+    """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
-    The returned backend is configured per the AC-002 contract, as
-    amended by TASK-HMIG-002R-NOVMODE (2026-06-03):
+    Returns a :class:`CompositeBackend` whose ``default`` is the configured
+    :class:`LocalShellBackend` and whose ``artifacts_root`` is the worktree.
+    The composite carries no routes — every operation falls through to the
+    underlying ``LocalShellBackend``. The only reason for the wrapper is to
+    expose ``artifacts_root`` to deepagents' summarisation middleware so the
+    SDK's hard-coded ``/conversation_history`` offload prefix is re-rooted
+    under the worktree rather than at host root (TASK-HMIG-002R-SUMM-ROOT,
+    see module docstring).
+
+    The underlying ``LocalShellBackend`` is configured per the AC-002
+    contract, as amended by TASK-HMIG-002R-NOVMODE (2026-06-03):
 
     * ``root_dir=worktree`` — the agent's filesystem root
     * ``virtual_mode=False`` — absolute paths resolve literally (was
@@ -151,6 +204,10 @@ def build_autobuild_backend(worktree: Path) -> LocalShellBackend:
     * ``inherit_env=False`` — no leakage from the operator's shell
     * ``timeout=600`` — 10-minute ``execute`` ceiling
     * ``max_output_bytes=1_000_000`` — 1 MB cap on ``execute`` output
+
+    Tests and other consumers that need the underlying ``LocalShellBackend``
+    (e.g. to assert ``virtual_mode`` / ``_env`` / ``_default_timeout``) can
+    reach it via ``backend.default``.
 
     The companion :func:`guardkitfactory.harness.permissions.build_autobuild_permissions`
     factory returns the deny-rule list that should be passed alongside this
@@ -163,7 +220,8 @@ def build_autobuild_backend(worktree: Path) -> LocalShellBackend:
             detection will silently no-op.
 
     Returns:
-        A configured :class:`LocalShellBackend` ready to be passed to
+        A configured :class:`CompositeBackend` wrapping a
+        :class:`LocalShellBackend`, ready to be passed to
         :class:`guardkitfactory.harness.LangGraphHarness`.
     """
     worktree = Path(worktree)
@@ -177,11 +235,21 @@ def build_autobuild_backend(worktree: Path) -> LocalShellBackend:
     if venv_site_packages is not None:
         env["PYTHONPATH"] = venv_site_packages
 
-    return LocalShellBackend(
+    local_shell = LocalShellBackend(
         root_dir=worktree,
         virtual_mode=False,  # TASK-HMIG-002R-NOVMODE — see module docstring
         env=env,
         inherit_env=False,
         timeout=_AUTOBUILD_EXECUTE_TIMEOUT_SECONDS,
         max_output_bytes=_AUTOBUILD_EXECUTE_MAX_OUTPUT_BYTES,
+    )
+
+    # TASK-HMIG-002R-SUMM-ROOT — wrap so SummarizationMiddleware's offload
+    # prefix becomes ``<worktree>/conversation_history`` instead of literal
+    # ``/conversation_history`` at host root. ``cwd`` (not ``root_dir``) is
+    # the post-resolution absolute path so ``str()`` is stable.
+    return CompositeBackend(
+        default=local_shell,
+        routes={},
+        artifacts_root=str(local_shell.cwd),
     )

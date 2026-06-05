@@ -35,6 +35,7 @@ from typing import Literal
 import pytest
 import wcmatch.glob as wcglob
 from deepagents import FilesystemPermission
+from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 
 from guardkitfactory import build_autobuild_backend, build_autobuild_permissions
@@ -67,16 +68,42 @@ def _evaluate_rules(
 # ---------------------------------------------------------------------------
 
 
-def test_build_autobuild_backend_returns_localshellbackend_instance(
+def test_build_autobuild_backend_returns_composite_wrapping_localshellbackend(
     tmp_path: Path,
 ) -> None:
+    """TASK-HMIG-002R-SUMM-ROOT (2026-06-04): return shape is CompositeBackend.
+
+    The composite wrapper carries an ``artifacts_root`` that deepagents'
+    summarisation middleware reads to compute its offload prefix. Empty
+    routes means the wrapper is a transparent pass-through for every other
+    operation — the underlying ``LocalShellBackend`` still owns the on-disk
+    behaviour. See ``backend_config.py`` module docstring for the chain.
+    """
     backend = build_autobuild_backend(tmp_path)
-    assert isinstance(backend, LocalShellBackend)
+    assert isinstance(backend, CompositeBackend)
+    assert isinstance(backend.default, LocalShellBackend)
+    assert backend.routes == {}
+
+
+def test_build_autobuild_backend_artifacts_root_is_worktree(
+    tmp_path: Path,
+) -> None:
+    """TASK-HMIG-002R-SUMM-ROOT: artifacts_root points at the worktree.
+
+    Without this, deepagents' summarisation middleware falls back to ``"/"``
+    and computes ``/conversation_history`` as the offload prefix — which
+    under NOVMODE's ``virtual_mode=False`` resolves to host root (read-only)
+    and crashes the offload, leaving conversation history un-summarised
+    until the model context overflows. See ``autobuild-FEAT-AOF-run-2.md``
+    lines 342-350.
+    """
+    backend = build_autobuild_backend(tmp_path)
+    assert backend.artifacts_root == str(tmp_path.resolve())
 
 
 def test_build_autobuild_backend_uses_worktree_as_root(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
-    assert backend.cwd == tmp_path.resolve()
+    assert backend.default.cwd == tmp_path.resolve()
 
 
 def test_build_autobuild_backend_disables_virtual_mode(tmp_path: Path) -> None:
@@ -88,7 +115,7 @@ def test_build_autobuild_backend_disables_virtual_mode(tmp_path: Path) -> None:
     docstring and docs/reviews/autobuild-migration/TASK-FIX-A7D3-run-5.md).
     """
     backend = build_autobuild_backend(tmp_path)
-    assert backend.virtual_mode is False
+    assert backend.default.virtual_mode is False
 
 
 def test_build_autobuild_backend_configures_execute_timeout_to_600(
@@ -98,21 +125,21 @@ def test_build_autobuild_backend_configures_execute_timeout_to_600(
     # Private attribute name matches deepagents 0.5.x. If the upstream
     # rename happens, the visible failure here is preferable to silently
     # losing the 600 s ceiling. See AC-002.
-    assert backend._default_timeout == 600
+    assert backend.default._default_timeout == 600
 
 
 def test_build_autobuild_backend_configures_max_output_bytes_to_1mb(
     tmp_path: Path,
 ) -> None:
     backend = build_autobuild_backend(tmp_path)
-    assert backend._max_output_bytes == 1_000_000
+    assert backend.default._max_output_bytes == 1_000_000
 
 
 def test_build_autobuild_backend_env_contains_minimum_keys(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
-    assert backend._env["PATH"] == "/usr/bin:/bin"
-    assert backend._env["HOME"] == str(tmp_path)
-    assert backend._env["TMPDIR"] == str(tmp_path / ".tmp")
+    assert backend.default._env["PATH"] == "/usr/bin:/bin"
+    assert backend.default._env["HOME"] == str(tmp_path)
+    assert backend.default._env["TMPDIR"] == str(tmp_path / ".tmp")
 
 
 def test_build_autobuild_backend_env_does_not_inherit_operator_shell(
@@ -121,7 +148,7 @@ def test_build_autobuild_backend_env_does_not_inherit_operator_shell(
     # Set a sentinel env var that we'd expect to leak under inherit_env=True.
     monkeypatch.setenv("AUTOBUILD_FACTORY_LEAK_SENTINEL", "leaked")
     backend = build_autobuild_backend(tmp_path)
-    assert "AUTOBUILD_FACTORY_LEAK_SENTINEL" not in backend._env
+    assert "AUTOBUILD_FACTORY_LEAK_SENTINEL" not in backend.default._env
 
 
 def test_build_autobuild_backend_picks_up_worktree_venv_pythonpath(
@@ -130,14 +157,74 @@ def test_build_autobuild_backend_picks_up_worktree_venv_pythonpath(
     venv_site = tmp_path / ".venv" / "lib" / "python3.12" / "site-packages"
     venv_site.mkdir(parents=True)
     backend = build_autobuild_backend(tmp_path)
-    assert backend._env["PYTHONPATH"] == str(venv_site)
+    assert backend.default._env["PYTHONPATH"] == str(venv_site)
 
 
 def test_build_autobuild_backend_omits_pythonpath_when_no_venv(
     tmp_path: Path,
 ) -> None:
     backend = build_autobuild_backend(tmp_path)
-    assert "PYTHONPATH" not in backend._env
+    assert "PYTHONPATH" not in backend.default._env
+
+
+# ---------------------------------------------------------------------------
+# TASK-HMIG-002R-SUMM-ROOT regression — the offload path the
+# summarisation middleware computes must land inside the worktree, not at
+# host root. See ``autobuild-FEAT-AOF-run-2.md`` lines 342-350 for the
+# observed failure (``[Errno 30] Read-only file system: '/conversation_history'``).
+# ---------------------------------------------------------------------------
+
+
+def test_summarization_offload_path_lands_inside_worktree(tmp_path: Path) -> None:
+    """The conversation-history offload write must succeed under the worktree.
+
+    Reproduces the path the SDK summarisation middleware would compute:
+    ``f"{artifacts_root.rstrip('/')}/conversation_history/<thread>.md"``.
+    Under the SUMM-ROOT wrapper, that resolves to a worktree-rooted file
+    the orchestrator process can write. Before the fix, ``artifacts_root``
+    defaulted to ``"/"`` and the write target was ``/conversation_history/...``
+    (host root) — write-fails on every standard macOS / Linux deployment.
+    """
+    backend = build_autobuild_backend(tmp_path)
+
+    # Compute the path exactly the way deepagents does (summarization.py
+    # line 296). Resolving artifacts_root with rstrip mirrors the SDK.
+    prefix = f"{backend.artifacts_root.rstrip('/')}/conversation_history"
+    offload_target = f"{prefix}/session_abc.md"
+
+    result = backend.write(offload_target, "# offloaded turn 1\n")
+    assert result.error is None, (
+        f"offload write rejected — SUMM-ROOT regression? error={result.error!r} "
+        f"target={offload_target!r}"
+    )
+
+    expected = tmp_path.resolve() / "conversation_history" / "session_abc.md"
+    assert expected.is_file(), (
+        f"offload file did not materialise inside the worktree (expected {expected})"
+    )
+
+
+def test_summarization_offload_does_not_attempt_host_root_write(
+    tmp_path: Path,
+) -> None:
+    """Defensive: the prefix used by the SDK must not start with bare ``/``.
+
+    A regression that resets ``artifacts_root`` back to ``"/"`` would
+    silently start trying to write to host root again. We don't trigger an
+    actual write here (we'd need superuser to attempt it on most systems);
+    we just check the prefix shape.
+    """
+    backend = build_autobuild_backend(tmp_path)
+    prefix = f"{backend.artifacts_root.rstrip('/')}/conversation_history"
+    assert prefix != "/conversation_history", (
+        "TASK-HMIG-002R-SUMM-ROOT regression — offload prefix collapsed back "
+        "to bare host root. Check that build_autobuild_backend still wraps "
+        "the LocalShellBackend in a CompositeBackend with artifacts_root set "
+        "to the worktree."
+    )
+    assert prefix.startswith(str(tmp_path.resolve())), (
+        f"offload prefix {prefix!r} is not under the worktree {tmp_path.resolve()!r}"
+    )
 
 
 # ---------------------------------------------------------------------------

@@ -56,8 +56,10 @@ from guardkit.orchestrator.harness import (
     ResultMessageEvent,
     ToolUseEvent,
 )
+from langchain_core.language_models import BaseChatModel
 
 from guardkitfactory.harness.extractors import extract_last_ai_message
+from guardkitfactory.harness.model_config import resolve_autobuild_model
 from lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
@@ -155,6 +157,56 @@ class LangGraphHarness(HarnessAdapter):
         self.backend = backend
         self.permissions = permissions
 
+    def _resolve_model_for_invoke(self) -> Any:
+        """Resolve ``self.model`` and attach profile metadata for invocation.
+
+        TASK-HMIG-002R-MODEL-PROFILE (2026-06-04): wrap
+        :func:`guardkitfactory.harness.model_config.resolve_autobuild_model`
+        so the model passed into ``create_deep_agent`` carries
+        ``model.profile["max_input_tokens"]`` when the operator registry
+        knows it. Without the profile, deepagents' summarisation middleware
+        falls back to a 170 k-token trigger that is larger than sub-Sonnet
+        context windows (qwen36-workhorse: 131 k) and the model overflows
+        its context before summarisation fires. See
+        ``autobuild-FEAT-AOF-run-2.md`` line 350 for the symptom.
+
+        Resolution is per-invoke (rather than once in ``__init__``) for
+        three reasons:
+
+        1. Backward compatibility: existing tests construct the harness
+           with sentinel strings like ``"ignored"`` and patch
+           ``create_deep_agent``. Eager resolution would call
+           ``init_chat_model("ignored")`` at construction time and fail.
+        2. ``create_deep_agent`` itself runs per-invoke, so this is not a
+           net regression in cost — only a relocation of the existing
+           resolution.
+        3. Strings vs ``BaseChatModel`` are both handled by the helper;
+           ``None`` and other shapes fall through unchanged so the
+           construction-failure path keeps its current attribution.
+
+        Resolution failures (e.g. ``init_chat_model("nonexistent:foo")``
+        raising ``ValueError`` for an unknown provider) are caught and the
+        original ``self.model`` is returned unchanged. The downstream
+        ``create_deep_agent`` call then surfaces the same failure with the
+        existing attribution shape — keeping AC-008.3
+        (``test_construction_failure_wraps_into_langgraph_harness_error``)
+        intact. Profile injection is a best-effort fallback; never a
+        failure mode.
+        """
+        model = self.model
+        if not isinstance(model, (str, BaseChatModel)):
+            return model
+        try:
+            return resolve_autobuild_model(model)
+        except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
+            logger.debug(
+                "TASK-HMIG-002R-MODEL-PROFILE: resolve_autobuild_model(%r) "
+                "raised %s; passing original model through unchanged.",
+                model,
+                exc.__class__.__name__,
+            )
+            return model
+
     def _build_input(self, prompt: str) -> dict[str, Any]:
         """Construct the ``ainvoke()`` input payload.
 
@@ -222,9 +274,14 @@ class LangGraphHarness(HarnessAdapter):
                 [t if isinstance(t, str) else type(t).__name__ for t in tools[:5]],
             )
 
+        # TASK-HMIG-002R-MODEL-PROFILE: resolve here so a known operator-
+        # registered model carries ``model.profile["max_input_tokens"]``
+        # into the summarisation middleware. See ``_resolve_model_for_invoke``.
+        resolved_model = self._resolve_model_for_invoke()
+
         try:
             agent = create_deep_agent(
-                model=self.model,
+                model=resolved_model,
                 tools=[],  # TASK-FIX-LGTOOLS — see note above
                 backend=self.backend,
                 permissions=self.permissions,

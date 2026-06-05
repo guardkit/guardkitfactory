@@ -25,10 +25,12 @@ from guardkitfactory.bdd import (
     discover,
 )
 from guardkitfactory.harness import (
+    MODEL_CONTEXT_WINDOWS,
     LangGraphHarness,
     LangGraphHarnessError,
     build_autobuild_backend,
     build_autobuild_permissions,
+    resolve_autobuild_model,
 )
 
 __version__ = "0.1.0"
@@ -62,10 +64,12 @@ __all__ = [
     "HarnessAdapter",
     "LangGraphHarness",
     "LangGraphHarnessError",
+    "MODEL_CONTEXT_WINDOWS",
     "Scenario",
     "StackProfile",
     "build_autobuild_backend",
     "build_autobuild_permissions",
     "discover",
+    "resolve_autobuild_model",
     "__version__",
 ]
