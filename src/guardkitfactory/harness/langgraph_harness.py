@@ -43,8 +43,11 @@ What this skeleton does **not** ship
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
 from collections.abc import AsyncIterator
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +66,14 @@ from guardkitfactory.harness.model_config import resolve_autobuild_model
 from lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
+
+# TASK-FIX-CTOUT01: deadline applied by :meth:`LangGraphHarness.cancel` when
+# waiting for the cancelled in-flight ``agent.ainvoke`` task to unwind. If
+# LangChain's httpx client does not honour ``asyncio.CancelledError`` within
+# this window we log and leak the task — the orchestrator's outer
+# ``LATE_APPROVAL_GRACE_S`` (TASK-ATR-003) is the safety net of last resort.
+_CANCEL_DEADLINE_ENV = "GUARDKIT_HARNESS_CANCEL_DEADLINE"
+_CANCEL_DEADLINE_DEFAULT_S = 30
 
 __all__ = ["LangGraphHarness", "LangGraphHarnessError"]
 
@@ -156,6 +167,18 @@ class LangGraphHarness(HarnessAdapter):
         self.model = model
         self.backend = backend
         self.permissions = permissions
+        # TASK-FIX-CTOUT01: handle to the in-flight ``agent.ainvoke``
+        # asyncio Task, exposed for cooperative cancellation by
+        # :meth:`cancel`. Set inside :meth:`invoke` after
+        # :func:`asyncio.create_task` wraps the ``ainvoke`` coroutine,
+        # cleared in the ``finally`` block. ``None`` when no invoke is
+        # currently active. The indirection (``create_task`` rather than
+        # a direct ``await``) is what makes the in-flight ``ainvoke``
+        # cancellable from a sibling task — under direct ``await`` the
+        # only way to stop the coroutine is to cancel the consumer task
+        # iterating the harness's async generator, which is more invasive
+        # than the substrate boundary contract permits.
+        self._ainvoke_task: asyncio.Task[Any] | None = None
 
     def _resolve_model_for_invoke(self) -> Any:
         """Resolve ``self.model`` and attach profile metadata for invocation.
@@ -293,13 +316,43 @@ class LangGraphHarness(HarnessAdapter):
                 f"role={role!r} model={self.model!r}: {exc}"
             ) from exc
 
+        # TASK-FIX-CTOUT01: wrap ``ainvoke`` in an explicit asyncio.Task
+        # so :meth:`cancel` (called from
+        # ``AgentInvoker._cancel_monitor`` when the orchestrator's
+        # ``cancellation_event`` fires) can propagate
+        # ``asyncio.CancelledError`` into LangChain's httpx client before
+        # the in-flight HTTP request to the LLM completes.
+        #
+        # Without this indirection (i.e. a bare ``await agent.ainvoke``),
+        # cancellation can only reach the consumer task iterating the
+        # async generator — which the orchestrator's outer
+        # ``asyncio.timeout(self.sdk_timeout_seconds)`` already covers
+        # but the SHORTER outer feature timeout (``task_timeout``) cannot,
+        # because ``_cancel_monitor`` does not own the consumer task.
+        self._ainvoke_task = asyncio.create_task(agent.ainvoke(input_data))
         try:
-            result = await agent.ainvoke(input_data)
+            result = await self._ainvoke_task
+        except asyncio.CancelledError:
+            # Re-raise so the orchestrator's outer
+            # ``asyncio.timeout(...) + CancelledError`` cascade
+            # (agent_invoker.py around line 2891) receives the cancel
+            # verbatim — matching the SDK harness's behaviour at
+            # ``sdk_harness.py:410-419``. Do NOT wrap into
+            # ``LangGraphHarnessError``; the orchestrator dispatches on
+            # the bare ``asyncio.CancelledError`` type.
+            raise
         except Exception as exc:  # noqa: BLE001 — wrap-and-reraise on purpose
             raise LangGraphHarnessError(
                 f"LangGraphHarness: agent.ainvoke failed for "
                 f"role={role!r} model={self.model!r}: {exc}"
             ) from exc
+        finally:
+            # Clear the instance handle regardless of how invoke exits
+            # — a concurrent :meth:`cancel` racing the natural
+            # finalisation is safe (it observes the empty handle and
+            # returns) and a stale handle would mislead the next invoke
+            # call on this instance.
+            self._ainvoke_task = None
 
         text = extract_last_ai_message(result) or ""
 
@@ -335,3 +388,91 @@ class LangGraphHarness(HarnessAdapter):
     def supports_resume(self) -> bool:
         """Always ``False`` for the skeleton (AC-007)."""
         return False
+
+    async def cancel(self) -> None:
+        """TASK-FIX-CTOUT01: cancel the in-flight ``agent.ainvoke`` task.
+
+        Called by ``AgentInvoker._cancel_monitor`` when the orchestrator's
+        ``cancellation_event`` fires during a Coach or Player invocation.
+        Cancellation reaches LangChain's pregel loop at its next
+        checkpoint boundary, which in turn propagates
+        ``asyncio.CancelledError`` into the httpx client so the
+        in-flight HTTP request to the LLM is abandoned rather than
+        running to natural completion.
+
+        Behaviour vs ClaudeSDKHarness.cancel:
+
+        * SDK substrate: cancel() closes the active ``query()`` async
+          generator; the orchestrator's separate
+          ``_kill_child_claude_processes`` (TASK-FIX-ASPF-004) is the
+          OS-level escalation.
+        * LangGraph substrate: cancel() is the ONLY thing that unblocks
+          the in-flight call — the ``_kill_child_claude_processes``
+          path is a no-op here (no subprocess to terminate; the LLM
+          HTTP request lives inside the Python process).
+
+        Deadline: cancel() waits up to
+        ``GUARDKIT_HARNESS_CANCEL_DEADLINE`` seconds (default 30) for
+        the cancelled task to actually unwind. If LangChain's httpx
+        client ignores the cancellation past the deadline, a WARNING
+        is logged and the task is leaked to GC — the orchestrator's
+        ``LATE_APPROVAL_GRACE_S`` reconciliation
+        (``feature_orchestrator.py:_check_late_approval``) is the
+        safety net that maps a late-arriving Coach approval to
+        ``approved_late/success=True`` in the bookkeeping.
+
+        Idempotent: no-op if no invoke is currently active, or if the
+        in-flight task has already completed. Safe to call concurrently
+        with the natural finalisation in :meth:`invoke`'s ``finally``
+        block — the task-handle clear is the only shared state and the
+        ``task.done()`` guard makes a double-cancel a no-op.
+
+        See ``.claude/rules/harness-cancellation-contract.md`` Layer 3
+        for the four-layer cancellation taxonomy this method
+        participates in.
+        """
+        task = self._ainvoke_task
+        if task is None or task.done():
+            return
+        task.cancel()
+        # Float-seconds parsing so tests can drive the deadline branch
+        # below one second; production callers set integer seconds via
+        # the env var so float parsing is a permissive superset.
+        try:
+            deadline_s = float(
+                os.environ.get(_CANCEL_DEADLINE_ENV, _CANCEL_DEADLINE_DEFAULT_S)
+            )
+        except ValueError:
+            deadline_s = float(_CANCEL_DEADLINE_DEFAULT_S)
+
+        # ``asyncio.wait_for`` semantics: awaits ``task`` up to
+        # ``deadline_s``. If ``task`` settles (success / error /
+        # CancelledError from our prior task.cancel()) within the
+        # deadline → returns or raises that exception. If the deadline
+        # fires first → raises ``asyncio.TimeoutError`` and the in-flight
+        # task is left to GC.
+        #
+        # Note on ``asyncio.timeout(...) + suppress(...)`` (rejected
+        # design): suppressing CancelledError INSIDE the
+        # ``async with asyncio.timeout()`` block swallows the cancel
+        # before the context manager's ``__aexit__`` can convert it to
+        # ``TimeoutError``, so the deadline-expiry branch never fires.
+        # ``wait_for`` has the inverse semantics and is the right
+        # primitive here.
+        try:
+            await asyncio.wait_for(task, timeout=deadline_s)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "LangGraphHarness.cancel: ainvoke task did not honour "
+                "cancellation within %.2fs deadline (env=%s); leaking "
+                "task to GC. The orchestrator's LATE_APPROVAL_GRACE_S "
+                "reconciliation will catch a late Coach approval if it "
+                "lands in time.",
+                deadline_s,
+                _CANCEL_DEADLINE_ENV,
+            )
+        except (asyncio.CancelledError, Exception):
+            # Task settled within deadline — by raising CancelledError
+            # (which is what we wanted) or any other exception. We
+            # cancelled by design; do not propagate.
+            pass

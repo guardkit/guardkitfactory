@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -386,3 +387,190 @@ class TestModelProfileInjection:
             _drain(harness)
 
         assert harness.model == "openai:qwen36-workhorse"
+
+
+# ---------------------------------------------------------------------------
+# TASK-FIX-CTOUT01: cooperative cancellation under LangGraph substrate
+# ---------------------------------------------------------------------------
+
+
+class TestCancelLangGraphHarness:
+    """Verifies LangGraphHarness.cancel() unblocks the in-flight ainvoke.
+
+    Under SDK substrate the cancellation contract is honoured by
+    SIGTERM-ing the Claude CLI subprocess (TASK-FIX-ASPF-004); under
+    LangGraph there is no subprocess — the LLM HTTP request is made
+    directly from the Python process via langchain_anthropic /
+    langchain_openai. The only way to abort the in-flight call is to
+    cancel the asyncio Task wrapping ``agent.ainvoke``.
+
+    These tests use mocked ``agent.ainvoke`` so we control the suspend
+    behaviour deterministically without crossing the substrate
+    boundary.
+    """
+
+    def test_cancel_is_noop_when_no_active_invoke(self) -> None:
+        """A fresh harness with no in-flight invoke has nothing to cancel."""
+        harness = LangGraphHarness(model="ignored")
+
+        # Synchronous (no event-loop) call to confirm safe defaults.
+        async def _run() -> None:
+            assert harness._ainvoke_task is None
+            await harness.cancel()
+            assert harness._ainvoke_task is None
+
+        asyncio.run(_run())
+
+    def test_cancel_propagates_to_in_flight_ainvoke_task(self) -> None:
+        """When ainvoke is hanging, cancel() makes it raise CancelledError
+        which the harness re-raises so the orchestrator sees the
+        cancellation verbatim (matching SDK harness behaviour)."""
+        harness = LangGraphHarness(model="ignored")
+
+        # ainvoke that hangs forever — simulates the LLM HTTP request
+        # the orchestrator is timing out on.
+        ainvoke_started = asyncio.Event()
+
+        async def hanging_ainvoke(input_data: dict) -> dict:
+            ainvoke_started.set()
+            # Wait for cancellation. Any long sleep would do; using
+            # Future().wait would be equivalent.
+            await asyncio.sleep(3600)
+            return {"messages": []}
+
+        fake_agent = MagicMock(name="hanging_deep_agent")
+        fake_agent.ainvoke = hanging_ainvoke
+
+        async def _scenario() -> tuple[BaseException | None, bool]:
+            with patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ):
+                async def _drain_invoke() -> None:
+                    async for _ in harness.invoke(
+                        prompt="hi",
+                        role="player",
+                        tools=[],
+                        cwd=Path.cwd(),
+                        timeout_seconds=30,
+                    ):
+                        pass
+
+                invoke_task = asyncio.create_task(_drain_invoke())
+                # Wait until ainvoke is actually suspended so
+                # _ainvoke_task is set.
+                await ainvoke_started.wait()
+                # Give the generator one more loop tick to assign.
+                await asyncio.sleep(0)
+                # cancel() must observe a live task and cancel it.
+                assert harness._ainvoke_task is not None
+                assert not harness._ainvoke_task.done()
+                cancelled_task = harness._ainvoke_task
+
+                await harness.cancel()
+
+                # invoke() should exit via the CancelledError re-raise
+                # path within the deadline; we cap at 5s to keep CI
+                # snappy independent of the 30s default deadline.
+                try:
+                    await asyncio.wait_for(invoke_task, timeout=5.0)
+                    caught = None
+                except asyncio.CancelledError as exc:
+                    caught = exc
+                except Exception as exc:  # noqa: BLE001
+                    caught = exc
+                return caught, cancelled_task.cancelled()
+
+        caught, was_cancelled = asyncio.run(_scenario())
+
+        # The cancelled ainvoke task must be in a cancelled state.
+        assert was_cancelled is True
+        # invoke() must propagate the cancellation as CancelledError —
+        # not wrap it into a LangGraphHarnessError, since the
+        # orchestrator dispatches on the bare CancelledError type
+        # (matches SDK harness behaviour at sdk_harness.py:410-419).
+        assert isinstance(caught, asyncio.CancelledError), (
+            f"Expected CancelledError to propagate to the consumer of "
+            f"invoke(), got {type(caught).__name__ if caught else 'None'}: "
+            f"{caught}"
+        )
+        # Instance handle cleared after invoke()'s finally runs.
+        assert harness._ainvoke_task is None
+
+    def test_cancel_logs_warning_when_task_ignores_cancellation(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """If the in-flight task ignores cancel for longer than the
+        deadline, cancel() logs a WARNING and returns rather than
+        hanging the orchestrator forever.
+
+        Driven at the cancel()-API level rather than through invoke():
+        we build a Task whose coroutine catches CancelledError and
+        keeps running, assign it to ``harness._ainvoke_task`` directly,
+        and call ``cancel()``. This exercises the deadline-then-warn
+        branch deterministically without coupling to invoke()'s
+        unwind path (which the stubborn task would prevent from ever
+        completing).
+        """
+        # Tighten the deadline to 0.1s so the test wallclock-cost is
+        # bounded. Implementation parses the env var as float, so
+        # sub-second deadlines are valid; production uses integer
+        # seconds (default 30).
+        monkeypatch.setenv("GUARDKIT_HARNESS_CANCEL_DEADLINE", "0.1")
+
+        harness = LangGraphHarness(model="ignored")
+
+        async def _scenario() -> list[Any]:
+            # stubborn_coro: ignore the FIRST cancellation (the one
+            # cancel() triggers via task.cancel()), then exit on the
+            # second so asyncio.run()'s shutdown sweep can complete.
+            # This shape exercises the cancel() deadline-expiry branch
+            # without leaving a task on the event loop that prevents
+            # clean shutdown.
+            ignore_count = 0
+
+            async def stubborn_coro() -> None:
+                nonlocal ignore_count
+                while True:
+                    try:
+                        await asyncio.sleep(3600)
+                    except asyncio.CancelledError:
+                        ignore_count += 1
+                        if ignore_count >= 2:
+                            # Second cancel — give up so the loop
+                            # shutdown can complete.
+                            raise
+                        continue
+
+            harness._ainvoke_task = asyncio.create_task(stubborn_coro())
+            # Yield so the task starts running.
+            await asyncio.sleep(0)
+
+            with caplog.at_level(
+                "WARNING",
+                logger="guardkitfactory.harness.langgraph_harness",
+            ):
+                await harness.cancel()
+
+            warnings = [r for r in caplog.records if r.levelname == "WARNING"]
+            # Final cancel + await: stubborn_coro raises CancelledError
+            # on the second attempt, so the task settles cleanly here.
+            task = harness._ainvoke_task
+            harness._ainvoke_task = None
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+            return warnings
+
+        warnings = asyncio.run(_scenario())
+
+        deadline_warnings = [
+            w for w in warnings
+            if "did not honour cancellation" in w.message
+        ]
+        assert deadline_warnings, (
+            "Expected a WARNING from LangGraphHarness.cancel when the "
+            "in-flight task ignores the cancellation past the deadline. "
+            f"Got warnings: {[w.message for w in warnings]}"
+        )
