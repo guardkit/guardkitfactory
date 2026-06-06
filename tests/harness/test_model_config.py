@@ -110,13 +110,80 @@ def test_registry_contains_qwen36_workhorse() -> None:
     Removing the entry without removing the deployment would silently re-
     expose the F11 overflow. If a future task retires qwen36, both this test
     and the deployment should be updated together.
+
+    TASK-FIX-COACHBUDG01 (2026-06-06): shape changed from ``int`` to dict.
     """
     assert "qwen36-workhorse" in MODEL_CONTEXT_WINDOWS
-    assert MODEL_CONTEXT_WINDOWS["qwen36-workhorse"] == 131_072
+    entry = MODEL_CONTEXT_WINDOWS["qwen36-workhorse"]
+    assert isinstance(entry, dict), f"expected dict entry, got {type(entry)}"
+    assert entry["ctx_size"] == 131_072
+    assert entry["reasoning_mode"] == "off", "qwen36-workhorse needs --reasoning off per §3.2"
 
 
-def test_registry_values_are_positive_integers() -> None:
-    """A misconfigured zero or negative would break ``compute_summarization_defaults``."""
-    for name, ctx in MODEL_CONTEXT_WINDOWS.items():
-        assert isinstance(ctx, int), f"{name}: expected int, got {type(ctx)}"
-        assert ctx > 0, f"{name}: context window must be positive, got {ctx}"
+def test_registry_contains_gemma4_26b() -> None:
+    """TASK-FIX-COACHBUDG01: gemma4:26b entry pins the Coach-swap (HMIG-013).
+
+    Entry carries the larger max_tokens_coach budget (16384) that lets the
+    model reason + emit structured output under --reasoning auto. Without
+    this budget, hybrid-reasoning models squeeze reasoning_content +
+    content and produce empty Coach turns — exactly the F17 failure mode
+    the parser fallback was meant to close.
+    """
+    assert "gemma4:26b" in MODEL_CONTEXT_WINDOWS
+    entry = MODEL_CONTEXT_WINDOWS["gemma4:26b"]
+    assert isinstance(entry, dict)
+    assert entry["ctx_size"] == 65_536
+    assert entry["max_tokens_coach"] == 16_384, (
+        "Coach budget must accommodate reasoning + structured output for "
+        "hybrid-reasoning models — see §9.13 of AUTOBUILD-ON-LLAMA-SWAP findings."
+    )
+    assert entry["reasoning_mode"] == "auto", (
+        "gemma4:26b runs with --reasoning auto in production once the parser "
+        "fallback to reasoning_content lands (TASK-FIX-COACHBUDG01 AC-009)."
+    )
+
+
+def test_registry_entries_are_well_formed() -> None:
+    """Every registry entry MUST be normalisable.
+
+    A misconfigured zero or negative ctx_size would break
+    ``compute_summarization_defaults``; a missing reasoning_mode default
+    would surface as a registry lookup failure in operator tooling.
+    """
+    from guardkitfactory.harness.model_config import _normalize_entry
+
+    for name, entry_raw in MODEL_CONTEXT_WINDOWS.items():
+        entry = _normalize_entry(entry_raw)
+        assert isinstance(entry["ctx_size"], int), f"{name}: ctx_size not int"
+        assert entry["ctx_size"] > 0, f"{name}: ctx_size must be positive, got {entry['ctx_size']}"
+        assert entry["reasoning_mode"] in ("off", "auto", "on"), (
+            f"{name}: reasoning_mode must be off/auto/on, got {entry['reasoning_mode']!r}"
+        )
+
+
+def test_normalize_entry_accepts_legacy_int_shape() -> None:
+    """Backwards compatibility: a callers writing legacy ``int`` entries still work.
+
+    The pre-COACHBUDG01 shape was ``MODEL_CONTEXT_WINDOWS[name] = int``. The
+    normalize helper bridges that to the new dict shape so downstream code
+    doesn't need to branch on type.
+    """
+    from guardkitfactory.harness.model_config import _normalize_entry
+
+    normalized = _normalize_entry(131_072)
+    assert normalized["ctx_size"] == 131_072
+    assert normalized["reasoning_mode"] == "auto", "legacy entries default to auto"
+    assert normalized["max_tokens_coach"] is None, "legacy entries have no role budget"
+    assert normalized["max_tokens_player"] is None
+
+
+def test_get_reasoning_mode_returns_registry_policy() -> None:
+    """``get_reasoning_mode`` consults the registry's policy field."""
+    from guardkitfactory.harness.model_config import get_reasoning_mode
+
+    assert get_reasoning_mode("qwen36-workhorse") == "off"
+    assert get_reasoning_mode("gemma4:26b") == "auto"
+    # Provider-prefixed spec is normalised.
+    assert get_reasoning_mode("openai:gemma4:26b") == "auto"
+    # Unknown model defaults to "auto" — the safest default.
+    assert get_reasoning_mode("some-future-model") == "auto"

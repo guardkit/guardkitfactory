@@ -61,7 +61,10 @@ from guardkit.orchestrator.harness import (
 )
 from langchain_core.language_models import BaseChatModel
 
-from guardkitfactory.harness.extractors import extract_last_ai_message
+from guardkitfactory.harness.extractors import (
+    extract_last_ai_message,
+    extract_last_ai_reasoning,
+)
 from guardkitfactory.harness.model_config import resolve_autobuild_model
 from lib.factory_guards import assert_no_system_messages
 
@@ -180,7 +183,7 @@ class LangGraphHarness(HarnessAdapter):
         # than the substrate boundary contract permits.
         self._ainvoke_task: asyncio.Task[Any] | None = None
 
-    def _resolve_model_for_invoke(self) -> Any:
+    def _resolve_model_for_invoke(self, role: str | None = None) -> Any:
         """Resolve ``self.model`` and attach profile metadata for invocation.
 
         TASK-HMIG-002R-MODEL-PROFILE (2026-06-04): wrap
@@ -220,7 +223,7 @@ class LangGraphHarness(HarnessAdapter):
         if not isinstance(model, (str, BaseChatModel)):
             return model
         try:
-            return resolve_autobuild_model(model)
+            return resolve_autobuild_model(model, role=role)
         except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
             logger.debug(
                 "TASK-HMIG-002R-MODEL-PROFILE: resolve_autobuild_model(%r) "
@@ -300,7 +303,12 @@ class LangGraphHarness(HarnessAdapter):
         # TASK-HMIG-002R-MODEL-PROFILE: resolve here so a known operator-
         # registered model carries ``model.profile["max_input_tokens"]``
         # into the summarisation middleware. See ``_resolve_model_for_invoke``.
-        resolved_model = self._resolve_model_for_invoke()
+        # TASK-FIX-COACHBUDG01: pass ``role`` so per-role max_tokens budgets
+        # are applied. Coach (16384 for hybrid-reasoning models) vs Player
+        # (8192 default) — without per-role budget injection, hybrid-
+        # reasoning models route reasoning_content + content squeeze and
+        # produce empty Coach turns (§9.13 of AUTOBUILD-ON-LLAMA-SWAP findings).
+        resolved_model = self._resolve_model_for_invoke(role=role)
 
         try:
             agent = create_deep_agent(
@@ -355,6 +363,15 @@ class LangGraphHarness(HarnessAdapter):
             self._ainvoke_task = None
 
         text = extract_last_ai_message(result) or ""
+        # TASK-FIX-COACHBUDG01 (2026-06-06): surface reasoning_content alongside
+        # the canonical text. ADR FB-004 / substrate-parity: both harnesses
+        # MUST populate ``AssistantMessageEvent.reasoning_text`` when the
+        # model emitted reasoning. The orchestrator-side ``coach_output_parser``
+        # falls through to this field when ``text`` does not contain a fenced
+        # JSON block — closing the F17 substrate gap for hybrid-reasoning
+        # models (Gemma 4 IT, future DeepSeek V4 with reasoning, etc.)
+        # without requiring the brittle ``--reasoning off`` llama.cpp flag.
+        reasoning_text = extract_last_ai_reasoning(result)
 
         # TASK-HMIG-006.2: emit one ToolUseEvent per AIMessage.tool_calls
         # entry encountered in the result stream BEFORE the
@@ -367,7 +384,11 @@ class LangGraphHarness(HarnessAdapter):
         for tool_event in _iter_tool_use_events(result):
             yield tool_event
 
-        yield AssistantMessageEvent(text=text, raw=result)
+        yield AssistantMessageEvent(
+            text=text,
+            raw=result,
+            reasoning_text=reasoning_text,
+        )
         yield ResultMessageEvent(
             session_id=None,
             stop_reason="end_turn",

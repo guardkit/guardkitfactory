@@ -390,6 +390,130 @@ class TestModelProfileInjection:
 
 
 # ---------------------------------------------------------------------------
+# TASK-FIX-COACHBUDG01 — hybrid-reasoning-model handling. Per-role max_tokens
+# injection AND ``AssistantMessageEvent.reasoning_text`` surfacing alongside
+# the canonical ``text`` field. Substrate parity with sdk_harness.py's
+# ``ThinkingBlock.thinking`` extraction.
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_agent_with_reasoning(
+    final_text: str = "all done",
+    reasoning: str = "thinking step by step...",
+) -> MagicMock:
+    """Build a fake agent whose final AI message carries reasoning_content.
+
+    Mirrors what langchain-openai produces when llama.cpp serves a hybrid-
+    reasoning model under ``--reasoning auto`` — the message's
+    ``additional_kwargs`` dict carries the ``reasoning_content`` key.
+    """
+    from langchain_core.messages import AIMessage
+
+    ai_msg = AIMessage(
+        content=final_text,
+        additional_kwargs={"reasoning_content": reasoning},
+    )
+    fake = MagicMock(name="fake_deep_agent_with_reasoning")
+    fake.ainvoke = AsyncMock(
+        return_value={
+            "messages": [
+                {"role": "user", "content": "irrelevant"},
+                ai_msg,
+            ]
+        }
+    )
+    return fake
+
+
+class TestReasoningTextSurfacing:
+    def test_reasoning_content_lands_in_assistant_message_event(self) -> None:
+        """ADR FB-004 substrate parity: hybrid-reasoning models route their
+        chain-of-thought into ``reasoning_content``. The LangGraph harness
+        MUST surface this on ``AssistantMessageEvent.reasoning_text`` so the
+        orchestrator-side ``coach_output_parser`` can fall through to it
+        when the canonical ``text`` field contains no fenced JSON block.
+
+        Without this, hybrid-reasoning Coach models with narrow max_tokens
+        budgets squeeze content out entirely and the F17 failure mode
+        persists. This test pins the wire (the field IS populated when the
+        model emitted reasoning).
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _make_fake_agent_with_reasoning(
+            final_text="```json\n{\"decision\": \"approve\"}\n```",
+            reasoning="The Player's report mentions tests pass, so I should approve.",
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert "approve" in events[0].text
+        assert events[0].reasoning_text == (
+            "The Player's report mentions tests pass, so I should approve."
+        )
+
+    def test_no_reasoning_yields_empty_reasoning_text(self) -> None:
+        """When the model didn't emit reasoning, ``reasoning_text`` defaults
+        to ``""`` (per ``AssistantMessageEvent.reasoning_text: str = ""``).
+
+        Backwards-compat: existing tests that mock agents without
+        ``additional_kwargs`` MUST keep working without modification — and
+        downstream consumers (``coach_output_parser``) see the same
+        behaviour for non-reasoning models as before this task landed.
+        """
+        harness = LangGraphHarness(model="ignored")
+        # _make_fake_agent uses plain dict messages with no additional_kwargs
+        fake_agent = _make_fake_agent(final_text="approve")
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert events[0].text == "approve"
+        assert events[0].reasoning_text == ""
+
+    def test_role_is_threaded_to_resolve_autobuild_model(self) -> None:
+        """The ``role`` invoke kwarg must reach ``resolve_autobuild_model``
+        so per-role max_tokens budgets (16384 for Coach, 8192 for Player)
+        are applied. Without this thread, hybrid-reasoning Coach turns
+        squeeze content under the SDK default budget.
+        """
+        harness = LangGraphHarness(model="openai:qwen36-workhorse")
+        fake_agent = _make_fake_agent()
+
+        captured: dict[str, Any] = {}
+
+        def _capture_resolve(model: Any, role: str | None = None) -> Any:
+            captured["model"] = model
+            captured["role"] = role
+            return _fake_resolve_model(model if isinstance(model, str) else "")
+
+        with (
+            patch(
+                "guardkitfactory.harness.langgraph_harness.resolve_autobuild_model",
+                side_effect=_capture_resolve,
+            ),
+            patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ),
+        ):
+            # _drain defaults to role="player"
+            _drain(harness)
+
+        assert captured["role"] == "player", (
+            "role kwarg must be threaded from invoke to resolve_autobuild_model"
+        )
+
+
+# ---------------------------------------------------------------------------
 # TASK-FIX-CTOUT01: cooperative cancellation under LangGraph substrate
 # ---------------------------------------------------------------------------
 
