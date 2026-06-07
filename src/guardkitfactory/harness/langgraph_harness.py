@@ -338,62 +338,90 @@ class LangGraphHarness(HarnessAdapter):
         # but the SHORTER outer feature timeout (``task_timeout``) cannot,
         # because ``_cancel_monitor`` does not own the consumer task.
         self._ainvoke_task = asyncio.create_task(agent.ainvoke(input_data))
+        # TASK-FIX-LGACLOSE: the outer try/finally below spans the whole
+        # body — including the yields — so that a consumer closing this
+        # async generator mid-stream (``GeneratorExit`` thrown into a
+        # suspended ``yield`` by ``aclosing()`` / ``gen.aclose()``) still
+        # finalises the in-flight ``ainvoke`` task. CTOUT01 wrapped
+        # ``ainvoke`` in a Task so :meth:`cancel` can propagate
+        # ``CancelledError``; this fixes CTOUT01's own surface — the
+        # generator was abandoned without ``aclose()`` on the cancel
+        # path, leaving an orphaned ``async_generator_athrow`` /
+        # pending ainvoke task that the GC tried to close at interpreter
+        # shutdown (RuntimeWarning "coroutine method 'aclose' ... was
+        # never awaited"). The defensive finalisation here is
+        # belt-and-suspenders with the consumer-side ``aclosing()``
+        # (guardkit ``agent_invoker``); either alone closes the leak.
         try:
-            result = await self._ainvoke_task
-        except asyncio.CancelledError:
-            # Re-raise so the orchestrator's outer
-            # ``asyncio.timeout(...) + CancelledError`` cascade
-            # (agent_invoker.py around line 2891) receives the cancel
-            # verbatim — matching the SDK harness's behaviour at
-            # ``sdk_harness.py:410-419``. Do NOT wrap into
-            # ``LangGraphHarnessError``; the orchestrator dispatches on
-            # the bare ``asyncio.CancelledError`` type.
-            raise
-        except Exception as exc:  # noqa: BLE001 — wrap-and-reraise on purpose
-            raise LangGraphHarnessError(
-                f"LangGraphHarness: agent.ainvoke failed for "
-                f"role={role!r} model={self.model!r}: {exc}"
-            ) from exc
+            try:
+                result = await self._ainvoke_task
+            except asyncio.CancelledError:
+                # Re-raise so the orchestrator's outer
+                # ``asyncio.timeout(...) + CancelledError`` cascade
+                # (agent_invoker.py around line 2891) receives the cancel
+                # verbatim — matching the SDK harness's behaviour at
+                # ``sdk_harness.py:410-419``. Do NOT wrap into
+                # ``LangGraphHarnessError``; the orchestrator dispatches on
+                # the bare ``asyncio.CancelledError`` type.
+                raise
+            except Exception as exc:  # noqa: BLE001 — wrap-and-reraise on purpose
+                raise LangGraphHarnessError(
+                    f"LangGraphHarness: agent.ainvoke failed for "
+                    f"role={role!r} model={self.model!r}: {exc}"
+                ) from exc
+
+            text = extract_last_ai_message(result) or ""
+            # TASK-FIX-COACHBUDG01 (2026-06-06): surface reasoning_content
+            # alongside the canonical text. ADR FB-004 / substrate-parity:
+            # both harnesses MUST populate
+            # ``AssistantMessageEvent.reasoning_text`` when the model
+            # emitted reasoning. The orchestrator-side
+            # ``coach_output_parser`` falls through to this field when
+            # ``text`` does not contain a fenced JSON block — closing the
+            # F17 substrate gap for hybrid-reasoning models (Gemma 4 IT,
+            # future DeepSeek V4 with reasoning, etc.) without requiring
+            # the brittle ``--reasoning off`` llama.cpp flag.
+            reasoning_text = extract_last_ai_reasoning(result)
+
+            # TASK-HMIG-006.2: emit one ToolUseEvent per AIMessage.tool_calls
+            # entry encountered in the result stream BEFORE the
+            # AssistantMessageEvent. Mirrors the SDK harness's
+            # ToolUseBlock-per-content-block extraction so the migrated
+            # _track_tool_use / _extract_partial_from_messages consumers see
+            # the same typed events on both substrates. LangChain AIMessage
+            # exposes `.tool_calls` as a list of dicts (LangChain v0.3+):
+            # ``{"name": str, "args": dict, "id": str}``.
+            for tool_event in _iter_tool_use_events(result):
+                yield tool_event
+
+            yield AssistantMessageEvent(
+                text=text,
+                raw=result,
+                reasoning_text=reasoning_text,
+            )
+            yield ResultMessageEvent(
+                session_id=None,
+                stop_reason="end_turn",
+                usage=None,
+            )
         finally:
-            # Clear the instance handle regardless of how invoke exits
-            # — a concurrent :meth:`cancel` racing the natural
-            # finalisation is safe (it observes the empty handle and
-            # returns) and a stale handle would mislead the next invoke
-            # call on this instance.
+            # TASK-FIX-LGACLOSE: defensive finalisation on EVERY exit path
+            # — normal completion, error, ``CancelledError``, or
+            # ``GeneratorExit`` from a consumer's ``aclose()``. Clear the
+            # handle FIRST so a concurrent :meth:`cancel` racing this
+            # finalisation observes the empty handle and returns. If the
+            # ainvoke task is still pending (the generator was closed
+            # while suspended at a yield before natural completion),
+            # cancel it and best-effort await its unwind so no orphaned
+            # pending task survives to interpreter shutdown. Suppress the
+            # resulting ``CancelledError`` (and any settle-time error) so
+            # it does not escape ``aclose()``.
+            task = self._ainvoke_task
             self._ainvoke_task = None
-
-        text = extract_last_ai_message(result) or ""
-        # TASK-FIX-COACHBUDG01 (2026-06-06): surface reasoning_content alongside
-        # the canonical text. ADR FB-004 / substrate-parity: both harnesses
-        # MUST populate ``AssistantMessageEvent.reasoning_text`` when the
-        # model emitted reasoning. The orchestrator-side ``coach_output_parser``
-        # falls through to this field when ``text`` does not contain a fenced
-        # JSON block — closing the F17 substrate gap for hybrid-reasoning
-        # models (Gemma 4 IT, future DeepSeek V4 with reasoning, etc.)
-        # without requiring the brittle ``--reasoning off`` llama.cpp flag.
-        reasoning_text = extract_last_ai_reasoning(result)
-
-        # TASK-HMIG-006.2: emit one ToolUseEvent per AIMessage.tool_calls
-        # entry encountered in the result stream BEFORE the
-        # AssistantMessageEvent. Mirrors the SDK harness's
-        # ToolUseBlock-per-content-block extraction so the migrated
-        # _track_tool_use / _extract_partial_from_messages consumers see
-        # the same typed events on both substrates. LangChain AIMessage
-        # exposes `.tool_calls` as a list of dicts (LangChain v0.3+):
-        # ``{"name": str, "args": dict, "id": str}``.
-        for tool_event in _iter_tool_use_events(result):
-            yield tool_event
-
-        yield AssistantMessageEvent(
-            text=text,
-            raw=result,
-            reasoning_text=reasoning_text,
-        )
-        yield ResultMessageEvent(
-            session_id=None,
-            stop_reason="end_turn",
-            usage=None,
-        )
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
 
     @property
     def session_id(self) -> str | None:
