@@ -35,6 +35,10 @@ from guardkit.orchestrator.harness import (
 )
 
 from guardkitfactory import LangGraphHarness, LangGraphHarnessError
+from guardkitfactory.harness.extractors import (
+    extract_last_ai_message,
+    extract_last_ai_reasoning,
+)
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -440,7 +444,7 @@ class TestReasoningTextSurfacing:
         """
         harness = LangGraphHarness(model="ignored")
         fake_agent = _make_fake_agent_with_reasoning(
-            final_text="```json\n{\"decision\": \"approve\"}\n```",
+            final_text='```json\n{"decision": "approve"}\n```',
             reasoning="The Player's report mentions tests pass, so I should approve.",
         )
 
@@ -514,6 +518,315 @@ class TestReasoningTextSurfacing:
 
 
 # ---------------------------------------------------------------------------
+# TASK-FIX-COACHBUDG01-LG: reasoning recovery on the OpenAI Responses API path
+# ---------------------------------------------------------------------------
+
+
+def _responses_api_agent(
+    content: Any,
+    additional_kwargs: dict[str, Any] | None = None,
+) -> MagicMock:
+    """Build a fake agent whose final AI message mimics an OpenAI Responses API
+    (``POST /v1/responses``) ``AIMessage`` — the transport deepagents' default
+    model resolution uses.
+
+    ``content`` may be a plain string or a list of typed content blocks (the
+    Responses API form). ``additional_kwargs`` carries the alternate
+    ``reasoning`` dict shape when present. Faithful to what langchain-core
+    1.4.0 materialises (verified by probing the installed client).
+    """
+    from langchain_core.messages import AIMessage
+
+    ai_msg = AIMessage(content=content, additional_kwargs=additional_kwargs or {})
+    fake = MagicMock(name="fake_responses_api_agent")
+    fake.ainvoke = AsyncMock(
+        return_value={
+            "messages": [
+                {"role": "user", "content": "evaluate the player report"},
+                ai_msg,
+            ]
+        }
+    )
+    return fake
+
+
+class TestResponsesApiReasoningExtraction:
+    """TASK-FIX-COACHBUDG01-LG: deepagents' default model resolution routes the
+    LangGraph harness through the OpenAI Responses API (``POST /v1/responses``),
+    which structures reasoning differently from chat-completions. These tests
+    pin each shape variant the installed ``langchain-openai`` can produce so
+    reasoning reaches ``AssistantMessageEvent.reasoning_text`` (AC-001/002/003/
+    005) without regressing the canonical-text path (AC-004). No live network —
+    the agent is faked exactly as ``TestReasoningTextSurfacing`` fakes the
+    chat-completions path.
+    """
+
+    def test_reasoning_summary_blocks_surface_on_reasoning_text(self) -> None:
+        """AC-001/AC-003: the canonical OpenAI Responses API shape — a
+        content-list ``reasoning`` block carrying a ``summary`` list of
+        ``summary_text`` blocks — surfaces the joined plaintext summary on
+        ``reasoning_text``. This is the shape that drove run-9's
+        ``0 chars reasoning_content``.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _responses_api_agent(
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_1",
+                    "summary": [
+                        {"type": "summary_text", "text": "The Player reports tests pass."},
+                        {
+                            "type": "summary_text",
+                            "text": "Coverage meets the gate, so approve.",
+                        },
+                    ],
+                },
+                {
+                    "type": "output_text",
+                    "text": '```json\n{"decision": "approve"}\n```',
+                    "annotations": [],
+                },
+            ]
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert events[0].reasoning_text == (
+            "The Player reports tests pass.\nCoverage meets the gate, so approve."
+        )
+        assert len(events[0].reasoning_text) > 0
+
+    def test_reasoning_summary_canonical_text_excludes_reasoning(self) -> None:
+        """AC-004: with list content, ``text`` carries the visible
+        ``output_text`` verdict — and never the reasoning-as-text. A naive
+        flatten-all-blocks extractor would leak the chain-of-thought into the
+        canonical text; this pins that it does not.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _responses_api_agent(
+            [
+                {
+                    "type": "reasoning",
+                    "summary": [{"type": "summary_text", "text": "secret chain of thought"}],
+                },
+                {
+                    "type": "output_text",
+                    "text": '```json\n{"decision": "approve"}\n```',
+                    "annotations": [],
+                },
+            ]
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert "approve" in events[0].text
+        assert "secret chain of thought" not in events[0].text
+
+    def test_reasoning_text_key_block_surfaces_on_reasoning_text(self) -> None:
+        """AC-001: an alternate adapter shape carries the reasoning plaintext
+        directly under the block's ``text`` key (rather than a ``summary``
+        list). The canonical ``text`` block still yields the verdict.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _responses_api_agent(
+            [
+                {"type": "reasoning", "text": "Reasoning via the text key on the block."},
+                {"type": "text", "text": '```json\n{"decision": "reject"}\n```'},
+            ]
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert events[0].reasoning_text == "Reasoning via the text key on the block."
+        assert "reject" in events[0].text
+
+    def test_additional_kwargs_reasoning_dict_surfaces_on_reasoning_text(self) -> None:
+        """AC-001/AC-002: reasoning carried on ``additional_kwargs['reasoning']``
+        (a dict with a ``summary`` list and an opaque ``encrypted_content``),
+        with the canonical verdict on a plain ``content`` string. The summary
+        surfaces; the ciphertext never does.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _responses_api_agent(
+            content='```json\n{"decision": "approve"}\n```',
+            additional_kwargs={
+                "reasoning": {
+                    "summary": [
+                        {
+                            "type": "summary_text",
+                            "text": "Reasoning carried on additional_kwargs.",
+                        }
+                    ],
+                    "encrypted_content": "ENCRYPTED-OPAQUE-BLOB",
+                }
+            },
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert events[0].reasoning_text == "Reasoning carried on additional_kwargs."
+        assert "ENCRYPTED" not in events[0].reasoning_text
+        assert "approve" in events[0].text
+
+    def test_encrypted_content_only_yields_empty_reasoning_text(self) -> None:
+        """AC-002: when the Responses-API ``reasoning`` dict carries *only*
+        ``encrypted_content`` (no plaintext summary/text), ``reasoning_text``
+        is empty — the opaque ciphertext is never surfaced to the parser.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _responses_api_agent(
+            content="a plain answer with no fenced json block",
+            additional_kwargs={"reasoning": {"encrypted_content": "ENCRYPTED-ONLY-NO-PLAINTEXT"}},
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert events[0].reasoning_text == ""
+
+
+class _FakeMessage:
+    """Duck-typed stand-in for a LangChain message *object* (not a dict).
+
+    Lets the extractor unit tests exercise object-shaped branches —
+    notably the typed ``content_blocks`` property fallback — that a plain
+    dict message cannot reach. Mirrors the duck-typing the extractor relies
+    on (``.content`` / ``.additional_kwargs`` / ``.content_blocks``).
+    """
+
+    def __init__(
+        self,
+        content: Any = "",
+        additional_kwargs: dict[str, Any] | None = None,
+        content_blocks: list[Any] | None = None,
+    ) -> None:
+        self.content = content
+        self.additional_kwargs = additional_kwargs or {}
+        # Only set the attribute when provided, so ``getattr(msg,
+        # "content_blocks", None)`` returns None (property absent) otherwise.
+        if content_blocks is not None:
+            self.content_blocks = content_blocks
+
+
+class TestExtractorShapeUnits:
+    """TASK-FIX-COACHBUDG01-LG: direct unit coverage of the extractor shape
+    branches that the harness-driven tests above do not reach — the typed
+    ``content_blocks`` fallback (AC-001 third bullet), the multi-fragment join
+    (AC-003), the dict-message list-content path, and the role gate.
+    """
+
+    def test_typed_content_blocks_form_surfaces_reasoning(self) -> None:
+        """AC-001 (typed ``content_blocks`` form): when raw ``content`` is a
+        string but the typed ``content_blocks`` property exposes a reasoning
+        block, the reasoning is still recovered (defensive fallback for client
+        versions that surface reasoning only on the typed view).
+        """
+        msg = _FakeMessage(
+            content="verdict text only, no reasoning inline",
+            content_blocks=[
+                {"type": "reasoning", "reasoning": "typed content_blocks reasoning"},
+                {"type": "text", "text": "verdict text only, no reasoning inline"},
+            ],
+        )
+        result = {"messages": [msg]}
+        assert extract_last_ai_reasoning(result) == "typed content_blocks reasoning"
+
+    def test_multiple_reasoning_blocks_join_with_newline(self) -> None:
+        """AC-003: multiple reasoning fragments on one message join with a
+        single newline; the canonical text path ignores them all.
+        """
+        msg = _FakeMessage(
+            content=[
+                {"type": "reasoning", "text": "first fragment"},
+                {"type": "reasoning", "text": "second fragment"},
+                {"type": "output_text", "text": "the verdict"},
+            ]
+        )
+        result = {"messages": [msg]}
+        assert extract_last_ai_reasoning(result) == "first fragment\nsecond fragment"
+        assert extract_last_ai_message(result) == "the verdict"
+
+    def test_dict_message_list_content_text_and_reasoning(self) -> None:
+        """A plain *dict* assistant message (not an object) with list content
+        is handled on both paths: ``extract_last_ai_message`` returns the
+        ``output_text`` verdict, ``extract_last_ai_reasoning`` returns the
+        ``summary`` reasoning.
+        """
+        result = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "reasoning",
+                            "summary": [{"type": "summary_text", "text": "dict-list reasoning"}],
+                        },
+                        {"type": "output_text", "text": "dict-list verdict"},
+                    ],
+                }
+            ]
+        }
+        assert extract_last_ai_message(result) == "dict-list verdict"
+        assert extract_last_ai_reasoning(result) == "dict-list reasoning"
+
+    def test_top_level_dict_reasoning_content_surfaces(self) -> None:
+        """The pre-existing chat-completions dict variant — ``reasoning_content``
+        at the top level of a plain dict message — still surfaces (precedence
+        rung 5).
+        """
+        result = {
+            "messages": [
+                {
+                    "role": "assistant",
+                    "content": "answer",
+                    "reasoning_content": "top-level reasoning",
+                }
+            ]
+        }
+        assert extract_last_ai_reasoning(result) == "top-level reasoning"
+
+    def test_non_ai_dict_message_never_leaks_reasoning(self) -> None:
+        """The role gate holds: a ``user`` dict message carrying a
+        ``reasoning_content`` key yields no reasoning (it is not an AI turn).
+        """
+        result = {
+            "messages": [
+                {
+                    "role": "user",
+                    "content": "hi",
+                    "reasoning_content": "must never be surfaced",
+                }
+            ]
+        }
+        assert extract_last_ai_reasoning(result) == ""
+
+
+# ---------------------------------------------------------------------------
 # TASK-FIX-CTOUT01: cooperative cancellation under LangGraph substrate
 # ---------------------------------------------------------------------------
 
@@ -570,6 +883,7 @@ class TestCancelLangGraphHarness:
                 "guardkitfactory.harness.langgraph_harness.create_deep_agent",
                 return_value=fake_agent,
             ):
+
                 async def _drain_invoke() -> None:
                     async for _ in harness.invoke(
                         prompt="hi",
@@ -689,10 +1003,7 @@ class TestCancelLangGraphHarness:
 
         warnings = asyncio.run(_scenario())
 
-        deadline_warnings = [
-            w for w in warnings
-            if "did not honour cancellation" in w.message
-        ]
+        deadline_warnings = [w for w in warnings if "did not honour cancellation" in w.message]
         assert deadline_warnings, (
             "Expected a WARNING from LangGraphHarness.cancel when the "
             "in-flight task ignores the cancellation past the deadline. "
