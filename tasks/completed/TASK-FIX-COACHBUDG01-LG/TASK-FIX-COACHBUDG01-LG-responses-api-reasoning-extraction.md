@@ -2,12 +2,13 @@
 id: TASK-FIX-COACHBUDG01-LG
 title: LangGraph harness extracts reasoning from OpenAI Responses API (/v1/responses) output into AssistantMessageEvent.reasoning_text
 task_type: bug-fix
-status: completed   # AC-001..AC-005 done (code + hermetic tests). AC-006 live smoke is a downstream hardware gate on parent COACHBUDG01 AC-009 — tracked there, NOT done here.
+status: completed   # AC-001..AC-006 done. AC-006 live smoke verified 2026-06-07 on GB10 DGX via TASK-FIX-AC006SMOKE-LG; gemma4-coach Responses-API plaintext-content shape uncovered + extractor extended.
 created: 2026-06-07T10:00:00Z
-updated: 2026-06-07T12:00:00Z
-completed: 2026-06-07T12:00:00Z
+updated: 2026-06-07T14:30:00Z
+completed: 2026-06-07T14:30:00Z
 completed_location: tasks/completed/TASK-FIX-COACHBUDG01-LG/
-ac006_status: pending-hardware   # live smoke vs gemma4-coach on DGX/llama-swap; record in run-9 follow-up review
+ac006_status: verified-live   # 2026-06-07 GB10 DGX, llama-swap gemma4-coach via /v1/responses; probe report at docs/state/TASK-FIX-AC006SMOKE-LG/probe_report.json
+ac006_evidence: docs/state/TASK-FIX-AC006SMOKE-LG/probe_report.json   # PASS: AC-1 capture + AC-2 reasoning_text=1055 chars + AC-3 parser recovers verdict, COACHSF01 silent
 priority: high
 complexity: 4
 effort_hours: 3
@@ -168,12 +169,24 @@ existing tests pin.
   `LangGraphHarness.invoke` and asserting `events[0].reasoning_text` is the
   recovered chain-of-thought (> 0 chars). Cover each shape variant the
   installed `langchain-openai` can produce. No live network in the test.
-- [ ] **AC-006:** Live smoke (gates parent COACHBUDG01 AC-009). Replay the
+- [x] **AC-006:** Live smoke (gates parent COACHBUDG01 AC-009). Replay the
   run-9 `TASK-FIX-IA03` turn-1 Coach prompt against `gemma4-coach` with
   `--reasoning auto`: the parser recovers the fenced JSON verdict from
   `reasoning_text`, COACHSF01 does **not** fire, and the run logs a non-zero
   `reasoning_content` char count. Record the result in the run-9 follow-up
   review doc.
+  - **Verified 2026-06-07** on GB10 DGX via `TASK-FIX-AC006SMOKE-LG` (live
+    probe). Result: **PASS** after extending `_plaintext_from_reasoning_block`
+    to handle the live shape (`block["content"] = [{"type": "reasoning_text",
+    "text": ...}]` raw and `block["extras"]["content"]` normalised — neither
+    was handled by the original AC-001..AC-005 implementation because
+    `langchain-openai` was absent from the dev venv when those ACs landed).
+    Probe report: `docs/state/TASK-FIX-AC006SMOKE-LG/probe_report.json`
+    (AC-1 capture + AC-2 `reasoning_text=1055` chars + AC-3 verdict
+    recovered: `decision="approve"`, COACHSF01 silent). Two new hermetic
+    fixtures pin the live shape in `test_langgraph_harness.py`
+    (`test_reasoning_content_list_surfaces_on_reasoning_text` and
+    `test_reasoning_extras_content_list_surfaces_on_reasoning_text`).
 
 ## Implementation status (2026-06-07, `/task-work`)
 
@@ -197,9 +210,12 @@ Full suite **111 passed, 8 skipped, 2 deselected**; `extractors.py` line
 coverage **90%**; `ruff check`/`format` clean. Chat-completions regression
 tests (`TestReasoningTextSurfacing`) pass unmodified (AC-004).
 
-**Remaining: AC-006** — live smoke against `gemma4-coach` on the DGX/llama-swap
-substrate (requires hardware; gates parent COACHBUDG01 AC-009). Record in the
-run-9 follow-up review doc once run.
+**AC-006 closed 2026-06-07** via `TASK-FIX-AC006SMOKE-LG` on the GB10 DGX.
+The live probe also exposed an unhandled `langchain-openai` Responses-API
+reasoning shape (`block["content"] = [{"type": "reasoning_text", ...}]` /
+`block["extras"]["content"]`) — the extractor was extended and the new
+shape pinned with two hermetic fixtures. Full suite: **116 passed, 8
+skipped, 2 deselected**. Probe artefacts: `docs/state/TASK-FIX-AC006SMOKE-LG/`.
 
 ## Implementation notes
 

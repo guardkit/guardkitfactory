@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import warnings
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -709,6 +710,91 @@ class TestResponsesApiReasoningExtraction:
         assert isinstance(events[0], AssistantMessageEvent)
         assert events[0].reasoning_text == ""
 
+    def test_reasoning_content_list_surfaces_on_reasoning_text(self) -> None:
+        """TASK-FIX-AC006SMOKE-LG: pins the **live gemma4-coach** shape
+        observed against llama-swap's ``/v1/responses`` substrate via
+        ``langchain-openai 1.2.2``. The reasoning block's plaintext lives on
+        ``block["content"] = [{"type": "reasoning_text", "text": ...}]`` while
+        every other plaintext key (``reasoning`` / ``text`` / ``summary``) is
+        empty and ``encrypted_content`` is opaque/empty. A future
+        ``langchain-openai`` bump that relocates the plaintext would fail
+        this test loudly. Probe evidence:
+        ``docs/state/TASK-FIX-AC006SMOKE-LG/captured_aimessage_probe_c.json``.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _responses_api_agent(
+            [
+                {
+                    "type": "reasoning",
+                    "id": "rs_live_shape",
+                    "summary": [],
+                    "encrypted_content": "",
+                    "status": "completed",
+                    "content": [
+                        {
+                            "type": "reasoning_text",
+                            "text": "Step 1: verify the delta. Step 2: approve.",
+                        }
+                    ],
+                },
+                {
+                    "type": "text",
+                    "text": '```json\n{"decision": "approve"}\n```',
+                    "annotations": [],
+                },
+            ]
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert isinstance(events[0], AssistantMessageEvent)
+        assert events[0].reasoning_text == ("Step 1: verify the delta. Step 2: approve.")
+        assert "approve" in events[0].text
+        # The reasoning plaintext must not leak into the canonical text path.
+        assert "Step 1" not in events[0].text
+
+    def test_reasoning_extras_content_list_surfaces_on_reasoning_text(self) -> None:
+        """TASK-FIX-AC006SMOKE-LG: pins the **langchain-core normalised**
+        view of the same live shape, where the v1 normaliser moves provider-
+        specific keys (``content``, ``encrypted_content``, ``status``) under
+        ``extras``. The plaintext now lives on
+        ``block["extras"]["content"] = [{"type": "reasoning_text", ...}]``;
+        the extractor must consult it after the raw path misses. This shape
+        is what ``msg.content_blocks`` (the normalised property) surfaces —
+        probe evidence in
+        ``docs/state/TASK-FIX-AC006SMOKE-LG/captured_aimessage_probe_c.json``
+        under ``content_blocks_property``.
+        """
+        msg = _FakeMessage(
+            content="canonical verdict only, no reasoning inline",
+            content_blocks=[
+                {
+                    "type": "reasoning",
+                    "id": "rs_normalised",
+                    "extras": {
+                        "content": [
+                            {
+                                "type": "reasoning_text",
+                                "text": "normalised extras content reasoning",
+                            }
+                        ],
+                        "encrypted_content": "",
+                        "status": "completed",
+                    },
+                },
+                {
+                    "type": "text",
+                    "text": "canonical verdict only, no reasoning inline",
+                },
+            ],
+        )
+        result = {"messages": [msg]}
+        assert extract_last_ai_reasoning(result) == "normalised extras content reasoning"
+
 
 class _FakeMessage:
     """Duck-typed stand-in for a LangChain message *object* (not a dict).
@@ -1009,3 +1095,172 @@ class TestCancelLangGraphHarness:
             "in-flight task ignores the cancellation past the deadline. "
             f"Got warnings: {[w.message for w in warnings]}"
         )
+
+
+# ---------------------------------------------------------------------------
+# TASK-FIX-LGACLOSE: async-generator finalisation on cancel
+#
+# CTOUT01 wrapped ``agent.ainvoke`` in an asyncio.Task so :meth:`cancel`
+# could propagate ``CancelledError`` — but it left ``invoke``'s own
+# async generator un-finalised on the cancel path: a consumer abandoned
+# mid-iteration left an orphaned ``async_generator_athrow`` / pending
+# ainvoke task that the GC tried to close at interpreter shutdown
+# ("coroutine method 'aclose' of 'LangGraphHarness.invoke' was never
+# awaited" RuntimeWarning + "Task was destroyed but it is pending"). The
+# defensive outer try/finally in ``invoke`` now finalises the in-flight
+# task on EVERY exit, including ``GeneratorExit`` thrown by a consumer's
+# ``aclose()``. Pairs with the consumer-side ``aclosing()`` wrap in
+# guardkit ``agent_invoker`` (AC-1); these tests cover the harness half
+# (AC-2) and the falsifier (AC-3).
+# ---------------------------------------------------------------------------
+
+
+class TestAcloseFinalisation:
+    def test_aclose_midstream_clears_handle_and_leaves_no_lingering_task(
+        self,
+    ) -> None:
+        """AC-2/AC-3: closing the generator mid-stream finalises it.
+
+        Drive ``invoke`` to its first yield (so the generator is
+        suspended at a ``yield``), then ``aclose()`` it as the
+        consumer-side ``aclosing()`` does on cancel. The instance handle
+        must be cleared and no pending task may linger on the loop.
+        """
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _make_fake_agent(final_text="hi")
+
+        async def _scenario() -> tuple[Any, list[Any]]:
+            with patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ):
+                stream = harness.invoke(
+                    prompt="hi",
+                    role="player",
+                    tools=[],
+                    cwd=Path.cwd(),
+                    timeout_seconds=30,
+                )
+                # Suspend the generator at its first yield.
+                first = await stream.__anext__()
+                assert isinstance(first, AssistantMessageEvent)
+
+                # Finalise mid-stream — the GeneratorExit path the
+                # consumer's aclosing() exercises on cancel.
+                await stream.aclose()
+
+                lingering = [
+                    t
+                    for t in asyncio.all_tasks()
+                    if t is not asyncio.current_task() and not t.done()
+                ]
+                return harness._ainvoke_task, lingering
+
+        handle, lingering = asyncio.run(_scenario())
+
+        assert handle is None
+        assert lingering == [], f"aclose() mid-stream left lingering tasks: {lingering}"
+
+    def test_aclose_midstream_emits_no_never_awaited_warning(self) -> None:
+        """AC-3 falsifier: no 'aclose ... never awaited' RuntimeWarning."""
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _make_fake_agent(final_text="hi")
+
+        async def _scenario() -> None:
+            with patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ):
+                stream = harness.invoke(
+                    prompt="hi",
+                    role="player",
+                    tools=[],
+                    cwd=Path.cwd(),
+                    timeout_seconds=30,
+                )
+                await stream.__anext__()
+                await stream.aclose()
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            asyncio.run(_scenario())
+
+        never_awaited = [
+            w
+            for w in caught
+            if "never awaited" in str(w.message) or "async_generator_athrow" in str(w.message)
+        ]
+        assert not never_awaited, (
+            "Expected no 'aclose was never awaited' RuntimeWarning after a "
+            f"mid-stream aclose; got: {[str(w.message) for w in never_awaited]}"
+        )
+
+    def test_consumer_cancel_during_ainvoke_cancels_inflight_task(self) -> None:
+        """AC-2: consumer cancelled mid-``await ainvoke`` cancels the task.
+
+        This exercises the outer ``finally``'s pending-task branch via the
+        real trigger from the bug report — the consumer (guardkit
+        ``agent_invoker``) iterating the generator is cancelled by the
+        feature timeout while ``agent.ainvoke`` is still in flight. The
+        in-flight task must end cancelled and the handle cleared, with no
+        lingering task on the loop.
+        """
+        harness = LangGraphHarness(model="ignored")
+        ainvoke_started = asyncio.Event()
+
+        async def hanging_ainvoke(_input: dict) -> dict:
+            ainvoke_started.set()
+            await asyncio.sleep(3600)
+            return {"messages": []}
+
+        fake_agent = MagicMock(name="hanging_deep_agent")
+        fake_agent.ainvoke = hanging_ainvoke
+
+        async def _scenario() -> tuple[Any, Any, list[Any]]:
+            with patch(
+                "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+                return_value=fake_agent,
+            ):
+                stream = harness.invoke(
+                    prompt="hi",
+                    role="player",
+                    tools=[],
+                    cwd=Path.cwd(),
+                    timeout_seconds=30,
+                )
+
+                async def _consume() -> None:
+                    async for _ in stream:
+                        pass
+
+                consumer = asyncio.create_task(_consume())
+                await ainvoke_started.wait()
+                await asyncio.sleep(0)
+
+                inner = harness._ainvoke_task
+                assert inner is not None and not inner.done()
+
+                consumer.cancel()
+                with suppress(asyncio.CancelledError):
+                    await consumer
+
+                # Let the cancelled in-flight task settle.
+                for _ in range(5):
+                    await asyncio.sleep(0)
+
+                lingering = [
+                    t
+                    for t in asyncio.all_tasks()
+                    if t is not asyncio.current_task() and not t.done()
+                ]
+                return inner, harness._ainvoke_task, lingering
+
+        inner, handle, lingering = asyncio.run(_scenario())
+
+        assert inner.cancelled(), (
+            "The in-flight ainvoke task should have been cancelled by "
+            "invoke()'s defensive finally when the consumer was cancelled "
+            "mid-await."
+        )
+        assert handle is None
+        assert lingering == [], f"consumer-cancel left lingering tasks: {lingering}"

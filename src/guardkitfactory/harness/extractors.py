@@ -127,13 +127,58 @@ def _text_from_summary(summary: Any) -> str:
     return "\n".join(parts)
 
 
+def _text_from_reasoning_content_list(content: Any) -> str:
+    """Join plaintext from a Responses-API reasoning ``content`` list.
+
+    TASK-FIX-AC006SMOKE-LG (2026-06-07): live probe against gemma4-coach on
+    llama-swap's ``/v1/responses`` substrate via ``langchain-openai 1.2.2``
+    showed the actual reasoning plaintext lives on
+    ``reasoning_block["content"] = [{"type": "reasoning_text", "text": ...}]``
+    (probe C captured 3288 chars there while every other key the extractor
+    used to consult — ``reasoning``, ``text``, ``summary``,
+    ``encrypted_content`` — was empty). The same list shows up under
+    ``reasoning_block["extras"]["content"]`` on the langchain-core
+    normalised ``content_blocks`` view; ``_plaintext_from_reasoning_block``
+    consults both call-sites.
+
+    Joins the non-empty ``.text`` fields of items whose ``type`` is
+    ``"reasoning_text"``. Tolerates bare-string items defensively. Returns
+    ``""`` when the list is missing, empty, or carries no plaintext.
+    """
+    if not isinstance(content, (list, tuple)):
+        return ""
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, dict) and item.get("type") == "reasoning_text":
+            text = item.get("text")
+            if isinstance(text, str) and text.strip():
+                parts.append(text)
+        elif isinstance(item, str) and item.strip():
+            parts.append(item)
+    return "\n".join(parts)
+
+
 def _plaintext_from_reasoning_block(block: Any) -> str:
     """Extract plaintext reasoning from a single ``type == "reasoning"`` block.
 
-    Handles the langchain-core canonical ``reasoning`` key, the Responses-API
-    ``text`` key, and the ``summary`` list (in that precedence). NEVER returns
-    ``encrypted_content`` — it is opaque ciphertext, useless to the downstream
-    ``coach_output_parser`` (TASK-FIX-COACHBUDG01-LG AC-002).
+    Precedence (first non-empty plaintext wins):
+
+      1. langchain-core canonical ``reasoning`` (str)
+      2. Responses-API ``text`` (str)
+      3. Responses-API raw ``content`` list of
+         ``{"type": "reasoning_text", "text": ...}`` items
+         (TASK-FIX-AC006SMOKE-LG — the live gemma4-coach shape)
+      4. langchain-core normalised wrapper ``extras["content"]``
+         (same list as above, but moved under ``extras`` by the v1
+         normaliser — see ``langchain_core.messages.content``
+         ``ReasoningContentBlock``'s ``extras: NotRequired[dict]``)
+      5. Responses-API ``summary`` list of
+         ``{"type": "summary_text", "text": ...}`` items (often empty for
+         hybrid-reasoning models; present as a final-fallback summary).
+
+    NEVER returns ``encrypted_content`` — it is opaque ciphertext, useless
+    to the downstream ``coach_output_parser``
+    (TASK-FIX-COACHBUDG01-LG AC-002).
     """
     if not isinstance(block, dict):
         return ""
@@ -141,6 +186,14 @@ def _plaintext_from_reasoning_block(block: Any) -> str:
         val = block.get(key)
         if isinstance(val, str) and val.strip():
             return val
+    text = _text_from_reasoning_content_list(block.get("content"))
+    if text.strip():
+        return text
+    extras = block.get("extras")
+    if isinstance(extras, dict):
+        text = _text_from_reasoning_content_list(extras.get("content"))
+        if text.strip():
+            return text
     return _text_from_summary(block.get("summary"))
 
 
