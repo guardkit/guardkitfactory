@@ -78,6 +78,14 @@ logger = logging.getLogger(__name__)
 _CANCEL_DEADLINE_ENV = "GUARDKIT_HARNESS_CANCEL_DEADLINE"
 _CANCEL_DEADLINE_DEFAULT_S = 30
 
+# TASK-ARCH-COACHSPLIT (D-3): generation budget for the toolless Coach
+# verdict-synthesis call. Default 16384 leaves room for a reasoning prefix
+# plus the grammar-constrained verdict fence on hybrid-reasoning Gemma models
+# (matches the gemma4:26b max_tokens_coach registry budget). Override per-run
+# with GUARDKIT_COACH_SYNTHESIS_MAX_TOKENS.
+_SYNTHESIS_MAX_TOKENS_ENV = "GUARDKIT_COACH_SYNTHESIS_MAX_TOKENS"
+_SYNTHESIS_MAX_TOKENS_DEFAULT = 16384
+
 __all__ = ["LangGraphHarness", "LangGraphHarnessError"]
 
 
@@ -416,6 +424,178 @@ class LangGraphHarness(HarnessAdapter):
             # pending task survives to interpreter shutdown. Suppress the
             # resulting ``CancelledError`` (and any settle-time error) so
             # it does not escape ``aclose()``.
+            task = self._ainvoke_task
+            self._ainvoke_task = None
+            if task is not None and not task.done():
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+
+    def _synthesis_max_tokens(self) -> int:
+        """Resolve the toolless-synthesis generation budget (env-overridable)."""
+        raw = os.environ.get(_SYNTHESIS_MAX_TOKENS_ENV)
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                logger.debug(
+                    "TASK-ARCH-COACHSPLIT: ignoring non-int %s=%r; using default %d",
+                    _SYNTHESIS_MAX_TOKENS_ENV, raw, _SYNTHESIS_MAX_TOKENS_DEFAULT,
+                )
+        return _SYNTHESIS_MAX_TOKENS_DEFAULT
+
+    def _build_synthesis_model(self, *, grammar: str | None, role: str) -> Any:
+        """Build the **toolless** model for a Coach verdict-synthesis turn.
+
+        TASK-ARCH-COACHSPLIT (D-3). Deliberately BYPASSES
+        :func:`deepagents.create_deep_agent` (which always binds DeepAgents'
+        built-in tool surface, making every request tool-bound) so the
+        resulting request carries **no** ``tools`` field — the precondition
+        for llama.cpp to honour a per-request GBNF ``grammar`` (a tool-bound
+        request is hard-rejected with HTTP 400 "Cannot use custom grammar
+        constraints with tools"; verified 2026-06-09).
+
+        Two construction paths:
+
+        * **Injected model** (``self.model`` is already a ``BaseChatModel`` —
+          the unit-test / explicit-model case): bind the grammar via
+          ``extra_body`` and return it. ``.bind`` adds NO tools, so the call
+          stays toolless.
+        * **String alias** (production — e.g. ``"openai:gemma4:31b"`` from the
+          selector): build a fresh ``ChatOpenAI`` on the **chat-completions**
+          transport (``use_responses_api=False``), with the grammar as a
+          top-level body field via ``extra_body={"grammar": ...}``. This
+          mirrors the validated probe EXACTLY. The deepagents default
+          resolver routes through the Responses API (``/v1/responses``) where
+          the grammar is UNVALIDATED — chat-completions is where the toolless
+          grammar guarantee was confirmed, so we force it here.
+
+        The grammar is honoured by llama.cpp; Anthropic/OpenAI ignore an
+        unknown ``extra_body`` field. ``grammar=None`` runs unconstrained.
+        """
+        from langchain_core.language_models import BaseChatModel
+
+        extra_body = {"grammar": grammar} if grammar else None
+
+        if isinstance(self.model, BaseChatModel):
+            model = self.model
+            if extra_body is not None:
+                try:
+                    model = model.bind(extra_body=extra_body)
+                except Exception as exc:  # noqa: BLE001 — best-effort
+                    logger.warning(
+                        "TASK-ARCH-COACHSPLIT: failed to bind grammar onto "
+                        "injected model %s (%s); running synthesis WITHOUT a "
+                        "grammar constraint.",
+                        type(self.model).__name__, exc,
+                    )
+            return model
+
+        # Production string-alias path: build a chat-completions ChatOpenAI.
+        from langchain_openai import ChatOpenAI
+
+        from guardkitfactory.harness.model_config import _bare_model_name
+
+        bare = _bare_model_name(str(self.model))
+        kwargs: dict[str, Any] = {
+            "model": bare,
+            "temperature": 0.0,
+            "max_tokens": self._synthesis_max_tokens(),
+        }
+        if extra_body is not None:
+            kwargs["extra_body"] = extra_body
+        # ChatOpenAI reads OPENAI_BASE_URL / OPENAI_API_KEY from env when the
+        # explicit kwargs are absent, but pass them through when present so
+        # the synthesis call targets the same llama-swap endpoint the rest of
+        # the run uses (the autobuild recipe exports both).
+        base_url = os.environ.get("OPENAI_BASE_URL")
+        if base_url:
+            kwargs["base_url"] = base_url
+        api_key = os.environ.get("OPENAI_API_KEY")
+        if api_key:
+            kwargs["api_key"] = api_key
+        logger.info(
+            "TASK-ARCH-COACHSPLIT: toolless synthesis model role=%r model=%r "
+            "grammar=%s transport=chat-completions max_tokens=%d",
+            role, bare, "present" if grammar else "none", kwargs["max_tokens"],
+        )
+        # Force chat-completions transport (probe-faithful). Tolerate an older
+        # langchain-openai that lacks the kwarg.
+        try:
+            return ChatOpenAI(use_responses_api=False, **kwargs)
+        except TypeError:
+            return ChatOpenAI(**kwargs)
+
+    async def invoke_synthesis(
+        self,
+        prompt: str,
+        role: str,
+        *,
+        grammar: str | None,
+        cwd: Path,
+        timeout_seconds: int,
+    ) -> AsyncIterator[HarnessEvent]:
+        """Run one **toolless** verdict-synthesis turn (TASK-ARCH-COACHSPLIT).
+
+        Mirrors :meth:`invoke`'s event stream (one
+        :class:`AssistantMessageEvent` carrying the final text + reasoning,
+        then one terminal :class:`ResultMessageEvent`) and its CTOUT01
+        cancellation wiring (the ``ainvoke`` coroutine is wrapped in an
+        ``asyncio.Task`` so :meth:`cancel` can propagate ``CancelledError``,
+        and the ``finally`` block finalises it on every exit path). The key
+        difference from :meth:`invoke`: it invokes the **bare** model
+        (no ``create_deep_agent``, no tools) so the request honours the
+        grammar and emits no tool-call markers.
+        """
+        input_data = self._build_input(prompt)
+        assert_no_system_messages(input_data)
+
+        model = self._build_synthesis_model(grammar=grammar, role=role)
+
+        # TASK-FIX-CTOUT01 parity: wrap ainvoke in an explicit Task so
+        # :meth:`cancel` can propagate CancelledError into the in-flight
+        # HTTP request (same rationale as :meth:`invoke`).
+        self._ainvoke_task = asyncio.create_task(
+            model.ainvoke(input_data["messages"])
+        )
+        try:
+            try:
+                result = await self._ainvoke_task
+            except asyncio.CancelledError:
+                # Re-raise verbatim so the orchestrator's outer
+                # asyncio.timeout + CancelledError cascade handles it
+                # (matches :meth:`invoke` and the SDK harness).
+                raise
+            except Exception as exc:  # noqa: BLE001 — wrap-and-reraise
+                raise LangGraphHarnessError(
+                    f"LangGraphHarness: synthesis ainvoke failed for "
+                    f"role={role!r} model={self.model!r}: {exc}"
+                ) from exc
+
+            # A bare-model ainvoke returns a single AIMessage, not a graph
+            # state dict. Wrap it into the {"messages": [...]} shape the
+            # extractors expect so their chat-completions / Responses-API
+            # reasoning recovery applies unchanged (substrate parity,
+            # ADR FB-004). No ToolUseEvents — the synthesis turn is toolless.
+            wrapped = {"messages": [result]}
+            text = extract_last_ai_message(wrapped) or ""
+            reasoning_text = extract_last_ai_reasoning(wrapped)
+
+            yield AssistantMessageEvent(
+                text=text,
+                raw=result,
+                reasoning_text=reasoning_text,
+            )
+            yield ResultMessageEvent(
+                session_id=None,
+                stop_reason="end_turn",
+                usage=None,
+            )
+        finally:
+            # TASK-FIX-LGACLOSE parity: finalise on EVERY exit path. Clear the
+            # handle first so a concurrent :meth:`cancel` observes the empty
+            # handle and returns; cancel + best-effort await any still-pending
+            # task so none survives to interpreter shutdown.
             task = self._ainvoke_task
             self._ainvoke_task = None
             if task is not None and not task.done():
