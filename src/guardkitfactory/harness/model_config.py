@@ -197,6 +197,27 @@ MODEL_CONTEXT_WINDOWS: Final[dict[str, dict[str, Any]]] = {
         "max_tokens_player": 8192,
         "reasoning_mode": "auto",
     },
+    # gemma4:31b: llama-swap deployment of Gemma 4 31B dense (QAT) at the
+    #   98,304-token serving context the operator bumped to post-run-22
+    #   (``coach31`` set, n_ctx 98304 — TASK-OPS-COACH31B). Registered by
+    #   TASK-PERF-COACHSYNTH: before this entry the bare model name was
+    #   ABSENT from the registry, so ``resolve_autobuild_model`` returned the
+    #   model with ``profile=None`` and deepagents' summarisation middleware
+    #   fell back to its fixed ``("tokens", 170000)`` trigger — LARGER than
+    #   this 98,304 window. Summarisation therefore never fired and the
+    #   B-full Coach gather grew its conversation unbounded until a single
+    #   request hit 108,094 > 98,304 tokens and 400'd (F20, run-22 TP05). The
+    #   profile injection below makes the fraction-based trigger fire at a
+    #   safe fraction of the real window — the idiomatic root-cause half of
+    #   the F20 fix (the harness recursion_limit + tool-result truncation are
+    #   the defence-in-depth halves). reasoning_mode "auto": 31B is a
+    #   hybrid-reasoning model and the COACHBUDG01 parser handles the routing.
+    "gemma4:31b": {
+        "ctx_size": 98_304,
+        "max_tokens_coach": 16_384,
+        "max_tokens_player": 8192,
+        "reasoning_mode": "auto",
+    },
 }
 
 

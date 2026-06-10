@@ -143,12 +143,17 @@ applies to the built-in tools (parent review §14.7), and a custom
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 from pathlib import Path
+from typing import Any
 
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 
-__all__ = ["build_autobuild_backend"]
+logger = logging.getLogger(__name__)
+
+__all__ = ["build_autobuild_backend", "TruncatingBackend"]
 
 
 # These match LocalShellBackend's call-site defaults rather than DeepAgents'
@@ -160,6 +165,145 @@ _AUTOBUILD_EXECUTE_MAX_OUTPUT_BYTES = 1_000_000
 # deterministic environment regardless of how the operator launched the
 # orchestrator.
 _AUTOBUILD_PATH = "/usr/bin:/bin"
+
+
+def _truncate_text(text: str, limit: int, *, what: str) -> tuple[str, bool]:
+    """Return ``text`` capped at ``limit`` chars with a visible marker.
+
+    The marker is load-bearing, not cosmetic: a silently-dropped tail would
+    let the Coach gather treat a partial read/grep/run as the whole thing —
+    the false-confidence failure mode ``absence-of-failure-is-not-success.md``
+    guards against. We mark exactly how many chars were elided so the model
+    knows the evidence is incomplete. Returns ``(possibly_truncated, did_cut)``.
+    """
+    if limit <= 0 or len(text) <= limit:
+        return text, False
+    elided = len(text) - limit
+    marker = (
+        f"\n\n... [AutoBuild gather bound: {elided} more chars of {what} "
+        f"truncated — re-read a narrower slice if you need them] ..."
+    )
+    return text[:limit] + marker, True
+
+
+class TruncatingBackend:
+    """Delegating backend wrapper that caps large tool-result payloads.
+
+    TASK-PERF-COACHSYNTH (Lever A — "cap context growth"). The B-full Coach
+    *gather* runs a tool-using agentic loop whose conversation grows by the
+    full size of every ``read``/``grep``/``execute`` result. A single
+    ``read`` of a 2,000-line file can dump tens of thousands of tokens into
+    the running context in one cycle — enough to overshoot even a correctly-
+    fired summarisation trigger (the "belt-and-braces" overshoot the
+    ``model_config`` docstring calls out). This wrapper bounds each individual
+    tool result to ``max_chars`` so no single cycle can blow the window.
+
+    Scope: applied **only** to the Coach gather (the orchestrator passes
+    ``max_tool_result_chars`` for that invocation alone). The Player and the
+    toolless synthesis path get an unwrapped backend — the Player legitimately
+    needs whole files to implement against, so truncation there would harm it.
+
+    Mechanism: every attribute except the capped result-methods is delegated
+    verbatim to ``inner`` via ``__getattr__`` (so ``cwd``, ``id``,
+    ``artifacts_root`` and the full write/edit/ls/glob surface pass through
+    unchanged). Only ``read``/``aread``, ``grep``/``agrep`` and
+    ``execute``/``aexecute`` — the three big content producers — are
+    overridden to truncate. Reconstruction uses :func:`dataclasses.replace`
+    so the wrapper is robust to extra result fields; any non-dataclass result
+    (or replace failure) falls back to the original, never breaking the call.
+    """
+
+    def __init__(self, inner: Any, max_chars: int) -> None:
+        self._inner = inner
+        self._max_chars = max_chars
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached for attributes NOT defined on this class — i.e. every
+        # backend method/attribute except the overrides below.
+        return getattr(self._inner, name)
+
+    # -- read -------------------------------------------------------------
+    def _cap_read(self, result: Any) -> Any:
+        file_data = getattr(result, "file_data", None)
+        if not isinstance(file_data, dict):
+            return result
+        content = file_data.get("content")
+        if not isinstance(content, str):
+            return result
+        capped, did_cut = _truncate_text(content, self._max_chars, what="file content")
+        if not did_cut:
+            return result
+        try:
+            new_fd = dict(file_data)
+            new_fd["content"] = capped
+            return dataclasses.replace(result, file_data=new_fd)
+        except Exception as exc:  # noqa: BLE001 — never break the tool call
+            logger.debug("TruncatingBackend: read replace failed (%s)", exc)
+            return result
+
+    def read(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cap_read(self._inner.read(*args, **kwargs))
+
+    async def aread(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cap_read(await self._inner.aread(*args, **kwargs))
+
+    # -- execute ----------------------------------------------------------
+    def _cap_execute(self, result: Any) -> Any:
+        output = getattr(result, "output", None)
+        if not isinstance(output, str):
+            return result
+        capped, did_cut = _truncate_text(output, self._max_chars, what="command output")
+        if not did_cut:
+            return result
+        try:
+            return dataclasses.replace(result, output=capped, truncated=True)
+        except Exception as exc:  # noqa: BLE001 — never break the tool call
+            logger.debug("TruncatingBackend: execute replace failed (%s)", exc)
+            return result
+
+    def execute(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cap_execute(self._inner.execute(*args, **kwargs))
+
+    async def aexecute(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cap_execute(await self._inner.aexecute(*args, **kwargs))
+
+    # -- grep -------------------------------------------------------------
+    def _cap_grep(self, result: Any) -> Any:
+        matches = getattr(result, "matches", None)
+        if not isinstance(matches, list):
+            return result
+        kept: list[Any] = []
+        budget = self._max_chars
+        for match in matches:
+            text = match.get("text", "") if isinstance(match, dict) else ""
+            budget -= len(text)
+            if budget < 0:
+                break
+            kept.append(match)
+        if len(kept) == len(matches):
+            return result
+        dropped = len(matches) - len(kept)
+        kept.append(
+            {
+                "path": "",
+                "line": 0,
+                "text": (
+                    f"... [AutoBuild gather bound: {dropped} more grep "
+                    f"match(es) truncated — narrow the pattern] ..."
+                ),
+            }
+        )
+        try:
+            return dataclasses.replace(result, matches=kept)
+        except Exception as exc:  # noqa: BLE001 — never break the tool call
+            logger.debug("TruncatingBackend: grep replace failed (%s)", exc)
+            return result
+
+    def grep(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cap_grep(self._inner.grep(*args, **kwargs))
+
+    async def agrep(self, *args: Any, **kwargs: Any) -> Any:
+        return self._cap_grep(await self._inner.agrep(*args, **kwargs))
 
 
 def _detect_venv_site_packages(worktree: Path) -> str | None:
@@ -181,7 +325,11 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
     return None
 
 
-def build_autobuild_backend(worktree: Path) -> CompositeBackend:
+def build_autobuild_backend(
+    worktree: Path,
+    *,
+    max_tool_result_chars: int | None = None,
+) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
     Returns a :class:`CompositeBackend` whose ``default`` is the configured
@@ -218,10 +366,19 @@ def build_autobuild_backend(worktree: Path) -> CompositeBackend:
             inside. Does not have to exist yet — the backend resolves it on
             each call — but if it does not exist, ``.tmp`` and ``.venv``
             detection will silently no-op.
+        max_tool_result_chars: TASK-PERF-COACHSYNTH. When set, each
+            ``read``/``grep``/``execute`` result is capped at this many chars
+            (with a visible truncation marker) via :class:`TruncatingBackend`,
+            bounding how much a single tool cycle can add to the agent's
+            running context. ``None`` (the default) leaves results uncapped —
+            the Player and synthesis paths pass ``None``; only the Coach
+            B-full gather passes a limit so its tool-using loop cannot
+            overflow the model window (the run-22 TP05 F20 surface).
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
-        :class:`LocalShellBackend`, ready to be passed to
+        :class:`LocalShellBackend` (optionally behind a
+        :class:`TruncatingBackend`), ready to be passed to
         :class:`guardkitfactory.harness.LangGraphHarness`.
     """
     worktree = Path(worktree)
@@ -244,12 +401,23 @@ def build_autobuild_backend(worktree: Path) -> CompositeBackend:
         max_output_bytes=_AUTOBUILD_EXECUTE_MAX_OUTPUT_BYTES,
     )
 
+    # TASK-PERF-COACHSYNTH — optionally cap per-tool-result size for the
+    # Coach gather. Compute artifacts_root from ``local_shell.cwd`` BEFORE
+    # wrapping so the summarisation re-rooting is unaffected by the wrapper;
+    # the TruncatingBackend then sits as the composite ``default`` and caps
+    # read/grep/execute results. ``None`` leaves the backend unwrapped
+    # (Player/synthesis behaviour unchanged).
+    artifacts_root = str(local_shell.cwd)
+    default_backend: Any = local_shell
+    if max_tool_result_chars is not None:
+        default_backend = TruncatingBackend(local_shell, max_tool_result_chars)
+
     # TASK-HMIG-002R-SUMM-ROOT — wrap so SummarizationMiddleware's offload
     # prefix becomes ``<worktree>/conversation_history`` instead of literal
     # ``/conversation_history`` at host root. ``cwd`` (not ``root_dir``) is
     # the post-resolution absolute path so ``str()`` is stable.
     return CompositeBackend(
-        default=local_shell,
+        default=default_backend,
         routes={},
-        artifacts_root=str(local_shell.cwd),
+        artifacts_root=artifacts_root,
     )

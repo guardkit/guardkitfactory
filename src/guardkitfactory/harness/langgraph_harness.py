@@ -86,6 +86,23 @@ _CANCEL_DEADLINE_DEFAULT_S = 30
 _SYNTHESIS_MAX_TOKENS_ENV = "GUARDKIT_COACH_SYNTHESIS_MAX_TOKENS"
 _SYNTHESIS_MAX_TOKENS_DEFAULT = 16384
 
+# TASK-PERF-COACHSYNTH: hard ceiling on the DeepAgents/LangGraph super-step
+# count for a single ``invoke``. ``None`` (the default) preserves LangGraph's
+# own default (25) — unchanged behaviour for the Player and synthesis paths.
+# The Coach B-full Phase-A *gather* sets a SMALL value (see
+# ``AgentInvoker._invoke_coach_gather``): the gather is the load-bearing F20
+# surface — its tool-using agentic loop appends tool-result tokens every
+# round-trip, and ``max_turns`` is DROPPED on this substrate
+# (``selector._translate_kwargs_for_langgraph`` docstring), so this
+# ``recursion_limit`` is the ONLY hard bound on how many tool cycles the
+# gather can run. When the limit is reached LangGraph raises
+# ``GraphRecursionError``, which :meth:`invoke` wraps into
+# ``LangGraphHarnessError``; the orchestrator's gather catches it and
+# degrades to B-min (a verdict still emerges within budget — AC-2). A runaway
+# gather thus trips this ceiling within a few cycles instead of eating the
+# whole task budget and overflowing the 98 K window (run-22 TP05).
+_RECURSION_LIMIT_DEFAULT: int | None = None
+
 __all__ = ["LangGraphHarness", "LangGraphHarnessError"]
 
 
@@ -174,10 +191,16 @@ class LangGraphHarness(HarnessAdapter):
         *,
         backend: Any = None,
         permissions: list[Any] | None = None,
+        recursion_limit: int | None = _RECURSION_LIMIT_DEFAULT,
     ) -> None:
         self.model = model
         self.backend = backend
         self.permissions = permissions
+        # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
+        # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
+        # preserves LangGraph's default (25). The Coach gather passes a small
+        # value to bound its tool-using loop; see module-level constant.
+        self.recursion_limit = recursion_limit
         # TASK-FIX-CTOUT01: handle to the in-flight ``agent.ainvoke``
         # asyncio Task, exposed for cooperative cancellation by
         # :meth:`cancel`. Set inside :meth:`invoke` after
@@ -345,7 +368,21 @@ class LangGraphHarness(HarnessAdapter):
         # ``asyncio.timeout(self.sdk_timeout_seconds)`` already covers
         # but the SHORTER outer feature timeout (``task_timeout``) cannot,
         # because ``_cancel_monitor`` does not own the consumer task.
-        self._ainvoke_task = asyncio.create_task(agent.ainvoke(input_data))
+        # TASK-PERF-COACHSYNTH: forward the per-invoke super-step ceiling
+        # ONLY when one is set. A ``None`` limit calls ``ainvoke`` with the
+        # historical single-arg shape so LangGraph applies its own default
+        # (25) — unchanged Player/synthesis behaviour. A small limit (Coach
+        # gather) caps the tool-using loop; exceeding it raises
+        # ``GraphRecursionError`` which the wrap-and-reraise below turns into
+        # ``LangGraphHarnessError`` → orchestrator degrades to B-min (AC-2).
+        if self.recursion_limit is not None:
+            self._ainvoke_task = asyncio.create_task(
+                agent.ainvoke(
+                    input_data, config={"recursion_limit": self.recursion_limit}
+                )
+            )
+        else:
+            self._ainvoke_task = asyncio.create_task(agent.ainvoke(input_data))
         # TASK-FIX-LGACLOSE: the outer try/finally below spans the whole
         # body — including the yields — so that a consumer closing this
         # async generator mid-stream (``GeneratorExit`` thrown into a
