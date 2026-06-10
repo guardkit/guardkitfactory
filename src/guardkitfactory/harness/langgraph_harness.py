@@ -86,6 +86,25 @@ _CANCEL_DEADLINE_DEFAULT_S = 30
 _SYNTHESIS_MAX_TOKENS_ENV = "GUARDKIT_COACH_SYNTHESIS_MAX_TOKENS"
 _SYNTHESIS_MAX_TOKENS_DEFAULT = 16384
 
+# TASK-PERF-COACHTURNBUDGET (Lever 2): default-off per-request reasoning-budget
+# curtailment for the toolless synthesis. On a dense hybrid-reasoning model
+# (gemma4:31b under ``--reasoning auto``) the synthesis latency is dominated by
+# ``reasoning_content`` generation grinding toward the ``max_tokens`` ceiling
+# (run-23 TP05: 41m43s / 16384-token grind → TIMEOUT_BUDGET_EXHAUSTED before the
+# fix turn). A per-request reasoning budget caps the *thinking* phase so
+# generation stops when the verdict is done — WITHOUT lowering ``max_tokens``,
+# which would truncate the ``criteria_verification`` + ``issues`` that ARE the
+# bug report (the AC-3 tension this task must respect).
+#
+# Default UNSET → the field is omitted entirely → behaviour is unchanged and the
+# server's own ``--reasoning`` policy governs. Set to an int to inject
+# ``reasoning_budget`` into the synthesis request body (llama.cpp semantics:
+# ``0`` disables thinking, ``-1`` unlimited, ``N`` caps the reasoning tokens).
+# Live verification that the GB10's llama.cpp build + gemma4:31b honour this
+# wire-field is the AC-4 falsifier run (mirrors COACHSYNTH's deferred-live
+# pattern); until then the default-off knob carries zero risk to current runs.
+_SYNTHESIS_REASONING_BUDGET_ENV = "GUARDKIT_COACH_SYNTHESIS_REASONING_BUDGET"
+
 # TASK-PERF-COACHSYNTH: hard ceiling on the DeepAgents/LangGraph super-step
 # count for a single ``invoke``. ``None`` (the default) preserves LangGraph's
 # own default (25) — unchanged behaviour for the Player and synthesis paths.
@@ -481,6 +500,30 @@ class LangGraphHarness(HarnessAdapter):
                 )
         return _SYNTHESIS_MAX_TOKENS_DEFAULT
 
+    def _synthesis_reasoning_budget(self) -> int | None:
+        """Resolve the optional toolless-synthesis reasoning budget.
+
+        TASK-PERF-COACHTURNBUDGET (Lever 2). Returns ``None`` (the default) when
+        ``GUARDKIT_COACH_SYNTHESIS_REASONING_BUDGET`` is unset, empty, or non-int
+        — the synthesis request then OMITS the field entirely and behaviour is
+        unchanged (the server's own ``--reasoning`` policy governs). An int value
+        (including ``0`` and ``-1``) is injected into the request body as
+        ``reasoning_budget`` to curtail the ``reasoning_content`` phase without
+        touching ``max_tokens`` (which would truncate the verdict — AC-3).
+        """
+        raw = os.environ.get(_SYNTHESIS_REASONING_BUDGET_ENV)
+        if raw is None or raw == "":
+            return None
+        try:
+            return int(raw)
+        except ValueError:
+            logger.debug(
+                "TASK-PERF-COACHTURNBUDGET: ignoring non-int %s=%r; reasoning "
+                "budget unset (synthesis request omits the field)",
+                _SYNTHESIS_REASONING_BUDGET_ENV, raw,
+            )
+            return None
+
     def _build_synthesis_model(self, *, grammar: str | None, role: str) -> Any:
         """Build the **toolless** model for a Coach verdict-synthesis turn.
 
@@ -512,7 +555,17 @@ class LangGraphHarness(HarnessAdapter):
         """
         from langchain_core.language_models import BaseChatModel
 
-        extra_body = {"grammar": grammar} if grammar else None
+        # TASK-PERF-COACHTURNBUDGET (Lever 2): assemble the request-body extras.
+        # ``grammar`` (TASK-ARCH-COACHSPLIT) and ``reasoning_budget`` (this task,
+        # default-off) ride together as top-level body fields. When BOTH are
+        # absent ``extra_body`` collapses to ``None`` and the call is unchanged.
+        _extras: dict[str, Any] = {}
+        if grammar:
+            _extras["grammar"] = grammar
+        reasoning_budget = self._synthesis_reasoning_budget()
+        if reasoning_budget is not None:
+            _extras["reasoning_budget"] = reasoning_budget
+        extra_body: dict[str, Any] | None = _extras or None
 
         if isinstance(self.model, BaseChatModel):
             model = self.model
@@ -521,10 +574,10 @@ class LangGraphHarness(HarnessAdapter):
                     model = model.bind(extra_body=extra_body)
                 except Exception as exc:  # noqa: BLE001 — best-effort
                     logger.warning(
-                        "TASK-ARCH-COACHSPLIT: failed to bind grammar onto "
-                        "injected model %s (%s); running synthesis WITHOUT a "
-                        "grammar constraint.",
-                        type(self.model).__name__, exc,
+                        "TASK-ARCH-COACHSPLIT: failed to bind extra_body %r onto "
+                        "injected model %s (%s); running synthesis WITHOUT the "
+                        "grammar/reasoning_budget request fields.",
+                        sorted(extra_body), type(self.model).__name__, exc,
                     )
             return model
 
@@ -553,8 +606,11 @@ class LangGraphHarness(HarnessAdapter):
             kwargs["api_key"] = api_key
         logger.info(
             "TASK-ARCH-COACHSPLIT: toolless synthesis model role=%r model=%r "
-            "grammar=%s transport=chat-completions max_tokens=%d",
-            role, bare, "present" if grammar else "none", kwargs["max_tokens"],
+            "grammar=%s reasoning_budget=%s transport=chat-completions "
+            "max_tokens=%d",
+            role, bare, "present" if grammar else "none",
+            reasoning_budget if reasoning_budget is not None else "unset",
+            kwargs["max_tokens"],
         )
         # Force chat-completions transport (probe-faithful). Tolerate an older
         # langchain-openai that lacks the kwarg.

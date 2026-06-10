@@ -168,3 +168,98 @@ class TestBuildSynthesisModel:
         result = harness._build_synthesis_model(grammar=None, role="coach")
         assert result is fake
         fake.bind.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TASK-PERF-COACHTURNBUDGET (Lever 2) — default-off per-request reasoning_budget
+# curtailment for the toolless synthesis. The knob caps the reasoning_content
+# phase WITHOUT touching max_tokens (which would truncate the verdict — AC-3).
+# ---------------------------------------------------------------------------
+
+
+class TestSynthesisReasoningBudget:
+    _ENV = "GUARDKIT_COACH_SYNTHESIS_REASONING_BUDGET"
+
+    def test_unset_omits_field_default_off(self, monkeypatch) -> None:
+        """Default-off: no env → no reasoning_budget in the request body."""
+        monkeypatch.delenv(self._ENV, raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        kwargs = chatopenai.call_args.kwargs
+        # No grammar AND no reasoning budget → extra_body collapses to None and
+        # is omitted entirely (behaviour identical to pre-COACHTURNBUDGET).
+        assert "extra_body" not in kwargs
+
+    def test_set_injects_reasoning_budget_string_path(self, monkeypatch) -> None:
+        monkeypatch.setenv(self._ENV, "0")  # 0 = disable thinking (llama.cpp)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        kwargs = chatopenai.call_args.kwargs
+        assert kwargs["extra_body"] == {"reasoning_budget": 0}
+
+    def test_merges_with_grammar_string_path(self, monkeypatch) -> None:
+        """grammar + reasoning_budget ride together as top-level body fields."""
+        monkeypatch.setenv(self._ENV, "512")
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar="GBNF", role="coach")
+
+        kwargs = chatopenai.call_args.kwargs
+        assert kwargs["extra_body"] == {"grammar": "GBNF", "reasoning_budget": 512}
+
+    def test_does_not_lower_max_tokens(self, monkeypatch) -> None:
+        """AC-3 tension: curtailing reasoning must NOT touch max_tokens."""
+        monkeypatch.setenv(self._ENV, "0")
+        monkeypatch.delenv("GUARDKIT_COACH_SYNTHESIS_MAX_TOKENS", raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar="GBNF", role="coach")
+
+        kwargs = chatopenai.call_args.kwargs
+        assert kwargs["max_tokens"] == 16384  # full verdict budget preserved
+
+    def test_negative_one_unlimited_is_honoured(self, monkeypatch) -> None:
+        """-1 (unlimited) is a valid int budget, distinct from unset."""
+        monkeypatch.setenv(self._ENV, "-1")
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        kwargs = chatopenai.call_args.kwargs
+        assert kwargs["extra_body"] == {"reasoning_budget": -1}
+
+    def test_non_int_falls_back_to_unset(self, monkeypatch) -> None:
+        monkeypatch.setenv(self._ENV, "low")
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        kwargs = chatopenai.call_args.kwargs
+        assert "extra_body" not in kwargs
+
+    def test_injected_model_binds_reasoning_budget(self, monkeypatch) -> None:
+        """Injected-model path binds the merged extra_body via .bind()."""
+        monkeypatch.setenv(self._ENV, "0")
+        fake = _fake_chat_model()
+        harness = LangGraphHarness(model=fake)
+
+        harness._build_synthesis_model(grammar="GBNF", role="coach")
+
+        fake.bind.assert_called_once_with(
+            extra_body={"grammar": "GBNF", "reasoning_budget": 0}
+        )
+
+    def test_helper_returns_none_when_unset(self, monkeypatch) -> None:
+        monkeypatch.delenv(self._ENV, raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+        assert harness._synthesis_reasoning_budget() is None
