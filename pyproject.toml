@@ -37,6 +37,14 @@ dependencies = [
     "langgraph>=1,<2",
     "langchain>=1.2,<2",
     "langchain-core>=1.2,<2",
+    # The LangGraph harness builds a chat-completions ``ChatOpenAI`` for the
+    # llama-swap / OpenAI-compatible substrate (langgraph_harness.py
+    # ``_build_synthesis_model`` + the selector's resolved ``openai:<alias>``
+    # models). Imported lazily, but REQUIRED at runtime for any OpenAI-endpoint
+    # run (e.g. the GB10 llama-swap Coach/Player) — previously undeclared, so a
+    # clean ``uv sync`` pruned it and the synthesis call failed at runtime.
+    # (TASK-OPS-COACHMOE01, 2026-06-11.)
+    "langchain-openai>=1,<2",
 ]
 
 [project.optional-dependencies]
