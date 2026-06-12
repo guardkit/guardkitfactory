@@ -1,16 +1,14 @@
-"""ReqnrollPlugin (stub) — placeholder for the .NET BDD oracle.
+"""ReqnrollPlugin — .NET / Reqnroll BDD oracle.
 
-Per TASK-HMIG-007 AC-009, this stub is registered so the loader can
-iterate it safely. Its :meth:`discover` returns ``None`` for every stack
-(no .NET match) and :meth:`contract_tests` returns an empty list (no
-contracts to enforce on a no-op plugin). The concrete implementation —
-``dotnet test --filter Category=task_<TASK_ID>`` with TRX parsing per
-parent review §6.4 — lands in a follow-on task when a .NET project that
-actually needs it exists.
+Registers with the loader so the Coach evidence path routes .NET projects
+to ``dotnet test`` with Reqnroll TRX output.  Its :meth:`discover` checks
+that the stack language is ``dotnet`` or ``csharp`` and that a .sln or
+.csproj file plus the ``dotnet`` CLI are present.
 """
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -26,7 +24,7 @@ from guardkitfactory.bdd.plugin import (
 
 @register
 class ReqnrollPlugin(BDDPlugin):
-    """.NET / xUnit + Reqnroll plugin (stub, not yet implemented)."""
+    """.NET / xUnit + Reqnroll plugin."""
 
     name = "reqnroll"
 
@@ -34,7 +32,23 @@ class ReqnrollPlugin(BDDPlugin):
     def discover(
         cls, stack: StackProfile, worktree: Path,
     ) -> Optional["ReqnrollPlugin"]:
-        return None
+        if stack.language not in ("dotnet", "csharp"):
+            return None
+        project_root = Path(worktree)
+        # Check for .sln or .csproj files
+        if not any(project_root.glob("*.sln")) and not any(project_root.glob("*.csproj")):
+            return None
+        # Check for dotnet CLI availability
+        try:
+            subprocess.run(
+                ["dotnet", "--version"],
+                check=True,
+                capture_output=True,
+                timeout=10,
+            )
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+            return None
+        return cls()
 
     def preflight(self, task_id: str, worktree: Path) -> bool:
         raise NotImplementedError(
