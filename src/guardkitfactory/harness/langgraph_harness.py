@@ -70,6 +70,55 @@ from lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
 
+
+def _install_langsmith_executor_guard() -> None:
+    """Make LangSmith tracing safe against asyncio executor teardown.
+
+    TASK-FIX-LSTRACE01. ``langsmith.run_helpers.async_wrapper`` dispatches its
+    run-tree setup/teardown (``_setup_run`` / ``_on_run_end``) via
+    ``loop.run_in_executor(None, ...)`` on the asyncio loop's DEFAULT
+    ``ThreadPoolExecutor`` — UNCONDITIONALLY, before any tracing-enabled check.
+    When a ``task_timeout`` teardown shuts that executor down mid-invoke (the
+    Layer-1 cancellation race in ``.claude/rules/harness-cancellation-contract.md``),
+    the dispatch raises ``RuntimeError: cannot schedule new futures after
+    shutdown`` and cascades through the deepagents summarization middleware to
+    fail BOTH the player and coach ``agent.ainvoke`` (FEAT-E2CB run 1,
+    2026-06-12). Idempotent; best-effort (never raises).
+
+    Disabling tracing alone does NOT fix this — ``async_wrapper`` dispatches to
+    the executor regardless of tracing state. The load-bearing fix is the
+    LangSmith runtime override below, which runs the (cheap) run-tree
+    setup/teardown INLINE so a torn-down executor can never crash the invoke.
+    """
+    # Hygiene: autobuild has no LangSmith project. Opt out unless explicitly kept.
+    if os.environ.get("GUARDKIT_KEEP_LANGSMITH", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        for _var in ("LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING", "LANGCHAIN_TRACING"):
+            os.environ[_var] = "false"
+
+    # Load-bearing: run LangSmith's aio_to_thread work inline instead of on the
+    # loop's default executor (the public override hook; cf. LangSmith's own
+    # Temporal example, which has the same "no run_in_executor" constraint).
+    try:
+        import langsmith
+
+        async def _inline_aio_to_thread(_default, ctx, func, /, *args, **kwargs):
+            return ctx.run(func, *args, **kwargs)
+
+        langsmith.set_runtime_overrides(aio_to_thread=_inline_aio_to_thread)
+    except Exception:  # pragma: no cover - langsmith optional / API drift
+        logger.debug(
+            "TASK-FIX-LSTRACE01: LangSmith executor guard not installed",
+            exc_info=True,
+        )
+
+
+_install_langsmith_executor_guard()
+
 # TASK-FIX-CTOUT01: deadline applied by :meth:`LangGraphHarness.cancel` when
 # waiting for the cancelled in-flight ``agent.ainvoke`` task to unwind. If
 # LangChain's httpx client does not honour ``asyncio.CancelledError`` within
