@@ -39,6 +39,7 @@ from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 
 from guardkitfactory import build_autobuild_backend, build_autobuild_permissions
+from guardkitfactory.harness.backend_config import PathConfinedBackend
 
 # ---------------------------------------------------------------------------
 # Local rule evaluator — see module docstring for why this is hand-rolled.
@@ -81,7 +82,11 @@ def test_build_autobuild_backend_returns_composite_wrapping_localshellbackend(
     """
     backend = build_autobuild_backend(tmp_path)
     assert isinstance(backend, CompositeBackend)
-    assert isinstance(backend.default, LocalShellBackend)
+    # TASK-FIX-WTESCAPE01: the composite default is now the write-confinement
+    # wrapper; the LocalShellBackend still owns the on-disk behaviour one
+    # level down and every non-write attribute delegates through.
+    assert isinstance(backend.default, PathConfinedBackend)
+    assert isinstance(backend.default._inner, LocalShellBackend)
     assert backend.routes == {}
 
 
@@ -459,6 +464,25 @@ def test_execute_honours_per_call_timeout_override(tmp_path: Path) -> None:
     assert elapsed < 3.0, f"sleep with timeout=1 took {elapsed:.2f}s"
 
 
+def test_execute_honours_per_call_timeout_override_when_gather_capped(
+    tmp_path: Path,
+) -> None:
+    """TASK-FIX-WTESCAPE01 review regression — timeout through the wrappers.
+
+    ``execute_accepts_timeout`` introspects the CLASS-level ``execute``
+    signature of ``CompositeBackend.default``. With ``max_tool_result_chars``
+    set the default is a ``TruncatingBackend``; its former ``*args, **kwargs``
+    signature hid the ``timeout`` name, so ``CompositeBackend.execute``
+    silently dropped per-call overrides on the Coach-gather path.
+    """
+    backend = build_autobuild_backend(tmp_path, max_tool_result_chars=4096)
+    started = time.monotonic()
+    result = backend.execute("sleep 5", timeout=1)
+    elapsed = time.monotonic() - started
+    assert result.exit_code == 124
+    assert elapsed < 3.0, f"sleep with timeout=1 took {elapsed:.2f}s"
+
+
 # ---------------------------------------------------------------------------
 # (d) Traversal block — falsifier dimension (d)
 #
@@ -503,3 +527,256 @@ def test_factories_exposed_at_guardkitfactory_package_root() -> None:
     assert hasattr(guardkitfactory, "build_autobuild_permissions")
     assert "build_autobuild_backend" in guardkitfactory.__all__
     assert "build_autobuild_permissions" in guardkitfactory.__all__
+
+
+# ---------------------------------------------------------------------------
+# TASK-FIX-WTESCAPE01 — write confinement (worktree escape via absolute paths)
+#
+# FEAT-C332 run 2 (2026-06-12): the Player wrote to absolute host-repo paths
+# fed in by task context, and NOVMODE's ``virtual_mode=False`` honoured them
+# literally. ``PathConfinedBackend`` restores containment for write/edit
+# (sync + async) while preserving literal absolute paths INSIDE the worktree
+# (the Coach-JSON semantics NOVMODE exists for).
+# ---------------------------------------------------------------------------
+
+
+def _make_worktree(tmp_path: Path) -> Path:
+    """Create a worktree dir nested like ``.guardkit/worktrees/FEAT-X``."""
+    worktree = tmp_path / "host" / ".guardkit" / "worktrees" / "FEAT-X"
+    worktree.mkdir(parents=True)
+    return worktree
+
+
+class TestWriteConfinement:
+    """AC-001 — absolute/traversal writes outside the worktree are rejected."""
+
+    def test_absolute_write_outside_worktree_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        victim = tmp_path / "host" / "guardkit" / "agent_invoker.py"
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write(str(victim), "stray player edit")
+
+        assert result.error is not None
+        assert "outside the worktree" in result.error
+        assert not victim.exists()
+
+    def test_absolute_edit_outside_worktree_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        victim = tmp_path / "host" / "guardkit" / "coach_validator.py"
+        victim.parent.mkdir(parents=True)
+        victim.write_text("original = True\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.edit(str(victim), "original = True", "original = False")
+
+        assert result.error is not None
+        assert "outside the worktree" in result.error
+        assert victim.read_text() == "original = True\n"
+
+    def test_relative_traversal_write_is_rejected(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write("../../../escape.txt", "stray")
+
+        assert result.error is not None
+        assert not (tmp_path / "host" / "escape.txt").exists()
+
+    def test_symlink_inside_worktree_cannot_smuggle_write_out(
+        self, tmp_path: Path
+    ) -> None:
+        """``Path.resolve()`` judges the write by where it actually lands."""
+        worktree = _make_worktree(tmp_path)
+        outside = tmp_path / "host" / "elsewhere"
+        outside.mkdir(parents=True)
+        (worktree / "innocent").symlink_to(outside)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write(str(worktree / "innocent" / "stray.txt"), "x")
+
+        assert result.error is not None
+        assert not (outside / "stray.txt").exists()
+
+    def test_absolute_write_inside_worktree_still_works(
+        self, tmp_path: Path
+    ) -> None:
+        """NOVMODE preservation: in-worktree absolute paths resolve literally.
+
+        This is the Coach-JSON write path that motivated
+        ``virtual_mode=False`` — confinement must not regress it.
+        """
+        worktree = _make_worktree(tmp_path)
+        target = worktree / ".guardkit" / "autobuild" / "T1" / "coach_turn_1.json"
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write(str(target), "{}")
+
+        assert result.error is None
+        assert target.read_text() == "{}"
+
+    def test_relative_write_inside_worktree_still_works(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write("src/new_module.py", "x = 1\n")
+
+        assert result.error is None
+        assert (worktree / "src" / "new_module.py").read_text() == "x = 1\n"
+
+    def test_async_write_and_edit_are_confined(self, tmp_path: Path) -> None:
+        """The a-variants must not bypass confinement via ``__getattr__``."""
+        import asyncio
+
+        worktree = _make_worktree(tmp_path)
+        victim = tmp_path / "host" / "stray_async.txt"
+        backend = build_autobuild_backend(worktree)
+
+        write_result = asyncio.run(backend.default.awrite(str(victim), "stray"))
+        edit_result = asyncio.run(
+            backend.default.aedit(str(victim), "stray", "edited")
+        )
+
+        assert write_result.error is not None
+        assert edit_result.error is not None
+        assert not victim.exists()
+
+
+class TestSymlinkPolicy:
+    """AC-002 — the ``guardkitfactory`` sibling symlink is explicitly allowed;
+    any other sibling symlink is not."""
+
+    def test_guardkitfactory_sibling_symlink_target_is_writable(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        factory_repo = tmp_path / "guardkitfactory_checkout"
+        factory_repo.mkdir()
+        (worktree.parent / "guardkitfactory").symlink_to(factory_repo)
+        backend = build_autobuild_backend(worktree)
+
+        # Through the symlink path…
+        via_symlink = backend.write(
+            str(worktree.parent / "guardkitfactory" / "via_symlink.txt"), "ok"
+        )
+        # …and via the resolved target directly.
+        direct = backend.write(str(factory_repo / "direct.txt"), "ok")
+
+        assert via_symlink.error is None
+        assert direct.error is None
+        assert (factory_repo / "via_symlink.txt").exists()
+        assert (factory_repo / "direct.txt").exists()
+
+    def test_other_sibling_symlinks_are_not_allowed(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        other_repo = tmp_path / "some_other_repo"
+        other_repo.mkdir()
+        (worktree.parent / "otherproject").symlink_to(other_repo)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write(
+            str(worktree.parent / "otherproject" / "stray.txt"), "x"
+        )
+
+        assert result.error is not None
+        assert not (other_repo / "stray.txt").exists()
+
+    def test_extra_write_roots_param_allows_explicit_roots(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        sibling = tmp_path / "explicit_sibling"
+        sibling.mkdir()
+        backend = build_autobuild_backend(worktree, extra_write_roots=[sibling])
+
+        result = backend.write(str(sibling / "allowed.txt"), "ok")
+
+        assert result.error is None
+        assert (sibling / "allowed.txt").read_text() == "ok"
+
+
+class TestEscapeObservability:
+    """AC-004 — escaped-write attempts surface as WARNINGs in the turn log."""
+
+    def test_rejected_write_logs_warning(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        worktree = _make_worktree(tmp_path)
+        backend = build_autobuild_backend(worktree)
+
+        with caplog.at_level(
+            logging.WARNING, logger="guardkitfactory.harness.backend_config"
+        ):
+            backend.write(str(tmp_path / "host" / "stray.txt"), "x")
+
+        assert any(
+            "write confinement" in record.message
+            and record.levelno == logging.WARNING
+            for record in caplog.records
+        )
+
+
+class TestHostRepoStaysClean:
+    """AC-003 — a host git repo is untouched by write/edit attempts using
+    absolute host paths (the recorded-fixture form of the integration test)."""
+
+    def test_host_git_status_clean_after_escape_attempts(
+        self, tmp_path: Path
+    ) -> None:
+        import subprocess
+
+        host = tmp_path / "host"
+        host.mkdir()
+        tracked = host / "guardkit" / "orchestrator" / "coach_evidence.py"
+        tracked.parent.mkdir(parents=True)
+        tracked.write_text("EVIDENCE = 'pristine'\n")
+        subprocess.run(["git", "init", "-q", str(host)], check=True)
+        subprocess.run(["git", "-C", str(host), "add", "-A"], check=True)
+        subprocess.run(
+            [
+                "git",
+                "-C",
+                str(host),
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "baseline",
+            ],
+            check=True,
+        )
+
+        worktree = host / ".guardkit" / "worktrees" / "FEAT-X"
+        worktree.mkdir(parents=True)
+        backend = build_autobuild_backend(worktree)
+
+        # The FEAT-C332 run-2 shapes: edit a tracked host file by absolute
+        # path, write a brand-new host file by absolute path.
+        edit_result = backend.edit(
+            str(tracked), "EVIDENCE = 'pristine'", "EVIDENCE = 'poisoned'"
+        )
+        write_result = backend.write(
+            str(host / "guardkit" / "orchestrator" / "stray_new.py"), "x = 1\n"
+        )
+
+        status = subprocess.run(
+            ["git", "-C", str(host), "status", "--porcelain"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+
+        assert edit_result.error is not None
+        assert write_result.error is not None
+        assert status == ""
+        assert tracked.read_text() == "EVIDENCE = 'pristine'\n"

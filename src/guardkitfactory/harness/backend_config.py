@@ -145,15 +145,21 @@ from __future__ import annotations
 
 import dataclasses
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
+from deepagents.backends.protocol import (
+    EditResult,
+    SandboxBackendProtocol,
+    WriteResult,
+)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["build_autobuild_backend", "TruncatingBackend"]
+__all__ = ["build_autobuild_backend", "PathConfinedBackend", "TruncatingBackend"]
 
 
 # These match LocalShellBackend's call-site defaults rather than DeepAgents'
@@ -261,11 +267,18 @@ class TruncatingBackend:
             logger.debug("TruncatingBackend: execute replace failed (%s)", exc)
             return result
 
-    def execute(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cap_execute(self._inner.execute(*args, **kwargs))
+    # ``timeout`` must be a NAMED parameter (not swallowed by ``**kwargs``):
+    # ``deepagents.backends.composite.execute_accepts_timeout`` introspects
+    # the class-level signature and only forwards per-call timeout overrides
+    # when it finds the name. With ``*args, **kwargs`` the override was
+    # silently dropped on the Coach-gather path (TASK-FIX-WTESCAPE01 review).
+    def execute(self, command: str, *, timeout: int | None = None) -> Any:
+        return self._cap_execute(self._inner.execute(command, timeout=timeout))
 
-    async def aexecute(self, *args: Any, **kwargs: Any) -> Any:
-        return self._cap_execute(await self._inner.aexecute(*args, **kwargs))
+    async def aexecute(self, command: str, *, timeout: int | None = None) -> Any:
+        return self._cap_execute(
+            await self._inner.aexecute(command, timeout=timeout)
+        )
 
     # -- grep -------------------------------------------------------------
     def _cap_grep(self, result: Any) -> Any:
@@ -306,6 +319,172 @@ class TruncatingBackend:
         return self._cap_grep(await self._inner.agrep(*args, **kwargs))
 
 
+# TASK-FIX-WTESCAPE01: ``CompositeBackend.execute`` gates on
+# ``isinstance(default, SandboxBackendProtocol)`` — an ABC, so structural
+# delegation via ``__getattr__`` does not satisfy it. Without registration a
+# wrapped default raises ``NotImplementedError`` on the first ``execute``
+# (latent since TASK-PERF-COACHSYNTH for the Coach-gather path; surfaced when
+# PathConfinedBackend became the always-on default).
+SandboxBackendProtocol.register(TruncatingBackend)
+
+
+class PathConfinedBackend:
+    """Delegating backend wrapper that confines *writes* to allowed roots.
+
+    TASK-FIX-WTESCAPE01 (2026-06-12). ``virtual_mode=False`` (NOVMODE)
+    deliberately removed the SDK's path-confinement so orchestrator-fed
+    absolute paths *inside* the worktree resolve literally. The unpriced
+    side-effect: the Player's ``write_file``/``edit_file`` also honour
+    absolute paths *outside* the worktree — FEAT-C332 run 2 observed Player
+    edits landing in the operator's main guardkit checkout because the task
+    context contained absolute host-repo paths.
+
+    This wrapper restores confinement for the mutating file tools only:
+
+    * ``write``/``awrite`` and ``edit``/``aedit`` resolve the target
+      (``Path.resolve()`` — symlink-aware, so an in-worktree symlink
+      pointing outside cannot smuggle a write out) and reject any path
+      whose resolved form is not under an allowed root. Rejection is a
+      tool error (``WriteResult``/``EditResult`` with ``error`` set), never
+      an exception — the model gets actionable feedback to retry with a
+      worktree-relative path. Each rejection logs a WARNING so operators
+      see confinement doing work (AC-004).
+    * Reads, ``ls``, ``glob``, ``grep`` stay unconfined — the Coach
+      legitimately reads orchestrator-fed absolute paths, and reads cannot
+      corrupt the host repo. ``execute`` is likewise out of scope per the
+      documented operator-trust threat model (see NOVMODE rationale above);
+      shell confinement was never claimed by this layer.
+    * ``upload_files`` is not exposed as an LLM tool, so it is not wrapped.
+
+    Rejecting (rather than rebasing the path into the worktree) is
+    deliberate: silent rebasing is exactly the doubly-nested-path failure
+    NOVMODE exists to prevent, in the opposite direction.
+
+    Allowed roots beyond the worktree are an explicit policy decision made
+    by :func:`build_autobuild_backend` — see its ``extra_write_roots``
+    parameter and the intentional ``guardkitfactory`` sibling-symlink
+    convention (AC-002).
+
+    Delegation follows the :class:`TruncatingBackend` pattern: every
+    attribute except the four overridden mutators passes through to
+    ``inner`` via ``__getattr__``, so ``cwd``, ``id``, ``artifacts_root``
+    and the whole read surface are untouched.
+    """
+
+    def __init__(self, inner: Any, allowed_roots: Sequence[Path]) -> None:
+        self._inner = inner
+        self._allowed_roots = [Path(root).resolve() for root in allowed_roots]
+
+    def __getattr__(self, name: str) -> Any:
+        # Only reached for attributes NOT defined on this class — i.e. every
+        # backend method/attribute except the four confined mutators below.
+        return getattr(self._inner, name)
+
+    def _resolve_outside(self, file_path: str) -> Path | None:
+        """Return the resolved path if it escapes all allowed roots, else None.
+
+        Mirrors ``FilesystemBackend._resolve_path`` semantics under
+        ``virtual_mode=False`` (absolute → literal, relative → under
+        ``cwd``), then applies ``Path.resolve()`` so symlinked parents and
+        ``..`` traversal are judged by where the write would actually land.
+        """
+        candidate = Path(file_path)
+        if not candidate.is_absolute():
+            candidate = Path(self._inner.cwd) / candidate
+        resolved = candidate.resolve()
+        for root in self._allowed_roots:
+            if resolved.is_relative_to(root):
+                return None
+        return resolved
+
+    def _reject(self, op: str, file_path: str, resolved: Path) -> str:
+        logger.warning(
+            "AutoBuild write confinement: rejected %s to '%s' — resolves to "
+            "'%s', outside allowed roots %s (TASK-FIX-WTESCAPE01)",
+            op,
+            file_path,
+            resolved,
+            [str(r) for r in self._allowed_roots],
+        )
+        return (
+            f"Error: refusing to {op} '{file_path}': it resolves to "
+            f"'{resolved}', outside the worktree. All file writes must stay "
+            f"inside the worktree root '{self._allowed_roots[0]}'. Retry "
+            f"with a worktree-relative path."
+        )
+
+    # -- write ------------------------------------------------------------
+    def write(self, file_path: str, content: str) -> Any:
+        escaped = self._resolve_outside(file_path)
+        if escaped is not None:
+            return WriteResult(error=self._reject("write", file_path, escaped))
+        return self._inner.write(file_path, content)
+
+    async def awrite(self, file_path: str, content: str) -> Any:
+        escaped = self._resolve_outside(file_path)
+        if escaped is not None:
+            return WriteResult(error=self._reject("write", file_path, escaped))
+        return await self._inner.awrite(file_path, content)
+
+    # -- edit -------------------------------------------------------------
+    def edit(self, file_path: str, *args: Any, **kwargs: Any) -> Any:
+        escaped = self._resolve_outside(file_path)
+        if escaped is not None:
+            return EditResult(error=self._reject("edit", file_path, escaped))
+        return self._inner.edit(file_path, *args, **kwargs)
+
+    async def aedit(self, file_path: str, *args: Any, **kwargs: Any) -> Any:
+        escaped = self._resolve_outside(file_path)
+        if escaped is not None:
+            return EditResult(error=self._reject("edit", file_path, escaped))
+        return await self._inner.aedit(file_path, *args, **kwargs)
+
+    # -- execute (unconfined passthrough) ----------------------------------
+    # Defined explicitly (not via ``__getattr__``) because
+    # ``deepagents.backends.composite.execute_accepts_timeout`` introspects
+    # ``type(default).execute`` at the CLASS level — an AttributeError there
+    # is not caught. The ``timeout`` kwarg must appear in the signature so
+    # per-call timeout overrides keep flowing through to LocalShellBackend.
+    def execute(self, command: str, *, timeout: int | None = None) -> Any:
+        return self._inner.execute(command, timeout=timeout)
+
+    async def aexecute(self, command: str, *, timeout: int | None = None) -> Any:
+        return await self._inner.aexecute(command, timeout=timeout)
+
+
+# See the TruncatingBackend registration note above — same ABC gate.
+SandboxBackendProtocol.register(PathConfinedBackend)
+
+
+def _allowed_write_roots(
+    worktree: Path,
+    extra_write_roots: Sequence[Path | str] | None,
+) -> list[Path]:
+    """Compute the allowed write roots for a worktree (TASK-FIX-WTESCAPE01).
+
+    Policy (AC-002, explicit by design):
+
+    1. The worktree itself (resolved).
+    2. The resolved target of a sibling symlink **literally named**
+       ``guardkitfactory`` in the worktree's parent directory. GuardKit's
+       worktree layout keeps feature worktrees and an intentional
+       ``guardkitfactory -> <host guardkitfactory checkout>`` symlink side
+       by side under ``.guardkit/worktrees/``; cross-repo tasks
+       (TASK-AB-XREPOEV01 lineage) legitimately write through it. Any
+       *other* symlink escape is rejected.
+    3. Caller-supplied ``extra_write_roots``, resolved.
+    """
+    roots = [worktree.resolve()]
+    factory_symlink = worktree.parent / "guardkitfactory"
+    if factory_symlink.is_symlink():
+        resolved_target = factory_symlink.resolve()
+        if resolved_target.is_dir():
+            roots.append(resolved_target)
+    for extra in extra_write_roots or []:
+        roots.append(Path(extra).resolve())
+    return roots
+
+
 def _detect_venv_site_packages(worktree: Path) -> str | None:
     """Return the site-packages path under ``{worktree}/.venv`` if one exists.
 
@@ -329,6 +508,7 @@ def build_autobuild_backend(
     worktree: Path,
     *,
     max_tool_result_chars: int | None = None,
+    extra_write_roots: Sequence[Path | str] | None = None,
 ) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
@@ -355,7 +535,10 @@ def build_autobuild_backend(
 
     Tests and other consumers that need the underlying ``LocalShellBackend``
     (e.g. to assert ``virtual_mode`` / ``_env`` / ``_default_timeout``) can
-    reach it via ``backend.default``.
+    reach it via ``backend.default`` — the :class:`PathConfinedBackend`
+    (and optional :class:`TruncatingBackend`) wrappers delegate unknown
+    attributes to the inner backend, so ``backend.default.virtual_mode``
+    etc. resolve transparently.
 
     The companion :func:`guardkitfactory.harness.permissions.build_autobuild_permissions`
     factory returns the deny-rule list that should be passed alongside this
@@ -374,6 +557,11 @@ def build_autobuild_backend(
             the Player and synthesis paths pass ``None``; only the Coach
             B-full gather passes a limit so its tool-using loop cannot
             overflow the model window (the run-22 TP05 F20 surface).
+        extra_write_roots: TASK-FIX-WTESCAPE01. Additional directories
+            (beyond the worktree and the intentional ``guardkitfactory``
+            sibling symlink — see :func:`_allowed_write_roots`) that
+            ``write``/``edit`` may target. ``None`` (the default) confines
+            writes to the worktree + sibling-symlink policy roots.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -401,16 +589,25 @@ def build_autobuild_backend(
         max_output_bytes=_AUTOBUILD_EXECUTE_MAX_OUTPUT_BYTES,
     )
 
-    # TASK-PERF-COACHSYNTH — optionally cap per-tool-result size for the
-    # Coach gather. Compute artifacts_root from ``local_shell.cwd`` BEFORE
-    # wrapping so the summarisation re-rooting is unaffected by the wrapper;
-    # the TruncatingBackend then sits as the composite ``default`` and caps
-    # read/grep/execute results. ``None`` leaves the backend unwrapped
-    # (Player/synthesis behaviour unchanged).
+    # TASK-FIX-WTESCAPE01 — confine write/edit to the allowed roots. This
+    # restores the file-tool containment NOVMODE removed, without touching
+    # the literal-absolute-path semantics for in-worktree paths (Coach JSON
+    # writes still work). Compute artifacts_root from ``local_shell.cwd``
+    # BEFORE wrapping so the summarisation re-rooting is unaffected by any
+    # wrapper.
     artifacts_root = str(local_shell.cwd)
-    default_backend: Any = local_shell
+    default_backend: Any = PathConfinedBackend(
+        local_shell, _allowed_write_roots(worktree, extra_write_roots)
+    )
+
+    # TASK-PERF-COACHSYNTH — optionally cap per-tool-result size for the
+    # Coach gather. The TruncatingBackend overrides only read/grep/execute,
+    # disjoint from PathConfinedBackend's write/edit overrides, so stacking
+    # order is immaterial for behaviour; confinement sits innermost so it
+    # also guards any future wrapper that delegates writes. ``None`` leaves
+    # results uncapped (Player/synthesis behaviour unchanged).
     if max_tool_result_chars is not None:
-        default_backend = TruncatingBackend(local_shell, max_tool_result_chars)
+        default_backend = TruncatingBackend(default_backend, max_tool_result_chars)
 
     # TASK-HMIG-002R-SUMM-ROOT — wrap so SummarizationMiddleware's offload
     # prefix becomes ``<worktree>/conversation_history`` instead of literal

@@ -225,3 +225,21 @@ class TestBuildBackendWiring:
         assert isinstance(backend.default, TruncatingBackend)
         # artifacts_root must still re-root summarisation under the worktree
         assert str(tmp_path) in str(backend.artifacts_root)
+
+    def test_wrapped_default_still_passes_composite_execute_gate(
+        self, tmp_path: Path
+    ) -> None:
+        """TASK-FIX-WTESCAPE01 regression — wrappers satisfy the ABC gate.
+
+        ``CompositeBackend.execute`` gates on
+        ``isinstance(default, SandboxBackendProtocol)`` (an ABC, so
+        ``__getattr__`` delegation alone does not satisfy it). Before the
+        ``SandboxBackendProtocol.register(...)`` calls in backend_config,
+        a TruncatingBackend default raised ``NotImplementedError`` on the
+        Coach gather's first ``execute`` — latent since
+        TASK-PERF-COACHSYNTH.
+        """
+        for kwargs in ({}, {"max_tool_result_chars": 4096}):
+            backend = build_autobuild_backend(tmp_path, **kwargs)
+            result = backend.execute("echo gate-open")
+            assert "gate-open" in result.output
