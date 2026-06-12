@@ -45,6 +45,10 @@ dependencies = [
     # clean ``uv sync`` pruned it and the synthesis call failed at runtime.
     # (TASK-OPS-COACHMOE01, 2026-06-11.)
     "langchain-openai>=1,<2",
+    # tree-sitter + language pack for stack-agnostic wiring analysis (Wave 0).
+    # The pack ships precompiled grammars for python/javascript/typescript/csharp.
+    "tree-sitter>=0.25,<1",
+    "tree-sitter-language-pack>=1.0,<2",
 ]
 
 [project.optional-dependencies]
@@ -73,6 +77,8 @@ packages = [
     "guardkitfactory.bdd",
     "guardkitfactory.bdd.plugins",
     "guardkitfactory.harness",
+    "guardkitfactory.wiring",
+    "guardkitfactory.wiring.dialects",
     "lib",
 ]
 
