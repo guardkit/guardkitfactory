@@ -263,3 +263,102 @@ class TestSynthesisReasoningBudget:
         monkeypatch.delenv(self._ENV, raising=False)
         harness = LangGraphHarness(model="openai:gemma4:31b")
         assert harness._synthesis_reasoning_budget() is None
+
+
+# ---------------------------------------------------------------------------
+# TASK-FIX-COACHREASON01 (FEAT-9DDE run-3 follow-up) — default-off toggle that
+# suppresses the synthesis reasoning_content phase via the chat-template kwarg
+# ``enable_thinking=false``. This is the toggle the GB10 llama-swap gemma models
+# actually honour (the llama.cpp ``reasoning_budget`` field is ignored there:
+# a reasoning_budget=0 probe still emitted 3041 chars of reasoning_content).
+# ---------------------------------------------------------------------------
+
+
+class TestSynthesisDisableThinking:
+    _ENV = "GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING"
+    _BUDGET_ENV = "GUARDKIT_COACH_SYNTHESIS_REASONING_BUDGET"
+
+    def test_unset_omits_field_default_off(self, monkeypatch) -> None:
+        """Default-off: no env → no chat_template_kwargs in the request body."""
+        monkeypatch.delenv(self._ENV, raising=False)
+        monkeypatch.delenv(self._BUDGET_ENV, raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        assert "extra_body" not in chatopenai.call_args.kwargs
+
+    def test_truthy_injects_chat_template_kwargs_string_path(self, monkeypatch) -> None:
+        monkeypatch.setenv(self._ENV, "1")
+        monkeypatch.delenv(self._BUDGET_ENV, raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        assert chatopenai.call_args.kwargs["extra_body"] == {
+            "chat_template_kwargs": {"enable_thinking": False}
+        }
+
+    def test_merges_with_grammar_and_reasoning_budget(self, monkeypatch) -> None:
+        """Orthogonal to reasoning_budget — all three ride together."""
+        monkeypatch.setenv(self._ENV, "true")
+        monkeypatch.setenv(self._BUDGET_ENV, "0")
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar="GBNF", role="coach")
+
+        assert chatopenai.call_args.kwargs["extra_body"] == {
+            "grammar": "GBNF",
+            "reasoning_budget": 0,
+            "chat_template_kwargs": {"enable_thinking": False},
+        }
+
+    def test_does_not_lower_max_tokens(self, monkeypatch) -> None:
+        """Suppressing thinking must NOT touch max_tokens (AC-3 parity)."""
+        monkeypatch.setenv(self._ENV, "yes")
+        monkeypatch.delenv("GUARDKIT_COACH_SYNTHESIS_MAX_TOKENS", raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar="GBNF", role="coach")
+
+        assert chatopenai.call_args.kwargs["max_tokens"] == 16384
+
+    def test_falsey_value_omits_field(self, monkeypatch) -> None:
+        monkeypatch.setenv(self._ENV, "0")
+        monkeypatch.delenv(self._BUDGET_ENV, raising=False)
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+
+        with patch("langchain_openai.ChatOpenAI") as chatopenai:
+            harness._build_synthesis_model(grammar=None, role="coach")
+
+        assert "extra_body" not in chatopenai.call_args.kwargs
+
+    def test_injected_model_binds_chat_template_kwargs(self, monkeypatch) -> None:
+        monkeypatch.setenv(self._ENV, "on")
+        monkeypatch.delenv(self._BUDGET_ENV, raising=False)
+        fake = _fake_chat_model()
+        harness = LangGraphHarness(model=fake)
+
+        harness._build_synthesis_model(grammar="GBNF", role="coach")
+
+        fake.bind.assert_called_once_with(
+            extra_body={
+                "grammar": "GBNF",
+                "chat_template_kwargs": {"enable_thinking": False},
+            }
+        )
+
+    def test_helper_truthy_and_falsey(self, monkeypatch) -> None:
+        harness = LangGraphHarness(model="openai:gemma4:31b")
+        for val in ("1", "true", "TRUE", "yes", "On"):
+            monkeypatch.setenv(self._ENV, val)
+            assert harness._synthesis_disable_thinking() is True
+        for val in ("0", "false", "no", "", "off", "maybe"):
+            monkeypatch.setenv(self._ENV, val)
+            assert harness._synthesis_disable_thinking() is False
+        monkeypatch.delenv(self._ENV, raising=False)
+        assert harness._synthesis_disable_thinking() is False

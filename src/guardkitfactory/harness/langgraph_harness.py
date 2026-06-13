@@ -154,6 +154,23 @@ _SYNTHESIS_MAX_TOKENS_DEFAULT = 16384
 # pattern); until then the default-off knob carries zero risk to current runs.
 _SYNTHESIS_REASONING_BUDGET_ENV = "GUARDKIT_COACH_SYNTHESIS_REASONING_BUDGET"
 
+# TASK-FIX-COACHREASON01 (FEAT-9DDE run-3 follow-up): default-off toggle that
+# suppresses the toolless-synthesis reasoning_content phase via the
+# chat-template kwarg ``enable_thinking=false`` rather than the llama.cpp
+# ``reasoning_budget`` field above. This resolves the AC-4 falsifier deferred by
+# COACHTURNBUDGET: on the GB10 llama-swap endpoint the ``reasoning_budget`` wire
+# field is IGNORED for gemma4-31b (a reasoning_budget=0 probe still emitted 3041
+# chars of reasoning_content / 776 tokens), but
+# ``chat_template_kwargs={"enable_thinking": false}`` drops reasoning_content to
+# 0 (47→2 completion tokens) while the grammar-constrained verdict still emits.
+# That ~31-min Coach turn (FEAT-9DDE run 3 turn 1) is the latency this closes.
+# Default UNSET/falsey → the field is omitted and behaviour is unchanged. Truthy
+# ("1"/"true"/"yes"/"on") → ``chat_template_kwargs`` rides in ``extra_body`` as a
+# top-level body field (servers that don't define the template var ignore it,
+# exactly like ``grammar``). Orthogonal to ``reasoning_budget`` — set whichever
+# the target server honours; both can be set together.
+_SYNTHESIS_DISABLE_THINKING_ENV = "GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING"
+
 # TASK-PERF-COACHSYNTH: hard ceiling on the DeepAgents/LangGraph super-step
 # count for a single ``invoke``. ``None`` (the default) preserves LangGraph's
 # own default (25) — unchanged behaviour for the Player and synthesis paths.
@@ -573,6 +590,24 @@ class LangGraphHarness(HarnessAdapter):
             )
             return None
 
+    def _synthesis_disable_thinking(self) -> bool:
+        """Resolve whether to suppress the synthesis reasoning_content phase via
+        the chat-template ``enable_thinking=false`` toggle.
+
+        TASK-FIX-COACHREASON01. Returns ``True`` only when
+        ``GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING`` is a truthy string
+        (``1``/``true``/``yes``/``on``, case-insensitive). When True the
+        synthesis request body carries
+        ``chat_template_kwargs={"enable_thinking": False}`` — the toggle the
+        GB10 llama-swap gemma models actually honour (the llama.cpp
+        ``reasoning_budget`` field is ignored there). Default-off: unset or any
+        other value omits the field and leaves behaviour unchanged.
+        """
+        raw = os.environ.get(_SYNTHESIS_DISABLE_THINKING_ENV)
+        if raw is None:
+            return False
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+
     def _build_synthesis_model(self, *, grammar: str | None, role: str) -> Any:
         """Build the **toolless** model for a Coach verdict-synthesis turn.
 
@@ -614,6 +649,9 @@ class LangGraphHarness(HarnessAdapter):
         reasoning_budget = self._synthesis_reasoning_budget()
         if reasoning_budget is not None:
             _extras["reasoning_budget"] = reasoning_budget
+        disable_thinking = self._synthesis_disable_thinking()
+        if disable_thinking:
+            _extras["chat_template_kwargs"] = {"enable_thinking": False}
         extra_body: dict[str, Any] | None = _extras or None
 
         if isinstance(self.model, BaseChatModel):
@@ -655,10 +693,11 @@ class LangGraphHarness(HarnessAdapter):
             kwargs["api_key"] = api_key
         logger.info(
             "TASK-ARCH-COACHSPLIT: toolless synthesis model role=%r model=%r "
-            "grammar=%s reasoning_budget=%s transport=chat-completions "
-            "max_tokens=%d",
+            "grammar=%s reasoning_budget=%s disable_thinking=%s "
+            "transport=chat-completions max_tokens=%d",
             role, bare, "present" if grammar else "none",
             reasoning_budget if reasoning_budget is not None else "unset",
+            disable_thinking,
             kwargs["max_tokens"],
         )
         # Force chat-completions transport (probe-faithful). Tolerate an older
