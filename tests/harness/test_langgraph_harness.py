@@ -1264,3 +1264,78 @@ class TestAcloseFinalisation:
         )
         assert handle is None
         assert lingering == [], f"consumer-cancel left lingering tasks: {lingering}"
+
+
+# ---------------------------------------------------------------------------
+# TASK-FIX-SPECINVOKE01: substrate-aware model-activity callback
+# ---------------------------------------------------------------------------
+
+
+class TestModelActivityCallback:
+    """``on_model_activity`` is surfaced as a LangChain callback.
+
+    The orchestrator's no-model-activity specialist watchdog
+    (``guardkit.orchestrator.specialist_invocations``) keys on an activity
+    clock that the consumer loop only refreshes when a ``HarnessEvent`` is
+    *yielded* — but this harness awaits the whole ``agent.ainvoke()`` before
+    yielding any event, so the clock froze for the entire run and the watchdog
+    false-killed live, model-active specialists at 150 s (FEAT-9DDE run 3).
+    Threading ``on_model_activity`` into ``ainvoke``'s ``config["callbacks"]``
+    restores a faithful signal: every LLM/tool boundary pings the sink.
+    """
+
+    def test_constructor_stores_on_model_activity(self) -> None:
+        cb = lambda: None  # noqa: E731
+        harness = LangGraphHarness(model="ignored", on_model_activity=cb)
+        assert harness.on_model_activity is cb
+
+    def test_default_on_model_activity_is_none_and_config_is_none(self) -> None:
+        """Unset → ``None`` config so the single-arg ``ainvoke`` shape (and the
+        happy-path test that asserts it) is preserved byte-for-byte."""
+        harness = LangGraphHarness(model="ignored")
+        assert harness.on_model_activity is None
+        assert harness._build_invoke_config() is None
+
+    def test_invoke_threads_callback_handler_into_ainvoke_config(self) -> None:
+        pings: list[int] = []
+        harness = LangGraphHarness(
+            model="ignored", on_model_activity=lambda: pings.append(1)
+        )
+        fake_agent = _make_fake_agent()
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            _drain(harness, prompt="run tests")
+
+        config = fake_agent.ainvoke.await_args.kwargs.get("config")
+        assert config is not None, "ainvoke must receive a config when a sink is set"
+        assert "callbacks" in config
+        handler = config["callbacks"][0]
+        assert type(handler).__name__ == "_ModelActivityCallbackHandler"
+
+        # Every model/tool boundary pings the sink — this is the substrate-
+        # aware activity signal the watchdog consumes.
+        handler.on_chat_model_start()
+        handler.on_llm_start()
+        handler.on_llm_new_token()
+        handler.on_llm_end()
+        handler.on_tool_start()
+        handler.on_tool_end()
+        assert len(pings) == 6
+
+    def test_callback_handler_swallows_sink_exceptions(self) -> None:
+        """A misbehaving activity sink must never abort the agent run."""
+        from guardkitfactory.harness.langgraph_harness import (
+            _ModelActivityCallbackHandler,
+        )
+
+        def boom() -> None:
+            raise RuntimeError("activity sink is down")
+
+        handler = _ModelActivityCallbackHandler(boom)
+        # Must not raise.
+        handler.on_chat_model_start()
+        handler.on_llm_end()
+        handler.on_tool_start()

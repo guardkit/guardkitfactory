@@ -46,7 +46,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -59,6 +59,7 @@ from guardkit.orchestrator.harness import (
     ResultMessageEvent,
     ToolUseEvent,
 )
+from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 
 from guardkitfactory.harness.extractors import (
@@ -243,6 +244,68 @@ class LangGraphHarnessError(RuntimeError):
     """
 
 
+class _ModelActivityCallbackHandler(BaseCallbackHandler):
+    """LangChain callback that pings ``on_model_activity`` on real LLM/tool work.
+
+    TASK-FIX-SPECINVOKE01. The orchestrator's no-model-activity watchdog
+    (``guardkit.orchestrator.specialist_invocations._run_specialist_with_watchdog``)
+    keys on ``AgentInvoker._last_activity_monotonic``, which the consumer
+    loop in ``AgentInvoker._invoke_with_role`` only refreshes when a
+    :class:`HarnessEvent` is *yielded*. But :meth:`LangGraphHarness.invoke`
+    awaits the **entire** multi-turn ``agent.ainvoke()`` before yielding any
+    event, so the activity clock stays frozen at its seed value for the whole
+    run — and the watchdog kills a *live, model-active* specialist at the
+    150 s mark (FEAT-9DDE run 3: ~18 successful ``/v1/responses`` POSTs, yet
+    ``0 events`` reached the consumer). This handler restores a faithful
+    activity signal: it fires on every model-call boundary and every tool
+    boundary, so the watchdog measures *real* model activity rather than the
+    LangGraph harness's buffered event-arrival cadence. A genuine hang
+    (the substrate stops calling the model entirely, e.g. run-9 turn-2) still
+    starves the callback, so the watchdog continues to catch it.
+
+    The callback is best-effort and never raises into the LangChain run
+    (``raise_error`` stays False): a misbehaving activity sink must not abort
+    the agent.
+    """
+
+    def __init__(self, on_model_activity: Callable[[], None]) -> None:
+        self._on_model_activity = on_model_activity
+
+    def _ping(self) -> None:
+        try:
+            self._on_model_activity()
+        except Exception:  # noqa: BLE001 — activity sink must never abort a run
+            logger.debug(
+                "TASK-FIX-SPECINVOKE01: on_model_activity callback raised; "
+                "ignoring.",
+                exc_info=True,
+            )
+
+    # Model-call boundaries. ``on_chat_model_start`` covers chat models
+    # (ChatOpenAI / init_chat_model — the autobuild default); ``on_llm_start``
+    # covers completion models; ``on_llm_new_token`` covers any streamed
+    # token; ``on_llm_end`` covers the response landing.
+    def on_chat_model_start(self, *args: Any, **kwargs: Any) -> None:
+        self._ping()
+
+    def on_llm_start(self, *args: Any, **kwargs: Any) -> None:
+        self._ping()
+
+    def on_llm_new_token(self, *args: Any, **kwargs: Any) -> None:
+        self._ping()
+
+    def on_llm_end(self, *args: Any, **kwargs: Any) -> None:
+        self._ping()
+
+    # Tool boundaries — a long-running tool (e.g. the test-orchestrator's
+    # background pytest poll) is also genuine progress, not a hang.
+    def on_tool_start(self, *args: Any, **kwargs: Any) -> None:
+        self._ping()
+
+    def on_tool_end(self, *args: Any, **kwargs: Any) -> None:
+        self._ping()
+
+
 class LangGraphHarness(HarnessAdapter):
     """Concrete :class:`HarnessAdapter` backed by LangGraph + DeepAgents.
 
@@ -277,10 +340,19 @@ class LangGraphHarness(HarnessAdapter):
         backend: Any = None,
         permissions: list[Any] | None = None,
         recursion_limit: int | None = _RECURSION_LIMIT_DEFAULT,
+        on_model_activity: Callable[[], None] | None = None,
     ) -> None:
         self.model = model
         self.backend = backend
         self.permissions = permissions
+        # TASK-FIX-SPECINVOKE01: optional sink pinged on every LLM/tool
+        # boundary during ``agent.ainvoke``. The orchestrator threads
+        # ``AgentInvoker._bump_activity`` here so the no-model-activity
+        # watchdog measures real model activity rather than this harness's
+        # buffered (await-then-yield) event cadence. ``None`` (the default,
+        # and what every existing test/construction site supplies) installs
+        # no callbacks — behaviour is byte-for-byte unchanged.
+        self.on_model_activity = on_model_activity
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # preserves LangGraph's default (25). The Coach gather passes a small
@@ -361,6 +433,32 @@ class LangGraphHarness(HarnessAdapter):
         TASK-REV-R2A1 documents).
         """
         return {"messages": [{"role": "user", "content": prompt}]}
+
+    def _build_invoke_config(self) -> dict[str, Any] | None:
+        """Assemble the ``ainvoke`` ``config`` dict, or ``None`` when empty.
+
+        TASK-FIX-SPECINVOKE01 / TASK-PERF-COACHSYNTH. Combines two optional
+        knobs:
+
+        * ``recursion_limit`` — the per-invoke super-step ceiling (LangGraph
+          default 25 when ``None``).
+        * ``callbacks`` — a single :class:`_ModelActivityCallbackHandler`
+          wrapping ``self.on_model_activity`` so the orchestrator's
+          no-model-activity watchdog sees real LLM/tool progress through this
+          harness's await-then-yield event cadence.
+
+        Returns ``None`` when neither knob is set so the historical single-arg
+        ``agent.ainvoke(input_data)`` call shape (and the tests that assert it)
+        is preserved unchanged.
+        """
+        config: dict[str, Any] = {}
+        if self.recursion_limit is not None:
+            config["recursion_limit"] = self.recursion_limit
+        if self.on_model_activity is not None:
+            config["callbacks"] = [
+                _ModelActivityCallbackHandler(self.on_model_activity)
+            ]
+        return config or None
 
     async def invoke(
         self,
@@ -460,11 +558,15 @@ class LangGraphHarness(HarnessAdapter):
         # gather) caps the tool-using loop; exceeding it raises
         # ``GraphRecursionError`` which the wrap-and-reraise below turns into
         # ``LangGraphHarnessError`` → orchestrator degrades to B-min (AC-2).
-        if self.recursion_limit is not None:
+        # TASK-FIX-SPECINVOKE01: ``_build_invoke_config`` folds the
+        # ``recursion_limit`` super-step ceiling together with the optional
+        # model-activity callbacks. When BOTH are unset it returns ``None`` so
+        # the historical single-arg ``ainvoke(input_data)`` shape is preserved
+        # byte-for-byte (the unchanged Player/synthesis default).
+        _config = self._build_invoke_config()
+        if _config is not None:
             self._ainvoke_task = asyncio.create_task(
-                agent.ainvoke(
-                    input_data, config={"recursion_limit": self.recursion_limit}
-                )
+                agent.ainvoke(input_data, config=_config)
             )
         else:
             self._ainvoke_task = asyncio.create_task(agent.ainvoke(input_data))
@@ -736,9 +838,25 @@ class LangGraphHarness(HarnessAdapter):
         # TASK-FIX-CTOUT01 parity: wrap ainvoke in an explicit Task so
         # :meth:`cancel` can propagate CancelledError into the in-flight
         # HTTP request (same rationale as :meth:`invoke`).
-        self._ainvoke_task = asyncio.create_task(
-            model.ainvoke(input_data["messages"])
-        )
+        # TASK-FIX-SPECINVOKE01 parity: thread the model-activity callback so
+        # a long synthesis turn also refreshes the orchestrator activity clock.
+        # The bare-model synthesis path has no ``recursion_limit``, so only the
+        # callbacks knob applies here.
+        if self.on_model_activity is not None:
+            self._ainvoke_task = asyncio.create_task(
+                model.ainvoke(
+                    input_data["messages"],
+                    config={
+                        "callbacks": [
+                            _ModelActivityCallbackHandler(self.on_model_activity)
+                        ]
+                    },
+                )
+            )
+        else:
+            self._ainvoke_task = asyncio.create_task(
+                model.ainvoke(input_data["messages"])
+            )
         try:
             try:
                 result = await self._ainvoke_task
