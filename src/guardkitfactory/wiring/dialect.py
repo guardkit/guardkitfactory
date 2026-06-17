@@ -117,6 +117,43 @@ class WiringDialect:
     smoke_expected_symbol:
         The symbol name :meth:`smoke_test` expects to capture from
         ``smoke_snippet``.
+    composition_root_markers:
+        Path substrings identifying the composition root(s) — the
+        ``main.py`` / app-factory / DI-wiring files where first-party
+        services are constructed (e.g. ``("/main.py", "__main__.py",
+        "/app.py", "container", "/wiring")``).  The CTOR_ARITY probe only
+        scans constructor calls inside these files.  Empty ⇒ the probe is a
+        no-op for this dialect (absent-signal, never a pass — AC#5).
+    constructor_signature_query:
+        S-expression capturing a class declaration's name as ``@class`` and
+        its constructor parameter list as ``@params`` (Python: a
+        ``class_definition`` whose body defines ``__init__``).  Empty ⇒
+        ctor-arity does not run for this dialect.
+    constructor_call_query:
+        S-expression capturing a constructor call's callee identifier as
+        ``@class`` and its argument list as ``@args``.  Empty ⇒ ctor-arity
+        does not run.
+    param_self_names:
+        Parameter names excluded from the required-arg count (``("self",
+        "cls")`` for Python).
+    param_default_node_types:
+        Parameter node types that carry a default value (Python:
+        ``default_parameter``, ``typed_default_parameter``) — NOT required.
+    param_splat_node_types:
+        Parameter node types making the signature's arity unknowable
+        (Python: ``list_splat_pattern``, ``dictionary_splat_pattern``).  Any
+        present ⇒ the signature is treated as variadic and never flagged
+        (bias OK).
+    param_required_node_types:
+        Parameter node types that count as a required positional-or-keyword
+        parameter (Python: ``identifier``, ``typed_parameter``).
+    arg_keyword_node_types:
+        Call-argument node types that are keyword/named arguments (Python:
+        ``keyword_argument``) — they satisfy a required param by name.
+    arg_splat_node_types:
+        Call-argument node types that splat an unknown number of arguments
+        (Python: ``list_splat``, ``dictionary_splat``).  Any present ⇒ the
+        call's arity is unknowable and the call is never flagged (bias OK).
     """
 
     language: str
@@ -135,6 +172,18 @@ class WiringDialect:
     public_visibilities: tuple[str, ...] = ()
     smoke_snippet: str = ""
     smoke_expected_symbol: str = ""
+    # CTOR_ARITY probe (composition-root constructor-arity). All defaulted
+    # so existing dialect records (js/ts/c#) stay valid and the probe is a
+    # no-op for any dialect that does not populate them (absent-signal).
+    composition_root_markers: tuple[str, ...] = ()
+    constructor_signature_query: str = ""
+    constructor_call_query: str = ""
+    param_self_names: tuple[str, ...] = ()
+    param_default_node_types: tuple[str, ...] = ()
+    param_splat_node_types: tuple[str, ...] = ()
+    param_required_node_types: tuple[str, ...] = ()
+    arg_keyword_node_types: tuple[str, ...] = ()
+    arg_splat_node_types: tuple[str, ...] = ()
 
     def smoke_test(self) -> bool:
         """Compile all queries against the live grammar and match the snippet.
@@ -171,6 +220,16 @@ class WiringDialect:
         ] + [
             (f"registration_queries[{i}]", q)
             for i, q in enumerate(self.registration_queries)
+        ] + [
+            # CTOR_ARITY queries are optional per dialect; compile them only
+            # when populated so a malformed S-expr fails here (Wave 0) rather
+            # than masquerading as a silent skip later.
+            (qname, qtext)
+            for qname, qtext in (
+                ("constructor_signature_query", self.constructor_signature_query),
+                ("constructor_call_query", self.constructor_call_query),
+            )
+            if qtext
         ]
 
         compiled: dict[str, Query] = {}

@@ -23,6 +23,7 @@ from __future__ import annotations
 # Side-effect import: registers all built-in dialects.
 import guardkitfactory.wiring.dialects  # noqa: F401
 from guardkitfactory.wiring.analyzer import (
+    CtorArityResult,
     Finding,
     MockSeamResult,
     WiringResult,
@@ -38,6 +39,7 @@ from guardkitfactory.wiring.dialect import (
 from guardkitfactory.wiring.parser import get_parser, parse_bytes, parse_file
 
 __all__ = [
+    "CtorArityResult",
     "Finding",
     "MockSeamResult",
     "WiringDialect",

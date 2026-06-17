@@ -201,6 +201,37 @@ class MockSeamResult:
         }
 
 
+@dataclass
+class CtorArityResult:
+    """Result of a CTOR_ARITY (composition-root constructor-arity) run.
+
+    Nested under the ``"ctor_arity"`` key of the ``analyze_wiring`` dict, in
+    parallel with ``"mocked_seam"``.  ``ran=False`` (no composition root, or
+    a dialect with no ctor-arity queries) is an **absent** signal — never a
+    pass, never a block (AC#5 / absence-of-failure).
+    """
+
+    status: WiringStatus = "skipped_no_composition_root"
+    ran: bool = False
+    skip_reason: str | None = "no composition root found"
+    dialect: str | None = None
+    language: str = ""
+    composition_roots_scanned: int = 0
+    findings: list[Finding] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to a serializable dict (``bundle.ctor_arity`` shape)."""
+        return {
+            "status": self.status,
+            "ran": self.ran,
+            "skip_reason": self.skip_reason,
+            "dialect": self.dialect,
+            "language": self.language,
+            "composition_roots_scanned": self.composition_roots_scanned,
+            "findings": [_finding_to_dict(f) for f in self.findings],
+        }
+
+
 # ---------------------------------------------------------------------------
 # File-walking helpers
 # ---------------------------------------------------------------------------
@@ -239,6 +270,12 @@ def _is_acceptance_file(path: str, dialect: WiringDialect) -> bool:
     """Check if a path matches the dialect's acceptance/integration markers."""
     p = _norm_path(path)
     return any(marker in p for marker in dialect.acceptance_path_markers)
+
+
+def _is_composition_root(path: str, dialect: WiringDialect) -> bool:
+    """Check if a path matches the dialect's composition-root markers."""
+    p = _norm_path(path)
+    return any(marker in p for marker in dialect.composition_root_markers)
 
 
 def _matches_glob(path: str, patterns: tuple[str, ...]) -> bool:
@@ -482,6 +519,123 @@ def _substring_fallback(
 
 
 # ---------------------------------------------------------------------------
+# Constructor-arity helpers (CTOR_ARITY probe)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _CtorSig:
+    """Extracted constructor signature for a first-party class."""
+
+    name: str
+    required: int          # required positional-or-keyword params (excl. self)
+    total: int             # required + defaulted params (excl. self)
+    variadic: bool         # has *args / **kwargs → arity unknowable (bias OK)
+    lineno: int = 0
+
+
+def _first_identifier_text(node: Any, source: bytes) -> str:
+    """Return the text of the first ``identifier`` descendant (the param name).
+
+    For ``self`` the node IS an identifier; for ``x: int`` / ``x=1`` the param
+    name is the first identifier in document order (before the colon/equals).
+    """
+    if node.type == "identifier":
+        return _node_text(node, source)
+    for child in node.children:
+        if child.type == "identifier":
+            return _node_text(child, source)
+    return ""
+
+
+def _summarise_params(
+    params_node: Any, source: bytes, dialect: WiringDialect
+) -> tuple[int, int, bool]:
+    """Count (required, total, variadic) for a constructor parameter list.
+
+    DATA-driven via the dialect's ``param_*`` node-type tuples — no language
+    branching here.  ``self``/``cls`` (``param_self_names``) are excluded.
+    Any splat parameter makes the signature variadic (arity unknowable).
+    """
+    required = 0
+    total = 0
+    variadic = False
+    for child in params_node.named_children:
+        ctype = child.type
+        if ctype in dialect.param_splat_node_types:
+            variadic = True
+        elif ctype in dialect.param_default_node_types:
+            name = _first_identifier_text(child, source)
+            if name in dialect.param_self_names:
+                continue
+            total += 1  # defaulted → optional, counts toward total only
+        elif ctype in dialect.param_required_node_types:
+            name = _first_identifier_text(child, source)
+            if name in dialect.param_self_names:
+                continue
+            required += 1
+            total += 1
+        # else: keyword-only separator / comment / anonymous → ignored
+    return required, total, variadic
+
+
+def _extract_ctor_signatures(
+    source: bytes, tree: Any, dialect: WiringDialect
+) -> dict[str, _CtorSig]:
+    """Extract ``{class_name: _CtorSig}`` for classes defining a constructor."""
+    if not dialect.constructor_signature_query:
+        return {}
+    try:
+        matches = _run_query_matches(
+            dialect.constructor_signature_query, tree, dialect.ts_language_name
+        )
+    except Exception as exc:
+        logger.warning(
+            "constructor_signature_query failed for '%s': %s",
+            dialect.language, exc,
+        )
+        return {}
+    sigs: dict[str, _CtorSig] = {}
+    for captures in matches:
+        class_nodes = captures.get("class", [])
+        params_nodes = captures.get("params", [])
+        if not class_nodes or not params_nodes:
+            continue
+        cls_name = _node_text(class_nodes[0], source)
+        if not cls_name:
+            continue
+        required, total, variadic = _summarise_params(
+            params_nodes[0], source, dialect
+        )
+        sigs[cls_name] = _CtorSig(
+            name=cls_name,
+            required=required,
+            total=total,
+            variadic=variadic,
+            lineno=class_nodes[0].start_point[0] + 1,
+        )
+    return sigs
+
+
+def _summarise_call_args(
+    args_node: Any, source: bytes, dialect: WiringDialect
+) -> tuple[int, int, bool]:
+    """Count (positional, keyword, splat_present) for a constructor call."""
+    positional = 0
+    keyword = 0
+    splat = False
+    for child in args_node.named_children:
+        ctype = child.type
+        if ctype in dialect.arg_splat_node_types:
+            splat = True
+        elif ctype in dialect.arg_keyword_node_types:
+            keyword += 1
+        else:
+            positional += 1
+    return positional, keyword, splat
+
+
+# ---------------------------------------------------------------------------
 # Per-dialect analysis
 # ---------------------------------------------------------------------------
 
@@ -498,6 +652,8 @@ class _DialectAnalysis:
     mocked: list[Finding] = field(default_factory=list)
     mocks_ignored: list[Finding] = field(default_factory=list)
     acceptance_files_scanned: int = 0
+    ctor_arity: list[Finding] = field(default_factory=list)
+    composition_roots_scanned: int = 0
 
 
 def _parse_or_none(source: bytes, dialect: WiringDialect) -> Any | None:
@@ -527,6 +683,8 @@ def _analyze_dialect(
     candidates: list[tuple[str, dict[str, Any]]] = []
     wired_by_dunder_all: set[str] = set()
     authored_seams: set[str] = set()
+    # First-party constructor signatures authored this turn (CTOR_ARITY).
+    ctor_signatures: dict[str, _CtorSig] = {}
 
     for rel_path in targets:
         source = _read_bytes(worktree / rel_path)
@@ -545,6 +703,7 @@ def _analyze_dialect(
         for sym in symbols:
             candidates.append((rel_path, sym))
             authored_seams.add(sym["name"])
+        ctor_signatures.update(_extract_ctor_signatures(source, tree, dialect))
 
     # --- Build reference + registration maps over the worktree ------------
     # Reference map is per-file so a symbol's own defining file and test
@@ -680,6 +839,91 @@ def _analyze_dialect(
                     **base,
                 ))
 
+    # --- CTOR_ARITY over composition-root files ----------------------------
+    # Scans ALL composition-root files in the worktree (not just authored
+    # ones): a pre-existing main.py / app-factory that constructs an authored
+    # service with the wrong arity is the FEAT-POC-006 defect just the same.
+    # The SIGNATURE SET stays authored-only, so attribution precision is
+    # preserved and only first-party authored services are checked.
+    if (
+        dialect.constructor_call_query
+        and dialect.constructor_signature_query
+        and ctor_signatures
+    ):
+        comp_root_files = [
+            f
+            for f in _collect_source_files(worktree, dialect)
+            if _is_composition_root(f, dialect) and not _is_test_file(f, dialect)
+        ]
+        for rel_path in comp_root_files:
+            source = _read_bytes(worktree / rel_path)
+            if source is None:
+                continue
+            tree = _parse_or_none(source, dialect)
+            if tree is None:
+                continue
+            out.composition_roots_scanned += 1
+            try:
+                matches = _run_query_matches(
+                    dialect.constructor_call_query, tree, dialect.ts_language_name
+                )
+            except Exception as exc:
+                logger.warning(
+                    "constructor_call_query failed for '%s': %s",
+                    dialect.language, exc,
+                )
+                continue
+            for captures in matches:
+                class_nodes = captures.get("class", [])
+                args_nodes = captures.get("args", [])
+                if not class_nodes or not args_nodes:
+                    continue
+                cls_name = _node_text(class_nodes[0], source)
+                sig = ctor_signatures.get(cls_name)
+                if sig is None:
+                    continue  # not a first-party authored service → skip
+                if sig.variadic:
+                    continue  # *args/**kwargs in __init__ → arity unknowable
+                positional, keyword, call_splat = _summarise_call_args(
+                    args_nodes[0], source, dialect
+                )
+                if call_splat:
+                    continue  # *args/**kwargs at call site → bias OK
+                lineno = class_nodes[0].start_point[0] + 1
+                provided = positional + keyword
+                base = dict(
+                    file=rel_path,
+                    symbol=cls_name,
+                    kind="CTOR_ARITY",
+                    module=os.path.basename(rel_path),
+                    lineno=lineno,
+                    severity="warning",
+                    pattern="CTOR_ARITY",
+                    authored_this_turn=True,
+                    dialect=dialect.language,
+                    language=dialect.language,
+                )
+                if provided < sig.required:
+                    out.ctor_arity.append(Finding(
+                        why=(
+                            f"Composition root constructs '{cls_name}' with "
+                            f"{provided} arg(s) ({positional} positional, "
+                            f"{keyword} keyword) but its __init__ requires "
+                            f"{sig.required} (defined at {sig.lineno})"
+                        ),
+                        **base,
+                    ))
+                elif positional > sig.total:
+                    out.ctor_arity.append(Finding(
+                        why=(
+                            f"Composition root constructs '{cls_name}' with "
+                            f"{positional} positional arg(s) but its __init__ "
+                            f"accepts at most {sig.total} (defined at "
+                            f"{sig.lineno})"
+                        ),
+                        **base,
+                    ))
+
     return out
 
 
@@ -743,6 +987,9 @@ def analyze_wiring(
             "mocked_seam": MockSeamResult(
                 status="error", ran=False, skip_reason="analyzer error"
             ).to_dict(),
+            "ctor_arity": CtorArityResult(
+                status="error", ran=False, skip_reason="analyzer error"
+            ).to_dict(),
         }
 
 
@@ -759,6 +1006,11 @@ def _unsupported_stack_dict(language: str) -> dict[str, Any]:
         "findings": [],
         "degraded_files": [],
         "mocked_seam": MockSeamResult(
+            status="unsupported_stack",
+            ran=False,
+            skip_reason=f"no dialect for language '{language}'",
+        ).to_dict(),
+        "ctor_arity": CtorArityResult(
             status="unsupported_stack",
             ran=False,
             skip_reason=f"no dialect for language '{language}'",
@@ -850,6 +1102,18 @@ def _analyze_wiring_impl(
         external_mocks_ignored=[f for a in analyses for f in a.mocks_ignored],
     )
 
+    comp_scanned = sum(a.composition_roots_scanned for a in analyses)
+    ctor = CtorArityResult(
+        status="ran" if comp_scanned else "skipped_no_composition_root",
+        ran=bool(comp_scanned),
+        skip_reason=None if comp_scanned else "no composition root found",
+        dialect=primary,
+        language=primary,
+        composition_roots_scanned=comp_scanned,
+        findings=[f for a in analyses for f in a.ctor_arity],
+    )
+
     result = wiring.to_dict()
     result["mocked_seam"] = mocked.to_dict()
+    result["ctor_arity"] = ctor.to_dict()
     return result

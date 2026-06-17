@@ -61,9 +61,12 @@ dialect = register_dialect(
                 name: (identifier) @target))
             """,
         ),
-        # Restricted to actual mock primitives via predicate:
-        #   patch("..."), mock.patch("..."), mocker.patch("..."),
-        #   monkeypatch.setattr(target, ...), patch.object(Target, ...)
+        # Restricted to actual mock primitives via predicate.  Three families:
+        #   1. patch("..."), mock.patch("..."), mocker.patch("..."),
+        #      monkeypatch.setattr(target, ...), patch.object(Target, ...)
+        #   2. spec-mock constructors: AsyncMock(spec=Service),
+        #      MagicMock(spec=Service), Mock(spec_set=Service), ... (AC#2)
+        #   3. create_autospec(Service)  (AC#2)
         mock_call_query="""
             (call
               function: [
@@ -78,6 +81,30 @@ dialect = register_dialect(
                   (identifier) @target
                 ])
               (#any-of? @fn "patch" "setattr" "object"))
+
+            (call
+              function: (identifier) @ctor
+              arguments: (argument_list
+                (keyword_argument
+                  name: (identifier) @kw
+                  value: [
+                    (identifier) @target
+                    (attribute) @target
+                  ]))
+              (#any-of? @ctor
+                "Mock" "MagicMock" "AsyncMock"
+                "NonCallableMock" "NonCallableMagicMock")
+              (#any-of? @kw "spec" "spec_set"))
+
+            (call
+              function: (identifier) @autospec
+              arguments: (argument_list
+                .
+                [
+                  (identifier) @target
+                  (attribute) @target
+                ])
+              (#eq? @autospec "create_autospec"))
         """,
         test_path_markers=("/test_", "_test.", ".test.", "/tests/", "conftest.py"),
         acceptance_path_markers=("features/", "tests/integration/", "tests/e2e/"),
@@ -87,5 +114,43 @@ dialect = register_dialect(
         private_name_prefixes=("_",),
         smoke_snippet="def smoke_probe():\n    pass\n",
         smoke_expected_symbol="smoke_probe",
+        # --- CTOR_ARITY probe (composition-root constructor-arity) ----------
+        composition_root_markers=(
+            "/main.py",
+            "main.py",
+            "__main__.py",
+            "/app.py",
+            "app.py",
+            "/factory",
+            "container",
+            "/wiring",
+            "/di/",
+            "/bootstrap",
+        ),
+        # A class whose body defines __init__: capture the class @class and
+        # the __init__ parameter list @params (per-match pairing).
+        constructor_signature_query="""
+            (class_definition
+              name: (identifier) @class
+              body: (block
+                (function_definition
+                  name: (identifier) @method
+                  parameters: (parameters) @params
+                  (#eq? @method "__init__"))))
+        """,
+        # A direct constructor call `ClassName(...)`: bare-identifier callee
+        # only (attribute-qualified calls like `mod.ClassName(...)` are an
+        # accepted false-negative — bias toward no-finding).
+        constructor_call_query="""
+            (call
+              function: (identifier) @class
+              arguments: (argument_list) @args)
+        """,
+        param_self_names=("self", "cls"),
+        param_default_node_types=("default_parameter", "typed_default_parameter"),
+        param_splat_node_types=("list_splat_pattern", "dictionary_splat_pattern"),
+        param_required_node_types=("identifier", "typed_parameter"),
+        arg_keyword_node_types=("keyword_argument",),
+        arg_splat_node_types=("list_splat", "dictionary_splat"),
     )
 )
