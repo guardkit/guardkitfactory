@@ -33,6 +33,7 @@ from guardkit.orchestrator.harness import (
     AssistantMessageEvent,
     HarnessAdapter,
     ResultMessageEvent,
+    ToolResultEvent,
 )
 
 from guardkitfactory import LangGraphHarness, LangGraphHarnessError
@@ -1339,3 +1340,111 @@ class TestModelActivityCallback:
         handler.on_chat_model_start()
         handler.on_llm_end()
         handler.on_tool_start()
+
+
+# ---------------------------------------------------------------------------
+# TASK-FIX-COACHTRES01: ToolMessage → ToolResultEvent (substrate parity)
+# ---------------------------------------------------------------------------
+
+
+def _make_fake_agent_with_tool_result(
+    tool_content: Any = "45 passed in 0.13s",
+    status: str = "success",
+    tool_call_id: str = "tc-1",
+    final_text: str = "done",
+) -> MagicMock:
+    """Fake agent whose result history contains a ToolMessage.
+
+    Mirrors a real DeepAgents run where the agent calls a tool (e.g. the
+    execute/Bash tool running pytest) and the tool's output lands in the
+    message history as a ToolMessage before the final AIMessage.
+    """
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    fake = MagicMock(name="fake_deep_agent_tool_result")
+    fake.ainvoke = AsyncMock(
+        return_value={
+            "messages": [
+                HumanMessage(content="run the tests"),
+                AIMessage(
+                    content="I'll run pytest.",
+                    tool_calls=[
+                        {"name": "execute", "args": {"cmd": "pytest"}, "id": tool_call_id}
+                    ],
+                ),
+                ToolMessage(
+                    content=tool_content,
+                    tool_call_id=tool_call_id,
+                    status=status,
+                ),
+                AIMessage(content=final_text),
+            ]
+        }
+    )
+    return fake
+
+
+class TestToolResultParity:
+    """The LangGraph harness surfaces ToolMessage output as ToolResultEvent.
+
+    Closes the FEAT-HARV narration-capture defect on the LangGraph substrate
+    so the Coach independent-test path captures real pytest stdout, matching
+    the SDK harness's UserMessage/ToolResultBlock emission.
+    """
+
+    def test_tool_message_yields_tool_result_event(self) -> None:
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _make_fake_agent_with_tool_result(
+            tool_content="45 passed in 0.13s", status="success", tool_call_id="tc-7"
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness, prompt="run tests")
+
+        results = [e for e in events if isinstance(e, ToolResultEvent)]
+        assert len(results) == 1
+        assert results[0].content == "45 passed in 0.13s"
+        assert results[0].is_error is False
+        assert results[0].tool_use_id == "tc-7"
+
+        # ToolResultEvent precedes the terminal ResultMessageEvent so the
+        # Coach consumer (which breaks on ResultMessageEvent) captures it.
+        idx_result = next(
+            i for i, e in enumerate(events) if isinstance(e, ToolResultEvent)
+        )
+        idx_terminal = next(
+            i for i, e in enumerate(events) if isinstance(e, ResultMessageEvent)
+        )
+        assert idx_result < idx_terminal
+
+    def test_tool_message_error_status_maps_to_is_error(self) -> None:
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _make_fake_agent_with_tool_result(
+            tool_content="boom: command not found", status="error"
+        )
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        results = [e for e in events if isinstance(e, ToolResultEvent)]
+        assert len(results) == 1
+        assert results[0].is_error is True
+
+    def test_no_tool_message_yields_no_tool_result_event(self) -> None:
+        """The plain happy-path agent (no ToolMessage) emits no ToolResultEvent."""
+        harness = LangGraphHarness(model="ignored")
+        fake_agent = _make_fake_agent(final_text="approve")
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            events = _drain(harness)
+
+        assert not [e for e in events if isinstance(e, ToolResultEvent)]

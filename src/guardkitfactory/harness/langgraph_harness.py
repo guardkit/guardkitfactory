@@ -57,6 +57,7 @@ from guardkit.orchestrator.harness import (
     HarnessAdapter,
     HarnessEvent,
     ResultMessageEvent,
+    ToolResultEvent,
     ToolUseEvent,
 )
 from langchain_core.callbacks import BaseCallbackHandler
@@ -231,6 +232,50 @@ def _iter_tool_use_events(result: Any) -> list[ToolUseEvent]:
                     input=args,
                 )
             )
+    return events
+
+
+def _iter_tool_result_events(result: Any) -> list[ToolResultEvent]:
+    """Extract ``ToolResultEvent`` values from a DeepAgents ``ainvoke`` result.
+
+    TASK-FIX-COACHTRES01 (capture fix, substrate parity). Every
+    ``ToolMessage`` in ``result["messages"]`` carries the *output* of a prior
+    tool call (LangChain v0.3 shape: ``.content`` ``str | list``,
+    ``.tool_call_id`` ``str``, ``.status`` ``"success" | "error"``). Mirrors
+    :func:`_iter_tool_use_events` so the Coach's independent-test path
+    (``coach_validator._run_tests_via_sdk``) sees the *real* command output
+    (e.g. the pytest stdout from the Bash/execute tool) on the LangGraph
+    substrate — not just the agent's final narration. This closes the same
+    FEAT-HARV narration-capture defect on the LangGraph side that the SDK
+    harness fix closes by surfacing the dropped ``UserMessage``/
+    ``ToolResultBlock``: the consumer's pre-existing ``ToolResultEvent``
+    branch prefers ``bash_output`` over the narration ``collected_text``.
+
+    Duck-typed by class name so non-``ToolMessage`` elements (AIMessage,
+    HumanMessage, dict-form messages) are silently skipped. ``content`` is
+    passed through verbatim (``str`` or ``list``) — the consumer handles both.
+
+    Returns
+    -------
+    list[ToolResultEvent]
+        Ordered by appearance in ``result["messages"]``. Empty when the
+        result has no tool-result activity.
+    """
+    if not isinstance(result, dict):
+        return []
+    messages = result.get("messages", []) or []
+    events: list[ToolResultEvent] = []
+    for msg in messages:
+        if type(msg).__name__ != "ToolMessage":
+            continue
+        content = getattr(msg, "content", "")
+        events.append(
+            ToolResultEvent(
+                tool_use_id=str(getattr(msg, "tool_call_id", "") or ""),
+                content=content if content is not None else "",
+                is_error=getattr(msg, "status", "success") == "error",
+            )
+        )
     return events
 
 
@@ -625,6 +670,17 @@ class LangGraphHarness(HarnessAdapter):
             # ``{"name": str, "args": dict, "id": str}``.
             for tool_event in _iter_tool_use_events(result):
                 yield tool_event
+
+            # TASK-FIX-COACHTRES01 (capture fix, substrate parity): emit one
+            # ToolResultEvent per ToolMessage in the result history, BEFORE the
+            # terminal events, so the Coach independent-test consumer captures
+            # the real tool output (pytest stdout) rather than the agent's
+            # narration. Mirrors the SDK harness's UserMessage/ToolResultBlock
+            # emission. Ordered after the tool-USE events to preserve the
+            # use-then-result textual order; the consumer takes the last
+            # ToolResultEvent's content as ``bash_output`` (last-wins).
+            for tool_result_event in _iter_tool_result_events(result):
+                yield tool_result_event
 
             yield AssistantMessageEvent(
                 text=text,
