@@ -233,6 +233,389 @@ class CtorArityResult:
 
 
 # ---------------------------------------------------------------------------
+# Anti-stub body scan (TASK-QAV-001)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class StubScanResult:
+    """Result of an anti-stub body scan run.
+
+    Mirrors ``WiringResult``/``MockSeamResult`` / ``CtorArityResult``:
+    uses the same ``WiringStatus`` vocabulary and never maps to "pass".
+    """
+
+    status: WiringStatus = "skipped_no_targets"
+    ran: bool = False
+    skip_reason: str | None = "no targets to scan"
+    dialect: str | None = None
+    language: str = ""
+    symbols_examined: int = 0
+    findings: list[Finding] = field(default_factory=list)
+    degraded_files: list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to a serializable dict (``bundle.stub_scan`` shape)."""
+        return {
+            "status": self.status,
+            "ran": self.ran,
+            "skip_reason": self.skip_reason,
+            "dialect": self.dialect,
+            "language": self.language,
+            "symbols_examined": self.symbols_examined,
+            "findings": [_finding_to_dict(f) for f in self.findings],
+            "degraded_files": self.degraded_files,
+        }
+
+
+def _classify_stub_body(
+    body_node: Any, source: bytes, dialect: WiringDialect
+) -> tuple[bool, str]:
+    """Classify a function body as a stub.
+
+    Returns ``(is_stub, stub_kind)`` where *stub_kind* is one of:
+    ``"pass"`` | ``"ellipsis"`` | ``"not_implemented"`` |
+    ``"return_none"`` | ``"return_empty_list"`` | ``"return_empty_dict"`` |
+    ``"empty_block"`` | ``"marker"`` | ``"unknown"``.
+
+    Classification rules (bias against false positives):
+    1. If the body has more than 2 statements → not a stub (real logic).
+    2. If the body's child statement types are all in
+       ``stub_body_node_types`` → check the actual text to determine kind.
+    3. If the body text contains any ``stub_marker_patterns`` → stub.
+    4. Decorated functions are skipped (abstract methods, framework
+       decorators, etc.) — accepted false-negative (FEAT-C332 posture).
+    """
+    # Quick check: count top-level statements in the body block.
+    # If more than 2, it's almost certainly real logic.
+    body_text = _node_text(body_node, source)
+    body_type = body_node.type
+
+    # For Python: body is a (block) node; for TS/JS/C#: body is a
+    # (statement_block) or (block).
+    # Count direct child statements (excluding comments and docstrings).
+    child_statements = [
+        c for c in body_node.named_children
+        if c.type not in ("comment", "string")
+    ]
+
+    # If body has more than 2 statements, it's not a stub.
+    if len(child_statements) > 2:
+        return False, ""
+
+    # If the body type is NOT in stub_body_node_types, check if it's a
+    # specific stub pattern by inspecting the text.
+    if body_type not in dialect.stub_body_node_types:
+        # Check for specific stub patterns in the text.
+        stripped = body_text.strip()
+        if not stripped:
+            return True, "empty_block"
+        # Check for raise NotImplementedError / NotImplementedException
+        if "NotImplementedError" in stripped or "NotImplementedException" in stripped:
+            return True, "not_implemented"
+        # Check for return None / return [] / return {} / return null
+        if re.search(r"\breturn\s+None\b", stripped):
+            return True, "return_none"
+        if re.search(r"\breturn\s*\[\s*\]", stripped):
+            return True, "return_empty_list"
+        if re.search(r"\breturn\s*\{\s*\}", stripped):
+            return True, "return_empty_dict"
+        if re.search(r"\breturn\s+null\b", stripped):
+            return True, "return_none"
+        # Check for TODO/FIXME markers
+        for marker in dialect.stub_marker_patterns:
+            if marker in body_text:
+                return True, "marker"
+        return False, ""
+
+    # Body type IS in stub_body_node_types — determine the specific kind.
+    if not child_statements:
+        # Empty block (e.g. `{}` in TS/JS with only comments)
+        return True, "empty_block"
+
+    # Check each child statement.
+    kinds: list[str] = []
+    for stmt in child_statements:
+        stmt_text = _node_text(stmt, source).strip()
+        # Python pass_statement (contains a 'pass' child node)
+        if stmt.type == "pass_statement":
+            kinds.append("pass")
+        elif stmt.type == "pass":
+            kinds.append("pass")
+        # Python ellipsis (direct child of block)
+        elif stmt.type == "ellipsis":
+            kinds.append("ellipsis")
+        elif stmt.type == "expression_statement":
+            expr = _node_text(stmt, source).strip()
+            # Python ellipsis: expression_statement containing '...' or 'Ellipsis'
+            if expr == "..." or expr == "Ellipsis":
+                kinds.append("ellipsis")
+            elif "NotImplementedError" in expr:
+                kinds.append("not_implemented")
+            elif re.search(r"\breturn\s+None\b", expr):
+                kinds.append("return_none")
+            elif re.search(r"\breturn\s*\[\s*\]", expr):
+                kinds.append("return_empty_list")
+            elif re.search(r"\breturn\s*\{\s*\}", expr):
+                kinds.append("return_empty_dict")
+            else:
+                return False, ""
+        elif stmt.type in ("raise_statement", "raise"):
+            if "NotImplementedError" in stmt_text or "NotImplementedException" in stmt_text:
+                kinds.append("not_implemented")
+            else:
+                return False, ""
+        elif stmt.type in ("return_statement", "return"):
+            if re.search(r"\breturn\s+None\b", stmt_text):
+                kinds.append("return_none")
+            elif re.search(r"\breturn\s*\[\s*\]", stmt_text):
+                kinds.append("return_empty_list")
+            elif re.search(r"\breturn\s*\{\s*\}", stmt_text):
+                kinds.append("return_empty_dict")
+            elif re.search(r"\breturn\s+null\b", stmt_text):
+                kinds.append("return_none")
+            else:
+                return False, ""
+        elif stmt.type in ("throw_statement",):
+            is_not_impl = (
+                "NotImplementedError" in stmt_text
+                or "NotImplementedException" in stmt_text
+                or "not implemented" in stmt_text.lower()
+            )
+            if is_not_impl:
+                kinds.append("not_implemented")
+            else:
+                return False, ""
+        elif stmt.type in ("statement_block", "braced_statement_list", "block"):
+            # Empty block — check if it has no real children
+            inner = [c for c in stmt.named_children if c.type not in ("comment",)]
+            if not inner:
+                kinds.append("empty_block")
+            else:
+                return False, ""
+        else:
+            # Unknown statement type — check for markers
+            for marker in dialect.stub_marker_patterns:
+                if marker in stmt_text:
+                    return True, "marker"
+            return False, ""
+
+    if not kinds:
+        return True, "empty_block"
+
+    # All children are stub kinds — determine the dominant kind.
+    if "pass" in kinds:
+        return True, "pass"
+    if "ellipsis" in kinds:
+        return True, "ellipsis"
+    if "not_implemented" in kinds:
+        return True, "not_implemented"
+    if "return_empty_list" in kinds:
+        return True, "return_empty_list"
+    if "return_empty_dict" in kinds:
+        return True, "return_empty_dict"
+    if "return_none" in kinds:
+        return True, "return_none"
+
+    # Check for markers in the body text.
+    for marker in dialect.stub_marker_patterns:
+        if marker in body_text:
+            return True, "marker"
+
+    return False, ""
+
+
+def _scan_stub_body_for_dialect(
+    targets: list[str],
+    worktree: Path,
+    dialect: WiringDialect,
+) -> StubScanResult:
+    """Run the anti-stub body scan for one dialect over authored targets."""
+    if not dialect.stub_body_query:
+        return StubScanResult(
+            status="skipped_no_targets",
+            ran=False,
+            skip_reason="no stub_body_query for dialect",
+        )
+
+    out = StubScanResult(
+        dialect=dialect.language,
+        language=dialect.language,
+    )
+
+    for rel_path in targets:
+        source = _read_bytes(worktree / rel_path)
+        if source is None:
+            continue
+        out.symbols_examined += 1
+        tree = _parse_or_none(source, dialect)
+        if tree is None:
+            out.degraded_files.append(rel_path)
+            continue
+
+        # Run the stub body query.
+        try:
+            matches = _run_query_matches(
+                dialect.stub_body_query, tree, dialect.ts_language_name
+            )
+        except Exception as exc:
+            logger.warning(
+                "stub_body_query failed for '%s': %s", dialect.language, exc
+            )
+            continue
+
+        for captures in matches:
+            name_nodes = captures.get("name", [])
+            body_nodes = captures.get("body", [])
+            if not name_nodes or not body_nodes:
+                continue
+
+            # Check if the function is decorated — skip decorated functions
+            # to avoid false positives on abstract methods, framework
+            # decorators, etc.
+            name_node = name_nodes[0]
+            parent = getattr(name_node, "parent", None)
+            if parent is not None:
+                # Check if parent is a decorated_definition
+                grandparent = getattr(parent, "parent", None)
+                if grandparent is not None and grandparent.type == "decorated_definition":
+                    continue  # skip decorated functions (FEAT-C332)
+
+            body_node = body_nodes[0]
+            is_stub, stub_kind = _classify_stub_body(body_node, source, dialect)
+            if is_stub:
+                sym_name = _node_text(name_nodes[0], source)
+                out.findings.append(Finding(
+                    file=rel_path,
+                    symbol=sym_name,
+                    kind="STUB_BODY",
+                    module=os.path.basename(rel_path),
+                    lineno=name_nodes[0].start_point[0] + 1,
+                    severity="warning",
+                    pattern="STUB_BODY",
+                    why=f"Stub body ({stub_kind}): {sym_name}",
+                    dialect=dialect.language,
+                    language=dialect.language,
+                ))
+
+    if out.findings:
+        out.status = "complete"
+        out.ran = True
+    else:
+        out.status = "complete"
+        out.ran = True
+        out.skip_reason = "no stubs found"
+
+    return out
+
+
+def analyze_stub_scan(
+    authored_files: list[str],
+    worktree_path: str | Path,
+    task_type: str,
+    stack: Any = None,
+) -> dict[str, Any] | None:
+    """Analyze authored files for stub bodies.
+
+    Parameters
+    ----------
+    authored_files:
+        Worktree-relative paths authored this turn.
+    worktree_path:
+        Path to the worktree root.
+    task_type:
+        Only ``FEATURE`` / ``REFACTOR`` / ``INTEGRATION`` are analyzed
+        (case-insensitive); other task types return ``None``.
+        ``SCAFFOLDING``, ``DOCUMENTATION``, ``TESTING`` return ``None``.
+    stack:
+        Optional object with a ``language`` attribute for dialect dispatch.
+
+    Returns
+    -------
+    dict | None
+        The stub-scan result dict (see module docstring), or ``None`` when
+        the probe legitimately did not run (task-type gate; zero authored
+        non-test source targets).
+    """
+    try:
+        return _analyze_stub_scan_impl(
+            authored_files, Path(worktree_path), task_type, stack
+        )
+    except Exception as exc:  # noqa: BLE001 — fail-open by contract
+        logger.warning("analyze_stub_scan failed unexpectedly: %s", exc, exc_info=True)
+        return {
+            "status": "error",
+            "error": str(exc),
+            "dialect": None,
+            "language": "",
+            "symbols_examined": 0,
+            "findings": [],
+            "degraded_files": [],
+        }
+
+
+def _analyze_stub_scan_impl(
+    authored_files: list[str],
+    worktree: Path,
+    task_type: str,
+    stack: Any,
+) -> dict[str, Any] | None:
+    # --- Task-type gate (same as analyze_wiring) ---------------------------
+    if (task_type or "").upper() not in _ANALYZED_TASK_TYPES:
+        return None
+
+    # --- Select candidate dialects -----------------------------------------
+    candidates: list[tuple[WiringDialect, list[str]]] = []
+    for dialect in iter_dialects():
+        if not dialect.stub_body_query:
+            continue  # dialect has no stub scan support
+        targets = [
+            f
+            for f in authored_files
+            if _matches_glob(f, dialect.file_globs)
+            and not _is_test_file(f, dialect)
+            and (worktree / f).is_file()
+        ]
+        if targets:
+            candidates.append((dialect, targets))
+
+    if not candidates:
+        return None  # zero authored source targets → probe didn't run
+
+    # --- Run every matching dialect ----------------------------------------
+    analyses: list[StubScanResult] = [
+        _scan_stub_body_for_dialect(targets, worktree, dialect)
+        for dialect, targets in candidates
+    ]
+
+    # --- Merge --------------------------------------------------------------
+    languages = [a.language for a in analyses]
+    primary = languages[0] if languages else ""
+
+    degraded = [f for a in analyses for f in a.degraded_files]
+    all_findings: list[Finding] = []
+    for a in analyses:
+        all_findings.extend(a.findings)
+
+    status: WiringStatus = "parse_degraded" if degraded else "complete"
+    if not all_findings and not degraded:
+        status = "complete"
+
+    result = StubScanResult(
+        status=status,
+        ran=True,
+        skip_reason=None,
+        dialect=primary,
+        language=primary,
+        symbols_examined=sum(a.symbols_examined for a in analyses),
+        findings=all_findings,
+        degraded_files=degraded,
+    )
+
+    return result.to_dict()
+
+
+# ---------------------------------------------------------------------------
 # File-walking helpers
 # ---------------------------------------------------------------------------
 

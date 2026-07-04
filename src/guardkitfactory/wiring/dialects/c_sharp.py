@@ -32,6 +32,29 @@ dialect = register_dialect(
                   name: (identifier) @name)
             ]
         """,
+        # ---------------------------------------------------------------------------
+        # Anti-stub body scan (TASK-QAV-001)
+        # ---------------------------------------------------------------------------
+        # Captures public method declarations with block bodies.
+        stub_body_query="""
+            (method_declaration
+              [
+                (modifier) @visibility
+              ]
+              name: (identifier) @name
+              body: (block) @body)
+        """,
+        stub_marker_patterns=(
+            "TODO",
+            "FIXME",
+            "STUB",
+            "placeholder",
+            "HACK",
+            "XXX",
+        ),
+        stub_body_node_types=(
+            "block",   # empty block `{}`
+        ),
         references_query="""
             (identifier) @name
         """,

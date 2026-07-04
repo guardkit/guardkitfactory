@@ -184,6 +184,24 @@ class WiringDialect:
     param_required_node_types: tuple[str, ...] = ()
     arg_keyword_node_types: tuple[str, ...] = ()
     arg_splat_node_types: tuple[str, ...] = ()
+    # ---------------------------------------------------------------------------
+    # Anti-stub body scan (TASK-QAV-001)
+    # ---------------------------------------------------------------------------
+    # ``stub_body_query``: tree-sitter S-expression that captures a public
+    # function/method declaration whose body is a *stub* — i.e. contains no
+    # executable logic.  The query must capture the function name as ``@name``
+    # and the body node as ``@body``.  When empty the stub probe is a no-op
+    # for this dialect (absent-signal, never a pass).
+    stub_body_query: str = ""
+    # ``stub_marker_patterns``: substrings that, when found in a function's
+    # body text, flag it as a TODO/FIXME/stub marker (even if the body has
+    # more than just ``pass``).
+    stub_marker_patterns: tuple[str, ...] = ()
+    # ``stub_body_node_types``: node types that represent a bare stub body
+    # (e.g. Python ``pass`` statement, TypeScript/JS empty block with only
+    # a comment).  When the body node's type is in this set AND there are no
+    # other child statements, the function is a stub.
+    stub_body_node_types: tuple[str, ...] = ()
 
     def smoke_test(self) -> bool:
         """Compile all queries against the live grammar and match the snippet.
@@ -230,6 +248,10 @@ class WiringDialect:
                 ("constructor_call_query", self.constructor_call_query),
             )
             if qtext
+        ] + [
+            # Anti-stub body scan query (TASK-QAV-001); compile only when
+            # populated so a malformed S-expr fails here instead of later.
+            ("stub_body_query", self.stub_body_query),
         ]
 
         compiled: dict[str, Query] = {}

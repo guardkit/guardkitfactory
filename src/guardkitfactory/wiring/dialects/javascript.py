@@ -29,6 +29,27 @@ dialect = register_dialect(
                     name: (identifier) @name))
               ])
         """,
+        # ---------------------------------------------------------------------------
+        # Anti-stub body scan (TASK-QAV-001)
+        # ---------------------------------------------------------------------------
+        # Captures exported function declarations. The analyzer classifies the
+        # body as a stub using stub_body_node_types and stub_marker_patterns.
+        stub_body_query="""
+            (function_declaration
+              name: (identifier) @name
+              body: (statement_block) @body)
+        """,
+        stub_marker_patterns=(
+            "TODO",
+            "FIXME",
+            "STUB",
+            "placeholder",
+            "HACK",
+            "XXX",
+        ),
+        stub_body_node_types=(
+            "statement_block",   # empty block `{}`
+        ),
         references_query="""
             (identifier) @name
         """,

@@ -2,7 +2,8 @@
 
 A single analyzer over tree-sitter Concrete Syntax Trees, parameterized by
 declarative per-language ``WiringDialect`` records (DATA).  Detects
-UNWIRED_PATH and MOCKED_SEAM evidence for guardkit's Coach evidence path.
+UNWIRED_PATH, MOCKED_SEAM, and STUB_BODY evidence for guardkit's Coach
+evidence path.
 
 Public API
 ----------
@@ -10,8 +11,10 @@ Public API
   main entry point; returns the scope-§5.1 dict (wiring shape with the
   ``mocked_seam`` result nested) or ``None`` when the probe legitimately
   did not run.  See :mod:`guardkitfactory.wiring.analyzer` for the shape.
-- ``WiringResult``, ``MockSeamResult``, ``Finding``, ``WiringStatus`` —
-  result types.
+- ``analyze_stub_scan(authored_files, worktree_path, task_type, stack)`` —
+  anti-stub body scan; returns a ``StubScanResult`` dict or ``None``.
+- ``WiringResult``, ``MockSeamResult``, ``StubScanResult``, ``Finding``,
+  ``WiringStatus`` — result types.
 - ``WiringDialect`` — frozen descriptor dataclass (+ registry helpers).
 
 Side-effect import registers all built-in dialects (python, javascript,
@@ -26,8 +29,10 @@ from guardkitfactory.wiring.analyzer import (
     CtorArityResult,
     Finding,
     MockSeamResult,
+    StubScanResult,
     WiringResult,
     WiringStatus,
+    analyze_stub_scan,
     analyze_wiring,
 )
 from guardkitfactory.wiring.dialect import (
@@ -42,9 +47,11 @@ __all__ = [
     "CtorArityResult",
     "Finding",
     "MockSeamResult",
+    "StubScanResult",
     "WiringDialect",
     "WiringResult",
     "WiringStatus",
+    "analyze_stub_scan",
     "analyze_wiring",
     "get_dialect",
     "get_parser",

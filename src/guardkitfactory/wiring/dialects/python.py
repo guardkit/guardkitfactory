@@ -30,6 +30,34 @@ dialect = register_dialect(
                   ])
               ])
         """,
+        # ---------------------------------------------------------------------------
+        # Anti-stub body scan (TASK-QAV-001)
+        # ---------------------------------------------------------------------------
+        # Captures module-level function definitions and decorated functions.
+        # The analyzer classifies the body as a stub using stub_body_node_types
+        # and stub_marker_patterns.  Decorated functions are excluded from
+        # stub-flagging to avoid false positives on abstract methods,
+        # framework-decorated handlers, etc. (FEAT-C332 bias posture).
+        stub_body_query="""
+            (function_definition
+              name: (identifier) @name
+              body: (block) @body)
+            (decorated_definition
+              definition: (function_definition
+                name: (identifier) @name
+                body: (block) @body))
+        """,
+        stub_marker_patterns=(
+            "TODO",
+            "FIXME",
+            "STUB",
+            "placeholder",
+            "HACK",
+            "XXX",
+        ),
+        stub_body_node_types=(
+            "block",
+        ),
         # Blanket identifier capture: with the analyzer excluding the
         # defining file and test files from the reference map, any
         # occurrence of the name elsewhere counts as a reference
