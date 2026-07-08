@@ -2,6 +2,13 @@
 
 ## Ideation session capture · 19 June 2026 · Claude Desktop
 
+> **Graduated 2026-07-08.** The output-side decisions D11–D15 in this capture are register-filed
+> as clauses **DF-014.1–.5**
+> (`ai-transition/docs/decisions/DECISION-DF-014-output-side-spine-graduated-d11-d15-by-substance.md`,
+> ACCEPTED by Rich 2026-07-08). **Cite DF-014.n, never bare D-ids** (DF-014 §1 documents the
+> D-namespace collision). This file is the byte-identical sibling of forge's 06-23 copy —
+> **witness W1** in DF-014's terms; substance graduated, wording not canonized. D1–D10 unaffected.
+
 ---
 
 ## Purpose of this document
