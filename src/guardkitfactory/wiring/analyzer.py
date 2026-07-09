@@ -1377,6 +1377,10 @@ def analyze_wiring(
                 "status": "error", "ran": False, "skip_reason": "analyzer error",
                 "dialect": None, "language": "", "apertures_run": [], "findings": [],
             },
+            "env_tamper": {
+                "status": "error", "ran": False, "skip_reason": "analyzer error",
+                "dialect": None, "language": "", "findings": [],
+            },
         }
 
 
@@ -1406,6 +1410,11 @@ def _unsupported_stack_dict(language: str) -> dict[str, Any]:
             "status": "unsupported_stack", "ran": False,
             "skip_reason": f"no dialect for language '{language}'",
             "dialect": None, "language": language, "apertures_run": [], "findings": [],
+        },
+        "env_tamper": {
+            "status": "unsupported_stack", "ran": False,
+            "skip_reason": f"no dialect for language '{language}'",
+            "dialect": None, "language": language, "findings": [],
         },
     }
 
@@ -1522,4 +1531,13 @@ def _analyze_wiring_impl(
         cd if cd is not None
         else CallsiteDriftResult(status="skipped_no_targets", ran=False).to_dict()
     )
+
+    # SYS_MODULES_TAMPER (WS3-S3 ENVTAMPER-b) — authored non-test product files.
+    from guardkitfactory.wiring.env_tamper import analyze_env_tamper
+    et = analyze_env_tamper(authored_files, worktree, task_type, stack=stack)
+    result["env_tamper"] = et if et is not None else {
+        "status": "skipped_no_targets", "ran": False,
+        "skip_reason": "no authored non-test source targets",
+        "dialect": None, "language": "", "findings": [],
+    }
     return result

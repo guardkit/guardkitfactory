@@ -213,5 +213,36 @@ dialect = register_dialect(
                 attribute: (identifier) @callee)
               arguments: (argument_list) @args)
         """,
+        # --- ENVTAMPER-b product-file sys.modules tamper (§5.2) ------------
+        # Capture the mutation containers + the `<recv>.modules` receiver
+        # attribute (@recv) and, for calls, the method + args. The analyzer
+        # owns receiver resolution (is `<recv>` the `sys` module, direct or
+        # aliased?) via the import map, and the FP posture (self-replacement,
+        # alias shim, del cache-bust). Also the from-import `modules[...]` form
+        # via a bare-identifier receiver (@recv_id).
+        env_tamper_query="""
+            (assignment
+              left: (subscript
+                value: (attribute) @recv)) @assign
+            (assignment
+              left: (subscript
+                value: (identifier) @recv_id)) @assign
+            (delete_statement
+              (subscript
+                value: (attribute) @recv)) @del
+            (delete_statement
+              (subscript
+                value: (identifier) @recv_id)) @del
+            (call
+              function: (attribute
+                object: (attribute) @recv
+                attribute: (identifier) @method)
+              arguments: (argument_list) @cargs) @call
+            (call
+              function: (attribute
+                object: (identifier) @recv_id
+                attribute: (identifier) @method)
+              arguments: (argument_list) @cargs) @call
+        """,
     )
 )
