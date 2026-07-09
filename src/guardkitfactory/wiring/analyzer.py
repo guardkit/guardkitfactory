@@ -1373,6 +1373,10 @@ def analyze_wiring(
             "ctor_arity": CtorArityResult(
                 status="error", ran=False, skip_reason="analyzer error"
             ).to_dict(),
+            "callsite_drift": {
+                "status": "error", "ran": False, "skip_reason": "analyzer error",
+                "dialect": None, "language": "", "apertures_run": [], "findings": [],
+            },
         }
 
 
@@ -1398,6 +1402,11 @@ def _unsupported_stack_dict(language: str) -> dict[str, Any]:
             ran=False,
             skip_reason=f"no dialect for language '{language}'",
         ).to_dict(),
+        "callsite_drift": {
+            "status": "unsupported_stack", "ran": False,
+            "skip_reason": f"no dialect for language '{language}'",
+            "dialect": None, "language": language, "apertures_run": [], "findings": [],
+        },
     }
 
 
@@ -1499,4 +1508,18 @@ def _analyze_wiring_impl(
     result = wiring.to_dict()
     result["mocked_seam"] = mocked.to_dict()
     result["ctor_arity"] = ctor.to_dict()
+
+    # CALLSITE_DRIFT (WS3-S3 2b) — aperture B only here (this entry has no
+    # feature-base baseline). Guardkit runs aperture A by calling
+    # analyze_callsite_drift directly with baseline_sources. Lazy import avoids
+    # a circular import (callsite_drift imports analyzer helpers).
+    from guardkitfactory.wiring.callsite_drift import (
+        CallsiteDriftResult,
+        analyze_callsite_drift,
+    )
+    cd = analyze_callsite_drift(authored_files, worktree, task_type, stack=stack)
+    result["callsite_drift"] = (
+        cd if cd is not None
+        else CallsiteDriftResult(status="skipped_no_targets", ran=False).to_dict()
+    )
     return result

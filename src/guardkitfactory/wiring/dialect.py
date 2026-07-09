@@ -202,6 +202,57 @@ class WiringDialect:
     # a comment).  When the body node's type is in this set AND there are no
     # other child statements, the function is a stub.
     stub_body_node_types: tuple[str, ...] = ()
+    # ---------------------------------------------------------------------------
+    # WS3-S3 seam-check dialect DATA (2a / 2b / ENVTAMPER).  All defaulted-empty
+    # so existing dialect records stay valid; an empty field ⇒ that probe is a
+    # no-op for that dialect (absent-signal, never a pass — §1.2 of the S2 spec).
+    # smoke_test() compiles the non-empty ones so a malformed S-expr fails in
+    # Wave 0, not as a masked skip.
+    # ---------------------------------------------------------------------------
+    # 2b CALLSITE_DRIFT + import map:
+    # ``imports_query``: capture ``import_statement`` / ``import_from_statement``
+    # nodes as ``@imp``; the analyzer walks each node to build the per-file
+    # import map ``local_name -> (origin_module, original_name)`` (aliases
+    # resolve by construction).  Consumed by 2b call-site resolution AND
+    # ENVTAMPER-b aliased-receiver resolution (RENV-2).
+    imports_query: str = ""
+    # ``function_signature_query``: module-level ``function_definition`` name
+    # ``@name`` + parameter list ``@params`` (the ctor-signature query
+    # generalized beyond ``__init__``).  Method call sites are out of aperture
+    # in v1 (R2b-11).
+    function_signature_query: str = ""
+    # ``call_site_query``: a ``call`` with a bare-identifier OR attribute callee
+    # (``@callee``) plus its argument list ``@args``.
+    call_site_query: str = ""
+    # 2a signature-binding-fake scan:
+    # ``double_def_query``: test-file function/method definitions + lambdas that
+    # may be permissive doubles (name ``@name``, params ``@params``, body
+    # ``@body``).
+    double_def_query: str = ""
+    # ``double_name_affixes``: name affixes that mark a symbol as a test double
+    # (matched case-insensitively after underscore-stripping).
+    double_name_affixes: tuple[str, ...] = ()
+    # ``bind_escape_patterns``: body-text tokens that exempt a star-args double
+    # (it binds the real signature — the house cure).
+    bind_escape_patterns: tuple[str, ...] = ()
+    # ``binding_kwarg_names``: patch/mock kwargs that confer signature binding
+    # (``autospec``, ``wraps``).
+    binding_kwarg_names: tuple[str, ...] = ()
+    # ``binding_ctor_names``: constructors that confer binding (``create_autospec``).
+    binding_ctor_names: tuple[str, ...] = ()
+    # 2d SWALLOWED_COMPOSE:
+    # ``swallowed_compose_query``: a ``try`` whose body calls a compose path and
+    # whose ``except`` does not re-raise.
+    swallowed_compose_query: str = ""
+    # ENVTAMPER-a skip-guard extraction:
+    # ``skip_guard_query``: ``importorskip("X")`` calls + ``skipif`` decorators
+    # whose condition contains ``find_spec("X")`` with a literal.
+    skip_guard_query: str = ""
+    # ENVTAMPER-b product-file sys.modules tamper:
+    # ``env_tamper_query``: direct ``sys.modules`` attribute-mutation forms
+    # (subscript / setdefault / update / del); the analyzer owns aliased-receiver
+    # resolution via ``imports_query`` (RENV-2).
+    env_tamper_query: str = ""
 
     def smoke_test(self) -> bool:
         """Compile all queries against the live grammar and match the snippet.
@@ -252,6 +303,20 @@ class WiringDialect:
             # Anti-stub body scan query (TASK-QAV-001); compile only when
             # populated so a malformed S-expr fails here instead of later.
             ("stub_body_query", self.stub_body_query),
+        ] + [
+            # WS3-S3 seam-check queries; compile only when populated so a
+            # malformed S-expr fails here (Wave 0), not as a masked skip.
+            (qname, qtext)
+            for qname, qtext in (
+                ("imports_query", self.imports_query),
+                ("function_signature_query", self.function_signature_query),
+                ("call_site_query", self.call_site_query),
+                ("double_def_query", self.double_def_query),
+                ("swallowed_compose_query", self.swallowed_compose_query),
+                ("skip_guard_query", self.skip_guard_query),
+                ("env_tamper_query", self.env_tamper_query),
+            )
+            if qtext
         ]
 
         compiled: dict[str, Query] = {}

@@ -180,5 +180,38 @@ dialect = register_dialect(
         param_required_node_types=("identifier", "typed_parameter"),
         arg_keyword_node_types=("keyword_argument",),
         arg_splat_node_types=("list_splat", "dictionary_splat"),
+        # --- WS3-S3 2b CALLSITE_DRIFT + import map -------------------------
+        # Whole import nodes; the analyzer walks each to build the per-file
+        # import map local_name -> (origin_module, original_name).
+        imports_query="""
+            (import_statement) @imp
+            (import_from_statement) @imp
+        """,
+        # Module-level function definitions (+ decorated): name @name, params
+        # @params.  The ctor-signature query generalized beyond __init__.
+        function_signature_query="""
+            (module
+              (function_definition
+                name: (identifier) @name
+                parameters: (parameters) @params))
+            (module
+              (decorated_definition
+                definition: (function_definition
+                  name: (identifier) @name
+                  parameters: (parameters) @params)))
+        """,
+        # Call sites: bare-identifier callee `fn(...)` OR attribute callee
+        # `base.fn(...)`.  The analyzer resolves attribute callees only when
+        # `base` denotes a module binding (R2b-8); v1 processes bare-identifier
+        # callees (functions + `ClassName(...)` ctors).
+        call_site_query="""
+            (call
+              function: (identifier) @callee
+              arguments: (argument_list) @args)
+            (call
+              function: (attribute
+                attribute: (identifier) @callee)
+              arguments: (argument_list) @args)
+        """,
     )
 )
