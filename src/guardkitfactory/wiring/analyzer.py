@@ -1540,4 +1540,13 @@ def _analyze_wiring_impl(
         "skip_reason": "no authored non-test source targets",
         "dialect": None, "language": "", "findings": [],
     }
+
+    # PERMISSIVE_DOUBLE (WS3-S3 2a) — authored test files.
+    from guardkitfactory.wiring.permissive_double import analyze_permissive_double
+    pd = analyze_permissive_double(authored_files, worktree, task_type, stack=stack)
+    result["permissive_double"] = pd if pd is not None else {
+        "status": "skipped_no_targets", "ran": False,
+        "skip_reason": "no authored test targets",
+        "dialect": None, "language": "", "findings": [],
+    }
     return result

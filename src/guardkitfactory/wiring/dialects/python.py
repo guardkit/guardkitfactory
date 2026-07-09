@@ -213,6 +213,24 @@ dialect = register_dialect(
                 attribute: (identifier) @callee)
               arguments: (argument_list) @args)
         """,
+        # --- 2a signature-binding-fake scan (§2) ---------------------------
+        # Test-file function/class/lambda definitions that may be permissive
+        # doubles. The analyzer classifies against the permissiveness ladder.
+        double_def_query="""
+            (function_definition
+              name: (identifier) @name
+              parameters: (parameters) @params
+              body: (block) @body)
+            (class_definition
+              name: (identifier) @cname
+              body: (block) @cbody)
+        """,
+        double_name_affixes=(
+            "Fake", "Stub", "Spy", "Double", "Mock", "Dummy", "Noop", "Null", "InMemory",
+        ),
+        bind_escape_patterns=(".bind(", "SignatureBindingFake"),
+        binding_kwarg_names=("autospec", "wraps"),
+        binding_ctor_names=("create_autospec",),
         # --- ENVTAMPER-a skip-guard extraction (§5.1.1) --------------------
         # pytest.importorskip("X") and find_spec("X") literal-arg calls; the
         # analyzer collects the string module arg. HAS_X = try-import and
