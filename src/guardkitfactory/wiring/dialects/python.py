@@ -213,6 +213,21 @@ dialect = register_dialect(
                 attribute: (identifier) @callee)
               arguments: (argument_list) @args)
         """,
+        # --- ENVTAMPER-a skip-guard extraction (§5.1.1) --------------------
+        # pytest.importorskip("X") and find_spec("X") literal-arg calls; the
+        # analyzer collects the string module arg. HAS_X = try-import and
+        # computed names are accepted FNs (documented).
+        skip_guard_query="""
+            (call
+              function: [
+                (identifier) @fn
+                (attribute attribute: (identifier) @fn)
+              ]
+              arguments: (argument_list
+                .
+                (string) @modarg)
+              (#any-of? @fn "importorskip" "find_spec"))
+        """,
         # --- ENVTAMPER-b product-file sys.modules tamper (§5.2) ------------
         # Capture the mutation containers + the `<recv>.modules` receiver
         # attribute (@recv) and, for calls, the method + args. The analyzer
