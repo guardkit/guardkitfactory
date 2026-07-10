@@ -24,7 +24,32 @@ import pytest
 def test_guardkitfactory_package_imports() -> None:
     import guardkitfactory
 
-    assert guardkitfactory.__version__ == "0.1.0"
+    # Assert against a semantic-version shape, not a hardcoded string, so the
+    # bump-the-version-in-three-places drift that bit nats-core (0.3.0 string
+    # pinned in the test outlived two bumps) is structurally impossible here.
+    parts = guardkitfactory.__version__.split(".")
+    assert len(parts) == 3 and all(p.isdigit() for p in parts), (
+        f"unexpected __version__ shape: {guardkitfactory.__version__!r}"
+    )
+
+
+def test_version_matches_pyproject() -> None:
+    """``__version__`` must equal the ``[project].version`` in pyproject.toml.
+
+    Guards the pyproject ``version`` ↔ ``__init__.__version__`` drift class:
+    the two are edited by hand in separate files. Reading pyproject directly
+    (not installed metadata) keeps the guard truthful in a source checkout
+    without an editable reinstall after every bump — the drift that outlived
+    two nats-core bumps because the test pinned a stale string instead.
+    """
+    import pathlib
+    import tomllib
+
+    import guardkitfactory
+
+    pyproject = pathlib.Path(__file__).resolve().parent.parent / "pyproject.toml"
+    declared = tomllib.loads(pyproject.read_text())["project"]["version"]
+    assert guardkitfactory.__version__ == declared
 
 
 def test_harness_adapter_exposed_as_public_api() -> None:

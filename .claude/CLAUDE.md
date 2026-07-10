@@ -1,66 +1,66 @@
-# LangChain DeepAgents — Base Template
+# guardkitfactory — GuardKit AutoBuild harness substrate
 
 ## Project Overview
 
-Adversarial Cooperation template for **binary accept/reject evaluation** against fixed pass/fail criteria.
-Uses the Player-Coach multi-agent pattern where a Coach evaluates Player output with a structured verdict
-(accept at score 4-5, reject at 1-3).
+`guardkitfactory` is the **LangGraph-backed execution harness** for the
+[GuardKit](https://github.com/guardkit/guardkit) AutoBuild adversarial-cooperation
+orchestrator. It is a **library**, not a standalone agent: guardkit's
+orchestrator owns the Player/Coach loop and imports this package to run it.
 
-**Evaluation model**: Binary. The Coach returns `CoachVerdict` with a decision (`accept`/`reject`)
-and a score. Works for domains where quality is **objectively verifiable**: schema conformance,
-code compilation, test pass/fail, metadata accuracy.
+What this package provides:
 
-**Language**: Python
-**Frameworks**: DeepAgents >=0.4.11, LangChain >=1.2.11, LangChain-Core >=1.2.18, LangGraph >=0.2, LangChain-Community >=0.3
-**Architecture**: Adversarial Cooperation (Player-Coach multi-agent orchestration)
+- **`guardkitfactory.harness`** — `LangGraphHarness` (a concrete subclass of
+  `guardkit.orchestrator.harness.HarnessAdapter`) plus the backend, model, and
+  permissions configuration that adapts it to different substrates:
+  `build_autobuild_backend`, `resolve_autobuild_model`,
+  `build_autobuild_permissions`, `MODEL_CONTEXT_WINDOWS`.
+- **`guardkitfactory.bdd`** — the BDD contract surface the Coach's BDD bridge
+  binds to: `discover`, `BDDRunResult`, `StackProfile`, `Scenario`, `BDDPlugin`.
+- **`guardkitfactory.wiring`** — a deterministic (no-LLM) wiring/seam analyzer
+  used by guardkit's post-wave wiring gate: `analyze_wiring` plus the
+  CALLSITE_DRIFT, SYS_MODULES_TAMPER / env-tamper, PERMISSIVE_DOUBLE, and
+  stub-scan checks (WS3-S3). Parsing is stack-agnostic via tree-sitter.
+- **`lib/`** — helpers vendored from the `langchain-deepagents` template
+  (factory guards, JSON extraction, retry context, session logging), shipped as
+  a top-level `lib` package.
 
-## When to Use This Template
+`HarnessAdapter` (the top-level symbol) is a **retained placeholder** that
+raises `NotImplementedError` — it exists only for the original TASK-HMIG-000R
+smoke-test contract. Do not use it; use `LangGraphHarness`.
 
-Use `langchain-deepagents` when your evaluation criteria are **objectively verifiable**:
+**Language**: Python (`requires-python = ">=3.11"`)
+**Runtime deps**: `deepagents>=0.6.7,<1`, `langgraph>=1,<2`, `langchain>=1.2,<2`,
+`langchain-core>=1.2,<2`, `langchain-openai>=1,<2`, `tree-sitter>=0.25,<1`,
+`tree-sitter-language-pack>=1.0,<2` (see `pyproject.toml` for per-pin rationale).
 
-- Schema conformance (JSON output matches expected structure)
-- Code compilation and test pass/fail
-- Metadata accuracy (fields present, types correct, ranges valid)
-- Data synthesis with measurable correctness
+## Version & cross-repo seam
 
-For **subjective or creative domains** (video planning, design, content creation) where quality
-requires weighted multi-criteria scoring, use the
-[`langchain-deepagents-weighted-evaluation`](../langchain-deepagents-weighted-evaluation/) extension instead.
+- **Published as v0.2.0** (annotated tag `v0.2.0`) — the first tagged release.
+- Not on PyPI. guardkit resolves it **operator-side as an editable sibling**
+  via `[tool.uv.sources]` (`../guardkitfactory`), pinned to the version
+  contract `guardkitfactory>=0.2.0,<1`. The tag marks the exact commit the
+  sibling checkout tracks.
+- The contract boundary is CI-gated by `guardkit/.github/workflows/seam-tests.yml`
+  ("Seam Tests (harness contract)"), which runs the `@pytest.mark.seam` tests
+  against the real installed guardkitfactory on every guardkit PR/push. That
+  workflow is the drift guard — do not weaken it. It tracks guardkitfactory's
+  default branch (not a pinned tag) so it catches drift as it lands.
 
-## What's Included
-
-| Component | Purpose |
-|-----------|---------|
-| `lib/domain_validator.py` | Type-aware metadata validation with coercion |
-| `lib/json_extractor.py` | 5-strategy cascade JSON extraction from LLM output |
-| `lib/factory_guards.py` | Tool allowlisting, input contract enforcement |
-| `lib/content_pipeline.py` | Canonical pipeline: normalize -> extract -> validate -> write |
-| `lib/checkpoint_hooks.py` | HITL checkpoint library (CLI, webhook, auto-approve) — integration hooks in extension |
-| `lib/sprint_contract.py` | Sprint contract negotiation library — integration hooks in extension |
-| `lib/observability.py` | Token tracking, stage timing, error context logging |
-| `lib/preflight.py` | Pre-flight configuration validation |
-
-## What Requires the Extension
-
-The following are NOT in this base template — use `langchain-deepagents-weighted-evaluation`:
-
-- Weighted multi-criteria scoring (configurable weights per criterion)
-- GOAL.md quality contracts with acceptance thresholds
-- Adversarial intensity modes (full / light / solo)
-- `WeightedVerdict` dataclass (composite score vs binary decision)
-- Integration hooks (`hooks/hitl.py`, `hooks/sprint_contract.py`) that wire the base libraries into weighted evaluation
+When you change a public symbol in `harness/`, `bdd/`, or `wiring/`, treat it
+as a **seam change**: guardkit binds to it. Keep `__version__`
+(`src/guardkitfactory/__init__.py`) and `[project].version` (`pyproject.toml`)
+in sync — `tests/test_smoke.py` asserts they match.
 
 ## Quick Start
 
 ```bash
-pip install .[providers]
-pytest tests/ -v
+uv sync --extra dev        # or: pip install -e ".[dev]"
+pytest tests/              # 300+ tests across harness/, bdd/, wiring/, smoke
 ```
 
-`.[providers]` installs every LangChain integration named in code (anthropic, openai, google-genai).
-The base `dependencies` also include `langchain-anthropic` so a zero-extras install of the default
-provider still works. See `pyproject.toml` `[project.optional-dependencies]` and TASK-REV-LES1 /
-LES1 §3 LCOI for why every integration must be declared.
+The only optional-dependency group is `dev` (`pytest`, `pytest-bdd`, `ruff`,
+`mypy`). There is no `providers` extra — the runtime deps above are declared in
+`[project].dependencies` and install by default.
 
 ## Detailed Guidance
 
@@ -71,23 +71,21 @@ Rules load automatically when you work on relevant files:
 - **Patterns**: `.claude/rules/patterns/`
 - **Guidance**: `.claude/rules/guidance/`
 
-### Pattern rule conventions
+The pattern rules under `.claude/rules/patterns/` (adversarial cooperation,
+agent factory, memory injection, tool delegation, domain-driven configuration)
+are **template-vendored background** carried over from the `langchain-deepagents`
+template this package began as. They document the Player/Coach orchestration
+pattern that *guardkit's* orchestrator implements and that the `lib/` helpers
+support — they do not describe a Player/Coach loop running inside this repo
+(this repo has none; it is the harness the loop runs on).
 
-Pattern rule files in `.claude/rules/patterns/` end with `Source: <path>` lines
-(e.g. `Source: scaffold/orchestrator_pattern.py.template`). These paths are
-**post-render** — they refer to the layout a user sees in their rendered
-project, not paths inside this template's source tree. In the template source
-tree the referenced files live under `templates/other/...` (e.g.
-`templates/other/scaffold/orchestrator_pattern.py.template`); once the template
-is applied to a user project, those files appear at the paths cited in the rule
-files. Do not "correct" `Source:` paths to match the template tree.
+### Pattern rule `Source:` path convention
 
-## Cross-Domain Evidence
-
-| Domain | Evaluation Model | Evidence |
-|--------|-----------------|----------|
-| Training data generation | Schema conformance, metadata accuracy | agentic-dataset-factory: 11 runs, 85% acceptance |
-| Code synthesis | Test pass/fail, compilation | GuardKit AutoBuild: 100% task completion |
+Pattern rule files end with `Source: <path>` lines (e.g.
+`Source: scaffold/orchestrator_pattern.py.template`). These paths are
+**post-render** — they refer to the layout a user sees in a rendered
+`langchain-deepagents` project, not paths inside this repo. Do not "correct"
+them to match this tree.
 
 ## Python Pinning
 
@@ -95,10 +93,10 @@ files. Do not "correct" `Source:` paths to match the template tree.
 this template family. Don't add a closed upper bound (`<3.X`) unless you have a
 specifically-documented reason — stale upper bounds become latent stall
 trapdoors when a new Python minor ships in a developer's PATH. See
-[`docs/guides/portfolio-python-pinning.md`](../../../../../docs/guides/portfolio-python-pinning.md)
-for rationale and the calendar-cadence revisit policy.
+`docs/guides/portfolio-python-pinning.md` in the guardkit repo for rationale.
 
 ## See Also
 
-- **Extension template**: [`langchain-deepagents-weighted-evaluation`](../langchain-deepagents-weighted-evaluation/) — weighted multi-criteria evaluation for subjective domains
-- **Portfolio Python pinning**: [`docs/guides/portfolio-python-pinning.md`](../../../../../docs/guides/portfolio-python-pinning.md) — `requires-python` standard for the portfolio
+- **Consumer / orchestrator**: [`guardkit`](https://github.com/guardkit/guardkit)
+  — owns the AutoBuild Player/Coach loop and imports this harness.
+- **README.md** — the human-facing status table, layout, and pin rationale.
