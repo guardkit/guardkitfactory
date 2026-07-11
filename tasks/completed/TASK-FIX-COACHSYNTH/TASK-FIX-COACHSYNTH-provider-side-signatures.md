@@ -1,15 +1,32 @@
 ---
 id: TASK-FIX-COACHSYNTH
 title: Land provider-side TASK-PERF-COACHSYNTH signatures (max_tool_result_chars, recursion_limit)
-status: backlog
+status: completed
 task_type: fix
 created: 2026-06-11T00:00:00Z
-updated: 2026-06-11T00:00:00Z
+updated: 2026-07-11T00:00:00Z
 priority: critical
 complexity: 2
 effort_hours: 2
 related: [TASK-PERF-COACHSYNTH]
 ---
+
+> **✅ CLOSED-AS-DONE 2026-07-11 (WS3-S8 tracker sweep, mechanical reconcile).**
+> The provider-side contract this task demands **verifiably landed** on `main` in
+> pointer commit **`62b2525`** ("feat(harness): bound the Coach B-full gather
+> against context overflow (TASK-PERF-COACHSYNTH)", 2026-06-10) — that commit
+> extends `src/guardkitfactory/harness/backend_config.py` (+178) and
+> `src/guardkitfactory/harness/langgraph_harness.py` (+39). Source on disk today
+> satisfies the "What to do" list: `build_autobuild_backend(worktree, *,
+> max_tool_result_chars: int | None = None)` threads the cap into a
+> `TruncatingBackend` (`backend_config.py:507-610`, AC-1/AC-3); `LangGraphHarness.__init__`
+> accepts `recursion_limit` and passes it as `config={"recursion_limit": ...}`
+> on invoke (`langgraph_harness.py:381-501`, AC-2/AC-3). Both keyword-only with
+> `None` defaults, backward-compatible in both directions. The audit tool did not
+> auto-infer this (the pointer commit names the parent `TASK-PERF-COACHSYNTH`, not
+> `TASK-FIX-COACHSYNTH`); §4 of the WS3 build plan names this item explicitly.
+> Status flipped `backlog`→`completed`, file moved to `tasks/completed/`. No code
+> changed by the sweep.
 
 # TASK-FIX-COACHSYNTH — land the provider side of the COACHSYNTH contract
 

@@ -46,6 +46,14 @@ tags:
 decision: "Go/no-go for the next FEAT-AOF (TASK-HMIG-010) validation run after TASK-FIX-COACHBUDG01-LG lands: is the reasoning-extraction fix SUFFICIENT, or must a defined set of residual items (feature task_timeout budget, specialist 600s cap, async-generator aclose leak, AC-006 live smoke) be addressed first? Output a prioritized pre-run checklist with the owning repo for each item."
 ---
 
+> **📁 RELOCATED 2026-07-11 (WS3-S8 tracker sweep, mechanical reconcile).** This
+> review task carries a terminal frontmatter status (`review_complete`, verdict
+> `conditional-go`, `completed_at: 2026-06-07`) but was filed under `tasks/backlog/`
+> — the `status_location_conflict` the audit flags and §4 of the WS3 build plan
+> names ("closed but filed in backlog"). Frontmatter is already terminal and
+> correct; only the location was wrong. Moved verbatim to
+> `tasks/completed/TASK-REV-AOF-RUN9/`. No frontmatter flip, no content change.
+
 # Review: FEAT-AOF run-9 — pre-next-run readiness after TASK-FIX-COACHBUDG01-LG
 
 > **This is a review/analysis task.** Execute with `/task-review TASK-REV-AOF-RUN9`,
