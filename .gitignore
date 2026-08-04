@@ -56,8 +56,9 @@ ENV/
 # Environment variables file (contains secrets)
 .env
 
-# (Removed: /lib/ /lib64/ - this template ships vendored helpers at /lib/;
-#  virtual-env libs are already covered by .venv/ etc. above.)
+# (Removed: /lib/ /lib64/ - historical: this template once shipped vendored
+#  helpers at /lib/. They now live at src/guardkitfactory/lib/; virtual-env
+#  libs are already covered by .venv/ etc. above.)
 parts/
 sdist/
 var/

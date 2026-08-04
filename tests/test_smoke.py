@@ -4,7 +4,7 @@ Verifies the falsifier-level invariants from the task spec:
 
 1. ``from guardkitfactory import HarnessAdapter`` succeeds.
 2. The ``guardkitfactory.harness`` subpackage imports (skeleton at this stage).
-3. The four template-derived ``lib/`` helpers are present and importable:
+3. The four template-derived ``guardkitfactory.lib`` helpers are present and importable:
    ``factory_guards``, ``json_extractor``, ``retry_context``,
    ``session_logging``.
 
@@ -74,12 +74,12 @@ def test_harness_subpackage_imports() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC-004 .. AC-007: vendored lib/ helpers importable
+# AC-004 .. AC-007: vendored guardkitfactory.lib helpers importable
 # ---------------------------------------------------------------------------
 
 def test_lib_factory_guards_importable() -> None:
     """AC-004: assert_no_system_messages (TASK-REV-R2A1) + assert_tool_inventory."""
-    from lib.factory_guards import (
+    from guardkitfactory.lib.factory_guards import (
         ToolLeakageError,
         assert_no_system_messages,
         assert_tool_inventory,
@@ -98,7 +98,7 @@ def test_lib_factory_guards_importable() -> None:
 
 def test_lib_json_extractor_importable() -> None:
     """AC-005: 5-strategy JSON extraction cascade."""
-    from lib.json_extractor import JsonExtractionError, JsonExtractor
+    from guardkitfactory.lib.json_extractor import JsonExtractionError, JsonExtractor
 
     assert hasattr(JsonExtractor, "extract")
     assert issubclass(JsonExtractionError, Exception)
@@ -110,7 +110,7 @@ def test_lib_json_extractor_importable() -> None:
 
 def test_lib_retry_context_importable() -> None:
     """AC-006: retry input + context manifest construction."""
-    from lib.retry_context import build_context_manifest, build_retry_input
+    from guardkitfactory.lib.retry_context import build_context_manifest, build_retry_input
 
     assert callable(build_context_manifest)
     assert callable(build_retry_input)
@@ -121,18 +121,18 @@ def test_lib_retry_context_importable() -> None:
 
 def test_lib_session_logging_importable() -> None:
     """AC-007: per-run diagnostic JSON + logging bootstrap."""
-    from lib.session_logging import configure_logging, write_session_log
+    from guardkitfactory.lib.session_logging import configure_logging, write_session_log
 
     assert callable(configure_logging)
     assert callable(write_session_log)
 
 
 # ---------------------------------------------------------------------------
-# lib/ aggregate __init__ also re-exports the four helpers cleanly
+# guardkitfactory.lib aggregate __init__ also re-exports the four helpers cleanly
 # ---------------------------------------------------------------------------
 
 def test_lib_package_reexports() -> None:
-    import lib
+    from guardkitfactory import lib
 
     assert hasattr(lib, "assert_no_system_messages")
     assert hasattr(lib, "JsonExtractor")

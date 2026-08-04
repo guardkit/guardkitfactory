@@ -20,9 +20,12 @@ What this package provides:
   used by guardkit's post-wave wiring gate: `analyze_wiring` plus the
   CALLSITE_DRIFT, SYS_MODULES_TAMPER / env-tamper, PERMISSIVE_DOUBLE, and
   stub-scan checks (WS3-S3). Parsing is stack-agnostic via tree-sitter.
-- **`lib/`** — helpers vendored from the `langchain-deepagents` template
-  (factory guards, JSON extraction, retry context, session logging), shipped as
-  a top-level `lib` package.
+- **`guardkitfactory.lib`** — helpers vendored from the `langchain-deepagents`
+  template (factory guards, JSON extraction, retry context, session logging).
+  They live at `src/guardkitfactory/lib/`, *inside* the package namespace: a
+  bare top-level `lib` package shadowed guardkit's `installer/core/lib` in the
+  forge image (namespace-hygiene instance #3, 2026-08-04). Never move them back
+  out.
 
 `HarnessAdapter` (the top-level symbol) is a **retained placeholder** that
 raises `NotImplementedError` — it exists only for the original TASK-HMIG-000R
@@ -75,7 +78,7 @@ The pattern rules under `.claude/rules/patterns/` (adversarial cooperation,
 agent factory, memory injection, tool delegation, domain-driven configuration)
 are **template-vendored background** carried over from the `langchain-deepagents`
 template this package began as. They document the Player/Coach orchestration
-pattern that *guardkit's* orchestrator implements and that the `lib/` helpers
+pattern that *guardkit's* orchestrator implements and that the `guardkitfactory.lib` helpers
 support — they do not describe a Player/Coach loop running inside this repo
 (this repo has none; it is the harness the loop runs on).
 

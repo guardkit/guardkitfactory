@@ -24,7 +24,7 @@ The harness migration (FEAT-HMIG) is complete; the wiring/seam layer
 | Backend / model / permissions config | `guardkitfactory.harness` (`build_autobuild_backend`, `resolve_autobuild_model`, `build_autobuild_permissions`) | shipped (TASK-HMIG-002R) |
 | BDD contract surface | `guardkitfactory.bdd` (`discover`, `BDDRunResult`, `StackProfile`, `Scenario`, `BDDPlugin`) | shipped — the seam the Coach BDD bridge binds to |
 | Wiring / seam analyzer | `guardkitfactory.wiring` (`analyze_wiring`, CALLSITE_DRIFT, SYS_MODULES_TAMPER / env-tamper, PERMISSIVE_DOUBLE, stub-scan) | shipped (WS3-S3) |
-| Vendored template helpers | `lib/` (factory guards, JSON extraction, retry context, session logging) | shipped |
+| Vendored template helpers | `guardkitfactory.lib` (factory guards, JSON extraction, retry context, session logging) | shipped |
 
 `HarnessAdapter` (the top-level symbol) is a retained **placeholder** that
 raises `NotImplementedError`; it exists only for the original TASK-HMIG-000R
@@ -77,21 +77,24 @@ guardkitfactory/
 │   ├── __init__.py           # public API re-exports + placeholder HarnessAdapter
 │   ├── harness/              # LangGraphHarness + backend/model/permissions config
 │   ├── bdd/                  # BDD discovery + run-result contract (Coach bridge seam)
-│   └── wiring/               # deterministic wiring/seam analyzer (WS3-S3)
-├── lib/                      # vendored helpers from the langchain-deepagents template
-│   ├── factory_guards.py     # tool allowlisting + ainvoke() guard (TASK-REV-R2A1)
-│   ├── json_extractor.py     # 5-strategy JSON extraction cascade
-│   ├── retry_context.py      # retry-input + context manifest (Category C fix)
-│   └── session_logging.py    # per-run diagnostic JSON + logging bootstrap (Category A fix)
+│   ├── wiring/               # deterministic wiring/seam analyzer (WS3-S3)
+│   └── lib/                  # vendored helpers from the langchain-deepagents template
+│       ├── factory_guards.py     # tool allowlisting + ainvoke() guard (TASK-REV-R2A1)
+│       ├── json_extractor.py     # 5-strategy JSON extraction cascade
+│       ├── retry_context.py      # retry-input + context manifest (Category C fix)
+│       └── session_logging.py    # per-run diagnostic JSON + logging bootstrap (Category A fix)
 ├── tests/                    # 300+ tests: harness/, bdd/, wiring/, test_smoke.py
 └── .github/workflows/ci.yml
 ```
 
-`lib/` ships as a top-level package (configured via
-`tool.setuptools.package-dir` in `pyproject.toml`) so that `from
-lib.factory_guards import …` works after a `pip install -e .`. It is
-deliberately *not* under `guardkitfactory/` — the helpers are template-
-vendored and may be promoted up to the canonical template tree later.
+The helpers ship **inside** the package namespace as
+`guardkitfactory.lib`, so `from guardkitfactory.lib.factory_guards import …`
+works after a `pip install -e .`. They used to ship as a bare top-level `lib`
+distribution package; in the forge image that shadowed guardkit's own
+`installer/core/lib` and broke its fix-task producer
+(`from lib.review_parser import …` → `ModuleNotFoundError`). See instance #3 in
+guardkit's `.claude/rules/namespace-hygiene.md` — this distribution must never
+ship a bare top-level package again.
 
 ## Cross-repo dependency
 
@@ -162,7 +165,7 @@ open:
   (lives in the `guardkit` repo).
 - Pinning standard: [`portfolio-python-pinning.md`][pps] in `guardkit`.
 - Template source: `guardkit/installer/core/templates/langchain-deepagents/`
-  — the `lib/` helpers vendored here are derived directly from it.
+  — the `guardkitfactory.lib` helpers vendored here are derived directly from it.
 
 ## License
 

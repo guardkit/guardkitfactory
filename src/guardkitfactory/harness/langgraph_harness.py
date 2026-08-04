@@ -68,7 +68,7 @@ from guardkitfactory.harness.extractors import (
     extract_last_ai_reasoning,
 )
 from guardkitfactory.harness.model_config import resolve_autobuild_model
-from lib.factory_guards import assert_no_system_messages
+from guardkitfactory.lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
 

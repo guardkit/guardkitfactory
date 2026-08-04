@@ -33,7 +33,7 @@ jobs:
         run: uv run pytest tests/ -v
 
       - name: ruff check
-        run: uv run ruff check src/ lib/ tests/
+        run: uv run ruff check src/ tests/
 
       - name: mypy
         run: uv run mypy src/
