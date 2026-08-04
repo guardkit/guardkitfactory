@@ -66,20 +66,26 @@ Homepage = "https://github.com/appmilla/guardkitfactory"
 # ---------------------------------------------------------------------------
 # setuptools layout
 # ---------------------------------------------------------------------------
-# The package lives under src/guardkitfactory/ (src layout), and the
-# vendored helpers under lib/ are also shipped as an importable top-level
-# `lib` package so `from lib.factory_guards import ...` works after a
-# `pip install -e .`.
+# The package lives under src/guardkitfactory/ (src layout). The vendored
+# helpers live INSIDE that namespace at src/guardkitfactory/lib/, imported as
+# `from guardkitfactory.lib.factory_guards import ...`.
+#
+# They used to ship as a bare top-level `lib` distribution package. That is a
+# namespace-hygiene violation (guardkit `.claude/rules/namespace-hygiene.md`,
+# instance #3, 2026-08-04): in the forge image this distribution's `lib/`
+# landed in site-packages and shadowed guardkit's own `installer/core/lib`,
+# so guardkit's fix-task producer (`from lib.review_parser import ...`) died
+# with ModuleNotFoundError. Never reintroduce a bare top-level package here.
 [tool.setuptools]
-package-dir = { "" = "src", "lib" = "lib" }
+package-dir = { "" = "src" }
 packages = [
     "guardkitfactory",
     "guardkitfactory.bdd",
     "guardkitfactory.bdd.plugins",
     "guardkitfactory.harness",
+    "guardkitfactory.lib",
     "guardkitfactory.wiring",
     "guardkitfactory.wiring.dialects",
-    "lib",
 ]
 
 # ---------------------------------------------------------------------------
