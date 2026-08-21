@@ -51,6 +51,7 @@ from guardkitfactory.wiring.analyzer import (
     _parse_or_none,
     _read_bytes,
     _run_query_matches,
+    splat_kind,
 )
 from guardkitfactory.wiring.dialect import (
     WiringDialect,
@@ -194,43 +195,66 @@ class CallsiteDriftResult:
 
 
 def _summarise_signature(
-    params_node: Any, source: bytes, dialect: WiringDialect
+    params_node: Any,
+    source: bytes,
+    dialect: WiringDialect,
+    *,
+    drop_receiver: bool = False,
 ) -> tuple[tuple[_ParamSpec, ...], bool, bool]:
     """Build ordered ``_ParamSpec`` tuple + (var_positional, var_keyword).
 
     Handles Python's ``*``/``/`` separators (``keyword_separator`` /
     ``positional_separator``) so kw-only and pos-only params carry the right
     kind (pinned against the live grammar).
+
+    ``drop_receiver`` removes the implicit first argument a METHOD gets for
+    free (``self`` / ``cls``), which the caller never writes.  It is off by
+    default: a plain module-level ``def validate_markdown_file(cls, path)`` has
+    an ordinary parameter that merely happens to be spelled ``cls``, and
+    deleting it made the scan believe the function took one value, not two.
     """
     specs: list[_ParamSpec] = []
     kw_only = False
     pos_only_upto: int | None = None
     var_positional = False
     var_keyword = False
+    seen_a_param = False
     for child in params_node.named_children:
         ctype = child.type
+        if ctype in dialect.trivia_node_types:  # a comment is not a parameter
+            continue
         if ctype == "keyword_separator":  # bare `*`
             kw_only = True
             continue
         if ctype == "positional_separator":  # `/`
             pos_only_upto = len(specs)
             continue
-        if ctype in dialect.param_splat_node_types:
+        splat = splat_kind(child, dialect)
+        if splat:
+            # An annotated catch-all (`*args: int`, `**kw: Any`) parses as a
+            # wrapper around the pattern; unwrap so both spellings read alike.
+            pattern = child if ctype == splat else child.named_children[0]
             # *args has an identifier child; a bare `*` is keyword_separator
             # (handled above), so a splat-pattern here is a real variadic.
-            has_name = any(c.type == "identifier" for c in child.named_children)
-            if ctype == "list_splat_pattern":
+            has_name = any(c.type == "identifier" for c in pattern.named_children)
+            if splat == "list_splat_pattern":
                 if has_name:
                     var_positional = True
+                    seen_a_param = True
                 else:
                     kw_only = True  # defensive: bare `*` as splat pattern
             else:  # dictionary_splat_pattern
                 var_keyword = True
+                seen_a_param = True
             continue
         # regular param node (identifier / typed_parameter / *default*)
         name = _first_identifier(child, source)
-        if not name or name in dialect.param_self_names:
+        if not name:
             continue
+        if drop_receiver and not seen_a_param and name in dialect.param_self_names:
+            seen_a_param = True
+            continue
+        seen_a_param = True
         has_default = ctype in dialect.param_default_node_types
         specs.append(_ParamSpec(
             name=name, kind="kw_only" if kw_only else "pos_or_kw", has_default=has_default,
@@ -250,6 +274,115 @@ def _first_identifier(node: Any, source: bytes) -> str:
         if child.type == "identifier":
             return _node_text(child, source)
     return ""
+
+
+def _decorator_names(name_node: Any, source: bytes) -> list[str]:
+    """Bare names of the decorators sitting above a definition.
+
+    ``@click.option("--x")`` yields ``"option"``; ``@functools.cache`` yields
+    ``"cache"``.  Returns an empty list for an undecorated definition.
+    """
+    fn = name_node.parent
+    holder = fn.parent if fn is not None else None
+    if holder is None or "decorated" not in holder.type:
+        return []
+    out: list[str] = []
+    for child in holder.named_children:
+        if child.type != "decorator":
+            continue
+        text = _node_text(child, source).lstrip("@").split("(")[0].strip()
+        if text:
+            out.append(text.split(".")[-1])
+    return out
+
+
+def _signature_survives_its_decorators(
+    name_node: Any, source: bytes, dialect: WiringDialect
+) -> bool:
+    """True when the ``def`` line still describes how the name is called.
+
+    A decorator may replace the function entirely: ``@click.group()`` swaps it
+    for a command object called with ``obj=`` / ``standalone_mode=``, names the
+    ``def`` line never mentions.  Reading the ``def`` line in that case is
+    guesswork, so unless every decorator is on the known signature-preserving
+    list the signature is withheld and the scan stays silent.
+
+    Dialects that declare no list keep the previous behaviour (no gating).
+    """
+    if not dialect.signature_preserving_decorators:
+        return True
+    return all(
+        d in dialect.signature_preserving_decorators
+        for d in _decorator_names(name_node, source)
+    )
+
+
+def module_dotted_names(rel_path: str, dialect: WiringDialect) -> set[str]:
+    """Dotted module names a source file provides, plus its parent packages.
+
+    ``src/forge/cli/serve.py`` provides ``forge.cli.serve`` and implies the
+    packages ``forge`` and ``forge.cli``.  Used to decide whether an imported
+    name comes from THIS repository.
+    """
+    parts = tuple(rel_path.replace(os.sep, "/").strip("/").split("/"))
+    if parts and parts[0] in dialect.source_root_dirs:
+        parts = parts[1:]
+    if not parts:
+        return set()
+    stem = parts[-1].rsplit(".", 1)[0]
+    pkg = parts[:-1] if stem == "__init__" else parts[:-1] + (stem,)
+    return {".".join(pkg[:i]) for i in range(1, len(pkg) + 1)}
+
+
+def absolute_module(origin: str, importing_package: str) -> str:
+    """Turn an import's module reference into an absolute dotted module name.
+
+    ``from .helpers import x`` written in any file of package ``app`` refers to
+    ``app.helpers``; ``from ..core import y`` in package ``a.b.c`` refers to
+    ``a.b.core``.  An already-absolute reference is returned unchanged.
+
+    The anchor is the importing file's PACKAGE, not its module — that is what
+    Python uses, and it is the difference between a package's own ``__init__``
+    re-export pointing inward (correct) and pointing at its parent (wrong).
+    """
+    if not origin.startswith("."):
+        return origin
+    dots = len(origin) - len(origin.lstrip("."))
+    remainder = origin[dots:]
+    base = importing_package.split(".") if importing_package else []
+    # One dot = the importing file's own package; each extra dot climbs one.
+    base = base[: len(base) - (dots - 1)] if dots > 1 else base
+    parts = [q for q in (*base, *remainder.split(".")) if q]
+    return ".".join(parts)
+
+
+def own_module(rel_path: str, dialect: WiringDialect) -> str:
+    """The dotted module name a source file itself provides."""
+    names = module_dotted_names(rel_path, dialect)
+    return max(names, key=len) if names else ""
+
+
+def own_package(rel_path: str, dialect: WiringDialect) -> str:
+    """The dotted package a source file lives in — the anchor for ``from .x``."""
+    parts = tuple(rel_path.replace(os.sep, "/").strip("/").split("/"))
+    if parts and parts[0] in dialect.source_root_dirs:
+        parts = parts[1:]
+    return ".".join(parts[:-1])
+
+
+def _is_first_party_module(origin: str, first_party_modules: set[str]) -> bool:
+    """Is ``origin`` a module that lives in this repository?
+
+    A relative import (``from .helpers import build``) is first-party by
+    construction.  Anything else must match a module the repository actually
+    provides — otherwise the scan cannot tell whose function it is and, per the
+    bias-to-silence posture, says nothing.
+    """
+    if not origin:
+        return False
+    if origin.startswith("."):
+        return True
+    return origin in first_party_modules
 
 
 def _extract_signatures(
@@ -282,6 +415,8 @@ def _extract_signatures(
                 if not names or not params:
                     continue
                 fname = _node_text(names[0], source)
+                if not _signature_survives_its_decorators(names[0], source, dialect):
+                    continue  # decorator rewrites the call shape → stay silent
                 specs, vp, vk = _summarise_signature(params[0], source, dialect)
                 _add(fname, _Signature(
                     name=fname, params=specs, has_var_positional=vp,
@@ -302,7 +437,11 @@ def _extract_signatures(
                 if not classes or not params:
                     continue
                 cname = _node_text(classes[0], source)
-                specs, vp, vk = _summarise_signature(params[0], source, dialect)
+                # A constructor's leading `self` is supplied by Python, never
+                # written by the caller.
+                specs, vp, vk = _summarise_signature(
+                    params[0], source, dialect, drop_receiver=True
+                )
                 _add(cname, _Signature(
                     name=cname, params=specs, has_var_positional=vp,
                     has_var_keyword=vk, lineno=classes[0].start_point[0] + 1,
@@ -437,6 +576,8 @@ def _summarise_call(
     splat = False
     for child in args_node.named_children:
         ctype = child.type
+        if ctype in dialect.trivia_node_types:
+            continue  # a `# type: ignore` note inside the brackets is not a value
         if ctype in dialect.arg_splat_node_types:
             splat = True
         elif ctype in dialect.arg_keyword_node_types:
@@ -611,19 +752,37 @@ def _run_dialect(
 
     # --- Current worktree signatures (all non-test source, repo-wide) --------
     current_sigs: dict[str, _Signature] = {}
+    sigs_by_module: dict[tuple[str, str], _Signature] = {}
+    # module -> (its import map, its package) so a re-export can be followed
+    # back to the module that actually defines the name.
+    import_maps: dict[str, tuple[dict[str, tuple[str, str]], str]] = {}
+    # Every dotted module name this repository provides, so an imported callee
+    # can be told apart from a same-named third-party one.
+    first_party_modules: set[str] = set()
     for rel in _collect_source_files(worktree, dialect):
         if _is_test_file(rel, dialect):
             continue
+        first_party_modules |= module_dotted_names(rel, dialect)
         src = _read_bytes(worktree / rel)
         if src is None:
             continue
         tree = _parse_or_none(src, dialect)
         if tree is None:
             continue
+        rel_module = own_module(rel, dialect)
+        if rel_module:
+            import_maps.setdefault(
+                rel_module,
+                (_build_import_map(src, tree, dialect), own_package(rel, dialect)),
+            )
         for name, sig in _extract_signatures(src, tree, dialect, rel).items():
-            # First definition wins across the repo; genuine cross-module
-            # same-name is resolved per-call via the import map.
+            # `current_sigs` (bare name, first wins) is used ONLY to decide
+            # which signatures changed this turn (aperture A).  Binding a call
+            # always goes through `sigs_by_module`, which cannot confuse two
+            # same-named functions in different modules.
             current_sigs.setdefault(name, sig)
+            if rel_module:
+                sigs_by_module.setdefault((rel_module, name), sig)
 
     authored_set = {os.path.normpath(f) for f in authored_targets}
 
@@ -639,7 +798,10 @@ def _run_dialect(
         imap = _build_import_map(src, tree, dialect)
         local_sigs = _extract_signatures(src, tree, dialect, rel)
         for callee, args_node, lineno in _extract_call_sites(src, tree, dialect):
-            sig = _resolve_callee(callee, local_sigs, imap, current_sigs)
+            sig = _resolve_callee(
+                callee, local_sigs, imap, sigs_by_module, import_maps,
+                first_party_modules, own_package(rel, dialect),
+            )
             if sig is None:
                 continue
             positional, kw_names, splat = _summarise_call(args_node, src, dialect)
@@ -683,7 +845,10 @@ def _run_dialect(
                 for callee, args_node, lineno in _extract_call_sites(src, tree, dialect):
                     if callee not in changed:
                         continue
-                    sig = _resolve_callee(callee, local_sigs, imap, current_sigs)
+                    sig = _resolve_callee(
+                        callee, local_sigs, imap, sigs_by_module, import_maps,
+                        first_party_modules, own_package(rel, dialect),
+                    )
                     if sig is None or sig.name not in changed:
                         continue
                     positional, kw_names, splat = _summarise_call(args_node, src, dialect)
@@ -698,19 +863,81 @@ def _resolve_callee(
     callee: str,
     local_sigs: dict[str, _Signature],
     imap: dict[str, tuple[str, str]],
-    repo_sigs: dict[str, _Signature],
+    sigs_by_module: dict[tuple[str, str], _Signature],
+    import_maps: dict[str, tuple[dict[str, tuple[str, str]], str]],
+    first_party_modules: set[str],
+    importing_package: str,
 ) -> _Signature | None:
-    """Resolve a bare-identifier callee to a first-party signature.
+    """Resolve a bare-identifier callee to the signature it will actually call.
 
-    Same-file defs resolve trivially; imported names resolve via the import map
-    to the repo-wide signature of the original name.  Only names that are
-    demonstrably imported (or same-file) resolve — an unimported bare name that
-    merely collides with a repo symbol does NOT resolve (bias to no-finding).
+    Same-file definitions resolve trivially.  An IMPORTED name resolves only
+    when BOTH of these hold:
+
+    * the module it was imported FROM belongs to this repository — otherwise
+      the scan would check, say, SQLAlchemy's ``create_async_engine`` against an
+      unrelated local function of the same name; and
+    * that exact module really defines that exact name.  Looking the name up
+      across the whole repository and taking the first hit is what made
+      ``from forge.adapters.guardkit.run import run`` land on an unrelated
+      ``run`` in ``scripts/`` and report a TypeError that cannot happen.
+
+    Where origin cannot be established the scan says nothing.  That is the
+    posture of this probe throughout: a silent check beats one that cries wolf.
+    A plain ``import some.module`` binds a MODULE name, not a callable, so it
+    never resolves either.
     """
     if callee in local_sigs:
         return local_sigs[callee]
-    if callee in imap:
-        _origin, original = imap[callee]
-        target = original or callee
-        return repo_sigs.get(target)
-    return None
+    entry = imap.get(callee)
+    if entry is None:
+        return None
+    origin, original = entry
+    if not original:
+        return None  # `import mod` — the local name is a module, not a function
+    absolute = absolute_module(origin, importing_package)
+    return _follow_to_definition(
+        absolute, original, sigs_by_module, import_maps, first_party_modules
+    )
+
+
+_MAX_REEXPORT_HOPS = 4
+
+
+def _follow_to_definition(
+    module: str,
+    name: str,
+    sigs_by_module: dict[tuple[str, str], _Signature],
+    import_maps: dict[str, tuple[dict[str, tuple[str, str]], str]],
+    first_party_modules: set[str],
+    _hops: int = 0,
+) -> _Signature | None:
+    """Find where ``module.name`` is really DEFINED, hopping through re-exports.
+
+    Packages routinely publish a name from a private module through their
+    ``__init__``: ``guardkit.orchestrator.harness`` exposes ``select_harness``,
+    which is written in ``guardkit.orchestrator.harness.selector``.  Without
+    following that hop the scan cannot see the signature at all and goes quiet,
+    losing real detections.  Bounded to a few hops so an import cycle cannot
+    spin.
+    """
+    if not _is_first_party_module(module, first_party_modules):
+        return None  # third-party (or unknown) origin → stay silent
+    sig = sigs_by_module.get((module, name))
+    if sig is not None:
+        return sig
+    if _hops >= _MAX_REEXPORT_HOPS:
+        return None
+    entry = import_maps.get(module)
+    if entry is None:
+        return None
+    imap, package = entry
+    hop = imap.get(name)
+    if hop is None:
+        return None
+    origin, original = hop
+    if not original:
+        return None
+    return _follow_to_definition(
+        absolute_module(origin, package), original,
+        sigs_by_module, import_maps, first_party_modules, _hops + 1,
+    )

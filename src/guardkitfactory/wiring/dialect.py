@@ -154,6 +154,24 @@ class WiringDialect:
         Call-argument node types that splat an unknown number of arguments
         (Python: ``list_splat``, ``dictionary_splat``).  Any present ⇒ the
         call's arity is unknowable and the call is never flagged (bias OK).
+    trivia_node_types:
+        Node types that carry no program meaning and must be ignored wherever
+        parameters or arguments are counted — comments, above all.  A
+        ``# type: ignore`` note written inside a call's brackets is a named
+        tree-sitter node and was previously counted as a value being passed.
+    source_root_dirs:
+        Leading directory names that hold source but are NOT part of the
+        importable module path (``src/``, ``lib/``).  Used to work out which
+        dotted module names belong to this repository, so a call to a
+        third-party library is never checked against a same-named local
+        function.
+    signature_preserving_decorators:
+        Bare decorator names (last dotted segment) that are known NOT to change
+        what the decorated function accepts.  A function carrying any OTHER
+        decorator has its signature withheld: a ``click``-built command-line
+        entry point, for instance, is replaced wholesale by a command object
+        that is called with entirely different arguments, so the ``def`` line
+        says nothing about what the name accepts.
     """
 
     language: str
@@ -184,6 +202,12 @@ class WiringDialect:
     param_required_node_types: tuple[str, ...] = ()
     arg_keyword_node_types: tuple[str, ...] = ()
     arg_splat_node_types: tuple[str, ...] = ()
+    # Trivia: named nodes with no program meaning.  ``comment`` is the node
+    # type in every grammar this pack ships (python/javascript/typescript/
+    # c-sharp), so it is the default rather than per-dialect boilerplate.
+    trivia_node_types: tuple[str, ...] = ("comment",)
+    source_root_dirs: tuple[str, ...] = ()
+    signature_preserving_decorators: tuple[str, ...] = ()
     # ---------------------------------------------------------------------------
     # Anti-stub body scan (TASK-QAV-001)
     # ---------------------------------------------------------------------------
