@@ -180,6 +180,26 @@ dialect = register_dialect(
         param_required_node_types=("identifier", "typed_parameter"),
         arg_keyword_node_types=("keyword_argument",),
         arg_splat_node_types=("list_splat", "dictionary_splat"),
+        # Directories that hold source but are not part of the importable
+        # module path, so `src/forge/cli/serve.py` is the module
+        # `forge.cli.serve`.  Used to tell a call to THIS repo's function from
+        # a call to a same-named third-party one.
+        source_root_dirs=("src", "lib", "source"),
+        # Decorators known not to change what the function accepts.  Anything
+        # else (click/typer command builders, framework wrappers) means the
+        # `def` line no longer describes how the name is called, so the
+        # signature is withheld rather than guessed at.
+        signature_preserving_decorators=(
+            # stdlib functools
+            "cache", "lru_cache", "wraps", "cached_property",
+            "singledispatch", "singledispatchmethod", "total_ordering",
+            # typing / abc / builtins
+            "overload", "final", "override", "no_type_check",
+            "runtime_checkable", "abstractmethod", "abstractproperty",
+            "staticmethod", "classmethod", "property",
+            # dataclasses + contextlib (wrap the RETURN, not the parameters)
+            "dataclass", "contextmanager", "asynccontextmanager",
+        ),
         # --- WS3-S3 2b CALLSITE_DRIFT + import map -------------------------
         # Whole import nodes; the analyzer walks each to build the per-file
         # import map local_name -> (origin_module, original_name).

@@ -931,34 +931,72 @@ def _first_identifier_text(node: Any, source: bytes) -> str:
     return ""
 
 
+def splat_kind(node: Any, dialect: WiringDialect) -> str:
+    """Return the catch-all node type this parameter really is, or ``""``.
+
+    ``*args`` and ``**kwargs`` mean "I accept any number of extra values".
+    Python lets either carry a type annotation, and the annotated spelling
+    parses as a *wrapper* node (``typed_parameter``) whose first named child is
+    the catch-all pattern::
+
+        **kwargs          -> dictionary_splat_pattern
+        **kwargs: object  -> typed_parameter( dictionary_splat_pattern, type )
+
+    Matching only on the bare node type therefore made an annotated catch-all
+    invisible — the signature was read as if it accepted nothing extra, which
+    condemned every correct caller.  Unwrapping one level fixes both spellings
+    without a language-specific special case.
+    """
+    if node.type in dialect.param_splat_node_types:
+        return node.type
+    # Only the LEADING named child sits in the name position, so a default
+    # value or an annotation type can never be mistaken for a catch-all.
+    for child in node.named_children:
+        return child.type if child.type in dialect.param_splat_node_types else ""
+    return ""
+
+
 def _summarise_params(
     params_node: Any, source: bytes, dialect: WiringDialect
 ) -> tuple[int, int, bool]:
     """Count (required, total, variadic) for a constructor parameter list.
 
     DATA-driven via the dialect's ``param_*`` node-type tuples — no language
-    branching here.  ``self``/``cls`` (``param_self_names``) are excluded.
-    Any splat parameter makes the signature variadic (arity unknowable).
+    branching here.  Any catch-all parameter (``*args`` / ``**kwargs``, with or
+    without a type annotation) makes the signature variadic — arity unknowable,
+    so the probe stays quiet.
+
+    The implicit receiver (``self`` / ``cls``) is dropped, but ONLY where it
+    really is one: as the FIRST parameter.  This helper is used for
+    constructors alone, so the first parameter always is the receiver.
     """
     required = 0
     total = 0
     variadic = False
+    seen_a_param = False
     for child in params_node.named_children:
         ctype = child.type
-        if ctype in dialect.param_splat_node_types:
+        if ctype in dialect.trivia_node_types:
+            continue  # a comment is not a parameter
+        if splat_kind(child, dialect):
             variadic = True
+            seen_a_param = True
         elif ctype in dialect.param_default_node_types:
             name = _first_identifier_text(child, source)
-            if name in dialect.param_self_names:
+            if not seen_a_param and name in dialect.param_self_names:
+                seen_a_param = True
                 continue
+            seen_a_param = True
             total += 1  # defaulted → optional, counts toward total only
         elif ctype in dialect.param_required_node_types:
             name = _first_identifier_text(child, source)
-            if name in dialect.param_self_names:
+            if not seen_a_param and name in dialect.param_self_names:
+                seen_a_param = True
                 continue
+            seen_a_param = True
             required += 1
             total += 1
-        # else: keyword-only separator / comment / anonymous → ignored
+        # else: keyword-only separator / anonymous → ignored
     return required, total, variadic
 
 
@@ -1009,6 +1047,8 @@ def _summarise_call_args(
     splat = False
     for child in args_node.named_children:
         ctype = child.type
+        if ctype in dialect.trivia_node_types:
+            continue  # a `# type: ignore` note inside the brackets is not a value
         if ctype in dialect.arg_splat_node_types:
             splat = True
         elif ctype in dialect.arg_keyword_node_types:

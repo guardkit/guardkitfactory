@@ -265,3 +265,146 @@ class TestSpecMockSeam:
         assert authored_seams == []
         ignored = [f["symbol"] for f in result["mocked_seam"]["external_mocks_ignored"]]
         assert "httpx.AsyncClient" in ignored
+
+
+# ---------------------------------------------------------------------------
+# Source-reading fidelity (2026-08-21) — the blind spots this probe shares with
+# CALLSITE_DRIFT.  CTOR_ARITY is allowed to STOP A BUILD, so a misreading here
+# blocks correct code.
+# ---------------------------------------------------------------------------
+
+
+class TestCtorArityReadingFidelity:
+    """The probe must read ordinary Python the way Python reads it.
+
+    ``test_variadic_signature_never_flagged`` above only ever exercised the
+    UNANNOTATED ``*args, **kw`` spelling.  The annotated spelling
+    ``**kwargs: object`` is the same language feature and must behave the same;
+    it did not.
+    """
+
+    def test_annotated_catch_all_is_still_a_catch_all(self, tmp_path: Path) -> None:
+        """``__init__(self, a, **kwargs: object)`` accepts any extra named value.
+
+        Read wrongly, the probe saw "2 values required, no catch-all" and
+        condemned a correct one-argument construction.
+        """
+        svc = _write(
+            tmp_path,
+            "src/svc.py",
+            "class VoiceService:\n"
+            "    def __init__(self, transport, **kwargs: object) -> None:\n"
+            "        self.transport = transport\n",
+        )
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\ndef b():\n    return VoiceService(t)\n",
+        )
+        assert _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature")) == []
+
+    def test_annotated_star_args_is_still_a_catch_all(self, tmp_path: Path) -> None:
+        svc = _write(
+            tmp_path,
+            "src/svc.py",
+            "class VoiceService:\n"
+            "    def __init__(self, *parts: str) -> None:\n"
+            "        self.parts = parts\n",
+        )
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\n"
+            "def b():\n    return VoiceService('a', 'b', 'c')\n",
+        )
+        assert _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature")) == []
+
+    def test_comment_inside_the_call_is_not_a_value(self, tmp_path: Path) -> None:
+        """A ``# type: ignore`` note written inside the brackets is not an argument."""
+        svc = _write(tmp_path, "src/svc.py", SERVICE_TWO_REQUIRED)
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\n"
+            "def b():\n"
+            "    return VoiceService(\n"
+            "        t,\n"
+            "        c,\n"
+            "        # a trailing note\n"
+            "    )\n",
+        )
+        assert _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature")) == []
+
+    def test_keyword_only_marker_is_not_a_catch_all(self, tmp_path: Path) -> None:
+        """Guard: the lone ``*`` separator must not switch the probe to 'unknowable'."""
+        svc = _write(
+            tmp_path,
+            "src/svc.py",
+            "class VoiceService:\n"
+            "    def __init__(self, transport, *, config):\n"
+            "        self.t = transport\n",
+        )
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\ndef b():\n    return VoiceService(t)\n",
+        )
+        findings = _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature"))
+        assert len(findings) == 1, findings
+
+    # -- THE APERTURE THAT WIDENED ------------------------------------------
+    # Fixing a blind spot means the probe SEES MORE.  These two shapes were
+    # invisible before and can now stop a build.  Measured across guardkit,
+    # forge, specialist-agent, api_test and study-tutor on 2026-08-21 — 3,050
+    # constructor calls in 144 composition-root files, 364 constructor
+    # signatures — neither shape occurs, so nothing that passed then fails now.
+    # These tests exist so the widening stays deliberate and visible.
+
+    def test_comments_no_longer_pad_out_a_short_construction(
+        self, tmp_path: Path
+    ) -> None:
+        """Counting comments as values HID missing arguments.
+
+        Two required values, one supplied, two comments where the others
+        should be: the old reading counted three "values" and stayed quiet.
+        """
+        svc = _write(tmp_path, "src/svc.py", SERVICE_TWO_REQUIRED)
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\n"
+            "def b():\n"
+            "    return VoiceService(\n"
+            "        t,\n"
+            "        # config goes here\n"
+            "        # ...once it exists\n"
+            "    )\n",
+        )
+        findings = _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature"))
+        assert len(findings) == 1, findings
+        assert "requires 2" in findings[0]["why"]
+
+    def test_a_parameter_merely_spelled_cls_is_a_real_parameter(
+        self, tmp_path: Path
+    ) -> None:
+        """Only the FIRST parameter of a method is the implicit receiver.
+
+        A second parameter that happens to be spelled ``cls`` is an ordinary
+        value the caller must pass; deleting it made the probe believe the
+        constructor needed one fewer.
+        """
+        svc = _write(
+            tmp_path,
+            "src/svc.py",
+            "class VoiceService:\n"
+            "    def __init__(self, transport, cls):\n"
+            "        self.t = transport\n",
+        )
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\ndef b():\n    return VoiceService(t)\n",
+        )
+        findings = _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature"))
+        assert len(findings) == 1, findings
+        assert "requires 2" in findings[0]["why"]
