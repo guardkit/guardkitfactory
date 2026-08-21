@@ -1,4 +1,4 @@
-"""CALLSITE_DRIFT source-reading fidelity — the five real-world misfires (2026-08-21).
+"""CALLSITE_DRIFT source-reading fidelity — the real-world misfires (2026-08-21).
 
 Measured over 1,068 git-tracked non-test source files across guardkit, forge,
 specialist-agent, api_test and study-tutor, this check produced 67 warnings of
@@ -20,6 +20,16 @@ that exposed it, so the fixture stays anchored to a thing that actually happened
     5. A parameter literally named ``self`` or ``cls`` was deleted from EVERY
        function, including plain module-level functions where it is an ordinary
        parameter.                    (guardkit ``qa/formats/base.py`` line 243)
+
+A sixth was found by measuring the repair itself, and is covered in section 6
+below:
+
+    6. Fixing (3) made the scan resolve an import to the module it names — but
+       the module names it published for its OWN files stripped a leading
+       ``src/`` unconditionally.  Right for forge and guardkit; wrong for
+       api_test, whose own modules import ``from src.core.config import
+       settings``.  In api_test the scan resolved 17 cross-module imports before
+       the repair and 0 after.        (api_test, the factory's pilot surface)
 """
 
 from __future__ import annotations
@@ -410,3 +420,120 @@ def test_the_forge_planning_boot_defect_is_still_caught(tmp_path: Path) -> None:
     why = next(f["why"] for f in r["findings"]
                if f["symbol"] == "compose_planning_consumer_and_dispatch")
     assert "client" in why and "planning_config" in why and "sqlite_pool" in why
+
+
+# ---------------------------------------------------------------------------
+# 6. A repository whose own code imports through a ``src.`` prefix
+# ---------------------------------------------------------------------------
+#
+# The sixth misfire, found by measuring the repair itself (2026-08-21).  Fixing
+# misfire 3 taught the scan to resolve an import to the module it names — but
+# the module names it published for its own files were built by stripping a
+# leading ``src/`` unconditionally.  That is right for forge and guardkit, and
+# wrong for api_test, whose own modules import ``from src.core.config import
+# settings``.  In api_test — the factory's pilot surface — NOT ONE cross-module
+# import resolved any more: 17 bindings before the repair, 0 after.  A checker
+# that says nothing about the one repository the pipeline completes work in is
+# worse than the false alarms it replaced.
+
+
+def test_a_repository_that_imports_through_src_is_still_checked(tmp_path: Path) -> None:
+    """api_test: ``from src.users.crud import create_user``.
+
+    The repository root is on the import path and ``src`` is itself a package,
+    so ``src/users/crud.py`` IS the module ``src.users.crud``.
+    """
+    _write(tmp_path, "src/__init__.py", "")
+    _write(tmp_path, "src/users/__init__.py", "")
+    _write(tmp_path, "src/users/crud.py",
+           "def create_user(db, payload):\n    return None\n")
+    _write(tmp_path, "src/users/router.py",
+           "from src.users.crud import create_user\n"
+           "\n"
+           "def post_user(db, payload):\n"
+           "    return create_user(db, payload, notify=True)\n")
+    r = analyze_callsite_drift(["src/users/router.py"], tmp_path, "FEATURE")
+    assert [f["symbol"] for f in r["findings"]] == ["create_user"], r["findings"]
+    assert r["findings"][0]["form"] == "unknown_kwarg"
+
+
+def test_the_stripped_reading_of_the_same_layout_still_works(tmp_path: Path) -> None:
+    """forge: ``src/forge/...`` is installed as ``forge.…`` and imported that way.
+
+    Both readings of a ``src/`` tree are published, so the same file resolves
+    under whichever name the import actually writes.
+    """
+    _write(tmp_path, "src/forge/store.py", "def save(record):\n    return record\n")
+    _write(tmp_path, "src/forge/api.py",
+           "from forge.store import save\n"
+           "def handle(rec):\n    return save(rec, flush=True)\n")
+    r = analyze_callsite_drift(["src/forge/api.py"], tmp_path, "FEATURE")
+    assert [f["symbol"] for f in r["findings"]] == ["save"], r["findings"]
+
+
+def test_relative_import_inside_a_src_prefixed_repository(tmp_path: Path) -> None:
+    """``from .crud import create_user`` resolves under either reading."""
+    _write(tmp_path, "src/__init__.py", "")
+    _write(tmp_path, "src/users/__init__.py", "")
+    _write(tmp_path, "src/users/crud.py", "def create_user(db):\n    return None\n")
+    _write(tmp_path, "src/users/router.py",
+           "from .crud import create_user\n"
+           "def post_user(db):\n    return create_user(db, extra=1)\n")
+    r = analyze_callsite_drift(["src/users/router.py"], tmp_path, "FEATURE")
+    assert [f["symbol"] for f in r["findings"]] == ["create_user"], r["findings"]
+
+
+def test_a_third_party_import_stays_silent_in_a_src_prefixed_repository(
+    tmp_path: Path,
+) -> None:
+    """The recovered coverage must not undo the bias to silence.
+
+    api_test imports SQLAlchemy's ``create_async_engine`` and also happens to
+    define a same-named helper of its own.  Checking the call against the local
+    helper is exactly the misfire that was fixed; widening the module names the
+    repository publishes must not bring it back.
+    """
+    _write(tmp_path, "src/__init__.py", "")
+    _write(tmp_path, "src/db/__init__.py", "")
+    _write(tmp_path, "src/db/helpers.py",
+           "def create_async_engine(url):\n    return url\n")
+    _write(tmp_path, "src/db/session.py",
+           "from sqlalchemy.ext.asyncio import create_async_engine\n"
+           "def build(url):\n"
+           "    return create_async_engine(url, pool_size=5, echo=False)\n")
+    r = analyze_callsite_drift(["src/db/session.py"], tmp_path, "FEATURE")
+    assert r["findings"] == [], r["findings"]
+
+
+def test_two_files_claiming_one_module_name_are_not_guessed_between(
+    tmp_path: Path,
+) -> None:
+    """``src/app.py`` and ``app.py`` both answer to ``app`` — so neither is used.
+
+    Publishing both readings of a ``src/`` tree creates the possibility of two
+    files claiming one dotted name.  Nothing in the source says which the import
+    meant, so the contested name is dropped and the scan stays silent rather
+    than binding against whichever was read first.
+    """
+    _write(tmp_path, "app.py", "def build(a):\n    return a\n")
+    _write(tmp_path, "src/app.py", "def build(a, b, c):\n    return (a, b, c)\n")
+    _write(tmp_path, "caller.py",
+           "from app import build\n"
+           "def go():\n    return build(1, 2, 3, 4)\n")
+    r = analyze_callsite_drift(["caller.py"], tmp_path, "FEATURE")
+    assert r["findings"] == [], r["findings"]
+
+
+def test_module_aliases_publishes_both_readings_of_a_src_tree() -> None:
+    """The unit behind the fix, stated directly."""
+    from guardkitfactory.wiring.callsite_drift import module_aliases
+    from guardkitfactory.wiring.dialect import get_dialect
+
+    py = get_dialect("python")
+    assert module_aliases("src/forge/cli/serve.py", py) == (
+        "src.forge.cli.serve", "forge.cli.serve",
+    )
+    # A package __init__ names the package, not a module called "__init__".
+    assert module_aliases("src/users/__init__.py", py) == ("src.users", "users")
+    # No source-root prefix → exactly one reading.
+    assert module_aliases("guardkit/cli/main.py", py) == ("guardkit.cli.main",)

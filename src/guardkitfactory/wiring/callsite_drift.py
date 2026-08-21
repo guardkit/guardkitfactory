@@ -317,21 +317,63 @@ def _signature_survives_its_decorators(
     )
 
 
+def _dotted(parts: tuple[str, ...]) -> str:
+    """Join path segments into a dotted module name (``__init__`` = its package)."""
+    if not parts:
+        return ""
+    stem = parts[-1].rsplit(".", 1)[0]
+    pkg = parts[:-1] if stem == "__init__" else parts[:-1] + (stem,)
+    return ".".join(pkg)
+
+
+def module_aliases(rel_path: str, dialect: WiringDialect) -> tuple[str, ...]:
+    """Every dotted module name this file can legitimately be imported as.
+
+    A repository whose code lives under ``src/`` can be laid out two ways, and
+    the file path alone does not say which:
+
+    * ``src/`` is a packaging wrapper that is NOT part of the import path —
+      forge installs ``src/forge/cli/serve.py`` as ``forge.cli.serve``; or
+    * ``src/`` is itself the top package — api_test's own modules import
+      ``from src.core.config import settings``, so ``src/core/config.py`` is
+      the module ``src.core.config``.
+
+    Stripping ``src/`` unconditionally was right for the first layout and wrong
+    for the second, and being wrong there meant the checker could not match a
+    single internal import in that repository and went completely silent —
+    including on api_test, the surface the build pipeline actually works in.
+
+    So BOTH readings are published and an import resolves under whichever name
+    it actually writes.  A repository uses one convention throughout, so the
+    unused alias is simply never named.
+    """
+    parts = tuple(rel_path.replace(os.sep, "/").strip("/").split("/"))
+    if not parts:
+        return ()
+    names: list[str] = []
+    full = _dotted(parts)
+    if full:
+        names.append(full)
+    if parts[0] in dialect.source_root_dirs:
+        stripped = _dotted(parts[1:])
+        if stripped and stripped not in names:
+            names.append(stripped)
+    return tuple(names)
+
+
 def module_dotted_names(rel_path: str, dialect: WiringDialect) -> set[str]:
     """Dotted module names a source file provides, plus its parent packages.
 
-    ``src/forge/cli/serve.py`` provides ``forge.cli.serve`` and implies the
-    packages ``forge`` and ``forge.cli``.  Used to decide whether an imported
-    name comes from THIS repository.
+    ``src/forge/cli/serve.py`` provides ``forge.cli.serve`` (and, under the
+    other layout this path allows, ``src.forge.cli.serve``) and implies the
+    packages ``forge`` / ``forge.cli`` / ``src`` / ``src.forge`` ...  Used to
+    decide whether an imported name comes from THIS repository.
     """
-    parts = tuple(rel_path.replace(os.sep, "/").strip("/").split("/"))
-    if parts and parts[0] in dialect.source_root_dirs:
-        parts = parts[1:]
-    if not parts:
-        return set()
-    stem = parts[-1].rsplit(".", 1)[0]
-    pkg = parts[:-1] if stem == "__init__" else parts[:-1] + (stem,)
-    return {".".join(pkg[:i]) for i in range(1, len(pkg) + 1)}
+    out: set[str] = set()
+    for alias in module_aliases(rel_path, dialect):
+        segs = alias.split(".")
+        out |= {".".join(segs[:i]) for i in range(1, len(segs) + 1)}
+    return out
 
 
 def absolute_module(origin: str, importing_package: str) -> str:
@@ -354,12 +396,6 @@ def absolute_module(origin: str, importing_package: str) -> str:
     base = base[: len(base) - (dots - 1)] if dots > 1 else base
     parts = [q for q in (*base, *remainder.split(".")) if q]
     return ".".join(parts)
-
-
-def own_module(rel_path: str, dialect: WiringDialect) -> str:
-    """The dotted module name a source file itself provides."""
-    names = module_dotted_names(rel_path, dialect)
-    return max(names, key=len) if names else ""
 
 
 def own_package(rel_path: str, dialect: WiringDialect) -> str:
@@ -759,9 +795,18 @@ def _run_dialect(
     # Every dotted module name this repository provides, so an imported callee
     # can be told apart from a same-named third-party one.
     first_party_modules: set[str] = set()
+    # A dotted module name claimed by two different files (a repo holding both
+    # `src/app.py` and `app.py`) cannot be resolved — it is dropped below so
+    # the scan stays silent rather than binding against whichever came first.
+    alias_owner: dict[str, str] = {}
+    contested_modules: set[str] = set()
     for rel in _collect_source_files(worktree, dialect):
         if _is_test_file(rel, dialect):
             continue
+        aliases = module_aliases(rel, dialect)
+        for alias in aliases:
+            if alias_owner.setdefault(alias, rel) != rel:
+                contested_modules.add(alias)
         first_party_modules |= module_dotted_names(rel, dialect)
         src = _read_bytes(worktree / rel)
         if src is None:
@@ -769,20 +814,23 @@ def _run_dialect(
         tree = _parse_or_none(src, dialect)
         if tree is None:
             continue
-        rel_module = own_module(rel, dialect)
-        if rel_module:
-            import_maps.setdefault(
-                rel_module,
-                (_build_import_map(src, tree, dialect), own_package(rel, dialect)),
-            )
+        if aliases:
+            imap_here = _build_import_map(src, tree, dialect)
+            package_here = own_package(rel, dialect)
+            for alias in aliases:
+                import_maps.setdefault(alias, (imap_here, package_here))
         for name, sig in _extract_signatures(src, tree, dialect, rel).items():
             # `current_sigs` (bare name, first wins) is used ONLY to decide
             # which signatures changed this turn (aperture A).  Binding a call
             # always goes through `sigs_by_module`, which cannot confuse two
             # same-named functions in different modules.
             current_sigs.setdefault(name, sig)
-            if rel_module:
-                sigs_by_module.setdefault((rel_module, name), sig)
+            for alias in aliases:
+                sigs_by_module.setdefault((alias, name), sig)
+    for contested in contested_modules:
+        import_maps.pop(contested, None)
+        for key in [k for k in sigs_by_module if k[0] == contested]:
+            del sigs_by_module[key]
 
     authored_set = {os.path.normpath(f) for f in authored_targets}
 

@@ -351,3 +351,60 @@ class TestCtorArityReadingFidelity:
         )
         findings = _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature"))
         assert len(findings) == 1, findings
+
+    # -- THE APERTURE THAT WIDENED ------------------------------------------
+    # Fixing a blind spot means the probe SEES MORE.  These two shapes were
+    # invisible before and can now stop a build.  Measured across guardkit,
+    # forge, specialist-agent, api_test and study-tutor on 2026-08-21 — 3,050
+    # constructor calls in 144 composition-root files, 364 constructor
+    # signatures — neither shape occurs, so nothing that passed then fails now.
+    # These tests exist so the widening stays deliberate and visible.
+
+    def test_comments_no_longer_pad_out_a_short_construction(
+        self, tmp_path: Path
+    ) -> None:
+        """Counting comments as values HID missing arguments.
+
+        Two required values, one supplied, two comments where the others
+        should be: the old reading counted three "values" and stayed quiet.
+        """
+        svc = _write(tmp_path, "src/svc.py", SERVICE_TWO_REQUIRED)
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\n"
+            "def b():\n"
+            "    return VoiceService(\n"
+            "        t,\n"
+            "        # config goes here\n"
+            "        # ...once it exists\n"
+            "    )\n",
+        )
+        findings = _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature"))
+        assert len(findings) == 1, findings
+        assert "requires 2" in findings[0]["why"]
+
+    def test_a_parameter_merely_spelled_cls_is_a_real_parameter(
+        self, tmp_path: Path
+    ) -> None:
+        """Only the FIRST parameter of a method is the implicit receiver.
+
+        A second parameter that happens to be spelled ``cls`` is an ordinary
+        value the caller must pass; deleting it made the probe believe the
+        constructor needed one fewer.
+        """
+        svc = _write(
+            tmp_path,
+            "src/svc.py",
+            "class VoiceService:\n"
+            "    def __init__(self, transport, cls):\n"
+            "        self.t = transport\n",
+        )
+        main = _write(
+            tmp_path,
+            "main.py",
+            "from src.svc import VoiceService\ndef b():\n    return VoiceService(t)\n",
+        )
+        findings = _ctor_findings(analyze_wiring([svc, main], tmp_path, "feature"))
+        assert len(findings) == 1, findings
+        assert "requires 2" in findings[0]["why"]
