@@ -16,27 +16,18 @@ authors = [
 # Defensive upper bounds belong in CI matrices, not requires-python.
 requires-python = ">=3.11"
 
-# deepagents>=0.6.7 — floor bumped from 0.5 (2026-06-03) for relevant
-# stability fixes that AutoBuild benefits from:
-#   * 0.6.4 — grep crash when files vanish mid-walk (#3592)
-#   * 0.6.4 — stable HumanMessage IDs across resumed threads (#3591)
-#   * 0.6.5 — read_file pagination skipping lines after wrap (#3641)
-#   * 0.6.5 — grep ripgrep-fallback logging + sandbox exec error returns
-#   * 0.6.6 — state_schema kwarg on create_deep_agent
-#   * 0.6.7 — base64 reads with unknown extensions + DeepAgentState export
-# The 0.6.0 refactor moved the permission-middleware guard from
-# _PermissionMiddleware to FilesystemMiddleware but kept the same
-# NotImplementedError on execute-capable backends (upstream issue #2894
-# closed/declined). See src/guardkitfactory/harness/permissions.py for
-# the NOPERMS workaround and TASK-HMIG-002R-PERMS-CUSTOM-MIDDLEWARE for
-# the restore path. <1 remains a soft guard against a 1.0 API shift.
-# langgraph>=1, langchain>=1.2, langchain-core>=1.2 follow the same family
-# pattern.
+# Deep Agents is pinned exactly because its built-in prompt, middleware and
+# backend tool surface are application behavior. Version 0.7.14 requires
+# langchain>=1.4, langchain-core>=1.6.3 and langsmith>=0.12.4; the remaining
+# upper bounds keep the compatible major families explicit. The permission
+# limitation for execute-capable backends remains documented in
+# src/guardkitfactory/harness/permissions.py.
 dependencies = [
-    "deepagents>=0.6.7,<1",
-    "langgraph>=1,<2",
-    "langchain>=1.2,<2",
-    "langchain-core>=1.2,<2",
+    "deepagents==0.7.14",
+    "langgraph>=1.2,<2",
+    "langchain>=1.4,<2",
+    "langchain-core>=1.6.3,<2",
+    "langsmith>=0.12.4,<1",
     # The LangGraph harness builds a chat-completions ``ChatOpenAI`` for the
     # llama-swap / OpenAI-compatible substrate (langgraph_harness.py
     # ``_build_synthesis_model`` + the selector's resolved ``openai:<alias>``
@@ -44,7 +35,7 @@ dependencies = [
     # run (e.g. the GB10 llama-swap Coach/Player) — previously undeclared, so a
     # clean ``uv sync`` pruned it and the synthesis call failed at runtime.
     # (TASK-OPS-COACHMOE01, 2026-06-11.)
-    "langchain-openai>=1,<2",
+    "langchain-openai>=1.6,<2",
     # tree-sitter + language pack for stack-agnostic wiring analysis (Wave 0).
     # The pack ships precompiled grammars for python/javascript/typescript/csharp.
     "tree-sitter>=0.25,<1",

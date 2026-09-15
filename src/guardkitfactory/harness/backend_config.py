@@ -152,6 +152,7 @@ from typing import Any
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import (
+    DeleteResult,
     EditResult,
     SandboxBackendProtocol,
     WriteResult,
@@ -236,13 +237,42 @@ class TruncatingBackend:
         content = file_data.get("content")
         if not isinstance(content, str):
             return result
-        capped, did_cut = _truncate_text(content, self._max_chars, what="file content")
-        if not did_cut:
+        if self._max_chars <= 0 or len(content) <= self._max_chars:
             return result
+
+        # Keep pagination metadata truthful. Cutting arbitrary characters
+        # while retaining the inner backend's end_line/next_offset makes a
+        # partial read look complete. When line metadata is available, keep
+        # only whole source lines and point next_offset at the first omitted
+        # line. A single long line is kept intact rather than misreported.
+        start_line = getattr(result, "start_line", None)
+        end_line = getattr(result, "end_line", None)
+        if isinstance(start_line, int) and isinstance(end_line, int):
+            lines = content.splitlines(keepends=True)
+            kept: list[str] = []
+            size = 0
+            for line in lines:
+                if kept and size + len(line) > self._max_chars:
+                    break
+                kept.append(line)
+                size += len(line)
+            if len(kept) == len(lines):
+                return result
+            capped = "".join(kept)
+            truthful_end = start_line + len(kept) - 1
+            replacements = {
+                "end_line": truthful_end,
+                "next_offset": truthful_end,
+            }
+        else:
+            capped, _ = _truncate_text(
+                content, self._max_chars, what="file content"
+            )
+            replacements = {}
         try:
             new_fd = dict(file_data)
             new_fd["content"] = capped
-            return dataclasses.replace(result, file_data=new_fd)
+            return dataclasses.replace(result, file_data=new_fd, **replacements)
         except Exception as exc:  # noqa: BLE001 — never break the tool call
             logger.debug("TruncatingBackend: read replace failed (%s)", exc)
             return result
@@ -318,6 +348,15 @@ class TruncatingBackend:
     async def agrep(self, *args: Any, **kwargs: Any) -> Any:
         return self._cap_grep(await self._inner.agrep(*args, **kwargs))
 
+    # Deep Agents 0.7 checks for class-level delete support before exposing
+    # the tool. Explicit passthroughs keep delete available through this
+    # otherwise transparent gather wrapper.
+    def delete(self, file_path: str) -> Any:
+        return self._inner.delete(file_path)
+
+    async def adelete(self, file_path: str) -> Any:
+        return await self._inner.adelete(file_path)
+
 
 # TASK-FIX-WTESCAPE01: ``CompositeBackend.execute`` gates on
 # ``isinstance(default, SandboxBackendProtocol)`` — an ABC, so structural
@@ -329,7 +368,7 @@ SandboxBackendProtocol.register(TruncatingBackend)
 
 
 class PathConfinedBackend:
-    """Delegating backend wrapper that confines *writes* to allowed roots.
+    """Delegating backend wrapper that confines file mutations to allowed roots.
 
     TASK-FIX-WTESCAPE01 (2026-06-12). ``virtual_mode=False`` (NOVMODE)
     deliberately removed the SDK's path-confinement so orchestrator-fed
@@ -366,7 +405,7 @@ class PathConfinedBackend:
     convention (AC-002).
 
     Delegation follows the :class:`TruncatingBackend` pattern: every
-    attribute except the four overridden mutators passes through to
+    attribute except the explicitly overridden mutators passes through to
     ``inner`` via ``__getattr__``, so ``cwd``, ``id``, ``artifacts_root``
     and the whole read surface are untouched.
     """
@@ -374,28 +413,54 @@ class PathConfinedBackend:
     def __init__(self, inner: Any, allowed_roots: Sequence[Path]) -> None:
         self._inner = inner
         self._allowed_roots = [Path(root).resolve() for root in allowed_roots]
+        acceptance_root = self._allowed_roots[0] / "tests" / "acceptance"
+        self._protected_acceptance_files = frozenset(
+            path.resolve()
+            for path in acceptance_root.rglob("*")
+            if path.is_file()
+        )
 
     def __getattr__(self, name: str) -> Any:
         # Only reached for attributes NOT defined on this class — i.e. every
         # backend method/attribute except the four confined mutators below.
         return getattr(self._inner, name)
 
-    def _resolve_outside(self, file_path: str) -> Path | None:
-        """Return the resolved path if it escapes all allowed roots, else None.
-
-        Mirrors ``FilesystemBackend._resolve_path`` semantics under
-        ``virtual_mode=False`` (absolute → literal, relative → under
-        ``cwd``), then applies ``Path.resolve()`` so symlinked parents and
-        ``..`` traversal are judged by where the write would actually land.
-        """
+    def _resolve_path(self, file_path: str) -> Path:
+        """Resolve a backend path exactly where the mutation would land."""
         candidate = Path(file_path)
         if not candidate.is_absolute():
             candidate = Path(self._inner.cwd) / candidate
-        resolved = candidate.resolve()
+        return candidate.resolve()
+
+    def _resolve_outside(self, file_path: str) -> Path | None:
+        """Return the resolved path if it escapes all allowed roots."""
+        resolved = self._resolve_path(file_path)
         for root in self._allowed_roots:
             if resolved.is_relative_to(root):
                 return None
         return resolved
+
+    def _protects_acceptance_file(
+        self, resolved: Path, *, recursive: bool = False
+    ) -> bool:
+        if resolved in self._protected_acceptance_files:
+            return True
+        return recursive and any(
+            protected.is_relative_to(resolved)
+            for protected in self._protected_acceptance_files
+        )
+
+    def _reject_protected(self, op: str, file_path: str) -> str:
+        logger.warning(
+            "AutoBuild acceptance protection: rejected %s of '%s'",
+            op,
+            file_path,
+        )
+        return (
+            f"Error: refusing to {op} '{file_path}': existing files under "
+            "'tests/acceptance' are independent acceptance evidence and "
+            "cannot be changed by the agent."
+        )
 
     def _reject(self, op: str, file_path: str, resolved: Path) -> str:
         logger.warning(
@@ -418,12 +483,16 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
+        if self._protects_acceptance_file(self._resolve_path(file_path)):
+            return WriteResult(error=self._reject_protected("overwrite", file_path))
         return self._inner.write(file_path, content)
 
     async def awrite(self, file_path: str, content: str) -> Any:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
+        if self._protects_acceptance_file(self._resolve_path(file_path)):
+            return WriteResult(error=self._reject_protected("overwrite", file_path))
         return await self._inner.awrite(file_path, content)
 
     # -- edit -------------------------------------------------------------
@@ -431,13 +500,79 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
+        if self._protects_acceptance_file(self._resolve_path(file_path)):
+            return EditResult(error=self._reject_protected("edit", file_path))
         return self._inner.edit(file_path, *args, **kwargs)
 
     async def aedit(self, file_path: str, *args: Any, **kwargs: Any) -> Any:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
+        if self._protects_acceptance_file(self._resolve_path(file_path)):
+            return EditResult(error=self._reject_protected("edit", file_path))
         return await self._inner.aedit(file_path, *args, **kwargs)
+
+    # -- grep (explicit for SDK signature inspection) --------------------
+    def grep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        max_count: int | None = None,
+        context_lines: int = 0,
+    ) -> Any:
+        return self._inner.grep(
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            context_lines=context_lines,
+        )
+
+    async def agrep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        max_count: int | None = None,
+        context_lines: int = 0,
+    ) -> Any:
+        return await self._inner.agrep(
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            context_lines=context_lines,
+        )
+
+    # -- delete -----------------------------------------------------------
+    def delete(self, file_path: str) -> Any:
+        escaped = self._resolve_outside(file_path)
+        if escaped is not None:
+            return DeleteResult(error=self._reject("delete", file_path, escaped))
+        resolved = self._resolve_path(file_path)
+        if resolved in self._allowed_roots:
+            return DeleteResult(
+                error=f"Error: refusing to delete allowed root '{resolved}'."
+            )
+        if self._protects_acceptance_file(resolved, recursive=True):
+            return DeleteResult(error=self._reject_protected("delete", file_path))
+        return self._inner.delete(file_path)
+
+    async def adelete(self, file_path: str) -> Any:
+        escaped = self._resolve_outside(file_path)
+        if escaped is not None:
+            return DeleteResult(error=self._reject("delete", file_path, escaped))
+        resolved = self._resolve_path(file_path)
+        if resolved in self._allowed_roots:
+            return DeleteResult(
+                error=f"Error: refusing to delete allowed root '{resolved}'."
+            )
+        if self._protects_acceptance_file(resolved, recursive=True):
+            return DeleteResult(error=self._reject_protected("delete", file_path))
+        return await self._inner.adelete(file_path)
 
     # -- execute (unconfined passthrough) ----------------------------------
     # Defined explicitly (not via ``__getattr__``) because
@@ -589,7 +724,7 @@ def build_autobuild_backend(
         max_output_bytes=_AUTOBUILD_EXECUTE_MAX_OUTPUT_BYTES,
     )
 
-    # TASK-FIX-WTESCAPE01 — confine write/edit to the allowed roots. This
+    # TASK-FIX-WTESCAPE01 — confine write/edit/delete to the allowed roots. This
     # restores the file-tool containment NOVMODE removed, without touching
     # the literal-absolute-path semantics for in-worktree paths (Coach JSON
     # writes still work). Compute artifacts_root from ``local_shell.cwd``
@@ -602,7 +737,7 @@ def build_autobuild_backend(
 
     # TASK-PERF-COACHSYNTH — optionally cap per-tool-result size for the
     # Coach gather. The TruncatingBackend overrides only read/grep/execute,
-    # disjoint from PathConfinedBackend's write/edit overrides, so stacking
+    # disjoint from PathConfinedBackend's mutation overrides, so stacking
     # order is immaterial for behaviour; confinement sits innermost so it
     # also guards any future wrapper that delegates writes. ``None`` leaves
     # results uncapped (Player/synthesis behaviour unchanged).

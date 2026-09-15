@@ -122,6 +122,7 @@ ceiling is wired alongside the fraction trigger.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Final, Literal
 
 from deepagents._models import resolve_model
@@ -263,6 +264,37 @@ def get_reasoning_mode(model_name: str) -> ReasoningMode:
     return _normalize_entry(entry).get("reasoning_mode", "auto")  # type: ignore[return-value]
 
 
+def _resolve_model_for_transport(model: str) -> BaseChatModel:
+    """Resolve a model string without changing the factory's HTTP contract.
+
+    The factory's ``openai:<alias>`` names point at local OpenAI-compatible
+    endpoints selected by ``OPENAI_BASE_URL``. Deep Agents 0.7 resolves those
+    strings through the Responses API by default; the local player, coach and
+    compaction paths use Chat Completions. Constructing ``ChatOpenAI``
+    explicitly keeps that route while preserving the bare alias as the model
+    identity sent to the server.
+
+    Other providers still use Deep Agents' resolver unchanged.
+    """
+    provider, separator, bare = model.partition(":")
+    if provider != "openai" or not separator or not bare:
+        return resolve_model(model)
+
+    from langchain_openai import ChatOpenAI
+
+    kwargs: dict[str, Any] = {
+        "model": bare,
+        "use_responses_api": False,
+    }
+    base_url = os.environ.get("OPENAI_BASE_URL")
+    if base_url:
+        kwargs["base_url"] = base_url
+    configured_key = os.environ.get("OPENAI_API_KEY")
+    if configured_key:
+        kwargs["api_key"] = configured_key
+    return ChatOpenAI(**kwargs)
+
+
 def resolve_autobuild_model(
     model: str | BaseChatModel,
     role: str | None = None,
@@ -273,9 +305,9 @@ def resolve_autobuild_model(
     ----------
     model:
         Either a provider-prefixed string (``"openai:qwen36-workhorse"``) or a
-        pre-built ``BaseChatModel`` instance. The string form is resolved via
-        :func:`deepagents._models.resolve_model` so the OpenRouter / OpenAI-
-        responses defaults match ``create_deep_agent``'s own resolution path.
+        pre-built ``BaseChatModel`` instance. Local ``openai:<alias>``
+        strings are built as Chat Completions models; other providers use
+        :func:`deepagents._models.resolve_model`.
     role:
         Optional role identifier (``"coach"``, ``"player"``, etc.). When
         provided AND the registry entry includes ``max_tokens_<role>``, the
@@ -310,7 +342,7 @@ def resolve_autobuild_model(
     """
     if isinstance(model, str):
         bare = _bare_model_name(model)
-        resolved = resolve_model(model)
+        resolved = _resolve_model_for_transport(model)
     else:
         resolved = model
         identifier = _get_identifier(resolved)

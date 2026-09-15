@@ -352,7 +352,8 @@ def test_absolute_path_no_longer_doubled_under_worktree(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_build_autobuild_permissions_is_empty_until_upstream_lands_or_custom_middleware_ships() -> None:
+def test_build_autobuild_permissions_is_empty_until_upstream_lands_or_custom_middleware_ships(
+) -> None:
     """AC-004 regression — catches accidental restoration before upstream catches up.
 
     See ``src/guardkitfactory/harness/permissions.py`` docstring and
@@ -780,3 +781,170 @@ class TestHostRepoStaysClean:
         assert write_result.error is not None
         assert status == ""
         assert tracked.read_text() == "EVIDENCE = 'pristine'\n"
+
+
+# ---------------------------------------------------------------------------
+# Deep Agents 0.7 delete surface and acceptance-evidence protection
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteConfinement:
+    def test_delete_existing_file_inside_worktree(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        victim = worktree / "src" / "obsolete.py"
+        victim.parent.mkdir()
+        victim.write_text("obsolete = True\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.delete(str(victim))
+
+        assert result.error is None
+        assert result.path == str(victim)
+        assert not victim.exists()
+
+    def test_async_delete_existing_file_inside_worktree(self, tmp_path: Path) -> None:
+        import asyncio
+
+        worktree = _make_worktree(tmp_path)
+        victim = worktree / "obsolete.txt"
+        victim.write_text("old\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = asyncio.run(backend.adelete(str(victim)))
+
+        assert result.error is None
+        assert not victim.exists()
+
+    def test_absolute_delete_outside_worktree_is_rejected(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        victim = tmp_path / "host" / "guardkit" / "keep.py"
+        victim.parent.mkdir(parents=True)
+        victim.write_text("keep = True\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.delete(str(victim))
+
+        assert result.error is not None
+        assert "outside the worktree" in result.error
+        assert victim.read_text() == "keep = True\n"
+
+    def test_relative_traversal_delete_is_rejected(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        victim = tmp_path / "host" / "keep.txt"
+        victim.write_text("keep\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.delete("../../../keep.txt")
+
+        assert result.error is not None
+        assert victim.exists()
+
+    def test_symlink_escape_delete_is_rejected(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        victim = outside / "keep.txt"
+        victim.write_text("keep\n")
+        link = worktree / "outside-link"
+        link.symlink_to(outside)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.delete(str(link / "keep.txt"))
+
+        assert result.error is not None
+        assert victim.exists()
+
+    def test_delete_inside_permitted_extra_root(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        extra = tmp_path / "explicit-extra"
+        extra.mkdir()
+        victim = extra / "generated.txt"
+        victim.write_text("generated\n")
+        backend = build_autobuild_backend(worktree, extra_write_roots=[extra])
+
+        result = backend.delete(str(victim))
+
+        assert result.error is None
+        assert not victim.exists()
+
+    def test_delete_allowed_root_itself_is_rejected(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.delete(str(worktree))
+
+        assert result.error is not None
+        assert "allowed root" in result.error
+        assert worktree.is_dir()
+
+    def test_delete_available_through_gather_wrapper(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        victim = worktree / "gather.tmp"
+        victim.write_text("temporary\n")
+        backend = build_autobuild_backend(
+            worktree, max_tool_result_chars=1024
+        )
+
+        result = backend.delete(str(victim))
+
+        assert result.error is None
+        assert not victim.exists()
+
+
+class TestAcceptanceEvidenceProtection:
+    def test_existing_acceptance_file_cannot_be_overwritten_edited_or_deleted(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        acceptance = worktree / "tests" / "acceptance" / "test_oracle.py"
+        acceptance.parent.mkdir(parents=True)
+        acceptance.write_text("EXPECTED = 'independent'\n")
+        backend = build_autobuild_backend(worktree)
+
+        overwrite = backend.write(str(acceptance), "EXPECTED = 'weakened'\n")
+        edit = backend.edit(str(acceptance), "independent", "weakened")
+        delete = backend.delete(str(acceptance))
+
+        assert overwrite.error is not None
+        assert edit.error is not None
+        assert delete.error is not None
+        assert acceptance.read_text() == "EXPECTED = 'independent'\n"
+
+    def test_directory_delete_cannot_remove_existing_acceptance_file(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        acceptance_dir = worktree / "tests" / "acceptance"
+        acceptance_dir.mkdir(parents=True)
+        acceptance = acceptance_dir / "test_oracle.py"
+        acceptance.write_text("def test_oracle(): pass\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.delete(str(acceptance_dir))
+
+        assert result.error is not None
+        assert acceptance.exists()
+
+    def test_normal_source_overwrite_remains_allowed(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        source = worktree / "src" / "module.py"
+        source.parent.mkdir()
+        source.write_text("VALUE = 1\n")
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write(str(source), "VALUE = 2\n")
+
+        assert result.error is None
+        assert source.read_text() == "VALUE = 2\n"
+
+    def test_new_acceptance_file_may_be_created(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        backend = build_autobuild_backend(worktree)
+        new_test = worktree / "tests" / "acceptance" / "test_new.py"
+
+        result = backend.write(str(new_test), "def test_new(): pass\n")
+
+        assert result.error is None
+        assert new_test.exists()

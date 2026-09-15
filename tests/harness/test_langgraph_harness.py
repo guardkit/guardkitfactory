@@ -22,21 +22,26 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import warnings
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import langchain_openai
 import pytest
 from guardkit.orchestrator.harness import (
     AssistantMessageEvent,
     HarnessAdapter,
     ResultMessageEvent,
     ToolResultEvent,
+    ToolUseEvent,
 )
 
 from guardkitfactory import LangGraphHarness, LangGraphHarnessError
+from guardkitfactory.harness.backend_config import build_autobuild_backend
 from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
@@ -148,7 +153,10 @@ class TestHappyPath:
         assert kwargs["tools"] == []
         assert kwargs["backend"] is None
         assert kwargs["permissions"] is None
-        assert kwargs["system_prompt"] == "player"
+        assert "write_todos" in kwargs["system_prompt"]
+        assert "Implement the requested change" in kwargs["system_prompt"]
+        assert len(kwargs["middleware"]) == 1
+        assert type(kwargs["middleware"][0]).__name__ == "TodoListMiddleware"
 
         # The ainvoke call shape matches the AC-003 contract: a single
         # user-role message carrying the prompt.
@@ -304,7 +312,7 @@ class TestStreamIsAsyncIterable:
 # ---------------------------------------------------------------------------
 
 
-def _fake_resolve_model(_spec: str) -> Any:
+def _fake_resolve_model(*_args: Any, **_kwargs: Any) -> Any:
     """Stand-in for deepagents' ``resolve_model`` — no real provider deps.
 
     The dev venv may not have ``langchain-openai`` installed (production
@@ -333,7 +341,7 @@ class TestModelProfileInjection:
 
         with (
             patch(
-                "guardkitfactory.harness.model_config.resolve_model",
+                "langchain_openai.ChatOpenAI",
                 side_effect=_fake_resolve_model,
             ),
             patch(
@@ -382,7 +390,7 @@ class TestModelProfileInjection:
         fake_agent = _make_fake_agent()
         with (
             patch(
-                "guardkitfactory.harness.model_config.resolve_model",
+                "langchain_openai.ChatOpenAI",
                 side_effect=_fake_resolve_model,
             ),
             patch(
@@ -1448,3 +1456,354 @@ class TestToolResultParity:
             events = _drain(harness)
 
         assert not [e for e in events if isinstance(e, ToolResultEvent)]
+
+
+# ---------------------------------------------------------------------------
+# Deep Agents 0.7.14 real graph with deterministic Chat Completions transport
+# ---------------------------------------------------------------------------
+
+
+def test_real_graph_uses_chat_completions_prompt_and_runtime_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the compiled graph and its tools without model or network I/O."""
+    target = tmp_path / "runtime.txt"
+    calls = [
+        (
+            "write_todos",
+            {"todos": [{"content": "exercise runtime tools", "status": "in_progress"}]},
+        ),
+        ("write_file", {"file_path": str(target), "content": "alpha\n"}),
+        ("read_file", {"file_path": str(target), "offset": 0, "limit": 20}),
+        (
+            "edit_file",
+            {
+                "file_path": str(target),
+                "old_string": "alpha",
+                "new_string": "beta",
+                "replace_all": False,
+            },
+        ),
+        (
+            "grep",
+            {
+                "pattern": "beta",
+                "path": str(tmp_path),
+                "glob": "*.txt",
+                "output_mode": "content",
+            },
+        ),
+        ("glob", {"pattern": "*.txt", "path": str(tmp_path)}),
+        ("ls", {"path": str(tmp_path)}),
+        ("execute", {"command": "printf runtime-ok"}),
+        ("delete", {"file_path": str(target)}),
+    ]
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def _response(message: dict[str, Any], finish_reason: str) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-{len(requests)}",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "flash-next-t06",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": message,
+                        "finish_reason": finish_reason,
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 1,
+                    "total_tokens": 11,
+                },
+            },
+        )
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append((request.url.path, body))
+        index = len(requests) - 1
+        if index < len(calls):
+            name, arguments = calls[index]
+            return _response(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"call-{index}",
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(arguments),
+                            },
+                        }
+                    ],
+                },
+                "tool_calls",
+            )
+        return _response(
+            {
+                "role": "assistant",
+                "content": '{"verdict":"approve","findings":[]}',
+            },
+            "stop",
+        )
+
+    transport = httpx.MockTransport(_handler)
+    real_constructor = langchain_openai.ChatOpenAI
+
+    def _chat_model(**kwargs: Any) -> Any:
+        return real_constructor(
+            **kwargs,
+            http_client=httpx.Client(transport=transport),
+            http_async_client=httpx.AsyncClient(transport=transport),
+            http_socket_options=(),
+            max_retries=0,
+        )
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
+    harness = LangGraphHarness(
+        model="openai:flash-next-t06",
+        backend=build_autobuild_backend(tmp_path),
+        recursion_limit=80,
+    )
+
+    async def _collect() -> list[Any]:
+        events: list[Any] = []
+        with patch("langchain_openai.ChatOpenAI", side_effect=_chat_model):
+            async for event in harness.invoke(
+                prompt="Exercise each runtime tool, then return the coach verdict JSON.",
+                role="coach",
+                tools=[],
+                cwd=tmp_path,
+                timeout_seconds=30,
+            ):
+                events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+
+    assert len(requests) == len(calls) + 1
+    assert {path for path, _ in requests} == {"/v1/chat/completions"}
+    assert all("/responses" not in path for path, _ in requests)
+    assert all(body["model"] == "flash-next-t06" for _, body in requests)
+
+    first_body = requests[0][1]
+    tool_names = {tool["function"]["name"] for tool in first_body["tools"]}
+    assert {
+        "write_todos",
+        "ls",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete",
+        "glob",
+        "grep",
+        "execute",
+        "task",
+    } <= tool_names
+    system_text = json.dumps(first_body["messages"][0]["content"])
+    assert "write_todos" in system_text
+    assert "tests/acceptance" in system_text
+    assert "independent evidence" in system_text
+    assert "structured verdict" in system_text
+
+    use_events = [event for event in events if isinstance(event, ToolUseEvent)]
+    assert [event.name for event in use_events] == [name for name, _ in calls]
+    result_text = "\n".join(
+        str(event.content)
+        for event in events
+        if isinstance(event, ToolResultEvent)
+    )
+    assert "beta" in result_text
+    assert "runtime-ok" in result_text
+    assert not target.exists()
+
+    assistant = next(
+        event for event in events if isinstance(event, AssistantMessageEvent)
+    )
+    assert json.loads(assistant.text) == {"verdict": "approve", "findings": []}
+
+
+def test_deep_agent_temporary_checkpoint_recovers_prior_turn(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pinned LangGraph checkpointing restores messages for one thread."""
+    from deepagents import create_deep_agent
+    from langchain.agents.middleware import TodoListMiddleware
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    requests: list[dict[str, Any]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        turn = len(requests)
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-checkpoint-{turn}",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "flash-next-t06",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {
+                            "role": "assistant",
+                            "content": f"remembered-turn-{turn}",
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 2,
+                    "total_tokens": 7,
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(_handler)
+    model = langchain_openai.ChatOpenAI(
+        model="flash-next-t06",
+        api_key="local-test-key",
+        base_url="http://model.test/v1",
+        use_responses_api=False,
+        http_client=httpx.Client(transport=transport),
+        http_async_client=httpx.AsyncClient(transport=transport),
+        http_socket_options=(),
+        max_retries=0,
+    )
+    graph = create_deep_agent(
+        model=model,
+        tools=[],
+        middleware=[TodoListMiddleware()],
+        system_prompt="Remember prior turns in this temporary test thread.",
+        checkpointer=InMemorySaver(),
+    )
+    config = {"configurable": {"thread_id": "checkpoint-test"}}
+
+    async def _run() -> Any:
+        await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "first-turn-marker"}]},
+            config=config,
+        )
+        result = await graph.ainvoke(
+            {"messages": [{"role": "user", "content": "second-turn-marker"}]},
+            config=config,
+        )
+        state = await graph.aget_state(config)
+        return result, state
+
+    result, state = asyncio.run(_run())
+
+    assert len(requests) == 2
+    second_request = json.dumps(requests[1]["messages"])
+    assert "first-turn-marker" in second_request
+    assert "remembered-turn-1" in second_request
+    assert "second-turn-marker" in second_request
+    assert result["messages"][-1].content == "remembered-turn-2"
+    state_text = "\n".join(str(message.content) for message in state.values["messages"])
+    assert "first-turn-marker" in state_text
+    assert "remembered-turn-2" in state_text
+
+
+def test_real_graph_compaction_uses_chat_completions_and_worktree_offload(
+    tmp_path: Path,
+) -> None:
+    """Actual compaction uses the local transport and writes history under root."""
+    from deepagents import create_deep_agent
+    from deepagents.middleware.summarization import SummarizationMiddleware
+
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append((request.url.path, body))
+        content = "compact summary" if len(requests) == 1 else "final answer"
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-compact-{len(requests)}",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "flash-next-t06",
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": content},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 2,
+                    "total_tokens": 12,
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(_handler)
+    model = langchain_openai.ChatOpenAI(
+        model="flash-next-t06",
+        api_key="local-test-key",
+        base_url="http://model.test/v1",
+        use_responses_api=False,
+        http_client=httpx.Client(transport=transport),
+        http_async_client=httpx.AsyncClient(transport=transport),
+        http_socket_options=(),
+        max_retries=0,
+    )
+    backend = build_autobuild_backend(tmp_path)
+    compaction = SummarizationMiddleware(
+        model=model,
+        backend=backend,
+        trigger=("messages", 10),
+        keep=("messages", 2),
+    )
+    graph = create_deep_agent(
+        model=model,
+        tools=[],
+        middleware=[compaction],
+        backend=backend,
+        system_prompt="Complete the task after compacting old context.",
+    )
+    messages: list[dict[str, str]] = []
+    for index in range(12):
+        messages.extend(
+            [
+                {
+                    "role": "user",
+                    "content": f"user-{index}-marker " + ("x" * 80),
+                },
+                {
+                    "role": "assistant",
+                    "content": f"assistant-{index}-marker " + ("y" * 80),
+                },
+            ]
+        )
+
+    result = asyncio.run(graph.ainvoke({"messages": messages}))
+
+    assert result["messages"][-1].content == "final answer"
+    assert len(requests) == 2
+    assert [path for path, _ in requests] == [
+        "/v1/chat/completions",
+        "/v1/chat/completions",
+    ]
+    assert "Context Extraction Assistant" in json.dumps(requests[0][1]["messages"])
+    assert "compact summary" in json.dumps(requests[1][1]["messages"])
+
+    history_files = list((tmp_path / "conversation_history").glob("session_*.md"))
+    assert len(history_files) == 1
+    history = history_files[0].read_text()
+    assert "user-0-marker" in history
+    assert "assistant-0-marker" in history
+    assert history_files[0].is_relative_to(tmp_path)

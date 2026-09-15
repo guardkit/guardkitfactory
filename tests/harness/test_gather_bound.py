@@ -64,7 +64,7 @@ class TestGemma31bProfile:
 
         fake = _FakeModel()
         with patch(
-            "guardkitfactory.harness.model_config.resolve_model",
+            "langchain_openai.ChatOpenAI",
             return_value=fake,
         ):
             resolved = resolve_autobuild_model("openai:gemma4:31b", role="coach")
@@ -243,3 +243,27 @@ class TestBuildBackendWiring:
             backend = build_autobuild_backend(tmp_path, **kwargs)
             result = backend.execute("echo gate-open")
             assert "gate-open" in result.output
+
+
+def test_paginated_read_truncation_preserves_whole_lines_and_truthful_offsets() -> None:
+    content = "line-1\nline-2\nline-3\nline-4\n"
+    inner = MagicMock()
+    inner.read = MagicMock(
+        return_value=ReadResult(
+            error=None,
+            file_data={"content": content, "encoding": "utf-8"},
+            total_lines=4,
+            start_line=1,
+            end_line=4,
+            next_offset=None,
+        )
+    )
+    wrapped = TruncatingBackend(inner, max_chars=15)
+
+    result = wrapped.read("source.py")
+
+    assert result.file_data["content"] == "line-1\nline-2\n"
+    assert result.start_line == 1
+    assert result.end_line == 2
+    assert result.next_offset == 2
+    assert result.total_lines == 4

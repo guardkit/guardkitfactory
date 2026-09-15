@@ -60,6 +60,7 @@ from guardkit.orchestrator.harness import (
     ToolResultEvent,
     ToolUseEvent,
 )
+from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
 
@@ -71,6 +72,35 @@ from guardkitfactory.harness.model_config import resolve_autobuild_model
 from guardkitfactory.lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
+
+_COMMON_AGENT_INSTRUCTIONS = """\
+Work inside the assigned repository and inspect the relevant files before acting.
+For multi-step work, use write_todos to keep a short, current plan.
+Use the filesystem, search, and execute tools to gather evidence and verify results.
+Keep all file mutations inside approved roots. Existing tests under
+tests/acceptance are independent evidence and must not be changed or deleted.
+Report concrete results and any verification that could not be completed.
+"""
+
+_ROLE_AGENT_INSTRUCTIONS = {
+    "player": """\
+Implement the requested change completely. Follow repository instructions,
+preserve existing behavior outside the requested scope, and run focused checks.
+""",
+    "coach": """\
+Review the implementation independently against the supplied acceptance
+criteria. Inspect the actual diff and test evidence, run focused checks when
+needed, and return the structured verdict requested by the user prompt.
+""",
+}
+
+
+def _system_prompt_for_role(role: str) -> str:
+    role_instructions = _ROLE_AGENT_INSTRUCTIONS.get(
+        role,
+        "Complete the assigned software-engineering task and verify the result.\n",
+    )
+    return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
 
 
 def _install_langsmith_executor_guard() -> None:
@@ -572,10 +602,11 @@ class LangGraphHarness(HarnessAdapter):
         try:
             agent = create_deep_agent(
                 model=resolved_model,
-                tools=[],  # TASK-FIX-LGTOOLS — see note above
+                tools=[],  # caller tools are SDK names; built-ins are explicit below
+                middleware=[TodoListMiddleware()],
                 backend=self.backend,
                 permissions=self.permissions,
-                system_prompt=role,
+                system_prompt=_system_prompt_for_role(role),
             )
         except Exception as exc:  # noqa: BLE001 — wrap-and-reraise on purpose
             raise LangGraphHarnessError(
@@ -846,9 +877,9 @@ class LangGraphHarness(HarnessAdapter):
         base_url = os.environ.get("OPENAI_BASE_URL")
         if base_url:
             kwargs["base_url"] = base_url
-        api_key = os.environ.get("OPENAI_API_KEY")
-        if api_key:
-            kwargs["api_key"] = api_key
+        configured_key = os.environ.get("OPENAI_API_KEY")
+        if configured_key:
+            kwargs["api_key"] = configured_key
         logger.info(
             "TASK-ARCH-COACHSPLIT: toolless synthesis model role=%r model=%r "
             "grammar=%s reasoning_budget=%s disable_thinking=%s "
@@ -1033,7 +1064,7 @@ class LangGraphHarness(HarnessAdapter):
         # ``deadline_s``. If ``task`` settles (success / error /
         # CancelledError from our prior task.cancel()) within the
         # deadline → returns or raises that exception. If the deadline
-        # fires first → raises ``asyncio.TimeoutError`` and the in-flight
+        # fires first → raises ``TimeoutError`` and the in-flight
         # task is left to GC.
         #
         # Note on ``asyncio.timeout(...) + suppress(...)`` (rejected
@@ -1045,7 +1076,7 @@ class LangGraphHarness(HarnessAdapter):
         # primitive here.
         try:
             await asyncio.wait_for(task, timeout=deadline_s)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "LangGraphHarness.cancel: ainvoke task did not honour "
                 "cancellation within %.2fs deadline (env=%s); leaking "

@@ -27,13 +27,12 @@ from guardkitfactory.harness.model_config import (
     resolve_autobuild_model,
 )
 
-
 # ---------------------------------------------------------------------------
 # String spec resolution
 # ---------------------------------------------------------------------------
 
 
-def _fake_resolve(spec: str) -> FakeListChatModel:
+def _fake_resolve(*_args, **_kwargs) -> FakeListChatModel:
     """Stand-in for deepagents' ``resolve_model`` — no real provider deps."""
     return FakeListChatModel(responses=["ok"])
 
@@ -46,7 +45,7 @@ def test_string_spec_for_known_model_attaches_profile() -> None:
     before summarisation fires. See ``autobuild-FEAT-AOF-run-2.md`` line 350.
     """
     with patch(
-        "guardkitfactory.harness.model_config.resolve_model",
+        "langchain_openai.ChatOpenAI",
         side_effect=_fake_resolve,
     ):
         resolved = resolve_autobuild_model("openai:qwen36-workhorse")
@@ -63,7 +62,7 @@ def test_string_spec_for_unknown_model_leaves_profile_untouched() -> None:
     behaviour for any model not yet registered.
     """
     with patch(
-        "guardkitfactory.harness.model_config.resolve_model",
+        "langchain_openai.ChatOpenAI",
         side_effect=_fake_resolve,
     ):
         resolved = resolve_autobuild_model("openai:not-in-registry-model")
@@ -187,3 +186,23 @@ def test_get_reasoning_mode_returns_registry_policy() -> None:
     assert get_reasoning_mode("openai:gemma4:26b") == "auto"
     # Unknown model defaults to "auto" — the safest default.
     assert get_reasoning_mode("some-future-model") == "auto"
+
+
+def test_openai_string_uses_chat_completions_and_preserves_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Local aliases must keep the factory's Chat Completions HTTP contract."""
+    fake = FakeListChatModel(responses=["ok"])
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
+
+    with patch("langchain_openai.ChatOpenAI", return_value=fake) as constructor:
+        resolved = resolve_autobuild_model("openai:flash-next-t06", role="player")
+
+    assert resolved is fake
+    constructor.assert_called_once_with(
+        model="flash-next-t06",
+        use_responses_api=False,
+        base_url="http://model.test/v1",
+        api_key="local-test-key",
+    )
