@@ -815,6 +815,69 @@ class TestDeleteConfinement:
         assert result.error is None
         assert not victim.exists()
 
+    @pytest.mark.parametrize("async_mode", [False, True])
+    @pytest.mark.parametrize("relative", [False, True])
+    def test_delete_cyclic_symlink_returns_error_without_mutation(
+        self, tmp_path: Path, async_mode: bool, relative: bool
+    ) -> None:
+        import asyncio
+
+        worktree = _make_worktree(tmp_path)
+        loop = worktree / "loop"
+        loop.symlink_to("loop")
+        backend = build_autobuild_backend(worktree)
+        path = "loop" if relative else str(loop)
+
+        result = (
+            asyncio.run(backend.adelete(path)) if async_mode else backend.delete(path)
+        )
+
+        assert result.error
+        assert loop.is_symlink()
+        assert loop.readlink() == Path("loop")
+
+    @pytest.mark.parametrize("async_mode", [False, True])
+    @pytest.mark.parametrize("error_type", [OSError, RuntimeError])
+    @pytest.mark.parametrize("fail_on", [1, 2])
+    def test_delete_resolution_failure_never_reaches_inner_backend(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        async_mode: bool,
+        error_type: type[Exception],
+        fail_on: int,
+    ) -> None:
+        import asyncio
+        from unittest.mock import patch
+
+        worktree = _make_worktree(tmp_path)
+        victim = worktree / "keep.txt"
+        victim.write_text("keep\n")
+        backend = build_autobuild_backend(worktree)
+        original_resolve = Path.resolve
+        attempts = 0
+
+        def failing_resolve(path: Path, *args: object, **kwargs: object) -> Path:
+            nonlocal attempts
+            if path == victim:
+                attempts += 1
+                if attempts == fail_on:
+                    raise error_type("Cannot resolve deletion target")
+            return original_resolve(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "resolve", failing_resolve)
+        method = "adelete" if async_mode else "delete"
+        with patch.object(backend.default._inner, method) as inner_delete:
+            result = (
+                asyncio.run(backend.adelete(str(victim)))
+                if async_mode else backend.delete(str(victim))
+            )
+            inner_delete.assert_not_called()
+
+        assert result.error
+        assert "Cannot resolve deletion target" in result.error
+        assert victim.read_text() == "keep\n"
+
     def test_absolute_delete_outside_worktree_is_rejected(
         self, tmp_path: Path
     ) -> None:

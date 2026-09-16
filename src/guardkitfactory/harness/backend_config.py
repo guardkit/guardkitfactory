@@ -615,10 +615,15 @@ class PathConfinedBackend:
 
     # -- delete -----------------------------------------------------------
     def delete(self, file_path: str) -> Any:
-        escaped = self._resolve_outside(file_path)
+        try:
+            escaped = self._resolve_outside(file_path)
+            resolved = self._resolve_path(file_path) if escaped is None else escaped
+        except (OSError, RuntimeError) as exc:
+            # Unresolvable paths (including symlink cycles) must fail closed
+            # with a tool error so the agent can recover on its next turn.
+            return DeleteResult(error=f"Error: cannot resolve '{file_path}' for deletion: {exc}")
         if escaped is not None:
             return DeleteResult(error=self._reject("delete", file_path, escaped))
-        resolved = self._resolve_path(file_path)
         if resolved in self._allowed_roots:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
@@ -630,10 +635,15 @@ class PathConfinedBackend:
         return self._inner.delete(file_path)
 
     async def adelete(self, file_path: str) -> Any:
-        escaped = self._resolve_outside(file_path)
+        try:
+            escaped = self._resolve_outside(file_path)
+            resolved = self._resolve_path(file_path) if escaped is None else escaped
+        except (OSError, RuntimeError) as exc:
+            # Unresolvable paths (including symlink cycles) must fail closed
+            # with a tool error so the agent can recover on its next turn.
+            return DeleteResult(error=f"Error: cannot resolve '{file_path}' for deletion: {exc}")
         if escaped is not None:
             return DeleteResult(error=self._reject("delete", file_path, escaped))
-        resolved = self._resolve_path(file_path)
         if resolved in self._allowed_roots:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
