@@ -46,7 +46,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -63,6 +63,7 @@ from guardkit.orchestrator.harness import (
 from langchain.agents.middleware import TodoListMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
 
 from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
@@ -70,6 +71,11 @@ from guardkitfactory.harness.extractors import (
 )
 from guardkitfactory.harness.http_clients import create_chat_openai, with_invocation_clients
 from guardkitfactory.harness.model_config import resolve_autobuild_model
+from guardkitfactory.harness.player_experiment import (
+    PlayerExperimentConfig,
+    PlayerExperimentConfigError,
+    revalidate_player_experiment,
+)
 from guardkitfactory.lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
@@ -319,6 +325,10 @@ class LangGraphHarnessError(RuntimeError):
     deep inside the LangChain stack.
     """
 
+    def __init__(self, message: str, *, raw_result: Any = None) -> None:
+        super().__init__(message)
+        self.raw_result = raw_result
+
 
 class _ModelActivityCallbackHandler(BaseCallbackHandler):
     """LangChain callback that pings ``on_model_activity`` on real LLM/tool work.
@@ -417,6 +427,7 @@ class LangGraphHarness(HarnessAdapter):
         permissions: list[Any] | None = None,
         recursion_limit: int | None = _RECURSION_LIMIT_DEFAULT,
         on_model_activity: Callable[[], None] | None = None,
+        player_experiment: PlayerExperimentConfig | None = None,
     ) -> None:
         self.model = model
         self.backend = backend
@@ -429,6 +440,7 @@ class LangGraphHarness(HarnessAdapter):
         # and what every existing test/construction site supplies) installs
         # no callbacks — behaviour is byte-for-byte unchanged.
         self.on_model_activity = on_model_activity
+        self.player_experiment = player_experiment
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # preserves LangGraph's default (25). The Coach gather passes a small
@@ -446,6 +458,129 @@ class LangGraphHarness(HarnessAdapter):
         # iterating the harness's async generator, which is more invasive
         # than the substrate boundary contract permits.
         self._ainvoke_task: asyncio.Task[Any] | None = None
+
+    def _experiment_backend_root(self) -> Path:
+        """Return the canonical backend root used by an enabled experiment."""
+
+        default = getattr(self.backend, "default", None)
+        raw_roots = [
+            ("artifacts_root", getattr(self.backend, "artifacts_root", None)),
+            ("backend cwd", getattr(self.backend, "cwd", None)),
+            ("default backend cwd", getattr(default, "cwd", None)),
+        ]
+        selected = [(label, root) for label, root in raw_roots if root is not None]
+        if not selected:
+            raise LangGraphHarnessError(
+                "LangGraphHarness: an enabled Player experiment requires a backend "
+                "with an explicit worktree root"
+            )
+
+        resolved_roots: list[tuple[str, Path]] = []
+        for label, root in selected:
+            try:
+                resolved = Path(root).resolve(strict=True)
+            except (OSError, RuntimeError, TypeError) as exc:
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: Player experiment "
+                    f"{label} is invalid: {root!r}"
+                ) from exc
+            if not resolved.is_dir():
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: Player experiment "
+                    f"{label} is not a directory: {resolved}"
+                )
+            resolved_roots.append((label, resolved))
+
+        unique_roots = {root for _, root in resolved_roots}
+        if len(unique_roots) != 1:
+            detail = ", ".join(f"{label}={root}" for label, root in resolved_roots)
+            raise LangGraphHarnessError(
+                "LangGraphHarness: Player experiment has conflicting backend roots: "
+                f"{detail}"
+            )
+        return resolved_roots[-1][1]
+
+    def _create_agent(self, *, role: str, cwd: Path, resolved_model: Any) -> Any:
+        """Construct the shared Deep Agents graph for one invocation."""
+
+        kwargs: dict[str, Any] = {
+            "model": resolved_model,
+            "tools": [],
+            "middleware": [TodoListMiddleware()],
+            "backend": self.backend,
+            "permissions": self.permissions,
+            "system_prompt": _system_prompt_for_role(role),
+        }
+        experiment = self.player_experiment
+        if experiment is not None:
+            if role != "player":
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: player_experiment may only be used for role='player'"
+                )
+            if experiment.engine == "dcode":
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: Player engine 'dcode' is not implemented in Stage 1; "
+                    "no fallback engine was started"
+                )
+            try:
+                revalidate_player_experiment(experiment, cwd=cwd)
+            except PlayerExperimentConfigError as exc:
+                raise LangGraphHarnessError(
+                    f"LangGraphHarness: invalid Player experiment at invocation: {exc}"
+                ) from exc
+            invocation_root = Path(cwd).resolve(strict=True)
+            backend_root = self._experiment_backend_root()
+            if backend_root != invocation_root:
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: Player experiment backend/worktree mismatch: "
+                    f"backend={backend_root} invocation={invocation_root}"
+                )
+            kwargs["skills"] = [str(path) for path in experiment.skills]
+            kwargs["memory"] = [str(path) for path in experiment.memory]
+        return create_deep_agent(**kwargs)
+
+    @staticmethod
+    def _experiment_terminal_message(result: Any) -> AIMessage:
+        """Return the last actual AIMessage without falling back to older text."""
+
+        messages = result.get("messages", []) if isinstance(result, dict) else []
+        for message in reversed(messages):
+            if isinstance(message, AIMessage):
+                return message
+        raise LangGraphHarnessError(
+            "LangGraphHarness: enabled Player experiment returned no terminal AIMessage",
+            raw_result=result,
+        )
+
+    @staticmethod
+    def _experiment_terminal_metadata(
+        message: AIMessage,
+    ) -> tuple[str, str | None, dict[str, object] | None, str]:
+        """Extract terminal metadata from the same actual AIMessage."""
+
+        single_message_result = {"messages": [message]}
+        text = extract_last_ai_message(single_message_result) or ""
+        reasoning = extract_last_ai_reasoning(single_message_result)
+        response_metadata = getattr(message, "response_metadata", None)
+        finish_reason: str | None = None
+        if isinstance(response_metadata, Mapping):
+            raw_finish = response_metadata.get("finish_reason") or response_metadata.get(
+                "stop_reason"
+            )
+            if raw_finish is not None:
+                finish_reason = str(raw_finish)
+        if finish_reason is None:
+            additional_kwargs = getattr(message, "additional_kwargs", None)
+            if isinstance(additional_kwargs, Mapping):
+                raw_finish = additional_kwargs.get("finish_reason")
+                if raw_finish is not None:
+                    finish_reason = str(raw_finish)
+
+        raw_usage = getattr(message, "usage_metadata", None)
+        if not isinstance(raw_usage, Mapping) and isinstance(response_metadata, Mapping):
+            raw_usage = response_metadata.get("token_usage")
+        usage = dict(raw_usage) if isinstance(raw_usage, Mapping) else None
+        return text, finish_reason, usage, reasoning
 
     def _resolve_model_for_invoke(self, role: str | None = None) -> Any:
         """Resolve ``self.model`` and attach profile metadata for invocation.
@@ -610,14 +745,9 @@ class LangGraphHarness(HarnessAdapter):
         resolved_model = self._resolve_model_for_invoke(role=role)
 
         try:
-            agent = create_deep_agent(
-                model=resolved_model,
-                tools=[],  # caller tools are SDK names; built-ins are explicit below
-                middleware=[TodoListMiddleware()],
-                backend=self.backend,
-                permissions=self.permissions,
-                system_prompt=_system_prompt_for_role(role),
-            )
+            agent = self._create_agent(role=role, cwd=cwd, resolved_model=resolved_model)
+        except LangGraphHarnessError:
+            raise
         except Exception as exc:  # noqa: BLE001 — wrap-and-reraise on purpose
             raise LangGraphHarnessError(
                 f"LangGraphHarness: failed to construct DeepAgent for "
@@ -688,7 +818,28 @@ class LangGraphHarness(HarnessAdapter):
                     f"role={role!r} model={self.model!r}: {exc}"
                 ) from exc
 
-            text = extract_last_ai_message(result) or ""
+            terminal_message: AIMessage | None = None
+            if self.player_experiment is not None:
+                terminal_message = self._experiment_terminal_message(result)
+                text, stop_reason, usage, reasoning_text = (
+                    self._experiment_terminal_metadata(terminal_message)
+                )
+                if not text.strip():
+                    raise LangGraphHarnessError(
+                        "LangGraphHarness: enabled Player experiment returned an empty "
+                        "terminal assistant answer",
+                        raw_result=result,
+                    )
+                if stop_reason is not None and stop_reason.casefold() == "length":
+                    raise LangGraphHarnessError(
+                        "LangGraphHarness: enabled Player experiment terminal answer was "
+                        "truncated (finish_reason='length')",
+                        raw_result=result,
+                    )
+            else:
+                text = extract_last_ai_message(result) or ""
+                stop_reason = "end_turn"
+                usage = None
             # TASK-FIX-COACHBUDG01 (2026-06-06): surface reasoning_content
             # alongside the canonical text. ADR FB-004 / substrate-parity:
             # both harnesses MUST populate
@@ -699,7 +850,8 @@ class LangGraphHarness(HarnessAdapter):
             # F17 substrate gap for hybrid-reasoning models (Gemma 4 IT,
             # future DeepSeek V4 with reasoning, etc.) without requiring
             # the brittle ``--reasoning off`` llama.cpp flag.
-            reasoning_text = extract_last_ai_reasoning(result)
+            if self.player_experiment is None:
+                reasoning_text = extract_last_ai_reasoning(result)
 
             # TASK-HMIG-006.2: emit one ToolUseEvent per AIMessage.tool_calls
             # entry encountered in the result stream BEFORE the
@@ -730,8 +882,9 @@ class LangGraphHarness(HarnessAdapter):
             )
             yield ResultMessageEvent(
                 session_id=None,
-                stop_reason="end_turn",
-                usage=None,
+                stop_reason=stop_reason,
+                usage=usage,
+                raw=terminal_message,
             )
         finally:
             # TASK-FIX-LGACLOSE: defensive finalisation on EVERY exit path
