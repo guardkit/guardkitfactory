@@ -844,7 +844,10 @@ class LangGraphHarness(HarnessAdapter):
         extra_body: dict[str, Any] | None = _extras or None
 
         if isinstance(self.model, BaseChatModel):
-            model = self.model
+            # Injected local ChatOpenAI instances need the same transport
+            # normalisation as Player/Coach graph models. Resolve without a
+            # role here so a caller-provided synthesis budget stays intact.
+            model = resolve_autobuild_model(self.model)
             if extra_body is not None:
                 try:
                     model = model.bind(extra_body=extra_body)

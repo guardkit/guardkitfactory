@@ -19,8 +19,10 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
+import httpx
 import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
+from langchain_openai import ChatOpenAI
 
 from guardkitfactory.harness.model_config import (
     MODEL_CONTEXT_WINDOWS,
@@ -96,6 +98,37 @@ def test_basechatmodel_with_existing_profile_is_not_overridden() -> None:
     fake.profile = {"max_input_tokens": 999_999}
     resolved = resolve_autobuild_model(fake)
     assert resolved.profile == {"max_input_tokens": 999_999}
+
+
+def test_prebuilt_local_chatopenai_is_normalized_without_losing_configuration() -> None:
+    """A Responses-enabled local model keeps its identity and request policy."""
+    transport = httpx.MockTransport(lambda _request: httpx.Response(200))
+    sync_client = httpx.Client(transport=transport)
+    async_client = httpx.AsyncClient(transport=transport)
+    model = ChatOpenAI(
+        model="local-adapter",
+        api_key="test",
+        base_url="http://model.test/v1",
+        use_responses_api=True,
+        temperature=0.37,
+        max_tokens=321,
+        profile={"max_input_tokens": 65_536},
+        http_client=sync_client,
+        http_async_client=async_client,
+        http_socket_options=(),
+    )
+
+    resolved = resolve_autobuild_model(model)
+
+    assert resolved is model
+    assert resolved.use_responses_api is False
+    assert resolved.model_name == "local-adapter"
+    assert resolved.openai_api_base == "http://model.test/v1"
+    assert resolved.http_client is sync_client
+    assert resolved.http_async_client is async_client
+    assert resolved.profile == {"max_input_tokens": 65_536}
+    assert resolved.temperature == 0.37
+    assert resolved.max_tokens == 321
 
 
 # ---------------------------------------------------------------------------

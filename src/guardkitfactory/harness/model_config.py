@@ -295,6 +295,33 @@ def _resolve_model_for_transport(model: str) -> BaseChatModel:
     return ChatOpenAI(**kwargs)
 
 
+def _normalize_prebuilt_openai_transport(model: BaseChatModel) -> BaseChatModel:
+    """Keep custom-endpoint ``ChatOpenAI`` models on Chat Completions.
+
+    Callers may inject a fully configured model so their HTTP clients, endpoint,
+    profile, temperature and token budget flow through the harness unchanged.
+    Deep Agents 0.7 can otherwise use ``/v1/responses`` when that prebuilt model
+    has ``use_responses_api=True``. The factory's custom OpenAI-compatible
+    endpoints expose the Chat Completions contract, so change only that routing
+    flag and preserve the caller's model object and every other field.
+    """
+    try:
+        # Import the concrete class from its defining module. Tests and callers
+        # commonly patch the package-level constructor for string resolution;
+        # that must not make ``isinstance`` inspect a mock object here.
+        from langchain_openai.chat_models.base import ChatOpenAI
+    except ImportError:
+        return model
+
+    if (
+        isinstance(model, ChatOpenAI)
+        and model.openai_api_base
+        and model.use_responses_api is True
+    ):
+        model.use_responses_api = False
+    return model
+
+
 def resolve_autobuild_model(
     model: str | BaseChatModel,
     role: str | None = None,
@@ -344,7 +371,7 @@ def resolve_autobuild_model(
         bare = _bare_model_name(model)
         resolved = _resolve_model_for_transport(model)
     else:
-        resolved = model
+        resolved = _normalize_prebuilt_openai_transport(model)
         identifier = _get_identifier(resolved)
         bare = identifier or ""
 

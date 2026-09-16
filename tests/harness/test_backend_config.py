@@ -927,6 +927,39 @@ class TestAcceptanceEvidenceProtection:
         assert result.error is not None
         assert acceptance.exists()
 
+    def test_symlinked_acceptance_files_are_protected_cycle_safely(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        acceptance_dir = worktree / "tests" / "acceptance"
+        acceptance_dir.mkdir(parents=True)
+        shared = worktree / "oracle_data"
+        shared.mkdir()
+        oracle = shared / "test_external.py"
+        oracle.write_text("EXPECTED = 'independent'\n")
+        linked = acceptance_dir / "linked"
+        linked.symlink_to(shared, target_is_directory=True)
+        # A cycle must neither hang the snapshot nor hide the external file.
+        (shared / "acceptance-cycle").symlink_to(
+            acceptance_dir, target_is_directory=True
+        )
+        backend = build_autobuild_backend(worktree)
+        via_link = linked / oracle.name
+
+        overwrite = backend.write(str(via_link), "EXPECTED = 'weakened'\n")
+        edit = backend.edit(str(via_link), "independent", "weakened")
+        delete_file = backend.delete(str(via_link))
+        delete_link = backend.delete(str(linked))
+        delete_acceptance = backend.delete(str(acceptance_dir))
+
+        assert overwrite.error is not None
+        assert edit.error is not None
+        assert delete_file.error is not None
+        assert delete_link.error is not None
+        assert delete_acceptance.error is not None
+        assert oracle.read_text() == "EXPECTED = 'independent'\n"
+        assert linked.is_symlink()
+
     def test_normal_source_overwrite_remains_allowed(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)
         source = worktree / "src" / "module.py"

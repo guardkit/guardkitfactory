@@ -145,7 +145,8 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from collections.abc import Sequence
+import os
+from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -414,10 +415,12 @@ class PathConfinedBackend:
         self._inner = inner
         self._allowed_roots = [Path(root).resolve() for root in allowed_roots]
         acceptance_root = self._allowed_roots[0] / "tests" / "acceptance"
+        protected = tuple(self._walk_existing_files(acceptance_root))
         self._protected_acceptance_files = frozenset(
-            path.resolve()
-            for path in acceptance_root.rglob("*")
-            if path.is_file()
+            path.resolve() for path in protected
+        )
+        self._protected_acceptance_aliases = frozenset(
+            self._absolute_path(path) for path in protected
         )
 
     def __getattr__(self, name: str) -> Any:
@@ -432,6 +435,46 @@ class PathConfinedBackend:
             candidate = Path(self._inner.cwd) / candidate
         return candidate.resolve()
 
+    def _absolute_path(self, file_path: str | Path) -> Path:
+        """Return an absolute lexical path without resolving symlinks."""
+        candidate = Path(file_path)
+        if not candidate.is_absolute():
+            candidate = Path(self._inner.cwd) / candidate
+        return Path(os.path.abspath(candidate))
+
+    @staticmethod
+    def _walk_existing_files(root: Path) -> Iterable[Path]:
+        """Yield files below ``root``, following directory symlinks safely.
+
+        ``Path.rglob`` does not descend through a symlinked directory. Track
+        visited device/inode pairs while following links so acceptance files
+        remain visible without looping through a cyclic directory graph.
+        """
+        pending = [root]
+        visited: set[tuple[int, int]] = set()
+        while pending:
+            directory = pending.pop()
+            try:
+                stat = directory.stat()
+            except OSError:
+                continue
+            identity = (stat.st_dev, stat.st_ino)
+            if identity in visited:
+                continue
+            visited.add(identity)
+            try:
+                entries = tuple(directory.iterdir())
+            except OSError:
+                continue
+            for entry in entries:
+                try:
+                    if entry.is_dir():
+                        pending.append(entry)
+                    elif entry.is_file():
+                        yield entry
+                except OSError:
+                    continue
+
     def _resolve_outside(self, file_path: str) -> Path | None:
         """Return the resolved path if it escapes all allowed roots."""
         resolved = self._resolve_path(file_path)
@@ -441,13 +484,28 @@ class PathConfinedBackend:
         return resolved
 
     def _protects_acceptance_file(
-        self, resolved: Path, *, recursive: bool = False
+        self,
+        resolved: Path,
+        *,
+        alias: Path | None = None,
+        recursive: bool = False,
     ) -> bool:
-        if resolved in self._protected_acceptance_files:
+        if resolved in self._protected_acceptance_files or (
+            alias is not None and alias in self._protected_acceptance_aliases
+        ):
             return True
-        return recursive and any(
-            protected.is_relative_to(resolved)
-            for protected in self._protected_acceptance_files
+        return recursive and (
+            any(
+                protected.is_relative_to(resolved)
+                for protected in self._protected_acceptance_files
+            )
+            or (
+                alias is not None
+                and any(
+                    protected.is_relative_to(alias)
+                    for protected in self._protected_acceptance_aliases
+                )
+            )
         )
 
     def _reject_protected(self, op: str, file_path: str) -> str:
@@ -483,7 +541,9 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
-        if self._protects_acceptance_file(self._resolve_path(file_path)):
+        if self._protects_acceptance_file(
+            self._resolve_path(file_path), alias=self._absolute_path(file_path)
+        ):
             return WriteResult(error=self._reject_protected("overwrite", file_path))
         return self._inner.write(file_path, content)
 
@@ -491,7 +551,9 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
-        if self._protects_acceptance_file(self._resolve_path(file_path)):
+        if self._protects_acceptance_file(
+            self._resolve_path(file_path), alias=self._absolute_path(file_path)
+        ):
             return WriteResult(error=self._reject_protected("overwrite", file_path))
         return await self._inner.awrite(file_path, content)
 
@@ -500,7 +562,9 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
-        if self._protects_acceptance_file(self._resolve_path(file_path)):
+        if self._protects_acceptance_file(
+            self._resolve_path(file_path), alias=self._absolute_path(file_path)
+        ):
             return EditResult(error=self._reject_protected("edit", file_path))
         return self._inner.edit(file_path, *args, **kwargs)
 
@@ -508,7 +572,9 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
-        if self._protects_acceptance_file(self._resolve_path(file_path)):
+        if self._protects_acceptance_file(
+            self._resolve_path(file_path), alias=self._absolute_path(file_path)
+        ):
             return EditResult(error=self._reject_protected("edit", file_path))
         return await self._inner.aedit(file_path, *args, **kwargs)
 
@@ -557,7 +623,9 @@ class PathConfinedBackend:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
             )
-        if self._protects_acceptance_file(resolved, recursive=True):
+        if self._protects_acceptance_file(
+            resolved, alias=self._absolute_path(file_path), recursive=True
+        ):
             return DeleteResult(error=self._reject_protected("delete", file_path))
         return self._inner.delete(file_path)
 
@@ -570,7 +638,9 @@ class PathConfinedBackend:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
             )
-        if self._protects_acceptance_file(resolved, recursive=True):
+        if self._protects_acceptance_file(
+            resolved, alias=self._absolute_path(file_path), recursive=True
+        ):
             return DeleteResult(error=self._reject_protected("delete", file_path))
         return await self._inner.adelete(file_path)
 

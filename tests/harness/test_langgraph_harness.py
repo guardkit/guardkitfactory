@@ -1807,3 +1807,76 @@ def test_real_graph_compaction_uses_chat_completions_and_worktree_offload(
     assert "user-0-marker" in history
     assert "assistant-0-marker" in history
     assert history_files[0].is_relative_to(tmp_path)
+
+
+def test_prebuilt_responses_model_uses_chat_completions_for_synthesis(
+    tmp_path: Path,
+) -> None:
+    """Injected local synthesis models retain grammar on Chat Completions."""
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append((request.url.path, body))
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-synthesis",
+                "object": "chat.completion",
+                "created": 1,
+                "model": body["model"],
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "{}"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 5,
+                    "completion_tokens": 1,
+                    "total_tokens": 6,
+                },
+            },
+        )
+
+    transport = httpx.MockTransport(_handler)
+    model = langchain_openai.ChatOpenAI(
+        model="local-coach-adapter",
+        api_key="local-test-key",
+        base_url="http://model.test/v1",
+        use_responses_api=True,
+        temperature=0.27,
+        max_tokens=777,
+        http_client=httpx.Client(transport=transport),
+        http_async_client=httpx.AsyncClient(transport=transport),
+        http_socket_options=(),
+        max_retries=0,
+    )
+    harness = LangGraphHarness(model=model)
+
+    async def _collect() -> list[Any]:
+        return [
+            event
+            async for event in harness.invoke_synthesis(
+                prompt="Return a verdict.",
+                role="coach",
+                grammar='root ::= "{}"',
+                cwd=tmp_path,
+                timeout_seconds=5,
+            )
+        ]
+
+    events = asyncio.run(_collect())
+
+    assert {path for path, _ in requests} == {"/v1/chat/completions"}
+    body = requests[0][1]
+    assert body["model"] == "local-coach-adapter"
+    assert body["grammar"] == 'root ::= "{}"'
+    assert body["temperature"] == 0.27
+    assert body.get("max_completion_tokens", body.get("max_tokens")) == 777
+    assert "tools" not in body
+    assert any(
+        isinstance(event, AssistantMessageEvent) and event.text == "{}"
+        for event in events
+    )
