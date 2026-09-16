@@ -46,8 +46,21 @@ process; do not reload dcode modules. `DEEPAGENTS_HOME` does not hide home-level
 content fails clearly. The profile may contain only dcode's empty initial agent
 instructions and empty directories. The adapter never prepares the project bundle.
 
-For the planned comparison, use the already registered `openai:qwen36-workhorse`
-Player alias with its 131072-token context profile and 8192-token output budget.
+For the planned comparison, use the proxy's `openai:workhorse` Player alias and
+explicitly select its 131072-token context and 8192-token output limits:
+
+```sh
+export GUARDKIT_PLAYER_MODEL_LIMITS='{"model":"openai:workhorse","context_tokens":131072,"output_tokens":8192}'
+```
+
+Set the same carrier for all three comparison arms, independently of
+`GUARDKIT_PLAYER_EXPERIMENT`. It applies only to LangGraph Player invocations;
+other roles ignore it, and absence retains the ordinary model-resolution path.
+The JSON object accepts exactly these three keys, requires integer limits of
+131072/8192 and an exact match to the configured `openai:<alias>` string, and
+rejects prebuilt models. An explicit local HTTP(S) `OPENAI_BASE_URL` is required;
+credentials in the URL, query strings, fragments and nonlocal hosts are refused.
+Conflicting resolved limits or transport settings fail before model activity.
 Keep sampling/reasoning overrides absent in every comparison arm. Set the accepted
 local `OPENAI_BASE_URL` through the normal launch configuration; GuardKit's existing
 local-seat check remains required. The adapter requires the resolved `ChatOpenAI`

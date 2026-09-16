@@ -632,6 +632,17 @@ class LangGraphHarness(HarnessAdapter):
         failure mode.
         """
         model = self.model
+        if role == "player" and "GUARDKIT_PLAYER_MODEL_LIMITS" in os.environ:
+            from guardkitfactory.harness.model_config import resolve_player_model_limits
+
+            try:
+                return resolve_player_model_limits(
+                    model, os.environ["GUARDKIT_PLAYER_MODEL_LIMITS"]
+                )
+            except Exception as exc:
+                raise LangGraphHarnessError(
+                    f"LangGraphHarness: explicit Player model limits refused: {exc}"
+                ) from exc
         if not isinstance(model, (str, BaseChatModel)):
             return model
         try:

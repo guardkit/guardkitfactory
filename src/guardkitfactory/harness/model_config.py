@@ -121,9 +121,12 @@ ceiling is wired alongside the fraction trigger.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import re
 from typing import Any, Final, Literal
+from urllib.parse import urlsplit
 
 from deepagents._models import resolve_model
 from langchain_core.language_models import BaseChatModel
@@ -462,3 +465,103 @@ def _get_identifier(model: BaseChatModel) -> str | None:
         if isinstance(value, str) and value:
             return value
     return None
+
+
+def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
+    """Resolve the explicit local Player limits, failing closed before invocation.
+
+    This bounded carrier is independent of the skills/dcode experiment. Callers
+    activate it only for Player; the ordinary registry and other roles retain
+    their existing behavior. Construction uses the invocation's owned clients.
+    """
+    def reject(message: str) -> None:
+        raise ValueError(f"GUARDKIT_PLAYER_MODEL_LIMITS: {message}")
+
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                reject("duplicate JSON key")
+            result[key] = value
+        return result
+
+    try:
+        limits = json.loads(raw, object_pairs_hook=unique_object)
+    except (ValueError, TypeError) as exc:
+        raise ValueError("GUARDKIT_PLAYER_MODEL_LIMITS: invalid JSON object") from exc
+    if not isinstance(limits, dict) or set(limits) != {
+        "model", "context_tokens", "output_tokens"
+    }:
+        reject("expected exactly model, context_tokens and output_tokens")
+    if (
+        not isinstance(model, str)
+        or re.fullmatch(r"openai:[A-Za-z0-9][A-Za-z0-9._/-]*", model) is None
+        or limits["model"] != model
+    ):
+        reject("model must match the configured openai:<alias> string")
+    for key, expected in (("context_tokens", 131072), ("output_tokens", 8192)):
+        if type(limits[key]) is not int or limits[key] != expected:
+            reject(f"{key} must be the integer {expected}")
+
+    from guardkit.orchestrator.m0_fence import is_local_seat_host
+    from langchain_openai.chat_models.base import ChatOpenAI
+
+    endpoint = os.environ.get("OPENAI_BASE_URL", "")
+    try:
+        url = urlsplit(endpoint)
+        # Access port to reject malformed/out-of-range values as well.
+        _ = url.port
+        valid_endpoint = (
+            bool(endpoint)
+            and not any(c.isspace() or ord(c) < 32 for c in endpoint)
+            and url.scheme in {"http", "https"}
+            and bool(url.hostname)
+            and is_local_seat_host(url.hostname)
+            and url.username is None
+            and url.password is None
+            and not url.query
+            and not url.fragment
+            and "?" not in endpoint
+            and "#" not in endpoint
+        )
+    except ValueError:
+        valid_endpoint = False
+    if not valid_endpoint:
+        reject(
+            "OPENAI_BASE_URL must be an explicit local HTTP(S) endpoint "
+            "without credentials, query or fragment"
+        )
+
+    resolved = _resolve_model_for_transport(model)
+    if (
+        not isinstance(resolved, ChatOpenAI)
+        or resolved.model_name != model.removeprefix("openai:")
+        or str(resolved.openai_api_base).rstrip("/") != endpoint.rstrip("/")
+        or resolved.use_responses_api is not False
+    ):
+        reject("resolved model must preserve alias, endpoint and ChatCompletions")
+    profile = dict(resolved.profile or {})
+    for key, expected in (("max_input_tokens", 131072), ("max_output_tokens", 8192)):
+        existing = profile.get(key)
+        if existing is not None and (type(existing) is not int or existing != expected):
+            reject(f"conflicting existing profile {key}")
+    if resolved.max_tokens is not None and resolved.max_tokens != 8192:
+        reject("conflicting existing output limit")
+    for settings in (resolved.model_kwargs, resolved.extra_body or {}):
+        if any(
+            key in settings for key in ("max_tokens", "max_completion_tokens", "max_output_tokens")
+        ):
+            reject("conflicting request-level output limit")
+    profile["max_input_tokens"] = 131072
+    try:
+        resolved.profile = profile
+        resolved.max_tokens = 8192
+    except Exception as exc:
+        raise ValueError("GUARDKIT_PLAYER_MODEL_LIMITS: limits assignment failed") from exc
+    if (
+        resolved.profile != profile
+        or type(resolved.max_tokens) is not int
+        or resolved.max_tokens != 8192
+    ):
+        reject("limits assignment was not retained")
+    return resolved
