@@ -68,6 +68,7 @@ from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
 )
+from guardkitfactory.harness.http_clients import create_chat_openai, with_invocation_clients
 from guardkitfactory.harness.model_config import resolve_autobuild_model
 from guardkitfactory.lib.factory_guards import assert_no_system_messages
 
@@ -473,7 +474,9 @@ class LangGraphHarness(HarnessAdapter):
            ``None`` and other shapes fall through unchanged so the
            construction-failure path keeps its current attribution.
 
-        Resolution failures (e.g. ``init_chat_model("nonexistent:foo")``
+        Local OpenAI construction failures fail visibly: fallback would bypass
+        invocation-owned clients. Other resolution failures (e.g.
+        ``init_chat_model("nonexistent:foo")``
         raising ``ValueError`` for an unknown provider) are caught and the
         original ``self.model`` is returned unchanged. The downstream
         ``create_deep_agent`` call then surfaces the same failure with the
@@ -487,7 +490,13 @@ class LangGraphHarness(HarnessAdapter):
             return model
         try:
             return resolve_autobuild_model(model, role=role)
-        except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
+        except Exception as exc:  # noqa: BLE001 — retain nonlocal fallback only
+            if isinstance(model, str) and model.startswith("openai:"):
+                # Falling back here would let Deep Agents bypass ownership and
+                # resolve another cached client (and possibly Responses API).
+                raise LangGraphHarnessError(
+                    f"LangGraphHarness: failed to construct local model {model!r}: {exc}"
+                ) from exc
             logger.debug(
                 "TASK-HMIG-002R-MODEL-PROFILE: resolve_autobuild_model(%r) "
                 "raised %s; passing original model through unchanged.",
@@ -535,6 +544,7 @@ class LangGraphHarness(HarnessAdapter):
             ]
         return config or None
 
+    @with_invocation_clients
     async def invoke(
         self,
         prompt: str,
@@ -861,8 +871,6 @@ class LangGraphHarness(HarnessAdapter):
             return model
 
         # Production string-alias path: build a chat-completions ChatOpenAI.
-        from langchain_openai import ChatOpenAI
-
         from guardkitfactory.harness.model_config import _bare_model_name
 
         bare = _bare_model_name(str(self.model))
@@ -895,10 +903,11 @@ class LangGraphHarness(HarnessAdapter):
         # Force chat-completions transport (probe-faithful). Tolerate an older
         # langchain-openai that lacks the kwarg.
         try:
-            return ChatOpenAI(use_responses_api=False, **kwargs)
+            return create_chat_openai(use_responses_api=False, **kwargs)
         except TypeError:
-            return ChatOpenAI(**kwargs)
+            return create_chat_openai(**kwargs)
 
+    @with_invocation_clients
     async def invoke_synthesis(
         self,
         prompt: str,

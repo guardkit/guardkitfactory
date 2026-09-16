@@ -1558,6 +1558,8 @@ def test_real_graph_uses_chat_completions_prompt_and_runtime_tools(
     real_constructor = langchain_openai.ChatOpenAI
 
     def _chat_model(**kwargs: Any) -> Any:
+        for key in ("http_client", "http_async_client", "http_socket_options"):
+            kwargs.pop(key, None)
         return real_constructor(
             **kwargs,
             http_client=httpx.Client(transport=transport),

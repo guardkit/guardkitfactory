@@ -280,7 +280,7 @@ def _resolve_model_for_transport(model: str) -> BaseChatModel:
     if provider != "openai" or not separator or not bare:
         return resolve_model(model)
 
-    from langchain_openai import ChatOpenAI
+    from guardkitfactory.harness.http_clients import create_chat_openai
 
     kwargs: dict[str, Any] = {
         "model": bare,
@@ -292,7 +292,7 @@ def _resolve_model_for_transport(model: str) -> BaseChatModel:
     configured_key = os.environ.get("OPENAI_API_KEY")
     if configured_key:
         kwargs["api_key"] = configured_key
-    return ChatOpenAI(**kwargs)
+    return create_chat_openai(**kwargs)
 
 
 def _normalize_prebuilt_openai_transport(model: BaseChatModel) -> BaseChatModel:
@@ -352,6 +352,9 @@ def resolve_autobuild_model(
 
     Notes
     -----
+    * Prebuilt models and all their HTTP clients remain caller-owned, even
+      when the model uses an implicit provider client. The caller must keep
+      those clients on their owning loop and close them at the appropriate time.
     * The profile field is a Pydantic ``model_validator(mode="after")`` field
       on ``BaseChatModel`` (langchain-core 1.1+). Direct assignment is
       supported.
