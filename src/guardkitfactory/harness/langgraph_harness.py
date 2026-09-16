@@ -900,12 +900,11 @@ class LangGraphHarness(HarnessAdapter):
             disable_thinking,
             kwargs["max_tokens"],
         )
-        # Force chat-completions transport (probe-faithful). Tolerate an older
-        # langchain-openai that lacks the kwarg.
-        try:
-            return create_chat_openai(use_responses_api=False, **kwargs)
-        except TypeError:
-            return create_chat_openai(**kwargs)
+        # Force chat-completions transport (probe-faithful). All supported
+        # langchain-openai versions accept this setting. Let construction
+        # errors propagate so an owned transport failure cannot trigger a
+        # second model construction or silently switch transport APIs.
+        return create_chat_openai(use_responses_api=False, **kwargs)
 
     @with_invocation_clients
     async def invoke_synthesis(

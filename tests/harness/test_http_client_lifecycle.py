@@ -222,6 +222,73 @@ def test_model_construction_error_cannot_fallback(
     assert owned and all(client.is_closed for client in owned)
 
 
+def test_synthesis_async_client_typeerror_is_not_retried(
+    server, owned, monkeypatch, tmp_path,
+):
+    from langchain_openai.chat_models import _client_utils as provider
+
+    calls = []
+
+    def fail(*_args, **_kwargs):
+        calls.append(1)
+        raise TypeError("async client construction failed")
+
+    monkeypatch.setattr(provider, "_build_async_httpx_client", fail)
+    with pytest.raises(TypeError, match="async client construction failed"):
+        asyncio.run(collect(LangGraphHarness("openai:coach"), tmp_path, synthesis=True))
+    assert len(calls) == 1
+    assert not owned
+    assert not server.requests
+
+
+def test_synthesis_sync_client_typeerror_closes_async_client(
+    server, owned, monkeypatch, tmp_path,
+):
+    from langchain_openai.chat_models import _client_utils as provider
+
+    calls = []
+
+    def fail(*_args, **_kwargs):
+        calls.append(1)
+        raise TypeError("sync client construction failed")
+
+    monkeypatch.setattr(provider, "_build_sync_httpx_client", fail)
+    with pytest.raises(TypeError, match="sync client construction failed"):
+        asyncio.run(collect(LangGraphHarness("openai:coach"), tmp_path, synthesis=True))
+    assert len(calls) == 1
+    assert len(owned) == 1 and owned[0].is_closed
+    assert not server.requests
+
+
+def test_synthesis_model_typeerror_closes_created_clients(
+    server, owned, monkeypatch, tmp_path,
+):
+    from langchain_openai.chat_models import _client_utils as provider
+
+    original_sync_builder = provider._build_sync_httpx_client
+    sync_clients = []
+    model_calls = []
+
+    def build_sync(*args, **kwargs):
+        client = original_sync_builder(*args, **kwargs)
+        sync_clients.append(client)
+        return client
+
+    def fail_model(**kwargs):
+        model_calls.append(kwargs)
+        raise TypeError("model construction failed")
+
+    monkeypatch.setattr(provider, "_build_sync_httpx_client", build_sync)
+    monkeypatch.setattr("langchain_openai.ChatOpenAI", fail_model)
+    with pytest.raises(TypeError, match="model construction failed"):
+        asyncio.run(collect(LangGraphHarness("openai:coach"), tmp_path, synthesis=True))
+    assert len(model_calls) == 1
+    assert model_calls[0]["use_responses_api"] is False
+    assert len(owned) == 1 and owned[0].is_closed
+    assert len(sync_clients) == 1 and sync_clients[0].is_closed
+    assert not server.requests
+
+
 def test_graph_construction_error_closes_clients(server, owned, monkeypatch, tmp_path):
     def fail(**_kwargs):
         raise ValueError("graph construction failed")
