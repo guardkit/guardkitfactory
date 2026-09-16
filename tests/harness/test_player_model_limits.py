@@ -354,7 +354,14 @@ def test_profile_preserved_and_assignment_failure_refuses(monkeypatch):
 
 @pytest.mark.parametrize(
     ("mode", "message"),
-    [("raise", "assignment failed"), ("ignore", "not retained")],
+    [
+        ("raise", "assignment failed"),
+        ("ignore", "not retained"),
+        ("zero", "not retained"),
+        ("zero_float", "not retained"),
+        ("mutate_true", "not retained"),
+        ("mutate_delete", "not retained"),
+    ],
 )
 def test_thinking_assignment_failure_is_refused(monkeypatch, mode, message):
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
@@ -367,7 +374,20 @@ def test_thinking_assignment_failure_is_refused(monkeypatch, mode, message):
         if name == "extra_body":
             if mode == "raise":
                 raise ValueError("immutable")
-            return
+            if mode == "ignore":
+                return
+            if mode in {"zero", "zero_float"}:
+                value = {
+                    **value,
+                    "chat_template_kwargs": dict(value["chat_template_kwargs"]),
+                }
+                value["chat_template_kwargs"]["enable_thinking"] = (
+                    0 if mode == "zero" else 0.0
+                )
+            elif mode == "mutate_true":
+                value["chat_template_kwargs"]["enable_thinking"] = True
+            else:
+                del value["chat_template_kwargs"]["enable_thinking"]
         original(self, name, value)
 
     with (

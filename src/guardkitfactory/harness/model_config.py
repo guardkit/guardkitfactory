@@ -612,11 +612,25 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
             resolved.extra_body = expected_extra_body
     except Exception as exc:
         raise ValueError("GUARDKIT_PLAYER_MODEL_LIMITS: limits assignment failed") from exc
+    thinking_setting_retained = True
+    if disable_thinking:
+        actual_extra_body = resolved.extra_body
+        if not isinstance(actual_extra_body, dict):
+            thinking_setting_retained = False
+        else:
+            actual_template_kwargs = actual_extra_body.get("chat_template_kwargs")
+            thinking_setting_retained = (
+                isinstance(actual_template_kwargs, dict)
+                and "enable_thinking" in actual_template_kwargs
+                and type(actual_template_kwargs["enable_thinking"]) is bool
+                and actual_template_kwargs["enable_thinking"] is False
+            )
     if (
         resolved.profile != profile
         or type(resolved.max_tokens) is not int
         or resolved.max_tokens != 8192
         or (disable_thinking and resolved.extra_body != expected_extra_body)
+        or not thinking_setting_retained
     ):
         reject("limits assignment was not retained")
     return resolved
