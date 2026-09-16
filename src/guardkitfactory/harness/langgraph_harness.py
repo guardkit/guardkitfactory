@@ -110,6 +110,22 @@ def _system_prompt_for_role(role: str) -> str:
     return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
 
 
+def _native_player_system_prompt(cwd: Path) -> str:
+    """Add the native Player's concrete file and shell working context."""
+
+    worktree = Path(cwd).resolve()
+    relative_example = Path("src") / "example.py"
+    absolute_example = worktree / relative_example
+    return (
+        f"{_system_prompt_for_role('player')}\n"
+        f"Your assigned task worktree is exactly: {worktree}\n"
+        "Filesystem tools require absolute paths. A task-relative path such as "
+        f"`{relative_example}` means `{absolute_example}` for those tools.\n"
+        f"Shell commands start with `{worktree}` as their working directory, so "
+        "relative shell paths resolve from that directory.\n"
+    )
+
+
 def _install_langsmith_executor_guard() -> None:
     """Make LangSmith tracing safe against asyncio executor teardown.
 
@@ -515,7 +531,6 @@ class LangGraphHarness(HarnessAdapter):
             "middleware": [TodoListMiddleware()],
             "backend": self.backend,
             "permissions": self.permissions,
-            "system_prompt": _system_prompt_for_role(role),
         }
         experiment = self.player_experiment
         if experiment is not None:
@@ -548,6 +563,11 @@ class LangGraphHarness(HarnessAdapter):
                 )
             kwargs["skills"] = [str(path) for path in experiment.skills]
             kwargs["memory"] = [str(path) for path in experiment.memory]
+        kwargs["system_prompt"] = (
+            _native_player_system_prompt(cwd)
+            if role == "player"
+            else _system_prompt_for_role(role)
+        )
         return create_deep_agent(**kwargs)
 
     @staticmethod

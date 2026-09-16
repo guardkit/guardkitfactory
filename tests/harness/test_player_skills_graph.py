@@ -550,7 +550,7 @@ def test_enabled_experiment_rejects_opaque_default_execution_root(
 
 
 def test_enabled_experiment_accepts_real_factory_backend_root(tmp_path: Path) -> None:
-    repo = _scaffold(tmp_path)
+    repo = _scaffold(tmp_path, "native task worktree with spaces")
     backend = _backend(repo)
     harness = LangGraphHarness(
         object(),
@@ -568,6 +568,10 @@ def test_enabled_experiment_accepts_real_factory_backend_root(tmp_path: Path) ->
             is sentinel
         )
         assert create.call_args.kwargs["backend"] is backend
+        prompt = create.call_args.kwargs["system_prompt"]
+        assert f"assigned task worktree is exactly: {repo}" in prompt
+        assert f"`src/example.py` means `{repo / 'src/example.py'}`" in prompt
+        assert f"Shell commands start with `{repo}`" in prompt
 
 
 @pytest.mark.parametrize("unavailable", ["interpreter", "installation"])

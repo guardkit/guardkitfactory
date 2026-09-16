@@ -774,7 +774,8 @@ def build_autobuild_backend(
     * ``virtual_mode=False`` — absolute paths resolve literally (was
       ``True``; flipped after AC-001D run 5 — see module docstring)
     * ``env`` — minimal explicit environment (``PATH``, ``HOME``,
-      ``TMPDIR``, and ``PYTHONPATH`` if a ``.venv`` is detected)
+      ``TMPDIR``, Python no-bytecode/no-user-site flags, and ``PYTHONPATH``
+      if a ``.venv`` is detected)
     * ``inherit_env=False`` — no leakage from the operator's shell
     * ``timeout=600`` — 10-minute ``execute`` ceiling
     * ``max_output_bytes=1_000_000`` — 1 MB cap on ``execute`` output
@@ -822,6 +823,8 @@ def build_autobuild_backend(
         "PATH": _AUTOBUILD_PATH,
         "HOME": str(worktree),
         "TMPDIR": str(temp_directory),
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONNOUSERSITE": "1",
     }
     venv_site_packages = _detect_venv_site_packages(worktree)
     if venv_site_packages is not None:

@@ -131,8 +131,17 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
         player_experiment=config(repo),
         on_model_activity=lambda: activity.append(1),
     )
+    from deepagents_code.agent import create_cli_agent
+
+    supplied: list[dict[str, Any]] = []
+
+    def observe(*args: Any, **kwargs: Any) -> Any:
+        supplied.append(kwargs)
+        return create_cli_agent(*args, **kwargs)
+
     try:
-        graph = harness._create_agent(role="player", cwd=repo, resolved_model=model)
+        with patch("deepagents_code.agent.create_cli_agent", side_effect=observe):
+            graph = harness._create_agent(role="player", cwd=repo, resolved_model=model)
         assert graph.guardkit_dcode_evidence["discovery"]["subagents"] == ["general-purpose"]
         assert graph.guardkit_dcode_backend.default.default is harness.backend
         events = asyncio.run(_collect(harness, repo))
@@ -151,6 +160,9 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     assert terminal.stop_reason == "stop" and terminal.usage["total_tokens"] == 110
     assert isinstance(terminal.raw, AIMessage) and terminal.raw is assistant.raw["messages"][-1]
     assert assistant.text == "dcode repaired the product" and activity
+    assert supplied[0]["cwd"] == repo.resolve()
+    assert supplied[0]["project_context"].user_cwd == repo.resolve()
+    assert supplied[0]["project_context"].project_root == repo.resolve()
     assert "planning" in exchange.requests[0]["system"]
     assert "# Coding instructions" in exchange.requests[0]["system"]
     assert "compact_conversation" in exchange.requests[0]["offered"]

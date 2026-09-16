@@ -28,6 +28,7 @@ is the library's own contract.
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 from typing import Literal
@@ -145,6 +146,42 @@ def test_build_autobuild_backend_env_contains_minimum_keys(tmp_path: Path) -> No
     assert backend.default._env["PATH"] == "/usr/bin:/bin"
     assert backend.default._env["HOME"] == str(tmp_path)
     assert backend.default._env["TMPDIR"] == str(tmp_path / ".tmp")
+    assert backend.default._env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert backend.default._env["PYTHONNOUSERSITE"] == "1"
+
+
+def test_execute_python_imports_do_not_write_bytecode_or_inherit_ambient_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = tmp_path / "project with spaces"
+    worktree.mkdir()
+    fixture = worktree / "private_fixture.py"
+    fixture.write_text("VALUE = 'private-fixture-loaded'\n")
+    project_python = worktree / ".venv" / "bin" / "python"
+    project_python.parent.mkdir(parents=True)
+    project_python.symlink_to(Path(sys.executable))
+    monkeypatch.setenv("AUTOBUILD_AMBIENT_SENTINEL", "must-not-leak")
+    backend = build_autobuild_backend(worktree)
+
+    command = (
+        "{python} -c \"import os, private_fixture; "
+        "print(private_fixture.VALUE); "
+        "print(os.environ.get('AUTOBUILD_AMBIENT_SENTINEL', 'absent')); "
+        "print(os.environ['PYTHONDONTWRITEBYTECODE']); "
+        "print(os.environ['PYTHONNOUSERSITE'])\""
+    )
+    for python in ("python3", ".venv/bin/python"):
+        result = backend.execute(command.format(python=python))
+        assert result.exit_code == 0, result.output
+        assert result.output.splitlines() == [
+            "private-fixture-loaded",
+            "absent",
+            "1",
+            "1",
+        ]
+
+    assert not (worktree / "__pycache__").exists()
+
 
 def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
     tmp_path: Path,

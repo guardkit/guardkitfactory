@@ -46,6 +46,7 @@ from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
 )
+from guardkitfactory.harness.langgraph_harness import _system_prompt_for_role
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -171,6 +172,57 @@ class TestHappyPath:
         assert isinstance(events[1], ResultMessageEvent)
         assert events[1].session_id is None
         assert events[1].stop_reason == "end_turn"
+
+    def test_native_player_prompt_maps_task_paths_from_exact_worktree(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = tmp_path / "task worktree with spaces"
+        worktree.mkdir()
+        harness = LangGraphHarness(model="ignored-stub-model")
+        fake_agent = _make_fake_agent()
+
+        async def collect() -> list[Any]:
+            return [
+                event
+                async for event in harness.invoke(
+                    prompt="implement",
+                    role="player",
+                    tools=[],
+                    cwd=worktree,
+                    timeout_seconds=30,
+                )
+            ]
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ) as create_mock:
+            asyncio.run(collect())
+
+        system_prompt = create_mock.call_args.kwargs["system_prompt"]
+        assert f"assigned task worktree is exactly: {worktree}" in system_prompt
+        assert f"`src/example.py` means `{worktree / 'src/example.py'}`" in system_prompt
+        assert f"Shell commands start with `{worktree}`" in system_prompt
+        assert "Filesystem tools require absolute paths" in system_prompt
+
+    def test_coach_prompt_is_unchanged_and_has_no_player_worktree_addition(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = tmp_path / "coach worktree with spaces"
+        worktree.mkdir()
+        harness = LangGraphHarness(model="ignored-stub-model")
+
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+        ) as create_mock:
+            harness._create_agent(
+                role="coach", cwd=worktree, resolved_model="ignored-stub-model"
+            )
+
+        system_prompt = create_mock.call_args.kwargs["system_prompt"]
+        assert system_prompt == _system_prompt_for_role("coach")
+        assert "assigned task worktree is exactly" not in system_prompt
+        assert str(worktree) not in system_prompt
 
     def test_invoke_with_empty_assistant_yields_empty_text(self) -> None:
         """If the agent returns no AI message, AssistantMessageEvent.text == ''."""
