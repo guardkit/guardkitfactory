@@ -47,27 +47,37 @@ content fails clearly. The profile may contain only dcode's empty initial agent
 instructions and empty directories. The adapter never prepares the project bundle.
 
 For the planned comparison, use the proxy's `openai:workhorse` Player alias and
-explicitly select its 131072-token context and 8192-token output limits:
+explicitly select its 131072-token context and 8192-token output limits. The
+three-field form preserves the existing request behavior:
 
 ```sh
 export GUARDKIT_PLAYER_MODEL_LIMITS='{"model":"openai:workhorse","context_tokens":131072,"output_tokens":8192}'
 ```
 
+For a separately named thinking-off experiment, add the optional JSON boolean
+`enable_thinking:false`:
+
+```sh
+export GUARDKIT_PLAYER_MODEL_LIMITS='{"model":"openai:workhorse","context_tokens":131072,"output_tokens":8192,"enable_thinking":false}'
+```
+
 Set the same carrier for all three comparison arms, independently of
 `GUARDKIT_PLAYER_EXPERIMENT`. It applies only to LangGraph Player invocations;
-other roles ignore it, and absence retains the ordinary model-resolution path.
-The JSON object accepts exactly these three keys, requires integer limits of
-131072/8192 and an exact match to the configured `openai:<alias>` string, and
-rejects prebuilt models. An explicit local HTTP(S) `OPENAI_BASE_URL` is required;
-credentials in the URL, query strings, fragments and nonlocal hosts are refused.
-Conflicting resolved limits or transport settings fail before model activity.
-Keep sampling/reasoning overrides absent in every comparison arm. Set the accepted
-local `OPENAI_BASE_URL` through the normal launch configuration; GuardKit's existing
-local-seat check remains required. The adapter requires the resolved `ChatOpenAI`
-endpoint to match that value and uses ChatCompletions for main work, the inherited
-`general-purpose` subagent, and compaction. Dcode adds zero graph/auxiliary retries;
-the existing provider retry budget and clients are preserved. A shallow model copy
-holds dcode's retry metadata without changing the caller's model.
+other roles and the Claude SDK route ignore it, and absence retains the ordinary
+model-resolution path. The JSON object requires the three limit fields and accepts
+only that one optional field. Thinking-off requires the exact `openai:workhorse`
+alias and the JSON boolean `false`; true, null, numbers, strings, duplicate keys,
+unknown fields and other aliases are refused before model activity.
+
+The resolved concrete `ChatOpenAI` sends
+`chat_template_kwargs={"enable_thinking":false}` as a top-level Chat Completions
+request field for main work, the inherited `general-purpose` subagent and
+compaction. Conflicting reasoning, template or output controls are refused rather
+than merged ambiguously. Unrelated existing `extra_body` entries are preserved.
+An explicit local HTTP(S) `OPENAI_BASE_URL` remains required; credentials in the
+URL, query strings, fragments and nonlocal hosts are refused. Dcode adds zero
+graph/auxiliary retries; the existing provider retry budget and clients are
+preserved. A shallow model copy holds dcode's retry metadata without changing the caller's model.
 
 ## Files, lifecycle and evidence
 

@@ -23,6 +23,7 @@ from guardkitfactory.harness.player_experiment import parse_player_experiment
 from .test_player_skills_graph import _backend, _collect, _scaffold
 
 LIMITS = {"model": "openai:workhorse", "context_tokens": 131072, "output_tokens": 8192}
+THINKING_OFF_LIMITS = {**LIMITS, "enable_thinking": False}
 ENV = "GUARDKIT_PLAYER_MODEL_LIMITS"
 
 
@@ -52,6 +53,15 @@ def isolated(monkeypatch):
         json.dumps({**LIMITS, "unknown": 1}),
         json.dumps({**LIMITS, "model": "openai:other"}),
         '{"model":"openai:other",' + json.dumps(LIMITS)[1:],
+        json.dumps({**THINKING_OFF_LIMITS, "model": "openai:other"}),
+        (
+            '{"model":"openai:workhorse","context_tokens":131072,'
+            '"output_tokens":8192,"enable_thinking":false,"enable_thinking":false}'
+        ),
+        *[
+            json.dumps({**LIMITS, "enable_thinking": value})
+            for value in (True, None, 0, 1, "false", [], {})
+        ],
         *[
             json.dumps({**LIMITS, key: value})
             for key in ("context_tokens", "output_tokens")
@@ -130,6 +140,96 @@ def test_malformed_other_roles_follow_accepted_path(monkeypatch, role):
     resolve.assert_called_once_with("openai:workhorse", role=role)
 
 
+@pytest.mark.parametrize("raw", [json.dumps(THINKING_OFF_LIMITS), "not-json"])
+@pytest.mark.parametrize("route", ["coach", "specialist", "synthesis"])
+def test_actual_nonplayer_requests_ignore_carrier(monkeypatch, tmp_path, raw, route):
+    from .test_dcode_harness import response
+
+    monkeypatch.setenv(ENV, raw)
+    monkeypatch.delenv("GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING", raising=False)
+    repo = _scaffold(tmp_path)
+    requests, clients = [], []
+
+    def exchange(request):
+        body = json.loads(request.content)
+        requests.append(body)
+        return response(body, text=f"{route} complete")
+
+    transport = httpx.MockTransport(exchange)
+
+    def sync_builder(*args, **kwargs):
+        client = httpx.Client(transport=transport)
+        clients.append(client)
+        return client
+
+    def async_builder(*args, **kwargs):
+        client = httpx.AsyncClient(transport=transport)
+        clients.append(client)
+        return client
+
+    harness = LangGraphHarness(
+        "openai:coach" if route == "synthesis" else "openai:gemma4:31b",
+        backend=_backend(repo),
+    )
+
+    async def collect():
+        if route == "synthesis":
+            return [
+                event
+                async for event in harness.invoke_synthesis(
+                    "Return the verdict.",
+                    "coach",
+                    grammar='root ::= "ok"',
+                    cwd=repo,
+                    timeout_seconds=20,
+                )
+            ]
+        return [
+            event
+            async for event in harness.invoke(
+                "Complete the task.",
+                route,
+                [],
+                repo,
+                timeout_seconds=20,
+            )
+        ]
+
+    with (
+        patch(
+            "langchain_openai.chat_models._client_utils._build_sync_httpx_client",
+            side_effect=sync_builder,
+        ),
+        patch(
+            "langchain_openai.chat_models._client_utils._build_async_httpx_client",
+            side_effect=async_builder,
+        ),
+    ):
+        events = asyncio.run(collect())
+
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    assert len(requests) == 1
+    body = requests[0]
+    assert "chat_template_kwargs" not in body
+    assert not {"reasoning", "reasoning_effort", "reasoning_budget"}.intersection(body)
+    if route == "synthesis":
+        assert body["model"] == "coach"
+        assert body["temperature"] == 0
+        assert body["max_completion_tokens"] == 16384
+        assert body["grammar"] == 'root ::= "ok"'
+        assert "tools" not in body
+    elif route == "coach":
+        assert body["model"] == "gemma4:31b"
+        assert body["max_completion_tokens"] == 16384
+        assert "tools" in body
+    else:
+        assert body["model"] == "gemma4:31b"
+        assert "max_completion_tokens" not in body
+        assert "tools" in body
+    assert len(clients) == 2 and all(client.is_closed for client in clients)
+
+
+
 def test_absent_carrier_retains_baseline():
     with patch(
         "guardkitfactory.harness.langgraph_harness.resolve_autobuild_model", return_value="baseline"
@@ -165,6 +265,69 @@ def test_resolved_conflicts_refuse(monkeypatch, changes):
             LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
 
 
+@pytest.mark.parametrize(
+    ("attribute", "value"),
+    [
+        ("model_kwargs", {"reasoning": {"effort": "none"}}),
+        ("model_kwargs", {"reasoning_effort": "none"}),
+        ("model_kwargs", {"reasoning_budget": 0}),
+        ("model_kwargs", {"chat_template": "custom"}),
+        ("model_kwargs", {"enable_thinking": False}),
+        ("model_kwargs", {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}),
+        ("model_kwargs", {"chat_template_kwargs": {"enable_thinking": False}}),
+        ("extra_body", {"enable_thinking": False}),
+        ("extra_body", []),
+        ("extra_body", ""),
+        ("extra_body", {"enable_reasoning": False}),
+        ("extra_body", {"reasoning": {"effort": "none"}}),
+        ("extra_body", {"reasoning_effort": "none"}),
+        ("extra_body", {"reasoning_budget": 0}),
+        ("extra_body", {"template": "custom"}),
+        ("extra_body", {"chat_template_kwargs": []}),
+        ("extra_body", {"chat_template_kwargs": {"enable_thinking": True}}),
+        ("extra_body", {"chat_template_kwargs": {"enable_thinking": 0}}),
+        ("extra_body", {"chat_template_kwargs": {"thinking": False}}),
+        ("extra_body", {"chat_template_kwargs": {"enable_reasoning": False}}),
+    ],
+)
+def test_thinking_control_conflicts_refuse(monkeypatch, attribute, value):
+    monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
+    model = ChatOpenAI(
+        model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
+    )
+    setattr(model, attribute, value)
+    with patch.object(model_config, "_resolve_model_for_transport", return_value=model):
+        with pytest.raises(LangGraphHarnessError):
+            LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+
+
+def test_thinking_setting_preserves_unrelated_extra_body_with_copy_isolation(monkeypatch):
+    monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
+    model = ChatOpenAI(
+        model="workhorse",
+        base_url="http://localhost:4000/v1",
+        use_responses_api=False,
+        extra_body={
+            "metadata": {"fixture": "preserved"},
+            "chat_template_kwargs": {"add_generation_prompt": True},
+        },
+    )
+    original_extra_body = model.extra_body
+    original_template_kwargs = original_extra_body["chat_template_kwargs"]
+    with patch.object(model_config, "_resolve_model_for_transport", return_value=model):
+        result = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert result.extra_body == {
+        "metadata": {"fixture": "preserved"},
+        "chat_template_kwargs": {
+            "add_generation_prompt": True,
+            "enable_thinking": False,
+        },
+    }
+    assert result.extra_body is not original_extra_body
+    assert result.extra_body["chat_template_kwargs"] is not original_template_kwargs
+    assert original_template_kwargs == {"add_generation_prompt": True}
+
+
 def test_profile_preserved_and_assignment_failure_refuses(monkeypatch):
     monkeypatch.setenv(ENV, json.dumps(LIMITS))
     model = ChatOpenAI(
@@ -189,8 +352,38 @@ def test_profile_preserved_and_assignment_failure_refuses(monkeypatch):
                 LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
 
 
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [("raise", "assignment failed"), ("ignore", "not retained")],
+)
+def test_thinking_assignment_failure_is_refused(monkeypatch, mode, message):
+    monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
+    model = ChatOpenAI(
+        model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
+    )
+    original = ChatOpenAI.__setattr__
+
+    def intercept(self, name, value):
+        if name == "extra_body":
+            if mode == "raise":
+                raise ValueError("immutable")
+            return
+        original(self, name, value)
+
+    with (
+        patch.object(model_config, "_resolve_model_for_transport", return_value=model),
+        patch.object(ChatOpenAI, "__setattr__", intercept),
+    ):
+        with pytest.raises(LangGraphHarnessError, match=message):
+            LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+
+
+
+@pytest.mark.parametrize("thinking_off", [False, True], ids=["legacy", "thinking-off"])
 @pytest.mark.parametrize("arm", ["A", "B", "C"])
-def test_actual_graph_main_subagent_compaction_parity(monkeypatch, tmp_path: Path, arm: str):
+def test_actual_graph_main_subagent_compaction_parity(
+    monkeypatch, tmp_path: Path, arm: str, thinking_off: bool
+):
     if arm == "C" and (
         sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None
     ):
@@ -200,7 +393,7 @@ def test_actual_graph_main_subagent_compaction_parity(monkeypatch, tmp_path: Pat
 
     from .test_dcode_harness import response as wire_response
 
-    monkeypatch.setenv(ENV, json.dumps(LIMITS))
+    monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS if thinking_off else LIMITS))
     repo = _scaffold(tmp_path)
     (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
     config = (
@@ -325,7 +518,13 @@ def test_actual_graph_main_subagent_compaction_parity(monkeypatch, tmp_path: Pat
     assert any("SUMMARY_SENTINEL" in str(body["messages"]) for body in requests)
     for body in requests:
         assert body["model"] == "workhorse" and body["max_completion_tokens"] == 8192
-        assert not {"temperature", "top_p", "reasoning_effort", "extra_body"}.intersection(body)
+        assert not {
+            "temperature", "top_p", "reasoning", "reasoning_effort", "extra_body"
+        }.intersection(body)
+        if thinking_off:
+            assert body["chat_template_kwargs"] == {"enable_thinking": False}
+        else:
+            assert "chat_template_kwargs" not in body
     assert models[0].profile["max_input_tokens"] == 131072
     assert models[0].root_async_client.max_retries == 2
     if arm == "C":
@@ -336,7 +535,8 @@ def test_actual_graph_main_subagent_compaction_parity(monkeypatch, tmp_path: Pat
     if evidence:
         directory = Path(evidence)
         directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"limits-parity-{arm}.json").write_text(
+        suffix = "thinking-off" if thinking_off else "legacy"
+        (directory / f"limits-parity-{arm}-{suffix}.json").write_text(
             json.dumps(
                 {
                     "requests": requests,
@@ -358,7 +558,7 @@ def test_enabled_carrier_failure_and_cancellation_cleanup(monkeypatch, tmp_path,
         pytest.skip("dcode requires optional Python 3.12+ environment")
     from .test_dcode_harness import response
 
-    monkeypatch.setenv(ENV, json.dumps(LIMITS))
+    monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
     repo = _scaffold(tmp_path)
     selected = parse_player_experiment(
         json.dumps(
@@ -381,6 +581,7 @@ def test_enabled_carrier_failure_and_cancellation_cleanup(monkeypatch, tmp_path,
             body = json.loads(request.content)
             requests.append(body)
             assert body["model"] == "workhorse" and body["max_completion_tokens"] == 8192
+            assert body["chat_template_kwargs"] == {"enable_thinking": False}
             if outcome == "provider_error":
                 return httpx.Response(
                     400,

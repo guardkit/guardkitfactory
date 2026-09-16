@@ -146,6 +146,84 @@ def test_build_autobuild_backend_env_contains_minimum_keys(tmp_path: Path) -> No
     assert backend.default._env["HOME"] == str(tmp_path)
     assert backend.default._env["TMPDIR"] == str(tmp_path / ".tmp")
 
+def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
+    tmp_path: Path,
+) -> None:
+    temp_directory = tmp_path / ".tmp"
+    assert not temp_directory.exists()
+
+    backend = build_autobuild_backend(tmp_path)
+
+    assert temp_directory.is_dir()
+    assert temp_directory.stat().st_mode & 0o077 == 0
+    result = backend.execute("mktemp -d")
+    assert result.exit_code == 0
+    created = Path(result.output.strip())
+    assert created.is_dir()
+    assert created.parent == temp_directory
+
+
+def test_build_autobuild_backend_preserves_existing_tmpdir(
+    tmp_path: Path,
+) -> None:
+    temp_directory = tmp_path / ".tmp"
+    temp_directory.mkdir(mode=0o751)
+    temp_directory.chmod(0o751)
+    marker = temp_directory / "keep.txt"
+    marker.write_text("keep\n")
+    original_mode = temp_directory.stat().st_mode
+
+    backend = build_autobuild_backend(tmp_path)
+
+    assert backend.default._env["TMPDIR"] == str(temp_directory)
+    assert marker.read_text() == "keep\n"
+    assert temp_directory.stat().st_mode == original_mode
+
+
+def test_build_autobuild_backend_refuses_tmpdir_file(tmp_path: Path) -> None:
+    (tmp_path / ".tmp").write_text("not a directory\n")
+
+    with pytest.raises(ValueError, match="TMPDIR must be a directory"):
+        build_autobuild_backend(tmp_path)
+
+
+@pytest.mark.parametrize("broken", [False, True], ids=["existing-target", "broken"])
+def test_build_autobuild_backend_refuses_tmpdir_symlink(
+    tmp_path: Path, broken: bool
+) -> None:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    target = tmp_path / "redirected"
+    if not broken:
+        target.mkdir()
+    (worktree / ".tmp").symlink_to(target, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="TMPDIR must not be a symlink"):
+        build_autobuild_backend(worktree)
+
+
+def test_build_autobuild_backend_refuses_tmpdir_creation_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    temp_directory = tmp_path / ".tmp"
+    original_mkdir = Path.mkdir
+
+    def fail_tmpdir(path: Path, *args, **kwargs):
+        if path == temp_directory:
+            raise PermissionError("synthetic refusal")
+        return original_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", fail_tmpdir)
+    with pytest.raises(ValueError, match="TMPDIR could not be created"):
+        build_autobuild_backend(tmp_path)
+
+
+def test_build_autobuild_backend_refuses_missing_worktree(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="TMPDIR could not be created"):
+        build_autobuild_backend(tmp_path / "missing-worktree")
+
+
+
 
 def test_build_autobuild_backend_env_does_not_inherit_operator_shell(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

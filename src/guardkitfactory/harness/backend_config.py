@@ -146,6 +146,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import stat
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -719,6 +720,36 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
     return None
 
 
+def _ensure_worktree_temp_directory(worktree: Path) -> Path:
+    """Create the private TMPDIR promised to backend shell commands.
+
+    Existing real directories are reused byte-for-byte. A symlink is never
+    accepted, including a broken one, because that would redirect temporary
+    files outside the worktree despite the environment claiming otherwise.
+    """
+    temp_directory = worktree / ".tmp"
+    try:
+        status = temp_directory.lstat()
+    except FileNotFoundError:
+        try:
+            temp_directory.mkdir(mode=0o700)
+            status = temp_directory.lstat()
+        except OSError as exc:
+            raise ValueError(
+                f"AutoBuild TMPDIR could not be created at {temp_directory}"
+            ) from exc
+    except OSError as exc:
+        raise ValueError(
+            f"AutoBuild TMPDIR could not be inspected at {temp_directory}"
+        ) from exc
+
+    if stat.S_ISLNK(status.st_mode):
+        raise ValueError(f"AutoBuild TMPDIR must not be a symlink: {temp_directory}")
+    if not stat.S_ISDIR(status.st_mode):
+        raise ValueError(f"AutoBuild TMPDIR must be a directory: {temp_directory}")
+    return temp_directory
+
+
 def build_autobuild_backend(
     worktree: Path,
     *,
@@ -761,9 +792,9 @@ def build_autobuild_backend(
 
     Args:
         worktree: Filesystem path to the worktree the agent should operate
-            inside. Does not have to exist yet — the backend resolves it on
-            each call — but if it does not exist, ``.tmp`` and ``.venv``
-            detection will silently no-op.
+            inside. It must exist before construction. The backend creates a
+            private ``.tmp`` directory, or refuses a symlink, non-directory
+            or creation failure before exposing shell execution.
         max_tool_result_chars: TASK-PERF-COACHSYNTH. When set, each
             ``read``/``grep``/``execute`` result is capped at this many chars
             (with a visible truncation marker) via :class:`TruncatingBackend`,
@@ -785,11 +816,12 @@ def build_autobuild_backend(
         :class:`guardkitfactory.harness.LangGraphHarness`.
     """
     worktree = Path(worktree)
+    temp_directory = _ensure_worktree_temp_directory(worktree)
 
     env: dict[str, str] = {
         "PATH": _AUTOBUILD_PATH,
         "HOME": str(worktree),
-        "TMPDIR": str(worktree / ".tmp"),
+        "TMPDIR": str(temp_directory),
     }
     venv_site_packages = _detect_venv_site_packages(worktree)
     if venv_site_packages is not None:

@@ -489,10 +489,17 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
         limits = json.loads(raw, object_pairs_hook=unique_object)
     except (ValueError, TypeError) as exc:
         raise ValueError("GUARDKIT_PLAYER_MODEL_LIMITS: invalid JSON object") from exc
-    if not isinstance(limits, dict) or set(limits) != {
-        "model", "context_tokens", "output_tokens"
-    }:
-        reject("expected exactly model, context_tokens and output_tokens")
+    required_keys = {"model", "context_tokens", "output_tokens"}
+    allowed_keys = required_keys | {"enable_thinking"}
+    if (
+        not isinstance(limits, dict)
+        or not required_keys.issubset(limits)
+        or not set(limits).issubset(allowed_keys)
+    ):
+        reject(
+            "expected model, context_tokens and output_tokens, with only the "
+            "optional enable_thinking field"
+        )
     if (
         not isinstance(model, str)
         or re.fullmatch(r"openai:[A-Za-z0-9][A-Za-z0-9._/-]*", model) is None
@@ -502,6 +509,12 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
     for key, expected in (("context_tokens", 131072), ("output_tokens", 8192)):
         if type(limits[key]) is not int or limits[key] != expected:
             reject(f"{key} must be the integer {expected}")
+    disable_thinking = "enable_thinking" in limits
+    if disable_thinking:
+        if model != "openai:workhorse":
+            reject("enable_thinking is supported only for openai:workhorse")
+        if type(limits["enable_thinking"]) is not bool or limits["enable_thinking"] is not False:
+            reject("enable_thinking must be the JSON boolean false")
 
     from guardkit.orchestrator.m0_fence import is_local_seat_host
     from langchain_openai.chat_models.base import ChatOpenAI
@@ -552,16 +565,58 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
             key in settings for key in ("max_tokens", "max_completion_tokens", "max_output_tokens")
         ):
             reject("conflicting request-level output limit")
+    expected_extra_body = resolved.extra_body
+    if disable_thinking:
+        model_kwargs = resolved.model_kwargs
+        raw_extra_body = resolved.extra_body
+        extra_body = {} if raw_extra_body is None else raw_extra_body
+        if not isinstance(model_kwargs, dict) or not isinstance(extra_body, dict):
+            reject("request settings must be mappings")
+
+        reasoning_keys = {"reasoning", "reasoning_effort", "reasoning_budget"}
+        template_keys = {"chat_template", "template", "template_kwargs"}
+        thinking_keys = {"thinking", "enable_reasoning", "enable_thinking"}
+        competing_keys = reasoning_keys | template_keys | thinking_keys
+        if competing_keys.intersection(model_kwargs) or "extra_body" in model_kwargs:
+            reject("conflicting thinking control in model_kwargs")
+        if "chat_template_kwargs" in model_kwargs:
+            reject("chat_template_kwargs must be supplied only through extra_body")
+        if competing_keys.intersection(extra_body):
+            reject("conflicting thinking control in extra_body")
+
+        template_kwargs = extra_body.get("chat_template_kwargs", {})
+        if not isinstance(template_kwargs, dict):
+            reject("extra_body chat_template_kwargs must be a mapping")
+        nested_conflicts = reasoning_keys | {"thinking", "enable_reasoning"}
+        if nested_conflicts.intersection(template_kwargs):
+            reject("conflicting thinking control in chat_template_kwargs")
+        if (
+            "enable_thinking" in template_kwargs
+            and (
+                type(template_kwargs["enable_thinking"]) is not bool
+                or template_kwargs["enable_thinking"] is not False
+            )
+        ):
+            reject("conflicting enable_thinking in chat_template_kwargs")
+
+        copied_template_kwargs = dict(template_kwargs)
+        copied_template_kwargs["enable_thinking"] = False
+        copied_extra_body = dict(extra_body)
+        copied_extra_body["chat_template_kwargs"] = copied_template_kwargs
+        expected_extra_body = copied_extra_body
     profile["max_input_tokens"] = 131072
     try:
         resolved.profile = profile
         resolved.max_tokens = 8192
+        if disable_thinking:
+            resolved.extra_body = expected_extra_body
     except Exception as exc:
         raise ValueError("GUARDKIT_PLAYER_MODEL_LIMITS: limits assignment failed") from exc
     if (
         resolved.profile != profile
         or type(resolved.max_tokens) is not int
         or resolved.max_tokens != 8192
+        or (disable_thinking and resolved.extra_body != expected_extra_body)
     ):
         reject("limits assignment was not retained")
     return resolved
