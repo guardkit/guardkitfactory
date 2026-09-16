@@ -460,20 +460,26 @@ class LangGraphHarness(HarnessAdapter):
         self._ainvoke_task: asyncio.Task[Any] | None = None
 
     def _experiment_backend_root(self) -> Path:
-        """Return the canonical backend root used by an enabled experiment."""
+        """Return the proved execution root used by an enabled experiment."""
 
         default = getattr(self.backend, "default", None)
+        backend_cwd = getattr(self.backend, "cwd", None)
+        default_cwd = getattr(default, "cwd", None)
+        execution_label = "default backend cwd" if default is not None else "backend cwd"
+        execution_root = default_cwd if default is not None else backend_cwd
+        if execution_root is None:
+            raise LangGraphHarnessError(
+                "LangGraphHarness: an enabled Player experiment requires an explicit "
+                f"execution cwd ({execution_label}); artifacts_root alone does not "
+                "prove where commands run"
+            )
+
         raw_roots = [
             ("artifacts_root", getattr(self.backend, "artifacts_root", None)),
-            ("backend cwd", getattr(self.backend, "cwd", None)),
-            ("default backend cwd", getattr(default, "cwd", None)),
+            ("backend cwd", backend_cwd),
+            ("default backend cwd", default_cwd),
         ]
         selected = [(label, root) for label, root in raw_roots if root is not None]
-        if not selected:
-            raise LangGraphHarnessError(
-                "LangGraphHarness: an enabled Player experiment requires a backend "
-                "with an explicit worktree root"
-            )
 
         resolved_roots: list[tuple[str, Path]] = []
         for label, root in selected:
@@ -498,7 +504,7 @@ class LangGraphHarness(HarnessAdapter):
                 "LangGraphHarness: Player experiment has conflicting backend roots: "
                 f"{detail}"
             )
-        return resolved_roots[-1][1]
+        return next(root for label, root in resolved_roots if label == execution_label)
 
     def _create_agent(self, *, role: str, cwd: Path, resolved_model: Any) -> Any:
         """Construct the shared Deep Agents graph for one invocation."""

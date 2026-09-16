@@ -9,11 +9,14 @@ import socket
 import sys
 from collections.abc import Iterator
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import httpx
 import pytest
+from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.protocol import SandboxBackendProtocol
 from guardkit.orchestrator.harness import (
     AssistantMessageEvent,
     ResultMessageEvent,
@@ -488,6 +491,83 @@ def test_invocation_revalidates_source_and_backend_worktree(tmp_path: Path) -> N
     )
     with pytest.raises(LangGraphHarnessError, match="conflicting backend roots"):
         asyncio.run(_collect(split_backend, repo))
+
+
+def test_enabled_experiment_rejects_artifacts_root_without_execution_cwd(
+    tmp_path: Path,
+) -> None:
+    repo = _scaffold(tmp_path)
+    harness = LangGraphHarness(
+        object(),
+        backend=SimpleNamespace(artifacts_root=str(repo)),
+        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
+    )
+
+    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
+        with pytest.raises(LangGraphHarnessError, match="explicit execution cwd"):
+            harness._create_agent(role="player", cwd=repo, resolved_model=object())
+        create.assert_not_called()
+
+
+def test_enabled_experiment_rejects_opaque_default_execution_root(
+    tmp_path: Path,
+) -> None:
+    repo = _scaffold(tmp_path)
+    other = tmp_path / "other"
+    other.mkdir()
+    real_backend = _backend(other)
+
+    class OpaqueShell(SandboxBackendProtocol):
+        @property
+        def id(self) -> str:
+            return real_backend.default.id
+
+        def execute(self, command: str, *, timeout: int | None = None) -> Any:
+            return real_backend.execute(command, timeout=timeout)
+
+        async def aexecute(
+            self, command: str, *, timeout: int | None = None
+        ) -> Any:
+            return await real_backend.aexecute(command, timeout=timeout)
+
+    response = OpaqueShell().execute("pwd")
+    assert response.output.splitlines()[0] == str(other)
+    backend = CompositeBackend(
+        default=OpaqueShell(),
+        routes={},
+        artifacts_root=str(repo),
+    )
+    harness = LangGraphHarness(
+        object(),
+        backend=backend,
+        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
+    )
+
+    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
+        with pytest.raises(LangGraphHarnessError, match="explicit execution cwd"):
+            harness._create_agent(role="player", cwd=repo, resolved_model=object())
+        create.assert_not_called()
+
+
+def test_enabled_experiment_accepts_real_factory_backend_root(tmp_path: Path) -> None:
+    repo = _scaffold(tmp_path)
+    backend = _backend(repo)
+    harness = LangGraphHarness(
+        object(),
+        backend=backend,
+        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
+    )
+    sentinel = object()
+
+    with patch(
+        "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+        return_value=sentinel,
+    ) as create:
+        assert (
+            harness._create_agent(role="player", cwd=repo, resolved_model=object())
+            is sentinel
+        )
+        assert create.call_args.kwargs["backend"] is backend
 
 
 def test_dcode_request_is_lazy_and_never_falls_back(tmp_path: Path) -> None:
