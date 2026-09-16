@@ -523,11 +523,6 @@ class LangGraphHarness(HarnessAdapter):
                 raise LangGraphHarnessError(
                     "LangGraphHarness: player_experiment may only be used for role='player'"
                 )
-            if experiment.engine == "dcode":
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: Player engine 'dcode' is not implemented in Stage 1; "
-                    "no fallback engine was started"
-                )
             try:
                 revalidate_player_experiment(experiment, cwd=cwd)
             except PlayerExperimentConfigError as exc:
@@ -540,6 +535,16 @@ class LangGraphHarness(HarnessAdapter):
                 raise LangGraphHarnessError(
                     "LangGraphHarness: Player experiment backend/worktree mismatch: "
                     f"backend={backend_root} invocation={invocation_root}"
+                )
+            if experiment.engine == "dcode":
+                from guardkitfactory.harness.dcode_harness import create_dcode_player
+
+                return create_dcode_player(
+                    model=resolved_model,
+                    backend=self.backend,
+                    cwd=invocation_root,
+                    experiment=experiment,
+                    recursion_limit=self.recursion_limit,
                 )
             kwargs["skills"] = [str(path) for path in experiment.skills]
             kwargs["memory"] = [str(path) for path in experiment.memory]

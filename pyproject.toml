@@ -43,6 +43,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+dcode = ["deepagents-code==0.1.69; python_version >= '3.12' and python_version < '4.0'"]
 dev = [
     "pytest>=8",
     "pytest-bdd>=7",

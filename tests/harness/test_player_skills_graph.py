@@ -570,7 +570,10 @@ def test_enabled_experiment_accepts_real_factory_backend_root(tmp_path: Path) ->
         assert create.call_args.kwargs["backend"] is backend
 
 
-def test_dcode_request_is_lazy_and_never_falls_back(tmp_path: Path) -> None:
+@pytest.mark.parametrize("unavailable", ["interpreter", "installation"])
+def test_dcode_request_is_lazy_and_never_falls_back(
+    tmp_path: Path, unavailable: str,
+) -> None:
     repo = _scaffold(tmp_path)
     profile = tmp_path / "profile"
     profile.mkdir()
@@ -578,11 +581,7 @@ def test_dcode_request_is_lazy_and_never_falls_back(tmp_path: Path) -> None:
         json.dumps({"engine": "dcode", "dcode_home": str(profile)}),
         cwd=repo,
     )
-    harness = LangGraphHarness(
-        object(),
-        backend=_backend(repo),
-        player_experiment=config,
-    )
+    harness = LangGraphHarness(object(), backend=_backend(repo), player_experiment=config)
     real_import = __import__
 
     def import_trap(name: str, *args: Any, **kwargs: Any) -> Any:
@@ -591,7 +590,23 @@ def test_dcode_request_is_lazy_and_never_falls_back(tmp_path: Path) -> None:
         return real_import(name, *args, **kwargs)
 
     with patch("builtins.__import__", side_effect=import_trap):
-        with pytest.raises(LangGraphHarnessError, match="not implemented.*no fallback"):
+        # Ordinary construction retains the eager-import trap with no optional
+        # module imported, even when the dependency exists in this interpreter.
+        with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as native:
+            ordinary = LangGraphHarness(object(), backend=_backend(repo))
+            ordinary._create_agent(role="player", cwd=repo, resolved_model=object())
+            native.assert_called_once()
+        from guardkitfactory.harness import dcode_harness
+
+        with (
+            patch.object(
+                dcode_harness.sys,
+                "version_info",
+                (3, 11) if unavailable == "interpreter" else (3, 12),
+            ),
+            patch.object(dcode_harness.importlib.util, "find_spec", return_value=None),
+            pytest.raises(LangGraphHarnessError, match="install guardkitfactory.*no fallback"),
+        ):
             asyncio.run(_collect(harness, repo))
 
 
