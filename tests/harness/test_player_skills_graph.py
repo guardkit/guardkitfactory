@@ -1,4 +1,4 @@
-"""Real native Deep Agents graph checks for the Player experiment seam."""
+"""Shared Player test helpers and required dcode dispatch checks."""
 
 from __future__ import annotations
 
@@ -9,20 +9,11 @@ import socket
 import sys
 from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
 import httpx
 import pytest
-from deepagents.backends.composite import CompositeBackend
-from deepagents.backends.protocol import SandboxBackendProtocol
-from guardkit.orchestrator.harness import (
-    AssistantMessageEvent,
-    ResultMessageEvent,
-    ToolResultEvent,
-)
-from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
 from guardkitfactory.harness.backend_config import build_autobuild_backend
@@ -30,11 +21,10 @@ from guardkitfactory.harness.langgraph_harness import (
     LangGraphHarness,
     LangGraphHarnessError,
 )
-from guardkitfactory.harness.player_experiment import parse_player_experiment
+from guardkitfactory.harness.player_config import build_player_config
 
 _BUNDLE = Path(__file__).resolve().parents[2] / "examples" / "coding-skills-bundle"
 _PYTHON = Path(sys.executable)
-_CORRECTION = "NATIVE_GRAPH_CORRECTION_STAGE1_20260916"
 
 
 @pytest.fixture(autouse=True)
@@ -224,452 +214,73 @@ def _close_clients(sync_client: httpx.Client, async_client: httpx.AsyncClient) -
     sync_client.close()
 
 
-def test_real_native_graph_uses_skills_memory_helpers_and_product_repair(
-    tmp_path: Path,
-) -> None:
-    repo = _scaffold(tmp_path)
-    correction = f"# Coding instructions\n\n- {_CORRECTION}"
-    calls = [
-        (
-            "read_file",
-            {"file_path": str(repo / "skills/planning/SKILL.md"), "limit": 1000},
-        ),
-        (
-            "read_file",
-            {"file_path": str(repo / "skills/code-review/SKILL.md"), "limit": 1000},
-        ),
-        (
-            "execute",
-            {
-                "command": (
-                    "python skills/code-review/lint_check.py --root . "
-                    "invalid.py valid.py"
-                )
-            },
-        ),
-        (
-            "execute",
-            {
-                "command": (
-                    "python skills/code-review/lint_check.py --root . valid.py"
-                )
-            },
-        ),
-        ("read_file", {"file_path": str(repo / "AGENTS.md"), "limit": 1000}),
-        (
-            "edit_file",
-            {
-                "file_path": str(repo / "AGENTS.md"),
-                "old_string": "# Coding instructions",
-                "new_string": correction,
-            },
-        ),
-        (
-            "write_file",
-            {
-                "file_path": str(repo / "calculator.py"),
-                "content": "def multiply(left: int, right: int) -> int:\n    return left + right\n",
-            },
-        ),
-        (
-            "write_file",
-            {
-                "file_path": str(repo / "product_tests/test_calculator.py"),
-                "content": (
-                    "from calculator import multiply\n\n"
-                    "def test_multiply():\n"
-                    "    assert multiply(3, 4) == 12\n"
-                ),
-            },
-        ),
-        (
-            "execute",
-            {"command": ".venv/bin/python -m pytest -q product_tests/test_calculator.py"},
-        ),
-        (
-            "edit_file",
-            {
-                "file_path": str(repo / "calculator.py"),
-                "old_string": "return left + right",
-                "new_string": "return left * right",
-            },
-        ),
-        (
-            "execute",
-            {"command": ".venv/bin/python -m pytest -q product_tests/test_calculator.py"},
-        ),
-    ]
-    exchange = FakeExchange(calls)
-    model, sync_client, async_client = _model(exchange)
-    pings: list[int] = []
-    config = parse_player_experiment(
-        '{"engine":"native","skills":["skills"],"memory":["AGENTS.md"]}',
+def _player_config(repo: Path, profile: Path | None = None) -> Any:
+    selected_profile = profile or (repo.parent / "dcode-profile")
+    selected_profile.mkdir(exist_ok=True)
+    return build_player_config(
         cwd=repo,
-    )
-    harness = LangGraphHarness(
-        model,
-        backend=_backend(repo),
-        on_model_activity=lambda: pings.append(1),
-        player_experiment=config,
+        dcode_home=selected_profile,
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
     )
 
-    try:
-        events = asyncio.run(
-            _collect(
-                harness,
-                repo,
-                "Read both selected skills, run their helper on bad and good files, "
-                "save the correction, then write, test, and repair multiply.",
-            )
-        )
-    finally:
-        _close_clients(sync_client, async_client)
 
-    first_system = str(exchange.requests[0]["system"])
-    assert "planning" in first_system and "code-review" in first_system
-    assert "# Coding instructions" in first_system
-    assert _CORRECTION not in first_system
-    assert _CORRECTION in (repo / "AGENTS.md").read_text()
-    assert (repo / "calculator.py").read_text().endswith("return left * right\n")
-    assert pings
-
-    tool_results = [
-        str(event.content) for event in events if isinstance(event, ToolResultEvent)
-    ]
-    assert any("ERROR invalid.py:1" in result for result in tool_results), tool_results
-    assert any("CHECKED valid.py" in result for result in tool_results)
-    assert any("1 failed" in result for result in tool_results)
-    assert any("1 passed" in result for result in tool_results)
-
-    assistant = next(event for event in events if isinstance(event, AssistantMessageEvent))
-    terminal = next(event for event in events if isinstance(event, ResultMessageEvent))
-    assert assistant.text == "native Player completed"
-    assert terminal.stop_reason == "stop"
-    assert terminal.usage == dict(terminal.raw.usage_metadata)
-    assert terminal.usage["input_tokens"] == 100
-    assert terminal.usage["output_tokens"] == 10
-    assert terminal.usage["total_tokens"] == 110
-    assert isinstance(terminal.raw, AIMessage)
-    assert terminal.raw is assistant.raw["messages"][-1]
-
-    reconstructed_exchange = FakeExchange([])
-    reconstructed_model, reconstructed_sync, reconstructed_async = _model(
-        reconstructed_exchange
-    )
-    reconstructed = LangGraphHarness(
-        reconstructed_model,
-        backend=_backend(repo),
-        player_experiment=parse_player_experiment(
-            '{"engine":"native","skills":["skills"],"memory":["AGENTS.md"]}',
-            cwd=repo,
-        ),
-    )
-    try:
-        asyncio.run(_collect(reconstructed, repo, "Read the current instructions."))
-    finally:
-        _close_clients(reconstructed_sync, reconstructed_async)
-    assert _CORRECTION in str(reconstructed_exchange.requests[0]["system"])
-
-    fresh_repo = _scaffold(tmp_path, "fresh")
-    fresh_exchange = FakeExchange([])
-    fresh_model, fresh_sync, fresh_async = _model(fresh_exchange)
-    fresh = LangGraphHarness(
-        fresh_model,
-        backend=_backend(fresh_repo),
-        player_experiment=parse_player_experiment(
-            '{"engine":"native","skills":["skills"],"memory":["AGENTS.md"]}',
-            cwd=fresh_repo,
-        ),
-    )
-    try:
-        asyncio.run(_collect(fresh, fresh_repo, "Read the clean instructions."))
-    finally:
-        _close_clients(fresh_sync, fresh_async)
-    assert _CORRECTION not in str(fresh_exchange.requests[0]["system"])
-
-
-@pytest.mark.parametrize(
-    ("final_text", "finish_reason", "match"),
-    [
-        ("", "stop", "empty terminal assistant"),
-        ("partial answer", "length", "finish_reason='length'"),
-    ],
-)
-def test_real_graph_rejects_false_terminal_success(
-    tmp_path: Path,
-    final_text: str,
-    finish_reason: str,
-    match: str,
-) -> None:
+def test_player_requires_config_and_never_uses_native_graph(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
-    exchange = FakeExchange(
-        [("read_file", {"file_path": str(repo / "AGENTS.md"), "limit": 1000})],
-        final_text=final_text,
-        finish_reason=finish_reason,
-    )
-    model, sync_client, async_client = _model(exchange)
-    harness = LangGraphHarness(
-        model,
-        backend=_backend(repo),
-        player_experiment=parse_player_experiment(
-            '{"engine":"native","memory":["AGENTS.md"]}',
-            cwd=repo,
-        ),
-    )
-    seen: list[Any] = []
+    harness = LangGraphHarness(object(), backend=_backend(repo))
 
-    async def run() -> None:
-        async for event in harness.invoke(
-            "Read the instructions.", "player", [], repo, timeout_seconds=30
+    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as native:
+        with pytest.raises(
+            LangGraphHarnessError, match="native Player implementation has been retired"
         ):
-            seen.append(event)
-
-    try:
-        with pytest.raises(LangGraphHarnessError, match=match) as caught:
-            asyncio.run(run())
-    finally:
-        _close_clients(sync_client, async_client)
-    assert not any(isinstance(event, ResultMessageEvent) for event in seen)
-    assert seen == []
-    assert isinstance(caught.value.raw_result, dict)
-    terminal = caught.value.raw_result["messages"][-1]
-    assert isinstance(terminal, AIMessage)
-    assert terminal.content == final_text
-
-
-def test_enabled_graph_does_not_fall_back_to_non_ai_message(tmp_path: Path) -> None:
-    repo = _scaffold(tmp_path)
-    harness = LangGraphHarness(
-        object(),
-        backend=_backend(repo),
-        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
-    )
-    raw_result = {
-        "messages": [
-            {"role": "user", "content": "earlier user text"},
-            {"role": "assistant", "content": "dict fallback text"},
-        ]
-    }
-    with pytest.raises(LangGraphHarnessError, match="no terminal AIMessage") as caught:
-        harness._experiment_terminal_message(raw_result)
-    assert caught.value.raw_result is raw_result
-
-
-def test_invocation_revalidates_source_and_backend_worktree(tmp_path: Path) -> None:
-    repo = _scaffold(tmp_path)
-    other = tmp_path / "other"
-    other.mkdir()
-    config = parse_player_experiment(
-        '{"engine":"native","memory":["AGENTS.md"]}',
-        cwd=repo,
-    )
-    (repo / "AGENTS.md").unlink()
-    missing = LangGraphHarness(
-        object(),
-        backend=_backend(repo),
-        player_experiment=config,
-    )
-    with pytest.raises(LangGraphHarnessError, match="does not exist"):
-        asyncio.run(_collect(missing, repo))
-
-    repo = _scaffold(tmp_path, "restored")
-    config = parse_player_experiment('{"engine":"native"}', cwd=repo)
-    wrong_backend = LangGraphHarness(
-        object(),
-        backend=_backend(other),
-        player_experiment=config,
-    )
-    with pytest.raises(LangGraphHarnessError, match="backend/worktree mismatch"):
-        asyncio.run(_collect(wrong_backend, repo))
-
-    conflicting = _backend(other)
-    conflicting.artifacts_root = str(repo)
-    split_backend = LangGraphHarness(
-        object(),
-        backend=conflicting,
-        player_experiment=config,
-    )
-    with pytest.raises(LangGraphHarnessError, match="conflicting backend roots"):
-        asyncio.run(_collect(split_backend, repo))
-
-
-def test_enabled_experiment_rejects_artifacts_root_without_execution_cwd(
-    tmp_path: Path,
-) -> None:
-    repo = _scaffold(tmp_path)
-    harness = LangGraphHarness(
-        object(),
-        backend=SimpleNamespace(artifacts_root=str(repo)),
-        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
-    )
-
-    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
-        with pytest.raises(LangGraphHarnessError, match="explicit execution cwd"):
             harness._create_agent(role="player", cwd=repo, resolved_model=object())
-        create.assert_not_called()
+        native.assert_not_called()
 
 
-def test_enabled_experiment_rejects_opaque_default_execution_root(
-    tmp_path: Path,
-) -> None:
+def test_coach_retains_shared_deep_agents_graph(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
-    other = tmp_path / "other"
-    other.mkdir()
-    real_backend = _backend(other)
-
-    class OpaqueShell(SandboxBackendProtocol):
-        @property
-        def id(self) -> str:
-            return real_backend.default.id
-
-        def execute(self, command: str, *, timeout: int | None = None) -> Any:
-            return real_backend.execute(command, timeout=timeout)
-
-        async def aexecute(
-            self, command: str, *, timeout: int | None = None
-        ) -> Any:
-            return await real_backend.aexecute(command, timeout=timeout)
-
-    response = OpaqueShell().execute("pwd")
-    assert response.output.splitlines()[0] == str(other)
-    backend = CompositeBackend(
-        default=OpaqueShell(),
-        routes={},
-        artifacts_root=str(repo),
-    )
-    harness = LangGraphHarness(
-        object(),
-        backend=backend,
-        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
-    )
-
-    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
-        with pytest.raises(LangGraphHarnessError, match="explicit execution cwd"):
-            harness._create_agent(role="player", cwd=repo, resolved_model=object())
-        create.assert_not_called()
-
-
-def test_enabled_experiment_accepts_real_factory_backend_root(tmp_path: Path) -> None:
-    repo = _scaffold(tmp_path, "native task worktree with spaces")
-    backend = _backend(repo)
-    harness = LangGraphHarness(
-        object(),
-        backend=backend,
-        player_experiment=parse_player_experiment('{"engine":"native"}', cwd=repo),
-    )
+    harness = LangGraphHarness(object(), backend=_backend(repo))
     sentinel = object()
 
     with patch(
         "guardkitfactory.harness.langgraph_harness.create_deep_agent",
         return_value=sentinel,
     ) as create:
-        assert (
-            harness._create_agent(role="player", cwd=repo, resolved_model=object())
-            is sentinel
-        )
-        assert create.call_args.kwargs["backend"] is backend
-        prompt = create.call_args.kwargs["system_prompt"]
-        assert f"assigned task worktree is exactly: {repo}" in prompt
-        assert f"`src/example.py` means `{repo / 'src/example.py'}`" in prompt
-        assert f"Shell commands start with `{repo}`" in prompt
+        assert harness._create_agent(role="coach", cwd=repo, resolved_model=object()) is sentinel
+    assert "Review the implementation independently" in create.call_args.kwargs["system_prompt"]
 
 
-@pytest.mark.parametrize("unavailable", ["interpreter", "installation"])
-def test_dcode_request_is_lazy_and_never_falls_back(
-    tmp_path: Path, unavailable: str,
-) -> None:
+def test_player_revalidates_sources_and_backend_worktree(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    config = parse_player_experiment(
-        json.dumps({"engine": "dcode", "dcode_home": str(profile)}),
-        cwd=repo,
+    other = tmp_path / "other"
+    other.mkdir()
+    selected = _player_config(repo)
+    (repo / "AGENTS.md").unlink()
+    missing = LangGraphHarness(object(), backend=_backend(repo), player_config=selected)
+    with pytest.raises(LangGraphHarnessError, match="does not exist"):
+        asyncio.run(_collect(missing, repo))
+
+    restored = _scaffold(tmp_path, "restored")
+    selected = _player_config(restored, tmp_path / "restored-profile")
+    wrong_backend = LangGraphHarness(
+        object(), backend=_backend(other), player_config=selected
     )
-    harness = LangGraphHarness(object(), backend=_backend(repo), player_experiment=config)
-    real_import = __import__
-
-    def import_trap(name: str, *args: Any, **kwargs: Any) -> Any:
-        if name.startswith("deepagents_code"):
-            raise AssertionError("dcode was imported eagerly")
-        return real_import(name, *args, **kwargs)
-
-    with patch("builtins.__import__", side_effect=import_trap):
-        # Ordinary construction retains the eager-import trap with no optional
-        # module imported, even when the dependency exists in this interpreter.
-        with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as native:
-            ordinary = LangGraphHarness(object(), backend=_backend(repo))
-            ordinary._create_agent(role="player", cwd=repo, resolved_model=object())
-            native.assert_called_once()
-        from guardkitfactory.harness import dcode_harness
-
-        with (
-            patch.object(
-                dcode_harness.sys,
-                "version_info",
-                (3, 11) if unavailable == "interpreter" else (3, 12),
-            ),
-            patch.object(dcode_harness.importlib.util, "find_spec", return_value=None),
-            pytest.raises(LangGraphHarnessError, match="install guardkitfactory.*no fallback"),
-        ):
-            asyncio.run(_collect(harness, repo))
+    with pytest.raises(LangGraphHarnessError, match="backend/worktree mismatch"):
+        asyncio.run(_collect(wrong_backend, restored))
 
 
-class _BlockingAsyncTransport(httpx.AsyncBaseTransport):
-    def __init__(self, started: asyncio.Event) -> None:
-        self.started = started
-
-    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-        self.started.set()
-        await asyncio.Future()
-        raise AssertionError("unreachable")
-
-
-def test_real_graph_callback_and_cancellation_propagate(tmp_path: Path) -> None:
+def test_required_dcode_dependency_failure_has_no_native_fallback(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
+    selected = _player_config(repo)
+    harness = LangGraphHarness(object(), backend=_backend(repo), player_config=selected)
 
-    async def scenario() -> tuple[bool, list[int]]:
-        started = asyncio.Event()
-        sync_client = httpx.Client(
-            transport=httpx.MockTransport(
-                lambda request: (_ for _ in ()).throw(
-                    AssertionError("async graph used sync HTTP client")
-                )
-            )
-        )
-        async_client = httpx.AsyncClient(transport=_BlockingAsyncTransport(started))
-        model = ChatOpenAI(
-            model="qwen36-workhorse",
-            base_url="http://fake.test/v1",
-            api_key="synthetic-test",
-            use_responses_api=False,
-            http_client=sync_client,
-            http_async_client=async_client,
-            max_retries=0,
-            disable_streaming=True,
-            http_socket_options=(),
-        )
-        pings: list[int] = []
-        harness = LangGraphHarness(
-            model,
-            backend=_backend(repo),
-            on_model_activity=lambda: pings.append(1),
-            player_experiment=parse_player_experiment(
-                '{"engine":"native"}',
-                cwd=repo,
-            ),
-        )
-        consumer = asyncio.create_task(_collect(harness, repo))
-        await asyncio.wait_for(started.wait(), timeout=10)
-        await harness.cancel()
-        cancelled = False
-        try:
-            await consumer
-        except asyncio.CancelledError:
-            cancelled = True
-        await async_client.aclose()
-        sync_client.close()
-        return cancelled, pings
+    from guardkitfactory.harness import dcode_harness
 
-    cancelled, pings = asyncio.run(scenario())
-    assert cancelled
-    assert pings
+    with (
+        patch.object(dcode_harness.importlib.util, "find_spec", return_value=None),
+        patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as native,
+        pytest.raises(LangGraphHarnessError, match="required dependency.*no fallback"),
+    ):
+        asyncio.run(_collect(harness, repo))
+    native.assert_not_called()

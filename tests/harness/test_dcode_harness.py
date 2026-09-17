@@ -1,4 +1,4 @@
-"""Optional dcode integration through the real graph and fake provider HTTP."""
+"""Required dcode integration through the real graph and fake provider HTTP."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from guardkit.orchestrator.harness import AssistantMessageEvent, ResultMessageEv
 from langchain_core.messages import AIMessage
 
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness, LangGraphHarnessError
-from guardkitfactory.harness.player_experiment import parse_player_experiment
+from guardkitfactory.harness.player_config import build_player_config
 
 from .test_player_skills_graph import (
     FakeExchange,
@@ -34,7 +34,7 @@ from .test_player_skills_graph import (
 
 pytestmark = pytest.mark.skipif(
     sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None,
-    reason="optional dcode graph acceptance requires the Python 3.12+ dcode extra",
+    reason="dcode graph acceptance requires Python 3.12+ and the required dependency",
 )
 
 
@@ -55,16 +55,14 @@ def isolate(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def config(repo: Path) -> Any:
-    return parse_player_experiment(
-        json.dumps(
-            {
-                "engine": "dcode",
-                "skills": ["skills"],
-                "memory": ["AGENTS.md"],
-                "dcode_home": os.environ["DEEPAGENTS_HOME"],
-            }
-        ),
+    return build_player_config(
         cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+        declared_commands=[("test", "./qa/run-suite.sh --exact")],
+        protected_paths=["product_tests"],
     )
 
 
@@ -128,7 +126,7 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     harness = LangGraphHarness(
         model,
         backend=_backend(repo),
-        player_experiment=config(repo),
+        player_config=config(repo),
         on_model_activity=lambda: activity.append(1),
     )
     from deepagents_code.agent import create_cli_agent
@@ -165,6 +163,11 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     assert supplied[0]["project_context"].project_root == repo.resolve()
     assert "planning" in exchange.requests[0]["system"]
     assert "# Coding instructions" in exchange.requests[0]["system"]
+    supplied_messages = str(exchange.bodies[0]["messages"])
+    assert "Factory-supplied project context" in supplied_messages
+    assert "./qa/run-suite.sh --exact" in supplied_messages
+    assert "product_tests" in supplied_messages
+    assert "Complete the checked change." in supplied_messages
     assert "compact_conversation" in exchange.requests[0]["offered"]
     assert all(
         b["model"] == "qwen36-workhorse"
@@ -195,7 +198,7 @@ def test_false_success_preserves_raw_and_emits_no_events(
         finish_reason=finish,
     )
     model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_experiment=config(repo))
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     received = []
 
     async def run() -> None:
@@ -266,7 +269,7 @@ def test_refusals_before_model_activity(tmp_path: Path, kind: str) -> None:
         extra = repo / ".deepagents/agents"
         extra.mkdir(parents=True)
         (extra / "other.md").write_text("custom")
-    harness = LangGraphHarness(model, backend=backend, player_experiment=selected)
+    harness = LangGraphHarness(model, backend=backend, player_config=selected)
     try:
         if kind == "changed":
             from deepagents_code.agent import create_cli_agent
@@ -386,7 +389,7 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
     harness = LangGraphHarness(
         model,
         backend=_backend(repo),
-        player_experiment=config(repo),
+        player_config=config(repo),
         on_model_activity=lambda: activity.append(1),
         recursion_limit=200,
     )
@@ -463,7 +466,7 @@ def test_real_inherited_subagent_uses_same_model(tmp_path: Path) -> None:
     harness = LangGraphHarness(
         model,
         backend=_backend(repo),
-        player_experiment=config(repo),
+        player_config=config(repo),
         on_model_activity=lambda: activity.append(1),
     )
     try:
@@ -548,7 +551,7 @@ def test_nested_cancellation_settles(tmp_path: Path, phase: str, method: str) ->
         harness = LangGraphHarness(
             model,
             backend=_backend(repo),
-            player_experiment=config(repo),
+            player_config=config(repo),
             on_model_activity=lambda: activity.append(1),
             recursion_limit=200,
         )
@@ -595,7 +598,7 @@ def test_aclose_does_not_deliver_success(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
     exchange = Exchange([("read_file", {"file_path": str(repo / "AGENTS.md")})])
     model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_experiment=config(repo))
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
 
     async def run() -> None:
         generator = harness.invoke("read", "player", [], repo, timeout_seconds=60)
@@ -625,7 +628,7 @@ def test_provider_error_has_no_dcode_retry_or_success(tmp_path: Path) -> None:
         )
 
     model, sync, async_ = _model(reject)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_experiment=config(repo))
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
         with pytest.raises(LangGraphHarnessError, match="provider test rejection"):
             asyncio.run(_collect(harness, repo))
@@ -687,7 +690,7 @@ def test_compaction_error_has_only_provider_retry_budget(
         http_socket_options=(),
     )
     harness = LangGraphHarness(
-        model, backend=_backend(repo), player_experiment=config(repo), recursion_limit=200
+        model, backend=_backend(repo), player_config=config(repo), recursion_limit=200
     )
     try:
         from deepagents_code.agent import create_cli_agent
@@ -740,7 +743,7 @@ def test_profile_and_discovery_controls(tmp_path: Path, monkeypatch: pytest.Monk
     selected = config(repo)
     exchange = Exchange([])
     model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_experiment=selected)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
     try:
         with monkeypatch.context() as scoped:
             scoped.setenv("DEEPAGENTS_HOME", str(tmp_path))
@@ -788,7 +791,7 @@ def test_skill_metadata_must_match_actual_discovery(tmp_path: Path, kind: str) -
         (extra / "SKILL.md").write_text("---\nname: remember\ndescription: collision\n---\n")
     exchange = Exchange([])
     model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_experiment=config(repo))
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
         with pytest.raises(LangGraphHarnessError, match="discovery|duplicate"):
             asyncio.run(_collect(harness, repo))
@@ -800,18 +803,13 @@ def test_skill_metadata_must_match_actual_discovery(tmp_path: Path, kind: str) -
 def test_dcode_without_selected_skills_or_instructions(tmp_path: Path) -> None:
     repo = tmp_path / "empty-task"
     repo.mkdir()
-    selected = parse_player_experiment(
-        json.dumps(
-            {
-                "engine": "dcode",
-                "dcode_home": os.environ["DEEPAGENTS_HOME"],
-            }
-        ),
+    selected = build_player_config(
         cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
     )
     exchange = Exchange([])
     model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_experiment=selected)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
     try:
         events = asyncio.run(_collect(harness, repo))
         assert any(isinstance(event, ResultMessageEvent) for event in events)
@@ -866,7 +864,7 @@ def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: 
     harness = LangGraphHarness(
         "openai:qwen36-workhorse",
         backend=_backend(repo),
-        player_experiment=config(repo),
+        player_config=config(repo),
         recursion_limit=200,
     )
     with (

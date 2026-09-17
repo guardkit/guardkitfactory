@@ -46,7 +46,11 @@ from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
 )
-from guardkitfactory.harness.langgraph_harness import _system_prompt_for_role
+from guardkitfactory.harness.langgraph_harness import (
+    _player_context_prompt,
+    _system_prompt_for_role,
+)
+from guardkitfactory.harness.player_config import build_player_config
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -60,7 +64,7 @@ def _drain(harness: LangGraphHarness, prompt: str = "hi") -> list[Any]:
         events: list[Any] = []
         async for event in harness.invoke(
             prompt=prompt,
-            role="player",
+            role="coach",
             tools=[],
             cwd=Path.cwd(),
             timeout_seconds=30,
@@ -155,7 +159,7 @@ class TestHappyPath:
         assert kwargs["backend"] is None
         assert kwargs["permissions"] is None
         assert "write_todos" in kwargs["system_prompt"]
-        assert "Implement the requested change" in kwargs["system_prompt"]
+        assert "Review the implementation independently" in kwargs["system_prompt"]
         assert len(kwargs["middleware"]) == 1
         assert type(kwargs["middleware"][0]).__name__ == "TodoListMiddleware"
 
@@ -173,37 +177,31 @@ class TestHappyPath:
         assert events[1].session_id is None
         assert events[1].stop_reason == "end_turn"
 
-    def test_native_player_prompt_maps_task_paths_from_exact_worktree(
+    def test_player_context_uses_declared_project_inputs_without_layout_defaults(
         self, tmp_path: Path
     ) -> None:
         worktree = tmp_path / "task worktree with spaces"
-        worktree.mkdir()
-        harness = LangGraphHarness(model="ignored-stub-model")
-        fake_agent = _make_fake_agent()
+        (worktree / "docs").mkdir(parents=True)
+        (worktree / "docs" / "WORKFLOW.md").write_text("# Repository workflow\n")
+        (worktree / "verification").mkdir()
+        profile = tmp_path / "dcode-profile"
+        profile.mkdir()
+        config = build_player_config(
+            cwd=worktree,
+            dcode_home=profile,
+            repository_instructions=["docs/WORKFLOW.md"],
+            declared_commands=[("test", "./checks/run-all --exact")],
+            protected_paths=["verification"],
+        )
 
-        async def collect() -> list[Any]:
-            return [
-                event
-                async for event in harness.invoke(
-                    prompt="implement",
-                    role="player",
-                    tools=[],
-                    cwd=worktree,
-                    timeout_seconds=30,
-                )
-            ]
+        prompt = _player_context_prompt(config)
 
-        with patch(
-            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
-            return_value=fake_agent,
-        ) as create_mock:
-            asyncio.run(collect())
-
-        system_prompt = create_mock.call_args.kwargs["system_prompt"]
-        assert f"assigned task worktree is exactly: {worktree}" in system_prompt
-        assert f"`src/example.py` means `{worktree / 'src/example.py'}`" in system_prompt
-        assert f"Shell commands start with `{worktree}`" in system_prompt
-        assert "Filesystem tools require absolute paths" in system_prompt
+        assert f"assigned task worktree is exactly: {worktree}" in prompt
+        assert "# Repository workflow" in prompt
+        assert "./checks/run-all --exact" in prompt
+        assert "verification" in prompt
+        assert "src/example.py" not in prompt
+        assert "tests/acceptance" not in prompt
 
     def test_coach_prompt_is_unchanged_and_has_no_player_worktree_addition(
         self, tmp_path: Path
@@ -302,7 +300,7 @@ class TestUnknownModelError:
         msg = str(excinfo.value)
         assert "LangGraphHarness" in msg
         assert "nonexistent-provider:fake-model" in msg
-        assert "player" in msg  # the role tag is part of the attribution
+        assert "coach" in msg  # the role tag is part of the attribution
 
         # The original ValueError must be preserved on __cause__.
         assert isinstance(excinfo.value.__cause__, ValueError)
@@ -337,7 +335,7 @@ class TestStreamIsAsyncIterable:
 
         stream = harness.invoke(
             prompt="hi",
-            role="player",
+            role="coach",
             tools=[],
             cwd=Path.cwd(),
             timeout_seconds=30,
@@ -571,10 +569,10 @@ class TestReasoningTextSurfacing:
                 return_value=fake_agent,
             ),
         ):
-            # _drain defaults to role="player"
+            # _drain defaults to role="coach"
             _drain(harness)
 
-        assert captured["role"] == "player", (
+        assert captured["role"] == "coach", (
             "role kwarg must be threaded from invoke to resolve_autobuild_model"
         )
 
@@ -1034,7 +1032,7 @@ class TestCancelLangGraphHarness:
                 async def _drain_invoke() -> None:
                     async for _ in harness.invoke(
                         prompt="hi",
-                        role="player",
+                        role="coach",
                         tools=[],
                         cwd=Path.cwd(),
                         timeout_seconds=30,
@@ -1197,7 +1195,7 @@ class TestAcloseFinalisation:
             ):
                 stream = harness.invoke(
                     prompt="hi",
-                    role="player",
+                    role="coach",
                     tools=[],
                     cwd=Path.cwd(),
                     timeout_seconds=30,
@@ -1234,7 +1232,7 @@ class TestAcloseFinalisation:
             ):
                 stream = harness.invoke(
                     prompt="hi",
-                    role="player",
+                    role="coach",
                     tools=[],
                     cwd=Path.cwd(),
                     timeout_seconds=30,
@@ -1284,7 +1282,7 @@ class TestAcloseFinalisation:
             ):
                 stream = harness.invoke(
                     prompt="hi",
-                    role="player",
+                    role="coach",
                     tools=[],
                     cwd=Path.cwd(),
                     timeout_seconds=30,
@@ -1664,8 +1662,8 @@ def test_real_graph_uses_chat_completions_prompt_and_runtime_tools(
     } <= tool_names
     system_text = json.dumps(first_body["messages"][0]["content"])
     assert "write_todos" in system_text
-    assert "tests/acceptance" in system_text
-    assert "independent evidence" in system_text
+    assert "project-declared protected paths" in system_text
+    assert "tests/acceptance" not in system_text
     assert "structured verdict" in system_text
 
     use_events = [event for event in events if isinstance(event, ToolUseEvent)]

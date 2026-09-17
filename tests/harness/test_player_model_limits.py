@@ -1,4 +1,4 @@
-"""Bounded Player limits: strict refusal and actual A/B/C HTTP parity."""
+"""Bounded Player limits: strict refusal and required dcode HTTP parity."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from langchain_openai import ChatOpenAI
 
 from guardkitfactory.harness import model_config
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness, LangGraphHarnessError
-from guardkitfactory.harness.player_experiment import parse_player_experiment
+from guardkitfactory.harness.player_config import build_player_config
 
 from .test_player_skills_graph import _backend, _collect, _scaffold
 
@@ -32,6 +32,9 @@ def isolated(monkeypatch):
     monkeypatch.delenv(ENV, raising=False)
     monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:4000/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test")
+    monkeypatch.setenv("DEEPAGENTS_CODE_OFFLINE", "1")
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "false")
+    monkeypatch.setenv("LANGSMITH_TRACING", "false")
 
     def deny(*args, **kwargs):
         raise AssertionError("real network forbidden")
@@ -400,36 +403,24 @@ def test_thinking_assignment_failure_is_refused(monkeypatch, mode, message):
 
 
 @pytest.mark.parametrize("thinking_off", [False, True], ids=["legacy", "thinking-off"])
-@pytest.mark.parametrize("arm", ["A", "B", "C"])
-def test_actual_graph_main_subagent_compaction_parity(
-    monkeypatch, tmp_path: Path, arm: str, thinking_off: bool
+def test_actual_dcode_graph_main_subagent_compaction_limits(
+    monkeypatch, tmp_path: Path, thinking_off: bool
 ):
-    if arm == "C" and (
-        sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None
-    ):
-        pytest.skip("dcode requires optional Python 3.12+ environment")
-    from deepagents import create_deep_agent
-    from deepagents.middleware.summarization import SummarizationMiddleware
+    if sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None:
+        pytest.skip("dcode requires Python 3.12+ and the required dependency")
+    from deepagents_code.agent import create_cli_agent
 
     from .test_dcode_harness import response as wire_response
 
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS if thinking_off else LIMITS))
     repo = _scaffold(tmp_path)
     (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
-    config = (
-        None
-        if arm == "A"
-        else parse_player_experiment(
-            json.dumps(
-                {
-                    "engine": "dcode" if arm == "C" else "native",
-                    "skills": ["skills"],
-                    "memory": ["AGENTS.md"],
-                    **({"dcode_home": os.environ["DEEPAGENTS_HOME"]} if arm == "C" else {}),
-                }
-            ),
-            cwd=repo,
-        )
+    selected = build_player_config(
+        cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
     )
     requests, models, clients, summaries = [], [], [], []
     main_calls = 0
@@ -465,7 +456,7 @@ def test_actual_graph_main_subagent_compaction_parity(
                 call=("read_file", {"file_path": str(repo / "long.txt"), "limit": 1000}),
                 tokens=65000,
             )
-        if main_calls == 10 and arm == "C":
+        if main_calls == 10:
             return response(body, call=("compact_conversation", {}), tokens=65000)
         return response(body, text="Player complete")
 
@@ -481,32 +472,17 @@ def test_actual_graph_main_subagent_compaction_parity(
         clients.append(client)
         return client
 
-    def native_graph(**kwargs):
+    def dcode_graph(*args, **kwargs):
         models.append(kwargs["model"])
-        kwargs["middleware"].append(
-            SummarizationMiddleware(
-                model=kwargs["model"],
-                backend=kwargs["backend"],
-                trigger=("messages", 10),
-                keep=("messages", 2),
-            )
-        )
-        return create_deep_agent(**kwargs)
+        assert kwargs["cli_max_retries"] == 0
+        return create_cli_agent(*args, **kwargs)
 
     harness = LangGraphHarness(
-        "openai:workhorse", backend=_backend(repo), player_experiment=config, recursion_limit=200
+        "openai:workhorse",
+        backend=_backend(repo),
+        player_config=selected,
+        recursion_limit=200,
     )
-    if arm != "C":
-        history = []
-        for index in range(12):
-            history.extend(
-                [
-                    {"role": "user", "content": f"prior user {index} " + "x" * 80},
-                    {"role": "assistant", "content": f"prior answer {index} " + "y" * 80},
-                ]
-            )
-        history.append({"role": "user", "content": "Delegate NESTED_SENTINEL then read history"})
-        monkeypatch.setattr(harness, "_build_input", lambda _: {"messages": history})
     with (
         patch(
             "langchain_openai.chat_models._client_utils._build_sync_httpx_client",
@@ -516,22 +492,9 @@ def test_actual_graph_main_subagent_compaction_parity(
             "langchain_openai.chat_models._client_utils._build_async_httpx_client",
             side_effect=async_builder,
         ),
-        patch(
-            "guardkitfactory.harness.langgraph_harness.create_deep_agent", side_effect=native_graph
-        ),
+        patch("deepagents_code.agent.create_cli_agent", side_effect=dcode_graph),
     ):
-        if arm == "C":
-            from deepagents_code.agent import create_cli_agent
-
-            def dcode_graph(*args, **kwargs):
-                models.append(kwargs["model"])
-                assert kwargs["cli_max_retries"] == 0
-                return create_cli_agent(*args, **kwargs)
-
-            with patch("deepagents_code.agent.create_cli_agent", side_effect=dcode_graph):
-                events = asyncio.run(_collect(harness, repo))
-        else:
-            events = asyncio.run(_collect(harness, repo))
+        events = asyncio.run(_collect(harness, repo))
     assert any(isinstance(e, ResultMessageEvent) for e in events)
     assert summaries and len(requests) > 4
     assert "NESTED_SENTINEL" in str([body for body in requests if body.get("tools")][1]["messages"])
@@ -547,49 +510,25 @@ def test_actual_graph_main_subagent_compaction_parity(
             assert "chat_template_kwargs" not in body
     assert models[0].profile["max_input_tokens"] == 131072
     assert models[0].root_async_client.max_retries == 2
-    if arm == "C":
-        assert models[0]._deepagents_model_retries == 0
+    assert models[0]._deepagents_model_retries == 0
     assert len(clients) == 2 and all(client.is_closed for client in clients)
     assert harness._ainvoke_task is None
-    evidence = os.environ.get("DCODE_TEST_EVIDENCE")
-    if evidence:
-        directory = Path(evidence)
-        directory.mkdir(parents=True, exist_ok=True)
-        suffix = "thinking-off" if thinking_off else "legacy"
-        (directory / f"limits-parity-{arm}-{suffix}.json").write_text(
-            json.dumps(
-                {
-                    "requests": requests,
-                    "profile": models[0].profile,
-                    "provider_retries": 2,
-                    "owned_clients_closed": True,
-                },
-                indent=2,
-            )
-        )
 
 
-@pytest.mark.parametrize("engine", ["native", "dcode"])
 @pytest.mark.parametrize("outcome", ["provider_error", "cancel", "empty_terminal"])
-def test_enabled_carrier_failure_and_cancellation_cleanup(monkeypatch, tmp_path, engine, outcome):
-    if engine == "dcode" and (
-        sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None
-    ):
-        pytest.skip("dcode requires optional Python 3.12+ environment")
+def test_dcode_failure_and_cancellation_cleanup(monkeypatch, tmp_path, outcome):
+    if sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None:
+        pytest.skip("dcode requires Python 3.12+ and the required dependency")
     from .test_dcode_harness import response
 
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
     repo = _scaffold(tmp_path)
-    selected = parse_player_experiment(
-        json.dumps(
-            {
-                "engine": engine,
-                "skills": ["skills"],
-                "memory": ["AGENTS.md"],
-                **({"dcode_home": os.environ["DEEPAGENTS_HOME"]} if engine == "dcode" else {}),
-            }
-        ),
+    selected = build_player_config(
         cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
     )
     clients, requests = [], []
 
@@ -630,7 +569,7 @@ def test_enabled_carrier_failure_and_cancellation_cleanup(monkeypatch, tmp_path,
             return client
 
         harness = LangGraphHarness(
-            "openai:workhorse", backend=_backend(repo), player_experiment=selected
+            "openai:workhorse", backend=_backend(repo), player_config=selected
         )
         with (
             patch(

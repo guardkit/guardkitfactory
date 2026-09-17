@@ -899,7 +899,7 @@ class TestHostRepoStaysClean:
 
 
 # ---------------------------------------------------------------------------
-# Deep Agents 0.7 delete surface and acceptance-evidence protection
+# Deep Agents 0.7 delete surface and generic declared-path protection
 # ---------------------------------------------------------------------------
 
 
@@ -1071,91 +1071,88 @@ class TestDeleteConfinement:
         assert not victim.exists()
 
 
-class TestAcceptanceEvidenceProtection:
-    def test_existing_acceptance_file_cannot_be_overwritten_edited_or_deleted(
+class TestDeclaredPathProtection:
+    def test_declared_non_python_file_cannot_be_overwritten_edited_or_deleted(
         self, tmp_path: Path
     ) -> None:
         worktree = _make_worktree(tmp_path)
-        acceptance = worktree / "tests" / "acceptance" / "test_oracle.py"
-        acceptance.parent.mkdir(parents=True)
-        acceptance.write_text("EXPECTED = 'independent'\n")
-        backend = build_autobuild_backend(worktree)
+        evidence = worktree / "checks" / "contracts" / "expected.json"
+        evidence.parent.mkdir(parents=True)
+        evidence.write_text('{"expected": "independent"}\n')
+        backend = build_autobuild_backend(
+            worktree, protected_paths=["checks/contracts/expected.json"]
+        )
 
-        overwrite = backend.write(str(acceptance), "EXPECTED = 'weakened'\n")
-        edit = backend.edit(str(acceptance), "independent", "weakened")
-        delete = backend.delete(str(acceptance))
+        overwrite = backend.write(str(evidence), '{"expected": "weakened"}\n')
+        edit = backend.edit(str(evidence), "independent", "weakened")
+        delete = backend.delete(str(evidence))
 
         assert overwrite.error is not None
         assert edit.error is not None
         assert delete.error is not None
-        assert acceptance.read_text() == "EXPECTED = 'independent'\n"
+        assert evidence.read_text() == '{"expected": "independent"}\n'
 
-    def test_directory_delete_cannot_remove_existing_acceptance_file(
+    def test_declared_directory_protects_existing_and_new_descendants(
         self, tmp_path: Path
     ) -> None:
         worktree = _make_worktree(tmp_path)
-        acceptance_dir = worktree / "tests" / "acceptance"
-        acceptance_dir.mkdir(parents=True)
-        acceptance = acceptance_dir / "test_oracle.py"
-        acceptance.write_text("def test_oracle(): pass\n")
-        backend = build_autobuild_backend(worktree)
+        evidence_dir = worktree / "verification" / "oracles"
+        evidence_dir.mkdir(parents=True)
+        existing = evidence_dir / "baseline.snap"
+        existing.write_text("independent\n")
+        backend = build_autobuild_backend(
+            worktree, protected_paths=["verification/oracles"]
+        )
 
-        result = backend.delete(str(acceptance_dir))
+        new_file = evidence_dir / "new.snap"
+        assert backend.write(str(existing), "weakened\n").error is not None
+        assert backend.write(str(new_file), "new\n").error is not None
+        assert backend.delete(str(evidence_dir)).error is not None
+        assert existing.read_text() == "independent\n"
+        assert not new_file.exists()
 
-        assert result.error is not None
-        assert acceptance.exists()
-
-    def test_symlinked_acceptance_files_are_protected_cycle_safely(
+    def test_symlinked_declared_directory_is_protected_by_alias_and_target(
         self, tmp_path: Path
     ) -> None:
         worktree = _make_worktree(tmp_path)
-        acceptance_dir = worktree / "tests" / "acceptance"
-        acceptance_dir.mkdir(parents=True)
         shared = worktree / "oracle_data"
         shared.mkdir()
-        oracle = shared / "test_external.py"
-        oracle.write_text("EXPECTED = 'independent'\n")
-        linked = acceptance_dir / "linked"
-        linked.symlink_to(shared, target_is_directory=True)
-        # A cycle must neither hang the snapshot nor hide the external file.
-        (shared / "acceptance-cycle").symlink_to(
-            acceptance_dir, target_is_directory=True
+        oracle = shared / "expected.txt"
+        oracle.write_text("independent\n")
+        declared = worktree / "verification"
+        declared.symlink_to(shared, target_is_directory=True)
+        backend = build_autobuild_backend(
+            worktree, protected_paths=["verification"]
         )
-        backend = build_autobuild_backend(worktree)
-        via_link = linked / oracle.name
 
-        overwrite = backend.write(str(via_link), "EXPECTED = 'weakened'\n")
-        edit = backend.edit(str(via_link), "independent", "weakened")
-        delete_file = backend.delete(str(via_link))
-        delete_link = backend.delete(str(linked))
-        delete_acceptance = backend.delete(str(acceptance_dir))
+        assert backend.write(str(declared / oracle.name), "weakened\n").error is not None
+        assert backend.edit(str(oracle), "independent", "weakened").error is not None
+        assert backend.delete(str(declared)).error is not None
+        assert oracle.read_text() == "independent\n"
+        assert declared.is_symlink()
 
-        assert overwrite.error is not None
-        assert edit.error is not None
-        assert delete_file.error is not None
-        assert delete_link.error is not None
-        assert delete_acceptance.error is not None
-        assert oracle.read_text() == "EXPECTED = 'independent'\n"
-        assert linked.is_symlink()
-
-    def test_normal_source_overwrite_remains_allowed(self, tmp_path: Path) -> None:
+    def test_absent_declaration_adds_no_stack_or_path_defaults(
+        self, tmp_path: Path
+    ) -> None:
         worktree = _make_worktree(tmp_path)
-        source = worktree / "src" / "module.py"
-        source.parent.mkdir()
-        source.write_text("VALUE = 1\n")
+        arbitrary = worktree / "web" / "generated" / "snapshot.txt"
+        arbitrary.parent.mkdir(parents=True)
+        arbitrary.write_text("before\n")
         backend = build_autobuild_backend(worktree)
 
-        result = backend.write(str(source), "VALUE = 2\n")
+        result = backend.write(str(arbitrary), "after\n")
 
         assert result.error is None
-        assert source.read_text() == "VALUE = 2\n"
+        assert arbitrary.read_text() == "after\n"
 
-    def test_new_acceptance_file_may_be_created(self, tmp_path: Path) -> None:
+    def test_missing_or_escaping_declaration_fails_construction(
+        self, tmp_path: Path
+    ) -> None:
         worktree = _make_worktree(tmp_path)
-        backend = build_autobuild_backend(worktree)
-        new_test = worktree / "tests" / "acceptance" / "test_new.py"
+        outside = tmp_path / "outside"
+        outside.mkdir()
 
-        result = backend.write(str(new_test), "def test_new(): pass\n")
-
-        assert result.error is None
-        assert new_test.exists()
+        with pytest.raises(ValueError, match="does not exist"):
+            build_autobuild_backend(worktree, protected_paths=["missing"])
+        with pytest.raises(ValueError, match="escapes the worktree"):
+            build_autobuild_backend(worktree, protected_paths=[outside])

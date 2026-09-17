@@ -31,9 +31,10 @@ What this package provides:
 raises `NotImplementedError` — it exists only for the original TASK-HMIG-000R
 smoke-test contract. Do not use it; use `LangGraphHarness`.
 
-**Language**: Python (`requires-python = ">=3.11"`)
-**Runtime deps**: `deepagents>=0.6.7,<1`, `langgraph>=1,<2`, `langchain>=1.2,<2`,
-`langchain-core>=1.2,<2`, `langchain-openai>=1,<2`, `tree-sitter>=0.25,<1`,
+**Language**: Python (`requires-python = ">=3.12,<4"`)
+**Runtime deps**: `deepagents==0.7.14`, `deepagents-code==0.1.69`,
+`langgraph>=1.2,<2`, `langchain>=1.4,<2`, `langchain-core>=1.6.3,<2`,
+`langchain-openai>=1.6,<2`, `tree-sitter>=0.25,<1`,
 `tree-sitter-language-pack>=1.0,<2` (see `pyproject.toml` for per-pin rationale).
 
 ## Version & cross-repo seam
@@ -92,11 +93,11 @@ them to match this tree.
 
 ## Python Pinning
 
-`requires-python = ">=3.11"` (open upper bound) is the portfolio canonical for
-this template family. Don't add a closed upper bound (`<3.X`) unless you have a
-specifically-documented reason — stale upper bounds become latent stall
-trapdoors when a new Python minor ships in a developer's PATH. See
-`docs/guides/portfolio-python-pinning.md` in the guardkit repo for rationale.
+`requires-python = ">=3.12,<4"` is the documented bound of the required
+`deepagents-code==0.1.69` runtime. Keep it aligned with that direct dependency;
+see `docs/guides/portfolio-python-pinning.md` in the guardkit repo for the
+exception rule that applies when a runtime dependency narrows interpreter
+support.
 
 ## See Also
 

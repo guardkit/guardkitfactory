@@ -125,7 +125,7 @@ def invocation(harness, tmp_path, *, synthesis=False):
     if synthesis:
         return harness.invoke_synthesis("fixture prompt", "coach", grammar='root ::= "ok"',
                                         cwd=tmp_path, timeout_seconds=20)
-    return harness.invoke("fixture prompt", "player", [], tmp_path, timeout_seconds=20)
+    return harness.invoke("fixture prompt", "coach", [], tmp_path, timeout_seconds=20)
 
 
 async def collect(harness, tmp_path, *, synthesis=False):
@@ -133,12 +133,14 @@ async def collect(harness, tmp_path, *, synthesis=False):
 
 
 @pytest.mark.parametrize("proxy", [False, True])
-def test_player_then_coach_and_repeat_across_loops(server, owned, monkeypatch, tmp_path, proxy):
+def test_workhorse_then_synthesis_and_repeat_across_loops(
+    server, owned, monkeypatch, tmp_path, proxy
+):
     if proxy:
         monkeypatch.setenv("HTTP_PROXY", server.url)
         monkeypatch.setenv("OPENAI_BASE_URL", "http://fixture.invalid/v1")
-    # Deliberately mirror GuardKit: a persistent Player loop, then asyncio.run
-    # for Coach. Keep the first loop alive to reproduce the exact old failure.
+    # Exercise a persistent shared Deep Agents loop, then asyncio.run
+    # for synthesis. Keep the first loop alive to reproduce the exact old failure.
     loop = asyncio.new_event_loop()
     try:
         for _ in range(2):
@@ -149,9 +151,9 @@ def test_player_then_coach_and_repeat_across_loops(server, owned, monkeypatch, t
     assert len(server.requests) == 4  # no hidden retry
     assert len(owned) == 4 and len({id(client) for client in owned}) == 4
     assert all(client.is_closed for client in owned)
-    player, coach = [r[1] for r in server.requests[:2]]
-    assert player["model"] == "workhorse" and "tools" in player
-    assert "temperature" not in player and "max_completion_tokens" not in player
+    workhorse, coach = [r[1] for r in server.requests[:2]]
+    assert workhorse["model"] == "workhorse" and "tools" in workhorse
+    assert "temperature" not in workhorse and "max_completion_tokens" not in workhorse
     assert coach["model"] == "coach" and coach["temperature"] == 0
     assert coach["max_completion_tokens"] == 16384 and "tools" not in coach
     assert coach["grammar"] == 'root ::= "ok"'
@@ -331,7 +333,7 @@ def test_prebuilt_identity_and_caller_clients_stay_open(server, owned, tmp_path,
         original_callbacks = model.callbacks
         harness = LangGraphHarness(model)
         try:
-            assert harness._resolve_model_for_invoke("player") is model
+            assert harness._resolve_model_for_invoke("coach") is model
             await collect(harness, tmp_path)
             await collect(harness, tmp_path, synthesis=True)
             assert harness.model is model and model.callbacks is original_callbacks

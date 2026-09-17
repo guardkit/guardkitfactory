@@ -20,12 +20,20 @@ from guardkitfactory.harness.model_config import (
     resolve_autobuild_model,
 )
 from guardkitfactory.harness.permissions import build_autobuild_permissions
+from guardkitfactory.harness.player_config import (
+    PlayerConfig,
+    PlayerConfigError,
+    build_player_config,
+)
 
 __all__ = [
     "MODEL_CONTEXT_WINDOWS",
     "LangGraphHarness",
     "LangGraphHarnessError",
+    "PlayerConfig",
+    "PlayerConfigError",
     "build_autobuild_backend",
+    "build_player_config",
     "build_autobuild_permissions",
     "resolve_autobuild_model",
 ]

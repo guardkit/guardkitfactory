@@ -71,10 +71,10 @@ from guardkitfactory.harness.extractors import (
 )
 from guardkitfactory.harness.http_clients import create_chat_openai, with_invocation_clients
 from guardkitfactory.harness.model_config import resolve_autobuild_model
-from guardkitfactory.harness.player_experiment import (
-    PlayerExperimentConfig,
-    PlayerExperimentConfigError,
-    revalidate_player_experiment,
+from guardkitfactory.harness.player_config import (
+    PlayerConfig,
+    PlayerConfigError,
+    revalidate_player_config,
 )
 from guardkitfactory.lib.factory_guards import assert_no_system_messages
 
@@ -84,8 +84,7 @@ _COMMON_AGENT_INSTRUCTIONS = """\
 Work inside the assigned repository and inspect the relevant files before acting.
 For multi-step work, use write_todos to keep a short, current plan.
 Use the filesystem, search, and execute tools to gather evidence and verify results.
-Keep all file mutations inside approved roots. Existing tests under
-tests/acceptance are independent evidence and must not be changed or deleted.
+Keep all file mutations inside approved roots and do not change project-declared protected paths.
 Report concrete results and any verification that could not be completed.
 """
 
@@ -110,20 +109,27 @@ def _system_prompt_for_role(role: str) -> str:
     return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
 
 
-def _native_player_system_prompt(cwd: Path) -> str:
-    """Add the native Player's concrete file and shell working context."""
+def _player_context_prompt(config: PlayerConfig) -> str:
+    """Render the validated project context supplied to the dcode user turn."""
 
-    worktree = Path(cwd).resolve()
-    relative_example = Path("src") / "example.py"
-    absolute_example = worktree / relative_example
-    return (
-        f"{_system_prompt_for_role('player')}\n"
-        f"Your assigned task worktree is exactly: {worktree}\n"
-        "Filesystem tools require absolute paths. A task-relative path such as "
-        f"`{relative_example}` means `{absolute_example}` for those tools.\n"
-        f"Shell commands start with `{worktree}` as their working directory, so "
-        "relative shell paths resolve from that directory.\n"
-    )
+    sections = [
+        "## Factory-supplied project context",
+        f"The assigned task worktree is exactly: {config.cwd}",
+        "Filesystem-tool paths are absolute. Relative shell paths resolve from "
+        f"{config.cwd}.",
+    ]
+    if config.repository_instructions:
+        sections.append("### Repository instructions")
+        for path in config.repository_instructions:
+            relative = path.relative_to(config.cwd)
+            sections.append(f"#### {relative}\n{path.read_text(encoding='utf-8')}")
+    if config.declared_commands:
+        sections.append("### Project-declared commands (use unchanged)")
+        sections.extend(f"- {name}: `{command}`" for name, command in config.declared_commands)
+    if config.protected_paths:
+        sections.append("### Project-declared protected paths (read-only)")
+        sections.extend(f"- {path.relative_to(config.cwd)}" for path in config.protected_paths)
+    return "\n\n".join(sections)
 
 
 def _install_langsmith_executor_guard() -> None:
@@ -443,7 +449,7 @@ class LangGraphHarness(HarnessAdapter):
         permissions: list[Any] | None = None,
         recursion_limit: int | None = _RECURSION_LIMIT_DEFAULT,
         on_model_activity: Callable[[], None] | None = None,
-        player_experiment: PlayerExperimentConfig | None = None,
+        player_config: PlayerConfig | None = None,
     ) -> None:
         self.model = model
         self.backend = backend
@@ -456,7 +462,7 @@ class LangGraphHarness(HarnessAdapter):
         # and what every existing test/construction site supplies) installs
         # no callbacks — behaviour is byte-for-byte unchanged.
         self.on_model_activity = on_model_activity
-        self.player_experiment = player_experiment
+        self.player_config = player_config
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # preserves LangGraph's default (25). The Coach gather passes a small
@@ -475,8 +481,8 @@ class LangGraphHarness(HarnessAdapter):
         # than the substrate boundary contract permits.
         self._ainvoke_task: asyncio.Task[Any] | None = None
 
-    def _experiment_backend_root(self) -> Path:
-        """Return the proved execution root used by an enabled experiment."""
+    def _player_backend_root(self) -> Path:
+        """Return the proved execution root used by an enabled config."""
 
         default = getattr(self.backend, "default", None)
         backend_cwd = getattr(self.backend, "cwd", None)
@@ -485,7 +491,7 @@ class LangGraphHarness(HarnessAdapter):
         execution_root = default_cwd if default is not None else backend_cwd
         if execution_root is None:
             raise LangGraphHarnessError(
-                "LangGraphHarness: an enabled Player experiment requires an explicit "
+                "LangGraphHarness: a Player requires an explicit "
                 f"execution cwd ({execution_label}); artifacts_root alone does not "
                 "prove where commands run"
             )
@@ -503,12 +509,12 @@ class LangGraphHarness(HarnessAdapter):
                 resolved = Path(root).resolve(strict=True)
             except (OSError, RuntimeError, TypeError) as exc:
                 raise LangGraphHarnessError(
-                    "LangGraphHarness: Player experiment "
+                    "LangGraphHarness: Player config "
                     f"{label} is invalid: {root!r}"
                 ) from exc
             if not resolved.is_dir():
                 raise LangGraphHarnessError(
-                    "LangGraphHarness: Player experiment "
+                    "LangGraphHarness: Player config "
                     f"{label} is not a directory: {resolved}"
                 )
             resolved_roots.append((label, resolved))
@@ -517,61 +523,60 @@ class LangGraphHarness(HarnessAdapter):
         if len(unique_roots) != 1:
             detail = ", ".join(f"{label}={root}" for label, root in resolved_roots)
             raise LangGraphHarnessError(
-                "LangGraphHarness: Player experiment has conflicting backend roots: "
+                "LangGraphHarness: Player config has conflicting backend roots: "
                 f"{detail}"
             )
         return next(root for label, root in resolved_roots if label == execution_label)
 
     def _create_agent(self, *, role: str, cwd: Path, resolved_model: Any) -> Any:
-        """Construct the shared Deep Agents graph for one invocation."""
+        """Construct the shared Coach graph or the required dcode Player."""
 
-        kwargs: dict[str, Any] = {
-            "model": resolved_model,
-            "tools": [],
-            "middleware": [TodoListMiddleware()],
-            "backend": self.backend,
-            "permissions": self.permissions,
-        }
-        experiment = self.player_experiment
-        if experiment is not None:
-            if role != "player":
+        config = self.player_config
+        if role != "player":
+            if config is not None:
                 raise LangGraphHarnessError(
-                    "LangGraphHarness: player_experiment may only be used for role='player'"
+                    "LangGraphHarness: player_config may only be used for role='player'"
                 )
-            try:
-                revalidate_player_experiment(experiment, cwd=cwd)
-            except PlayerExperimentConfigError as exc:
-                raise LangGraphHarnessError(
-                    f"LangGraphHarness: invalid Player experiment at invocation: {exc}"
-                ) from exc
-            invocation_root = Path(cwd).resolve(strict=True)
-            backend_root = self._experiment_backend_root()
-            if backend_root != invocation_root:
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: Player experiment backend/worktree mismatch: "
-                    f"backend={backend_root} invocation={invocation_root}"
-                )
-            if experiment.engine == "dcode":
-                from guardkitfactory.harness.dcode_harness import create_dcode_player
+            return create_deep_agent(
+                model=resolved_model,
+                tools=[],
+                middleware=[TodoListMiddleware()],
+                backend=self.backend,
+                permissions=self.permissions,
+                system_prompt=_system_prompt_for_role(role),
+            )
 
-                return create_dcode_player(
-                    model=resolved_model,
-                    backend=self.backend,
-                    cwd=invocation_root,
-                    experiment=experiment,
-                    recursion_limit=self.recursion_limit,
-                )
-            kwargs["skills"] = [str(path) for path in experiment.skills]
-            kwargs["memory"] = [str(path) for path in experiment.memory]
-        kwargs["system_prompt"] = (
-            _native_player_system_prompt(cwd)
-            if role == "player"
-            else _system_prompt_for_role(role)
+        if config is None:
+            raise LangGraphHarnessError(
+                "LangGraphHarness: role='player' requires a validated Player config; "
+                "the native Player implementation has been retired"
+            )
+        try:
+            revalidate_player_config(config, cwd=cwd)
+        except PlayerConfigError as exc:
+            raise LangGraphHarnessError(
+                f"LangGraphHarness: invalid Player config at invocation: {exc}"
+            ) from exc
+        invocation_root = Path(cwd).resolve(strict=True)
+        backend_root = self._player_backend_root()
+        if backend_root != invocation_root:
+            raise LangGraphHarnessError(
+                "LangGraphHarness: Player config backend/worktree mismatch: "
+                f"backend={backend_root} invocation={invocation_root}"
+            )
+
+        from guardkitfactory.harness.dcode_harness import create_dcode_player
+
+        return create_dcode_player(
+            model=resolved_model,
+            backend=self.backend,
+            cwd=invocation_root,
+            config=config,
+            recursion_limit=self.recursion_limit,
         )
-        return create_deep_agent(**kwargs)
 
     @staticmethod
-    def _experiment_terminal_message(result: Any) -> AIMessage:
+    def _player_terminal_message(result: Any) -> AIMessage:
         """Return the last actual AIMessage without falling back to older text."""
 
         messages = result.get("messages", []) if isinstance(result, dict) else []
@@ -579,12 +584,12 @@ class LangGraphHarness(HarnessAdapter):
             if isinstance(message, AIMessage):
                 return message
         raise LangGraphHarnessError(
-            "LangGraphHarness: enabled Player experiment returned no terminal AIMessage",
+            "LangGraphHarness: Player returned no terminal AIMessage",
             raw_result=result,
         )
 
     @staticmethod
-    def _experiment_terminal_metadata(
+    def _player_terminal_metadata(
         message: AIMessage,
     ) -> tuple[str, str | None, dict[str, object] | None, str]:
         """Extract terminal metadata from the same actual AIMessage."""
@@ -740,6 +745,18 @@ class LangGraphHarness(HarnessAdapter):
         stream to mirror the SDK taxonomy more faithfully — until then,
         downstream consumers only need to dispatch on the terminal event.
         """
+        if role == "player" and self.player_config is not None:
+            try:
+                revalidate_player_config(self.player_config, cwd=cwd)
+            except PlayerConfigError as exc:
+                raise LangGraphHarnessError(
+                    f"LangGraphHarness: invalid Player config at invocation: {exc}"
+                ) from exc
+            prompt = (
+                f"{_player_context_prompt(self.player_config)}"
+                "\n\n## Assigned task\n\n"
+                f"{prompt}"
+            )
         input_data = self._build_input(prompt)
         assert_no_system_messages(input_data)
 
@@ -861,20 +878,20 @@ class LangGraphHarness(HarnessAdapter):
                 ) from exc
 
             terminal_message: AIMessage | None = None
-            if self.player_experiment is not None:
-                terminal_message = self._experiment_terminal_message(result)
+            if self.player_config is not None:
+                terminal_message = self._player_terminal_message(result)
                 text, stop_reason, usage, reasoning_text = (
-                    self._experiment_terminal_metadata(terminal_message)
+                    self._player_terminal_metadata(terminal_message)
                 )
                 if not text.strip():
                     raise LangGraphHarnessError(
-                        "LangGraphHarness: enabled Player experiment returned an empty "
+                        "LangGraphHarness: Player returned an empty "
                         "terminal assistant answer",
                         raw_result=result,
                     )
                 if stop_reason is not None and stop_reason.casefold() == "length":
                     raise LangGraphHarnessError(
-                        "LangGraphHarness: enabled Player experiment terminal answer was "
+                        "LangGraphHarness: Player terminal answer was "
                         "truncated (finish_reason='length')",
                         raw_result=result,
                     )
@@ -892,7 +909,7 @@ class LangGraphHarness(HarnessAdapter):
             # F17 substrate gap for hybrid-reasoning models (Gemma 4 IT,
             # future DeepSeek V4 with reasoning, etc.) without requiring
             # the brittle ``--reasoning off`` llama.cpp flag.
-            if self.player_experiment is None:
+            if self.player_config is None:
                 reasoning_text = extract_last_ai_reasoning(result)
 
             # TASK-HMIG-006.2: emit one ToolUseEvent per AIMessage.tool_calls

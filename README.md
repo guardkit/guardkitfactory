@@ -34,16 +34,16 @@ subclasses.
 
 ## Bootstrap
 
-This project pins per the [GuardKit portfolio Python pinning standard][pps] —
-`requires-python = ">=3.11"` with no closed upper bound. Defensive upper
-bounds belong in CI matrices, not in `requires-python`; the rationale and
-the stall incident this protects against are in the linked guide.
+This project requires `requires-python = ">=3.12,<4"` because the normal
+Player depends on `deepagents-code==0.1.69`, whose supported interpreter range
+is Python 3.12 through 3.x. The linked portfolio guide explains when a direct
+runtime dependency justifies a tighter project bound.
 
 [pps]: https://github.com/guardkit/guardkit/blob/main/docs/guides/portfolio-python-pinning.md
 
 Requirements:
 
-- Python 3.11+
+- Python 3.12–3.x
 - [uv](https://docs.astral.sh/uv/) (recommended) or pip 23+
 
 ```bash
@@ -72,7 +72,7 @@ python -c 'from guardkitfactory import LangGraphHarness, discover; print(LangGra
 guardkitfactory/
 ├── pyproject.toml            # version 0.2.0; deepagents>=0.6.7,<1, langgraph>=1,<2,
 │                             #   langchain>=1.2,<2, langchain-core>=1.2,<2,
-│                             #   langchain-openai>=1,<2, tree-sitter>=0.25,<1
+│                             #   langchain-openai>=1.6,<2, tree-sitter>=0.25,<1
 ├── src/guardkitfactory/      # the installable package (src layout)
 │   ├── __init__.py           # public API re-exports + placeholder HarnessAdapter
 │   ├── harness/              # LangGraphHarness + backend/model/permissions config
@@ -151,13 +151,14 @@ open:
 
 | Pin | Why |
 |---|---|
-| `deepagents>=0.6.7,<1` | Floor bumped from 0.5 for grep/read_file/state-schema stability fixes AutoBuild depends on (see the `pyproject.toml` comment for the per-patch changelog); `<1` is a soft guard against a 1.0 API shift. |
-| `langgraph>=1,<2`    | The harness targets the LangGraph 1.x API surface. |
-| `langchain>=1.2,<2`  | Matches the LangChain `1.2` line `create_agent()` lives in. |
-| `langchain-core>=1.2,<2` | Pinned in lock-step with `langchain` to avoid resolver drift. |
-| `langchain-openai>=1,<2` | Required at runtime for the OpenAI-compatible / llama-swap substrate (TASK-OPS-COACHMOE01); imported lazily but must be installed. |
+| `deepagents==0.7.14` | Exact SDK behavior used by the shared harness and Coach path. |
+| `deepagents-code==0.1.69` | Required normal local Player runtime; no native Player fallback. |
+| `langgraph>=1.2,<2`    | The harness targets the LangGraph 1.x API surface. |
+| `langchain>=1.4,<2`  | Matches the API required by Deep Agents 0.7.14. |
+| `langchain-core>=1.6.3,<2` | Matches the floor required by Deep Agents 0.7.14. |
+| `langchain-openai>=1.6,<2` | Required at runtime for the OpenAI-compatible / llama-swap substrate (TASK-OPS-COACHMOE01); imported lazily but must be installed. |
 | `tree-sitter>=0.25,<1` + `tree-sitter-language-pack>=1.0,<2` | Stack-agnostic parsing for the wiring analyzer; the pack ships precompiled python/js/ts/csharp grammars. |
-| `requires-python = ">=3.11"` | Portfolio canonical (no closed upper bound) — see [`portfolio-python-pinning.md`][pps]. |
+| `requires-python = ">=3.12,<4"` | Required by the direct dcode runtime dependency. |
 
 ## References
 

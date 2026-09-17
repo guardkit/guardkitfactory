@@ -11,10 +11,9 @@ license = { text = "MIT" }
 authors = [
     { name = "Richard Woollcott", email = "rich@appmilla.com" },
 ]
-# Open upper bound per the GuardKit portfolio Python pinning standard
-# (docs/guides/portfolio-python-pinning.md in the guardkit repo).
-# Defensive upper bounds belong in CI matrices, not requires-python.
-requires-python = ">=3.11"
+# deepagents-code 0.1.69 supports Python 3.12 through 3.x. Keep the runtime
+# contract explicit because dcode is the required local Player.
+requires-python = ">=3.12,<4"
 
 # Deep Agents is pinned exactly because its built-in prompt, middleware and
 # backend tool surface are application behavior. Version 0.7.14 requires
@@ -24,6 +23,9 @@ requires-python = ">=3.11"
 # src/guardkitfactory/harness/permissions.py.
 dependencies = [
     "deepagents==0.7.14",
+    # Required local Player runtime. Keep this exact alongside the SDK pin:
+    # dcode is the single normal Player path and there is no native fallback.
+    "deepagents-code==0.1.69",
     "langgraph>=1.2,<2",
     "langchain>=1.4,<2",
     "langchain-core>=1.6.3,<2",
@@ -43,7 +45,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dcode = ["deepagents-code==0.1.69; python_version >= '3.12' and python_version < '4.0'"]
 dev = [
     "pytest>=8",
     "pytest-bdd>=7",
@@ -96,13 +97,13 @@ markers = [
 
 [tool.ruff]
 line-length = 100
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
 ignore = []
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = false
 ignore_missing_imports = true

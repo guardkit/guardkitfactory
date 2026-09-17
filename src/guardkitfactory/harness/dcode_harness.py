@@ -1,4 +1,4 @@
-"""Optional dcode Player construction; invocation remains owned by the factory.
+"""Required dcode Player construction; invocation remains owned by the factory.
 
 Only this module imports dcode, after validating its launch-time profile. Artifact
 aliases are filesystem-tool paths, not shell paths. The supplied factory backend
@@ -17,11 +17,11 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
-from guardkitfactory.harness.player_experiment import PlayerExperimentConfig
+from guardkitfactory.harness.player_config import PlayerConfig
 
 logger = logging.getLogger(__name__)
 _AGENT = "guardkit-player"
-_INSTALL = "install guardkitfactory[dcode] with Python >=3.12,<4; no fallback engine was started"
+_INSTALL = "install guardkitfactory with Python >=3.12,<4; no fallback engine was started"
 
 
 def _refuse(message: str) -> None:
@@ -71,24 +71,24 @@ def _tree(path: Path) -> dict[str, str]:
     return result
 
 
-def _validate_launch(experiment: PlayerExperimentConfig) -> Path:
+def _validate_launch(config: PlayerConfig) -> Path:
     if not (3, 12) <= sys.version_info[:2] < (4, 0):
         _refuse(f"unsupported interpreter; {_INSTALL}")
     if importlib.util.find_spec("deepagents_code") is None:
-        _refuse(f"optional dependency is not installed; {_INSTALL}")
-    profile = experiment.dcode_home
+        _refuse(f"required dependency is not installed; {_INSTALL}")
+    profile = config.dcode_home
     configured = os.environ.get("DEEPAGENTS_HOME", "")
     if profile is None or not Path(configured).is_absolute():
         _refuse("set absolute DEEPAGENTS_HOME to the selected fresh run profile before import")
     if Path(configured).resolve(strict=True) != profile:
-        _refuse("DEEPAGENTS_HOME does not match the selected experiment profile")
+        _refuse("DEEPAGENTS_HOME does not match the selected Player profile")
     if profile == Path.home().resolve() or profile == Path("/"):
         _refuse("dcode_home must be a dedicated run profile")
     if os.environ.get("DEEPAGENTS_CODE_OFFLINE") != "1":
         _refuse("DEEPAGENTS_CODE_OFFLINE=1 is required")
     for name in ("LANGCHAIN_TRACING", "LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING"):
         if os.environ.get(name, "false").lower() not in {"false", "0", ""}:
-            _refuse(f"{name} must be disabled for the Player experiment")
+            _refuse(f"{name} must be disabled for the Player run")
     # Permit only the empty directories/files dcode itself creates. This blocks
     # config, dotenv, hooks, plugins, credentials and another agent's profile.
     files = _tree(profile)
@@ -141,7 +141,7 @@ class _DiscoveryWarnings(logging.Handler):
         self.messages.append(record.getMessage())
 
 
-def _inventory(experiment: PlayerExperimentConfig, context: Any) -> dict[str, Any]:
+def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     from deepagents_code._paths import (
         get_built_in_skills_dir,
         get_user_agent_md_path,
@@ -151,13 +151,11 @@ def _inventory(experiment: PlayerExperimentConfig, context: Any) -> dict[str, An
     from deepagents_code.plugins import discover_plugins
     from deepagents_code.subagents import list_subagents
 
-    cwd = experiment.cwd
+    cwd = config.cwd
     selected = (cwd / "skills").resolve()
-    if experiment.skills and experiment.skills != (selected,):
+    if config.skills and config.skills != (selected,):
         _refuse("only selected root skills/ is supported")
-    if experiment.memory and experiment.memory != ((cwd / "AGENTS.md").resolve(),):
-        _refuse("only selected root AGENTS.md is supported")
-    if experiment.skills:
+    if config.skills:
         link = cwd / ".agents" / "skills"
         if not link.is_symlink() or os.readlink(link) != "../skills":
             _refuse("selected skills require .agents/skills -> ../skills")
@@ -180,7 +178,7 @@ def _inventory(experiment: PlayerExperimentConfig, context: Any) -> dict[str, An
         path = Path(raw)
         files = _tree(path)
         canonical = path.resolve()
-        allowed = canonical == builtins or (bool(experiment.skills) and canonical == selected)
+        allowed = canonical == builtins or (bool(config.skills) and canonical == selected)
         if files and not allowed:
             _refuse(f"unexpected skill discovery source: {path}")
         if files and canonical in seen_paths:
@@ -222,27 +220,29 @@ def _inventory(experiment: PlayerExperimentConfig, context: Any) -> dict[str, An
                 "files": files,
             }
         )
-    if experiment.skills and selected not in seen_paths:
+    if config.skills and selected not in seen_paths:
         _refuse("selected skills were not discovered")
-    # Inspect advertised instruction candidates directly so upstream's warning
-    # and skip behavior cannot hide unreadable files or escaping symlinks.
-    memory = {}
-    for path in (cwd / "AGENTS.md", cwd / ".deepagents" / "AGENTS.md"):
-        if path.exists() or path.is_symlink():
-            data = _read(path, cwd)
-            if path.resolve() not in experiment.memory:
-                _refuse(f"unexpected project instructions: {path}")
-            memory[str(path.resolve())] = hashlib.sha256(data).hexdigest()
+    # Inspect selected instruction sources directly so an optional memory
+    # middleware cannot be the only route by which repository guidance reaches
+    # the Player. Their contents are also supplied in the invocation prompt.
+    instructions = {
+        str(path): hashlib.sha256(_read(path, cwd)).hexdigest()
+        for path in config.repository_instructions
+    }
     discovered = tuple(p.resolve() for p in context.project_agent_md_paths())
-    if discovered != experiment.memory:
-        _refuse("project instruction discovery does not match selected root AGENTS.md")
+    if config.memory and discovered != config.memory:
+        _refuse("project memory discovery does not match the selected sources")
+    memory = {str(path): hashlib.sha256(_read(path, cwd)).hexdigest() for path in config.memory}
     user_memory = get_user_agent_md_path(_AGENT)
     if user_memory.exists() or user_memory.is_symlink():
-        if _read(user_memory, experiment.dcode_home) != b"":
+        if _read(user_memory, config.dcode_home) != b"":
             _refuse("profile AGENTS.md must remain empty")
     return {
         "skills": sources,
         "memory": memory,
+        "repository_instructions": instructions,
+        "declared_commands": dict(config.declared_commands),
+        "protected_paths": [str(path) for path in config.protected_paths],
         "agents": definitions,
         "plugins": [],
         "warnings": [],
@@ -287,11 +287,11 @@ def create_dcode_player(
     model: Any,
     backend: Any,
     cwd: Path,
-    experiment: PlayerExperimentConfig,
+    config: PlayerConfig,
     recursion_limit: int | None,
 ) -> Any:
     """Construct dcode lazily after the harness's shared worktree checks."""
-    profile = _validate_launch(experiment)
+    profile = _validate_launch(config)
     settings = _validate_model(model)
     from deepagents_code._paths import PATHS
     from deepagents_code.agent import create_cli_agent
@@ -306,7 +306,7 @@ def create_dcode_player(
     model = model.model_copy()
     object.__setattr__(model, MODEL_RETRIES_ATTR, 0)
     context = ProjectContext(user_cwd=cwd, project_root=cwd)
-    before = _inventory(experiment, context)
+    before = _inventory(config, context)
     adapted = _artifact_backend(backend, cwd)
     graph, effective = create_cli_agent(
         model=model,
@@ -316,9 +316,9 @@ def create_dcode_player(
         auto_approve=True,
         auto_mode_enabled=False,
         enable_ask_user=False,
-        enable_memory=bool(experiment.memory),
+        enable_memory=bool(config.memory),
         memory_auto_save=False,
-        enable_skills=bool(experiment.skills),
+        enable_skills=bool(config.skills),
         enable_shell=True,
         enable_interpreter=False,
         cwd=cwd,
@@ -328,8 +328,8 @@ def create_dcode_player(
         cli_max_retries=0,
         environ=dict(os.environ),
     )
-    after = _inventory(experiment, context)
-    _validate_launch(experiment)
+    after = _inventory(config, context)
+    _validate_launch(config)
     if before != after:
         _refuse("discovery sources changed during graph construction")
     tools = sorted(graph.nodes["tools"].bound.tools_by_name)

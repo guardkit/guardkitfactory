@@ -147,7 +147,7 @@ import dataclasses
 import logging
 import os
 import stat
-from collections.abc import Iterable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -412,17 +412,42 @@ class PathConfinedBackend:
     and the whole read surface are untouched.
     """
 
-    def __init__(self, inner: Any, allowed_roots: Sequence[Path]) -> None:
+    def __init__(
+        self,
+        inner: Any,
+        allowed_roots: Sequence[Path],
+        protected_paths: Sequence[Path | str] = (),
+    ) -> None:
         self._inner = inner
         self._allowed_roots = [Path(root).resolve() for root in allowed_roots]
-        acceptance_root = self._allowed_roots[0] / "tests" / "acceptance"
-        protected = tuple(self._walk_existing_files(acceptance_root))
-        self._protected_acceptance_files = frozenset(
-            path.resolve() for path in protected
-        )
-        self._protected_acceptance_aliases = frozenset(
-            self._absolute_path(path) for path in protected
-        )
+        worktree = self._allowed_roots[0]
+        protected_files: set[Path] = set()
+        protected_directories: set[Path] = set()
+        protected_file_aliases: set[Path] = set()
+        protected_directory_aliases: set[Path] = set()
+        for raw in protected_paths:
+            candidate = Path(raw)
+            if not candidate.is_absolute():
+                candidate = worktree / candidate
+            lexical = self._absolute_path(candidate)
+            try:
+                resolved = candidate.resolve(strict=True)
+            except (OSError, RuntimeError) as exc:
+                raise ValueError(f"protected path does not exist: {raw}") from exc
+            if not resolved.is_relative_to(worktree):
+                raise ValueError(f"protected path escapes the worktree: {raw}")
+            if resolved.is_dir():
+                protected_directories.add(resolved)
+                protected_directory_aliases.add(lexical)
+            elif resolved.is_file():
+                protected_files.add(resolved)
+                protected_file_aliases.add(lexical)
+            else:
+                raise ValueError(f"protected path is not a file or directory: {raw}")
+        self._protected_files = frozenset(protected_files)
+        self._protected_directories = frozenset(protected_directories)
+        self._protected_file_aliases = frozenset(protected_file_aliases)
+        self._protected_directory_aliases = frozenset(protected_directory_aliases)
 
     def __getattr__(self, name: str) -> Any:
         # Only reached for attributes NOT defined on this class — i.e. every
@@ -443,39 +468,6 @@ class PathConfinedBackend:
             candidate = Path(self._inner.cwd) / candidate
         return Path(os.path.abspath(candidate))
 
-    @staticmethod
-    def _walk_existing_files(root: Path) -> Iterable[Path]:
-        """Yield files below ``root``, following directory symlinks safely.
-
-        ``Path.rglob`` does not descend through a symlinked directory. Track
-        visited device/inode pairs while following links so acceptance files
-        remain visible without looping through a cyclic directory graph.
-        """
-        pending = [root]
-        visited: set[tuple[int, int]] = set()
-        while pending:
-            directory = pending.pop()
-            try:
-                stat = directory.stat()
-            except OSError:
-                continue
-            identity = (stat.st_dev, stat.st_ino)
-            if identity in visited:
-                continue
-            visited.add(identity)
-            try:
-                entries = tuple(directory.iterdir())
-            except OSError:
-                continue
-            for entry in entries:
-                try:
-                    if entry.is_dir():
-                        pending.append(entry)
-                    elif entry.is_file():
-                        yield entry
-                except OSError:
-                    continue
-
     def _resolve_outside(self, file_path: str) -> Path | None:
         """Return the resolved path if it escapes all allowed roots."""
         resolved = self._resolve_path(file_path)
@@ -484,41 +476,54 @@ class PathConfinedBackend:
                 return None
         return resolved
 
-    def _protects_acceptance_file(
+    def _protects_declared_path(
         self,
         resolved: Path,
         *,
         alias: Path | None = None,
         recursive: bool = False,
     ) -> bool:
-        if resolved in self._protected_acceptance_files or (
-            alias is not None and alias in self._protected_acceptance_aliases
+        if resolved in self._protected_files or any(
+            resolved.is_relative_to(root) for root in self._protected_directories
         ):
             return True
-        return recursive and (
-            any(
-                protected.is_relative_to(resolved)
-                for protected in self._protected_acceptance_files
+        if alias is not None and (
+            alias in self._protected_file_aliases
+            or any(
+                alias.is_relative_to(root)
+                for root in self._protected_directory_aliases
             )
+        ):
+            return True
+        if not recursive:
+            return False
+        return (
+            any(path.is_relative_to(resolved) for path in self._protected_files)
+            or any(path.is_relative_to(resolved) for path in self._protected_directories)
             or (
                 alias is not None
-                and any(
-                    protected.is_relative_to(alias)
-                    for protected in self._protected_acceptance_aliases
+                and (
+                    any(
+                        path.is_relative_to(alias)
+                        for path in self._protected_file_aliases
+                    )
+                    or any(
+                        path.is_relative_to(alias)
+                        for path in self._protected_directory_aliases
+                    )
                 )
             )
         )
 
     def _reject_protected(self, op: str, file_path: str) -> str:
         logger.warning(
-            "AutoBuild acceptance protection: rejected %s of '%s'",
+            "AutoBuild declared-path protection: rejected %s of '%s'",
             op,
             file_path,
         )
         return (
-            f"Error: refusing to {op} '{file_path}': existing files under "
-            "'tests/acceptance' are independent acceptance evidence and "
-            "cannot be changed by the agent."
+            f"Error: refusing to {op} '{file_path}': the project declares "
+            "this path as protected evidence and the agent cannot change it."
         )
 
     def _reject(self, op: str, file_path: str, resolved: Path) -> str:
@@ -542,7 +547,7 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
-        if self._protects_acceptance_file(
+        if self._protects_declared_path(
             self._resolve_path(file_path), alias=self._absolute_path(file_path)
         ):
             return WriteResult(error=self._reject_protected("overwrite", file_path))
@@ -552,7 +557,7 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
-        if self._protects_acceptance_file(
+        if self._protects_declared_path(
             self._resolve_path(file_path), alias=self._absolute_path(file_path)
         ):
             return WriteResult(error=self._reject_protected("overwrite", file_path))
@@ -563,7 +568,7 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
-        if self._protects_acceptance_file(
+        if self._protects_declared_path(
             self._resolve_path(file_path), alias=self._absolute_path(file_path)
         ):
             return EditResult(error=self._reject_protected("edit", file_path))
@@ -573,7 +578,7 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
-        if self._protects_acceptance_file(
+        if self._protects_declared_path(
             self._resolve_path(file_path), alias=self._absolute_path(file_path)
         ):
             return EditResult(error=self._reject_protected("edit", file_path))
@@ -629,7 +634,7 @@ class PathConfinedBackend:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
             )
-        if self._protects_acceptance_file(
+        if self._protects_declared_path(
             resolved, alias=self._absolute_path(file_path), recursive=True
         ):
             return DeleteResult(error=self._reject_protected("delete", file_path))
@@ -649,7 +654,7 @@ class PathConfinedBackend:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
             )
-        if self._protects_acceptance_file(
+        if self._protects_declared_path(
             resolved, alias=self._absolute_path(file_path), recursive=True
         ):
             return DeleteResult(error=self._reject_protected("delete", file_path))
@@ -755,6 +760,7 @@ def build_autobuild_backend(
     *,
     max_tool_result_chars: int | None = None,
     extra_write_roots: Sequence[Path | str] | None = None,
+    protected_paths: Sequence[Path | str] = (),
 ) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
@@ -809,6 +815,10 @@ def build_autobuild_backend(
             sibling symlink — see :func:`_allowed_write_roots`) that
             ``write``/``edit`` may target. ``None`` (the default) confines
             writes to the worktree + sibling-symlink policy roots.
+        protected_paths: Existing project-declared files or directories that
+            the Player may read but may not write, edit, or delete. Relative
+            paths resolve from ``worktree``. Missing, escaping, or invalid
+            declarations fail construction instead of weakening protection.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -847,7 +857,9 @@ def build_autobuild_backend(
     # wrapper.
     artifacts_root = str(local_shell.cwd)
     default_backend: Any = PathConfinedBackend(
-        local_shell, _allowed_write_roots(worktree, extra_write_roots)
+        local_shell,
+        _allowed_write_roots(worktree, extra_write_roots),
+        protected_paths=protected_paths,
     )
 
     # TASK-PERF-COACHSYNTH — optionally cap per-tool-result size for the
