@@ -48,8 +48,9 @@ import logging
 import os
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
+from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from deepagents import create_deep_agent
 from guardkit.orchestrator.harness import (
@@ -69,7 +70,10 @@ from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
 )
-from guardkitfactory.harness.http_clients import create_chat_openai, with_invocation_clients
+from guardkitfactory.harness.http_clients import (
+    create_chat_openai,
+    with_invocation_clients,
+)
 from guardkitfactory.harness.model_config import resolve_autobuild_model
 from guardkitfactory.harness.player_config import (
     PlayerConfig,
@@ -352,6 +356,21 @@ class LangGraphHarnessError(RuntimeError):
         self.raw_result = raw_result
 
 
+@dataclass(frozen=True)
+class NativeToolEvent:
+    """A native tool boundary captured while ``ainvoke`` is running."""
+
+    phase: Literal["start", "end", "error"]
+    run_id: str
+    parent_run_id: str | None
+    tool_name: str | None
+    payload: Any
+
+
+class NativeToolEvidenceError(RuntimeError):
+    """An enabled progressive tool-evidence sink could not record."""
+
+
 class _ModelActivityCallbackHandler(BaseCallbackHandler):
     """LangChain callback that pings ``on_model_activity`` on real LLM/tool work.
 
@@ -371,15 +390,26 @@ class _ModelActivityCallbackHandler(BaseCallbackHandler):
     (the substrate stops calling the model entirely, e.g. run-9 turn-2) still
     starves the callback, so the watchdog continues to catch it.
 
-    The callback is best-effort and never raises into the LangChain run
-    (``raise_error`` stays False): a misbehaving activity sink must not abort
-    the agent.
+    The activity callback remains best-effort. When progressive evidence is
+    enabled, its sink is fail-closed so a missing record cannot look complete.
     """
 
-    def __init__(self, on_model_activity: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        on_model_activity: Callable[[], None] | None,
+        on_native_tool_event: Callable[[NativeToolEvent], None] | None = None,
+    ) -> None:
         self._on_model_activity = on_model_activity
+        self._on_native_tool_event = on_native_tool_event
+        # LangChain otherwise logs and suppresses callback failures. Enabled
+        # evidence capture must fail visibly instead of producing a silently
+        # incomplete trace.
+        self.raise_error = on_native_tool_event is not None
+        self._tool_names: dict[str, str | None] = {}
 
     def _ping(self) -> None:
+        if self._on_model_activity is None:
+            return
         try:
             self._on_model_activity()
         except Exception:  # noqa: BLE001 — activity sink must never abort a run
@@ -407,11 +437,100 @@ class _ModelActivityCallbackHandler(BaseCallbackHandler):
 
     # Tool boundaries — a long-running tool (e.g. the test-orchestrator's
     # background pytest poll) is also genuine progress, not a hang.
-    def on_tool_start(self, *args: Any, **kwargs: Any) -> None:
-        self._ping()
 
-    def on_tool_end(self, *args: Any, **kwargs: Any) -> None:
+    @staticmethod
+    def _correlation(kwargs: dict[str, Any]) -> tuple[str, str | None]:
+        run_id = kwargs.get("run_id")
+        parent_run_id = kwargs.get("parent_run_id")
+        return str(run_id or ""), (
+            str(parent_run_id) if parent_run_id is not None else None
+        )
+
+    @classmethod
+    def _evidence_payload(cls, value: Any) -> Any:
+        """Return a lossless JSON-shaped view of common tool payloads."""
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return value
+        if isinstance(value, Mapping):
+            return {
+                str(key): cls._evidence_payload(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple, set, frozenset)):
+            return [cls._evidence_payload(item) for item in value]
+        if is_dataclass(value) and not isinstance(value, type):
+            return cls._evidence_payload(asdict(value))
+        model_dump = getattr(value, "model_dump", None)
+        if callable(model_dump):
+            return cls._evidence_payload(model_dump())
+        return repr(value)
+
+    def _emit_tool_event(self, event: NativeToolEvent) -> None:
+        if self._on_native_tool_event is None:
+            return
+        try:
+            self._on_native_tool_event(event)
+        except Exception as exc:  # noqa: BLE001 -- fail closed with context
+            logger.error(
+                "Progressive native tool evidence failed for phase=%s "
+                "run_id=%s tool=%r: %s",
+                event.phase, event.run_id, event.tool_name, exc,
+                exc_info=True,
+            )
+            raise NativeToolEvidenceError(
+                "progressive native tool evidence could not be recorded "
+                f"for phase={event.phase} run_id={event.run_id}"
+            ) from exc
+
+    def on_tool_start(
+        self,
+        serialized: dict[str, Any] | None = None,
+        input_str: str = "",
+        **kwargs: Any,
+    ) -> None:
         self._ping()
+        run_id, parent_run_id = self._correlation(kwargs)
+        raw_name = serialized.get("name") if isinstance(serialized, dict) else None
+        payload = kwargs.get("inputs")
+        if payload is None:
+            payload = input_str
+        tool_name = str(raw_name) if raw_name is not None else None
+        self._tool_names[run_id] = tool_name
+        self._emit_tool_event(
+            NativeToolEvent(
+                phase="start",
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+                tool_name=tool_name,
+                payload=self._evidence_payload(payload),
+            )
+        )
+
+    def on_tool_end(self, output: Any = None, **kwargs: Any) -> None:
+        self._ping()
+        run_id, parent_run_id = self._correlation(kwargs)
+        self._emit_tool_event(
+            NativeToolEvent(
+                phase="end",
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+                tool_name=self._tool_names.pop(run_id, None),
+                payload=self._evidence_payload(output),
+            )
+        )
+
+    def on_tool_error(self, error: BaseException, **kwargs: Any) -> None:
+        self._ping()
+        run_id, parent_run_id = self._correlation(kwargs)
+        self._emit_tool_event(
+            NativeToolEvent(
+                phase="error",
+                run_id=run_id,
+                parent_run_id=parent_run_id,
+                tool_name=self._tool_names.pop(run_id, None),
+                payload={"type": type(error).__name__, "message": str(error)},
+            )
+        )
 
 
 class LangGraphHarness(HarnessAdapter):
@@ -449,6 +568,7 @@ class LangGraphHarness(HarnessAdapter):
         permissions: list[Any] | None = None,
         recursion_limit: int | None = _RECURSION_LIMIT_DEFAULT,
         on_model_activity: Callable[[], None] | None = None,
+        on_native_tool_event: Callable[[NativeToolEvent], None] | None = None,
         player_config: PlayerConfig | None = None,
     ) -> None:
         self.model = model
@@ -462,6 +582,7 @@ class LangGraphHarness(HarnessAdapter):
         # and what every existing test/construction site supplies) installs
         # no callbacks — behaviour is byte-for-byte unchanged.
         self.on_model_activity = on_model_activity
+        self.on_native_tool_event = on_native_tool_event
         self.player_config = player_config
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
@@ -720,9 +841,14 @@ class LangGraphHarness(HarnessAdapter):
         config: dict[str, Any] = {}
         if self.recursion_limit is not None:
             config["recursion_limit"] = self.recursion_limit
-        if self.on_model_activity is not None:
+        if (
+            self.on_model_activity is not None
+            or self.on_native_tool_event is not None
+        ):
             config["callbacks"] = [
-                _ModelActivityCallbackHandler(self.on_model_activity)
+                _ModelActivityCallbackHandler(
+                    self.on_model_activity, self.on_native_tool_event
+                )
             ]
         return config or None
 
