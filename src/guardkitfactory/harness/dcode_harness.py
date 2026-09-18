@@ -15,7 +15,7 @@ import stat
 import sys
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 from urllib.parse import urlsplit
 
 from guardkitfactory.harness.player_config import PlayerConfig
@@ -23,10 +23,9 @@ from guardkitfactory.harness.player_config import PlayerConfig
 logger = logging.getLogger(__name__)
 _AGENT = "guardkit-player"
 _INSTALL = "install guardkitfactory with Python >=3.12,<4; no fallback engine was started"
-_SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos"}
 
 
-def _refuse(message: str) -> None:
+def _refuse(message: str) -> NoReturn:
     # Lazy import avoids a circular dependency at the construction seam.
     from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
 
@@ -84,12 +83,16 @@ def required_skill_reads(config: PlayerConfig) -> tuple[dict[str, Any], ...]:
             if not canonical.is_relative_to(source_root) or not canonical.is_file():
                 _refuse(f"escaping or invalid selected skill document: {path}")
             body = _read(canonical, config.cwd)
+            try:
+                line_count = len(body.decode("utf-8").splitlines())
+            except UnicodeDecodeError:
+                _refuse(f"selected skill is not valid UTF-8: {canonical}")
             required.append(
                 {
                     "path": str(canonical),
                     "relative_path": str(canonical.relative_to(config.cwd)),
                     "sha256": hashlib.sha256(body).hexdigest(),
-                    "line_count": len(body.decode("utf-8").splitlines()),
+                    "line_count": line_count,
                 }
             )
     if config.skills and not required:
@@ -103,104 +106,41 @@ def validate_skill_reads(
     config: PlayerConfig,
     required: tuple[dict[str, Any], ...],
 ) -> dict[str, Any]:
-    """Prove successful selected-skill reads occurred before coding tools."""
+    """Audit a completed transcript without counting future tool results."""
 
     if not required:
         return {"status": "not_required", "required": [], "observed": []}
     if not isinstance(result, Mapping):
         _refuse("selected skill reads cannot be proved from a non-mapping result")
 
-    expected = {Path(item["path"]): item for item in required}
-    messages = result.get("messages", []) or []
-    successful_results: dict[str, Any] = {}
-    for message in messages:
-        if message.__class__.__name__ != "ToolMessage":
-            continue
-        call_id = str(getattr(message, "tool_call_id", "") or "")
-        status = str(getattr(message, "status", "") or "").casefold()
-        content = getattr(message, "content", None)
-        if (
-            call_id
-            and status != "error"
-            and isinstance(content, str)
-            and content.strip()
-            and "[Output was truncated due to size limits." not in content
-        ):
-            successful_results[call_id] = message
+    from langchain_core.messages import ToolMessage
 
-    observed: dict[Path, dict[str, Any]] = {}
-    accepted_alias_roots = (config.cwd / "skills", config.cwd / ".agents" / "skills")
-    for message in messages:
-        calls = getattr(message, "tool_calls", None)
-        if not calls:
-            continue
-        parsed_calls = [call for call in calls if isinstance(call, Mapping)]
-        boundary = next(
-            (
-                str(call.get("name", "") or "")
-                for call in parsed_calls
-                if str(call.get("name", "") or "") not in _SAFE_BEFORE_SKILL_READS
-            ),
-            None,
-        )
-        if boundary is not None and set(observed) != set(expected):
-            missing = sorted(str(path) for path in set(expected) - set(observed))
-            _refuse(
-                "selected skill bodies must be read successfully before "
-                f"{boundary!r}; missing: {missing}"
-            )
-        for call in parsed_calls:
-            if str(call.get("name", "") or "") != "read_file":
-                continue
-            args = call.get("args", {}) or {}
-            if not isinstance(args, Mapping):
-                continue
-            raw_path = args.get("file_path", args.get("path"))
-            if not isinstance(raw_path, str) or not raw_path.strip():
-                continue
-            candidate = Path(raw_path)
-            candidate = candidate if candidate.is_absolute() else config.cwd / candidate
-            try:
-                canonical = candidate.resolve(strict=True)
-            except (OSError, RuntimeError):
-                continue
-            lexical = Path(os.path.abspath(candidate))
-            call_id = str(call.get("id", "") or "")
-            accepted_path = lexical == canonical or any(
-                lexical.is_relative_to(alias_root) for alias_root in accepted_alias_roots
-            )
-            if canonical not in expected or not accepted_path or call_id not in successful_results:
-                continue
-            offset = args.get("offset", 0)
-            limit = args.get("limit", 100)
-            if (
-                not isinstance(offset, int)
-                or isinstance(offset, bool)
-                or offset != 0
-                or not isinstance(limit, int)
-                or isinstance(limit, bool)
-                or limit < expected[canonical]["line_count"]
-            ):
-                continue
-            digest = hashlib.sha256(_read(canonical, config.cwd)).hexdigest()
-            if digest != expected[canonical]["sha256"]:
-                _refuse(f"selected skill changed after it was read: {canonical}")
-            observed[canonical] = {
-                "path": str(canonical),
-                "relative_path": expected[canonical]["relative_path"],
-                "sha256": digest,
-                "tool_call_id": call_id,
-            }
+    from guardkitfactory.harness.skill_read_middleware import (
+        SelectedSkillReadError,
+        SelectedSkillReadMiddleware,
+    )
 
-    missing = sorted(str(path) for path in set(expected) - set(observed))
-    if missing:
-        _refuse(f"selected skill bodies were not read successfully: {missing}")
-    telemetry = {
-        "status": "passed",
-        "required": [dict(item) for item in required],
-        "observed": [observed[path] for path in sorted(observed)],
-    }
-    logger.info("dcode Player selected-skill consumption: %s", telemetry)
+    gate = SelectedSkillReadMiddleware(cwd=config.cwd, required=required)
+    pending: dict[str, Mapping[str, Any]] = {}
+    try:
+        for message in result.get("messages", []) or []:
+            if isinstance(message, ToolMessage):
+                call = pending.pop(str(message.tool_call_id or ""), None)
+                if call is not None:
+                    gate.record_completed_read(call, message)
+                continue
+            for call in getattr(message, "tool_calls", None) or []:
+                if not isinstance(call, Mapping):
+                    continue
+                name = str(call.get("name", "") or "")
+                gate.check_before(name)
+                call_id = str(call.get("id", "") or "")
+                if name == "read_file" and call_id:
+                    pending[call_id] = call
+        telemetry = gate.evidence()
+    except SelectedSkillReadError as exc:
+        _refuse(str(exc))
+    logger.info("dcode Player selected-skill transcript audit: %s", telemetry)
     return telemetry
 
 
@@ -427,9 +367,19 @@ def create_dcode_player(
     profile = _validate_launch(config)
     settings = _validate_model(model)
     from deepagents_code._paths import PATHS
+    from deepagents_code._env_vars import EXPERIMENTAL
     from deepagents_code.agent import create_cli_agent
     from deepagents_code.config import MODEL_RETRIES_ATTR
+    from deepagents_code.extensions.registry import (
+        ExtensionRegistry,
+        SourceInfo,
+        SourceScope,
+    )
     from deepagents_code.project_utils import ProjectContext
+
+    from guardkitfactory.harness.skill_read_middleware import (
+        SelectedSkillReadMiddleware,
+    )
 
     if PATHS.profile.root != profile:
         _refuse("already-imported dcode profile differs; start a new process for this run")
@@ -441,6 +391,19 @@ def create_dcode_player(
     context = ProjectContext(user_cwd=cwd, project_root=cwd)
     before = _inventory(config, context)
     adapted = _artifact_backend(backend, cwd)
+    required = required_skill_reads(config)
+    skill_gate = SelectedSkillReadMiddleware(cwd=config.cwd, required=required)
+    registry = ExtensionRegistry()
+    registry.add_middleware(
+        skill_gate,
+        SourceInfo(
+            path=Path(__file__),
+            source_id="guardkitfactory-selected-skill-reads",
+            scope=SourceScope.TEMPORARY,
+        ),
+    )
+    dcode_environment = dict(os.environ)
+    dcode_environment[EXPERIMENTAL] = "1"
     graph, effective = create_cli_agent(
         model=model,
         assistant_id=_AGENT,
@@ -459,7 +422,8 @@ def create_dcode_player(
         recursion_limit=recursion_limit,
         model_retries=0,
         cli_max_retries=0,
-        environ=dict(os.environ),
+        extension_registry=registry,
+        environ=dcode_environment,
     )
     after = _inventory(config, context)
     _validate_launch(config)
@@ -468,7 +432,7 @@ def create_dcode_player(
     tools = sorted(graph.nodes["tools"].bound.tools_by_name)
     evidence = {
         "discovery": after,
-        "required_skill_reads": [dict(item) for item in required_skill_reads(config)],
+        "required_skill_reads": [dict(item) for item in required],
         "model": settings,
         "tools": tools,
         "artifacts": {
@@ -479,5 +443,6 @@ def create_dcode_player(
     # cancellation ownership, with no wrapper graph or additional task.
     graph.guardkit_dcode_evidence = evidence
     graph.guardkit_dcode_backend = effective
+    graph.guardkit_skill_read_gate = skill_gate
     logger.info("dcode Player construction inventory: %s", evidence)
     return graph

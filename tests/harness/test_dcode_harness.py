@@ -18,7 +18,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 from guardkit.orchestrator.harness import AssistantMessageEvent, ResultMessageEvent, ToolResultEvent
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness, LangGraphHarnessError
 from guardkitfactory.harness.player_config import build_player_config
@@ -294,6 +294,155 @@ def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
         assert any(isinstance(event, ResultMessageEvent) for event in events)
         assert harness.last_player_evidence is not None
         assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
+    finally:
+        _close_clients(sync, async_)
+
+
+@pytest.mark.parametrize("content", ["Error: file not found", "1\t---"])
+def test_selected_skill_transcript_rejects_false_tool_body(
+    tmp_path: Path, content: str
+) -> None:
+    from guardkitfactory.harness.dcode_harness import (
+        required_skill_reads,
+        validate_skill_reads,
+    )
+
+    repo = _scaffold(tmp_path)
+    selected = config(repo)
+    messages: list[Any] = []
+    for index, item in enumerate(required_skill_reads(selected)):
+        call_id = f"false-{index}"
+        messages.extend(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "read_file",
+                            "args": {"file_path": item["path"], "limit": 1000},
+                            "id": call_id,
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(content=content, tool_call_id=call_id),
+            ]
+        )
+    with pytest.raises(LangGraphHarnessError, match="were not read successfully"):
+        validate_skill_reads(
+            {"messages": messages},
+            config=selected,
+            required=required_skill_reads(selected),
+        )
+
+
+def test_selected_skill_gate_blocks_real_write_before_handler(tmp_path: Path) -> None:
+    repo = _scaffold(tmp_path)
+    marker = repo / "should-not-exist.txt"
+    exchange = Exchange(
+        [("write_file", {"file_path": str(marker), "content": "MUTATED"})]
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        with pytest.raises(LangGraphHarnessError, match="before 'write_file'"):
+            asyncio.run(_collect(harness, repo))
+        assert not marker.exists()
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_selected_skill_gate_blocks_same_batch_write_while_reads_run(
+    tmp_path: Path,
+) -> None:
+    repo = _scaffold(tmp_path)
+    marker = repo / "same-batch-must-not-exist.txt"
+    backend = _backend(repo)
+    original_aread = backend.default.aread
+
+    async def delayed_aread(*args: Any, **kwargs: Any) -> Any:
+        await asyncio.sleep(0.05)
+        return await original_aread(*args, **kwargs)
+
+    backend.default.aread = delayed_aread
+
+    class BatchExchange(Exchange):
+        def __call__(self, request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            self.bodies.append(body)
+            self.requests.append({"offered": []})
+            calls = [
+                *selected_skill_calls(repo),
+                ("write_file", {"file_path": str(marker), "content": "MUTATED"}),
+            ]
+            message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": f"batch-{index}",
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": json.dumps(arguments),
+                        },
+                    }
+                    for index, (name, arguments) in enumerate(calls)
+                ],
+            }
+            return httpx.Response(
+                200,
+                json={
+                    "id": "batch",
+                    "object": "chat.completion",
+                    "created": 1,
+                    "model": body["model"],
+                    "choices": [
+                        {"index": 0, "message": message, "finish_reason": "tool_calls"}
+                    ],
+                    "usage": {
+                        "prompt_tokens": 100,
+                        "completion_tokens": 10,
+                        "total_tokens": 110,
+                    },
+                },
+            )
+
+    exchange = BatchExchange([])
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=backend, player_config=config(repo))
+    try:
+        with pytest.raises(LangGraphHarnessError, match="before 'write_file'"):
+            asyncio.run(_collect(harness, repo))
+        assert not marker.exists()
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_selected_skill_complete_read_normalizes_crlf(tmp_path: Path) -> None:
+    repo = _scaffold(tmp_path)
+    planning = (repo / "skills/planning/SKILL.md").resolve()
+    planning.write_bytes(planning.read_bytes().replace(b"\n", b"\r\n"))
+    exchange = Exchange(selected_skill_calls(repo), final_text="CRLF skill consumed")
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_selected_skill_non_utf8_fails_before_model(tmp_path: Path) -> None:
+    repo = _scaffold(tmp_path)
+    (repo / "skills/planning/SKILL.md").resolve().write_bytes(b"---\nname: bad\n---\n\xff")
+    exchange = Exchange([])
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        with pytest.raises(LangGraphHarnessError, match="not valid UTF-8"):
+            asyncio.run(_collect(harness, repo))
+        assert not exchange.requests
     finally:
         _close_clients(sync, async_)
 
@@ -613,9 +762,11 @@ def test_nested_cancellation_settles(tmp_path: Path, phase: str, method: str) ->
     async def run() -> None:
         started = asyncio.Event()
         cancelled = asyncio.Event()
+        compaction_tool_calls = 0
 
         class Blocking(httpx.AsyncBaseTransport):
             async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+                nonlocal compaction_tool_calls
                 body = json.loads(request.content)
                 bodies.append(body)
                 index = len(bodies)
@@ -629,13 +780,21 @@ def test_nested_cancellation_settles(tmp_path: Path, phase: str, method: str) ->
                         index=index,
                     )
                 if phase == "compaction" and body.get("tools"):
-                    call = (
-                        ("read_file", {"file_path": str(repo / "long.txt"), "limit": 1000})
-                        if index < 8
-                        else ("compact_conversation", {})
-                    )
+                    compaction_tool_calls += 1
+                    if compaction_tool_calls <= 2:
+                        call = selected_skill_calls(repo)[compaction_tool_calls - 1]
+                    elif compaction_tool_calls < 10:
+                        call = (
+                            "read_file",
+                            {"file_path": str(repo / "long.txt"), "limit": 1000},
+                        )
+                    else:
+                        call = ("compact_conversation", {})
                     return response(
-                        body, call=call, tokens=65000 if index >= 7 else 100, index=index
+                        body,
+                        call=call,
+                        tokens=65000 if compaction_tool_calls >= 9 else 100,
+                        index=index,
                     )
                 started.set()
                 try:

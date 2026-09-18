@@ -1041,16 +1041,23 @@ class LangGraphHarness(HarnessAdapter):
                         "truncated (finish_reason='length')",
                         raw_result=result,
                     )
-                from guardkitfactory.harness.dcode_harness import validate_skill_reads
+                from guardkitfactory.harness.skill_read_middleware import (
+                    SelectedSkillReadError,
+                    SelectedSkillReadMiddleware,
+                )
 
-                try:
-                    consumption = validate_skill_reads(
-                        result,
-                        config=self.player_config,
-                        required=required_skill_documents,
+                skill_gate = getattr(agent, "guardkit_skill_read_gate", None)
+                if not isinstance(skill_gate, SelectedSkillReadMiddleware):
+                    raise LangGraphHarnessError(
+                        "LangGraphHarness: dcode Player did not expose its skill-read gate",
+                        raw_result=result,
                     )
-                except LangGraphHarnessError as exc:
-                    raise LangGraphHarnessError(str(exc), raw_result=result) from exc
+                try:
+                    consumption = skill_gate.evidence()
+                except SelectedSkillReadError as exc:
+                    raise LangGraphHarnessError(
+                        f"dcode Player: {exc}", raw_result=result
+                    ) from exc
                 evidence = getattr(agent, "guardkit_dcode_evidence", None)
                 if not isinstance(evidence, dict):
                     raise LangGraphHarnessError(
