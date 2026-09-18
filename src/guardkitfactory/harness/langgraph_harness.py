@@ -113,7 +113,10 @@ def _system_prompt_for_role(role: str) -> str:
     return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
 
 
-def _player_context_prompt(config: PlayerConfig) -> str:
+def _player_context_prompt(
+    config: PlayerConfig,
+    required_skill_documents: tuple[dict[str, Any], ...] = (),
+) -> str:
     """Render the validated project context supplied to the dcode user turn."""
 
     sections = [
@@ -127,6 +130,17 @@ def _player_context_prompt(config: PlayerConfig) -> str:
         for path in config.repository_instructions:
             relative = path.relative_to(config.cwd)
             sections.append(f"#### {relative}\n{path.read_text(encoding='utf-8')}")
+    if required_skill_documents:
+        sections.append(
+            "### Required selected-skill reads\n"
+            "Before execution, delegation, or file changes, use read_file to read "
+            "every document below. Discovery alone does not satisfy this requirement."
+        )
+        sections.extend(
+            f"- {item['path']} (sha256 {item['sha256']}; "
+            f"read from offset 0 with limit at least {item['line_count']})"
+            for item in required_skill_documents
+        )
     if config.declared_commands:
         sections.append("### Project-declared commands (use unchanged)")
         sections.extend(f"- {name}: `{command}`" for name, command in config.declared_commands)
@@ -584,6 +598,7 @@ class LangGraphHarness(HarnessAdapter):
         self.on_model_activity = on_model_activity
         self.on_native_tool_event = on_native_tool_event
         self.player_config = player_config
+        self.last_player_evidence: dict[str, Any] | None = None
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # preserves LangGraph's default (25). The Coach gather passes a small
@@ -871,15 +886,20 @@ class LangGraphHarness(HarnessAdapter):
         stream to mirror the SDK taxonomy more faithfully — until then,
         downstream consumers only need to dispatch on the terminal event.
         """
+        required_skill_documents: tuple[dict[str, Any], ...] = ()
         if role == "player" and self.player_config is not None:
+            self.last_player_evidence = None
             try:
                 revalidate_player_config(self.player_config, cwd=cwd)
             except PlayerConfigError as exc:
                 raise LangGraphHarnessError(
                     f"LangGraphHarness: invalid Player config at invocation: {exc}"
                 ) from exc
+            from guardkitfactory.harness.dcode_harness import required_skill_reads
+
+            required_skill_documents = required_skill_reads(self.player_config)
             prompt = (
-                f"{_player_context_prompt(self.player_config)}"
+                f"{_player_context_prompt(self.player_config, required_skill_documents)}"
                 "\n\n## Assigned task\n\n"
                 f"{prompt}"
             )
@@ -1021,6 +1041,24 @@ class LangGraphHarness(HarnessAdapter):
                         "truncated (finish_reason='length')",
                         raw_result=result,
                     )
+                from guardkitfactory.harness.dcode_harness import validate_skill_reads
+
+                try:
+                    consumption = validate_skill_reads(
+                        result,
+                        config=self.player_config,
+                        required=required_skill_documents,
+                    )
+                except LangGraphHarnessError as exc:
+                    raise LangGraphHarnessError(str(exc), raw_result=result) from exc
+                evidence = getattr(agent, "guardkit_dcode_evidence", None)
+                if not isinstance(evidence, dict):
+                    raise LangGraphHarnessError(
+                        "LangGraphHarness: dcode Player did not expose construction evidence",
+                        raw_result=result,
+                    )
+                evidence["skill_consumption"] = consumption
+                self.last_player_evidence = dict(evidence)
             else:
                 text = extract_last_ai_message(result) or ""
                 stop_reason = "end_turn"

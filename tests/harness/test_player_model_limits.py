@@ -410,7 +410,7 @@ def test_actual_dcode_graph_main_subagent_compaction_limits(
         pytest.skip("dcode requires Python 3.12+ and the required dependency")
     from deepagents_code.agent import create_cli_agent
 
-    from .test_dcode_harness import response as wire_response
+    from .test_dcode_harness import response as wire_response, selected_skill_calls
 
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS if thinking_off else LIMITS))
     repo = _scaffold(tmp_path)
@@ -439,7 +439,12 @@ def test_actual_dcode_graph_main_subagent_compaction_limits(
             summaries.append(body)
             return response(body, text="SUMMARY_SENTINEL retained", index=len(requests))
         tool_requests += 1
-        if tool_requests == 1:
+        if tool_requests <= 2:
+            return response(
+                body,
+                call=selected_skill_calls(repo)[tool_requests - 1],
+            )
+        if tool_requests == 3:
             return response(
                 body,
                 call=(
@@ -447,7 +452,7 @@ def test_actual_dcode_graph_main_subagent_compaction_limits(
                     {"subagent_type": "general-purpose", "description": "NESTED_SENTINEL"},
                 ),
             )
-        if tool_requests == 2:
+        if tool_requests == 4:
             return response(body, text="NESTED_SENTINEL completed")
         main_calls += 1
         if main_calls <= 9:
@@ -497,7 +502,11 @@ def test_actual_dcode_graph_main_subagent_compaction_limits(
         events = asyncio.run(_collect(harness, repo))
     assert any(isinstance(e, ResultMessageEvent) for e in events)
     assert summaries and len(requests) > 4
-    assert "NESTED_SENTINEL" in str([body for body in requests if body.get("tools")][1]["messages"])
+    assert any(
+        "NESTED_SENTINEL" in str(body["messages"])
+        for body in requests
+        if body.get("tools")
+    )
     assert any("SUMMARY_SENTINEL" in str(body["messages"]) for body in requests)
     for body in requests:
         assert body["model"] == "workhorse" and body["max_completion_tokens"] == 8192

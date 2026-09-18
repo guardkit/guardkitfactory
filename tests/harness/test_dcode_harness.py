@@ -66,6 +66,14 @@ def config(repo: Path) -> Any:
     )
 
 
+def selected_skill_calls(repo: Path) -> list[tuple[str, dict[str, object]]]:
+    root = (repo / "skills").resolve()
+    return [
+        ("read_file", {"file_path": str(root / "planning/SKILL.md"), "limit": 1000}),
+        ("read_file", {"file_path": str(root / "code-review/SKILL.md"), "limit": 1000}),
+    ]
+
+
 class Exchange(FakeExchange):
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -93,8 +101,7 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     digest = hashlib.sha256(acceptance.read_bytes()).hexdigest()
     exchange = Exchange(
         [
-            ("read_file", {"file_path": str(repo / "skills/planning/SKILL.md")}),
-            ("read_file", {"file_path": str(repo / "skills/code-review/SKILL.md")}),
+            *selected_skill_calls(repo),
             ("read_file", {"file_path": str(repo / "AGENTS.md")}),
             (
                 "execute",
@@ -168,6 +175,20 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     assert "./qa/run-suite.sh --exact" in supplied_messages
     assert "product_tests" in supplied_messages
     assert "Complete the checked change." in supplied_messages
+    assert "Required selected-skill reads" in supplied_messages
+    assert harness.last_player_evidence is not None
+    consumption = harness.last_player_evidence["skill_consumption"]
+    assert consumption["status"] == "passed"
+    assert [Path(item["path"]).name for item in consumption["observed"]] == [
+        "SKILL.md",
+        "SKILL.md",
+    ]
+    assert {
+        item["relative_path"] for item in consumption["observed"]
+    } == {
+        "examples/coding-skills-bundle/skills/code-review/SKILL.md",
+        "examples/coding-skills-bundle/skills/planning/SKILL.md",
+    }
     assert "compact_conversation" in exchange.requests[0]["offered"]
     assert all(
         b["model"] == "qwen36-workhorse"
@@ -179,12 +200,102 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
         "repair",
         {
             "inventory": graph.guardkit_dcode_evidence,
+            "run_evidence": harness.last_player_evidence,
             "requests": exchange.bodies,
             "results": results,
             "activity": len(activity),
             "acceptance_sha256": digest,
         },
     )
+
+
+@pytest.mark.parametrize(
+    "kind", ["missing", "wrong_root", "outside_alias", "partial", "late"]
+)
+def test_selected_skill_reads_fail_closed(tmp_path: Path, kind: str) -> None:
+    repo = _scaffold(tmp_path)
+    other = _scaffold(tmp_path, "other")
+    if kind == "missing":
+        calls = [("read_file", {"file_path": str(repo / "AGENTS.md")})]
+        match = "were not read successfully"
+    elif kind == "wrong_root":
+        calls = [
+            ("read_file", {"file_path": str(other / "skills/planning/SKILL.md")}),
+            ("read_file", {"file_path": str(other / "skills/code-review/SKILL.md")}),
+        ]
+        match = "were not read successfully"
+    elif kind == "outside_alias":
+        outside_alias = repo.parent / "outside-alias"
+        outside_alias.symlink_to((repo / "skills").resolve(), target_is_directory=True)
+        calls = [
+            (
+                "read_file",
+                {"file_path": str(outside_alias / "planning/SKILL.md")},
+            ),
+            (
+                "read_file",
+                {"file_path": str(outside_alias / "code-review/SKILL.md")},
+            ),
+        ]
+        match = "were not read successfully"
+    elif kind == "partial":
+        calls = [
+            (
+                "read_file",
+                {"file_path": str(repo / "skills/planning/SKILL.md"), "limit": 1},
+            ),
+            (
+                "read_file",
+                {"file_path": str(repo / "skills/code-review/SKILL.md"), "limit": 1},
+            ),
+        ]
+        match = "were not read successfully"
+    else:
+        calls = [
+            ("execute", {"command": "pwd"}),
+            ("read_file", {"file_path": str(repo / "skills/planning/SKILL.md")}),
+            ("read_file", {"file_path": str(repo / "skills/code-review/SKILL.md")}),
+        ]
+        match = "must be read successfully before"
+    exchange = Exchange(calls)
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        with pytest.raises(LangGraphHarnessError, match=match):
+            asyncio.run(_collect(harness, repo))
+        assert harness.last_player_evidence is None
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
+    repo = _scaffold(tmp_path)
+    calls = [
+        (
+            "read_file",
+            {
+                "file_path": str(repo / ".agents/skills/planning/SKILL.md"),
+                "limit": 1000,
+            },
+        ),
+        (
+            "read_file",
+            {
+                "file_path": str(repo / ".agents/skills/code-review/SKILL.md"),
+                "limit": 1000,
+            },
+        ),
+    ]
+    exchange = Exchange(calls, final_text="selected project skills consumed")
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert harness.last_player_evidence is not None
+        assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
+    finally:
+        _close_clients(sync, async_)
 
 
 @pytest.mark.parametrize("text,finish", [("", "stop"), ("", "length"), ("partial", "length")])
@@ -352,23 +463,26 @@ class ArtifactExchange:
             )
         index = self.index
         self.index += 1
-        if index == 0:
+        skill_calls = selected_skill_calls(self.repo)
+        if index < len(skill_calls):
+            call = skill_calls[index]
+        elif index == 2:
             call = ("execute", {"command": "python -c \"print('LARGE_SENTINEL ' * 10000)\""})
-        elif index == 1:
+        elif index == 3:
             rendered = "\n".join(str(m.get("content", "")) for m in body["messages"])
             alias = re.search(r"/large_tool_results/[a-zA-Z0-9_.-]+", rendered)[0]
             self.references.append(alias)
             call = ("read_file", {"file_path": alias, "limit": 5})
-        elif index < 9:
+        elif index < 11:
             call = ("read_file", {"file_path": str(self.repo / "long.txt"), "limit": 1000})
-        elif index == 9:
+        elif index == 11:
             call = ("compact_conversation", {})
-        elif index == 10:
+        elif index == 12:
             rendered = "\n".join(str(m.get("content", "")) for m in body["messages"])
             alias = re.search(r"/conversation_history/[a-zA-Z0-9_./-]+", rendered)[0].rstrip(".")
             self.references.append(alias)
             call = ("read_file", {"file_path": alias, "limit": 5})
-        elif index == 11:
+        elif index == 13:
             call = (
                 "write_file",
                 {"file_path": str(self.repo.parent / "outside.txt"), "content": "BLOCK_ME"},
@@ -443,7 +557,9 @@ def test_real_inherited_subagent_uses_same_model(tmp_path: Path) -> None:
         body = json.loads(request.content)
         bodies.append(body)
         index = len(bodies)
-        if index == 1:
+        if index <= 2:
+            return response(body, call=selected_skill_calls(repo)[index - 1], index=index)
+        if index == 3:
             return response(
                 body,
                 call=(
@@ -455,7 +571,7 @@ def test_real_inherited_subagent_uses_same_model(tmp_path: Path) -> None:
                 ),
                 index=index,
             )
-        if index == 2:
+        if index == 4:
             return response(
                 body, call=("read_file", {"file_path": str(repo / "AGENTS.md")}), index=index
             )
@@ -473,7 +589,7 @@ def test_real_inherited_subagent_uses_same_model(tmp_path: Path) -> None:
         events = asyncio.run(_collect(harness, repo))
     finally:
         _close_clients(sync, async_)
-    assert len(bodies) == 4 and activity
+    assert len(bodies) == 6 and activity
     assert all(
         b["model"] == "qwen36-workhorse"
         and b["temperature"] == 0
@@ -596,7 +712,9 @@ def test_nested_cancellation_settles(tmp_path: Path, phase: str, method: str) ->
 
 def test_aclose_does_not_deliver_success(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
-    exchange = Exchange([("read_file", {"file_path": str(repo / "AGENTS.md")})])
+    exchange = Exchange(
+        [*selected_skill_calls(repo), ("read_file", {"file_path": str(repo / "AGENTS.md")})]
+    )
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
 
@@ -657,14 +775,20 @@ def test_compaction_error_has_only_provider_retry_budget(
                 json={"error": {"message": "SUMMARY_RATE_LIMIT", "type": "rate_limit_error"}},
             )
         main_count += 1
-        if main_count < 8:
+        if main_count <= 2:
+            return response(
+                body,
+                call=selected_skill_calls(repo)[main_count - 1],
+                index=main_count,
+            )
+        if main_count < 10:
             return response(
                 body,
                 call=("read_file", {"file_path": str(repo / "long.txt"), "limit": 1000}),
                 tokens=65000 if main_count == 7 else 100,
                 index=main_count,
             )
-        if main_count == 8:
+        if main_count == 10:
             return response(body, call=("compact_conversation", {}), tokens=65000, index=main_count)
         return response(
             body, text="Compaction failed; preserved the conversation", index=main_count
@@ -830,7 +954,13 @@ def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: 
     def exchange(request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content)
         requests.append(body)
-        if len(requests) == 1:
+        if len(requests) <= 2:
+            return response(
+                body,
+                call=selected_skill_calls(repo)[len(requests) - 1],
+                index=898 + len(requests),
+            )
+        if len(requests) == 3:
             return response(
                 body,
                 call=(
@@ -839,7 +969,7 @@ def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: 
                 ),
                 index=900,
             )
-        if len(requests) == 2:
+        if len(requests) == 4:
             return response(body, text="DEFAULT_NESTED_SENTINEL complete", index=901)
         return artifact(request)
 
