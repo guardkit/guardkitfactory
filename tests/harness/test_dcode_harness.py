@@ -66,6 +66,96 @@ def config(repo: Path) -> Any:
     )
 
 
+_DECLARED_DOCUMENT = "skills/planning/references/project-conventions.md"
+
+
+def declare_document(repo: Path) -> Path:
+    """Write the supporting document a skill body tells the Player to read."""
+
+    folder = (repo / "skills" / "planning" / "references").resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    document = folder / "project-conventions.md"
+    document.write_text(
+        "# Project conventions\n"
+        "State the delivered surface (route, command or screen) in the plan.\n"
+    )
+    return document
+
+
+def config_with_documents(repo: Path, documents: list[str] | None = None) -> Any:
+    """The same Player inputs, plus project-declared mandatory documents."""
+
+    return build_player_config(
+        cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+        declared_commands=[("test", "./qa/run-suite.sh --exact")],
+        protected_paths=["product_tests"],
+        required_documents=[_DECLARED_DOCUMENT] if documents is None else documents,
+    )
+
+
+def read_call(path: Path) -> tuple[str, dict[str, object]]:
+    return ("read_file", {"file_path": str(path), "limit": 1000})
+
+
+def build_gate(selected: Any) -> tuple[Any, tuple[dict[str, Any], ...]]:
+    """Construct the real read gate over the real required set."""
+
+    from guardkitfactory.harness.dcode_harness import required_skill_reads
+    from guardkitfactory.harness.skill_read_middleware import (
+        SelectedSkillReadMiddleware,
+    )
+
+    required = required_skill_reads(selected)
+    return (
+        SelectedSkillReadMiddleware(cwd=selected.cwd, required=required),
+        required,
+    )
+
+
+def rendered_body(item: dict[str, Any]) -> str:
+    raw = Path(item["path"]).read_bytes().decode("utf-8")
+    text = raw.replace("\r\n", "\n").replace("\r", "\n")
+    body = text[:-1] if text.endswith("\n") else text
+    lines = item["line_count"]
+    return f"@@ lines 1-{lines} of {lines} @@\n{body}"
+
+
+def record_read(
+    gate: Any,
+    item: dict[str, Any],
+    *,
+    call_id: str = "call-0",
+    path: str | None = None,
+    offset: int = 0,
+    limit: int | None = None,
+    status: str = "success",
+    content: str | None = None,
+) -> None:
+    """Drive one completed ``read_file`` through the real gate recorder."""
+
+    message = ToolMessage(
+        content=content if content is not None else rendered_body(item),
+        tool_call_id=call_id,
+        status=status,
+    )
+    gate.record_completed_read(
+        {
+            "name": "read_file",
+            "args": {
+                "file_path": path if path is not None else item["path"],
+                "offset": offset,
+                "limit": item["line_count"] if limit is None else limit,
+            },
+            "id": call_id,
+        },
+        message,
+    )
+
+
 def selected_skill_calls(repo: Path) -> list[tuple[str, dict[str, object]]]:
     root = (repo / "skills").resolve()
     return [
@@ -175,7 +265,12 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     assert "./qa/run-suite.sh --exact" in supplied_messages
     assert "product_tests" in supplied_messages
     assert "Complete the checked change." in supplied_messages
-    assert "Required selected-skill reads" in supplied_messages
+    assert (
+        "Required reads before execution, delegation or file changes"
+        in supplied_messages
+    )
+    assert "[selected skill]" in supplied_messages
+    assert "[project-declared document]" not in supplied_messages
     assert harness.last_player_evidence is not None
     consumption = harness.last_player_evidence["skill_consumption"]
     assert consumption["status"] == "passed"
@@ -1195,3 +1290,252 @@ def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: 
             "owned_clients_closed": True,
         },
     )
+
+
+# --- Project-declared mandatory supporting documents (Lane A) ----------------
+
+
+def test_declared_documents_join_the_required_reads(tmp_path: Path) -> None:
+    """Positive control: the declared document is required, read and recorded."""
+
+    repo = _scaffold(tmp_path)
+    document = declare_document(repo)
+    exchange = Exchange(
+        [*selected_skill_calls(repo), read_call(document)],
+        final_text="declared documents consumed",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(
+        model, backend=_backend(repo), player_config=config_with_documents(repo)
+    )
+    try:
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert harness.last_player_evidence is not None
+        consumption = harness.last_player_evidence["skill_consumption"]
+        assert consumption["status"] == "passed"
+        assert [item["kind"] for item in consumption["required"]] == [
+            "skill",
+            "skill",
+            "declared_document",
+        ]
+        assert {item["kind"] for item in consumption["observed"]} == {
+            "skill",
+            "declared_document",
+        }
+        assert any(
+            item["relative_path"].endswith("references/project-conventions.md")
+            and item["kind"] == "declared_document"
+            for item in consumption["observed"]
+        )
+        supplied = str(exchange.bodies[0]["messages"])
+        assert (
+            "Required reads before execution, delegation or file changes" in supplied
+        )
+        assert "[project-declared document]" in supplied
+        assert "project-conventions.md" in supplied
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_unread_declared_document_blocks_a_real_write(tmp_path: Path) -> None:
+    """Both skill bodies read is no longer enough to earn a mutation."""
+
+    repo = _scaffold(tmp_path)
+    declare_document(repo)
+    marker = repo / "declared-document-guard.txt"
+    exchange = Exchange(
+        [
+            *selected_skill_calls(repo),
+            ("write_file", {"file_path": str(marker), "content": "MUTATED"}),
+        ]
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(
+        model, backend=_backend(repo), player_config=config_with_documents(repo)
+    )
+    try:
+        with pytest.raises(LangGraphHarnessError, match="before 'write_file'"):
+            asyncio.run(_collect(harness, repo))
+        assert not marker.exists()
+        assert harness.last_player_evidence is None
+    finally:
+        _close_clients(sync, async_)
+
+
+@pytest.mark.parametrize("tool", ["execute", "write_file", "edit_file", "task"])
+def test_guarded_tools_refuse_while_a_declared_document_is_unread(
+    tmp_path: Path, tool: str
+) -> None:
+    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
+
+    repo = _scaffold(tmp_path)
+    document = declare_document(repo)
+    gate, required = build_gate(config_with_documents(repo))
+    for index, item in enumerate(required):
+        if item["kind"] == "skill":
+            record_read(gate, item, call_id=f"skill-{index}")
+
+    with pytest.raises(SelectedSkillReadError, match="must be read successfully before"):
+        gate.check_before(tool)
+    with pytest.raises(SelectedSkillReadError, match=str(document.resolve())):
+        gate.check_before(tool)
+
+
+@pytest.mark.parametrize(
+    "tool", ["read_file", "ls", "glob", "grep", "write_todos"]
+)
+def test_discovery_tools_stay_open_while_a_declared_document_is_unread(
+    tmp_path: Path, tool: str
+) -> None:
+    repo = _scaffold(tmp_path)
+    declare_document(repo)
+    gate, _ = build_gate(config_with_documents(repo))
+
+    assert gate.check_before(tool) is None
+
+
+@pytest.mark.parametrize("kind", ["partial", "offset", "error"])
+def test_incomplete_declared_document_reads_are_not_recorded(
+    tmp_path: Path, kind: str
+) -> None:
+    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
+
+    repo = _scaffold(tmp_path)
+    declare_document(repo)
+    gate, required = build_gate(config_with_documents(repo))
+    declared = next(item for item in required if item["kind"] == "declared_document")
+    for index, item in enumerate(required):
+        if item["kind"] == "skill":
+            record_read(gate, item, call_id=f"skill-{index}")
+
+    if kind == "partial":
+        record_read(gate, declared, call_id="doc", limit=1)
+    elif kind == "offset":
+        record_read(gate, declared, call_id="doc", offset=1)
+    else:
+        record_read(gate, declared, call_id="doc", status="error")
+
+    with pytest.raises(SelectedSkillReadError, match="were not read successfully"):
+        gate.evidence()
+
+    record_read(gate, declared, call_id="doc-complete")
+    assert gate.evidence()["status"] == "passed"
+
+
+def test_concurrent_guarded_calls_cannot_both_pass_while_a_read_is_missing(
+    tmp_path: Path,
+) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
+
+    repo = _scaffold(tmp_path)
+    declare_document(repo)
+    gate, required = build_gate(config_with_documents(repo))
+    for index, item in enumerate(required):
+        if item["kind"] == "skill":
+            record_read(gate, item, call_id=f"skill-{index}")
+
+    def guarded() -> str:
+        try:
+            gate.check_before("execute")
+        except SelectedSkillReadError:
+            return "refused"
+        return "passed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: guarded(), range(2)))
+    assert outcomes == ["refused", "refused"]
+
+    declared = next(item for item in required if item["kind"] == "declared_document")
+    record_read(gate, declared, call_id="doc")
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = list(pool.map(lambda _: guarded(), range(2)))
+    assert outcomes == ["passed", "passed"]
+
+
+def test_declared_document_alias_accepted_and_unrelated_symlink_refused(
+    tmp_path: Path,
+) -> None:
+    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
+
+    repo = _scaffold(tmp_path)
+    document = declare_document(repo)
+    alias = repo / ".agents" / "skills" / "planning" / "references" / document.name
+    unrelated = repo / "unrelated-link"
+    unrelated.symlink_to(document.parent, target_is_directory=True)
+
+    gate, required = build_gate(config_with_documents(repo))
+    declared = next(item for item in required if item["kind"] == "declared_document")
+    for index, item in enumerate(required):
+        if item["kind"] == "skill":
+            record_read(gate, item, call_id=f"skill-{index}")
+
+    record_read(gate, declared, call_id="unrelated", path=str(unrelated / document.name))
+    with pytest.raises(SelectedSkillReadError, match="were not read successfully"):
+        gate.evidence()
+
+    record_read(gate, declared, call_id="alias", path=str(alias))
+    evidence_block = gate.evidence()
+    assert evidence_block["status"] == "passed"
+    assert {item["kind"] for item in evidence_block["observed"]} == {
+        "skill",
+        "declared_document",
+    }
+
+
+def test_declared_document_works_for_a_non_python_project(tmp_path: Path) -> None:
+    """A Makefile project declaring a plain-text document, end to end."""
+
+    repo = _scaffold(tmp_path)
+    (repo / "Makefile").write_text("check:\n\t./qa/run-suite.sh\n")
+    (repo / "docs").mkdir()
+    conventions = repo / "docs" / "conventions.txt"
+    conventions.write_text("Run make check. Name the delivered command.\n")
+    selected = build_player_config(
+        cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+        declared_commands=[("test", "make check")],
+        required_documents=["docs/conventions.txt"],
+    )
+    exchange = Exchange(
+        [*selected_skill_calls(repo), read_call(conventions)],
+        final_text="make-project documents consumed",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+    try:
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert harness.last_player_evidence is not None
+        consumption = harness.last_player_evidence["skill_consumption"]
+        assert consumption["status"] == "passed"
+        assert [
+            item["relative_path"]
+            for item in consumption["required"]
+            if item["kind"] == "declared_document"
+        ] == ["docs/conventions.txt"]
+        supplied = str(exchange.bodies[0]["messages"])
+        assert "make check" in supplied
+        assert "docs/conventions.txt" in supplied
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_skill_only_declaration_is_unchanged(tmp_path: Path) -> None:
+    """Positive control: no declaration means exactly the previous required set."""
+
+    from guardkitfactory.harness.dcode_harness import required_skill_reads
+
+    repo = _scaffold(tmp_path)
+    declare_document(repo)
+    selected = config(repo)
+
+    assert selected.required_documents == ()
+    required = required_skill_reads(selected)
+    assert [item["kind"] for item in required] == ["skill", "skill"]
+    assert [Path(item["path"]).name for item in required] == ["SKILL.md", "SKILL.md"]

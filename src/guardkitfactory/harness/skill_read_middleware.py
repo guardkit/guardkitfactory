@@ -1,4 +1,9 @@
-"""Pre-execution proof that selected project skill bodies were consumed."""
+"""Pre-execution proof that every required project document was consumed.
+
+The required set is the selected skill bodies plus the mandatory supporting
+documents the project declared. One gate enforces both; there is no second
+gate and nothing here parses Markdown links.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +22,17 @@ _SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos"}
 
 
 class SelectedSkillReadError(RuntimeError):
-    """Raised when a Player attempts work before selected skills are read."""
+    """Raised when a Player attempts work before required documents are read."""
+
+
+def _label(item: Mapping[str, Any]) -> str:
+    """Name one required entry the way a person reads it."""
+
+    return (
+        "declared document"
+        if str(item.get("kind", "skill")) == "declared_document"
+        else "selected skill"
+    )
 
 
 def _sdk_text_body(raw: bytes, path: Path) -> str:
@@ -27,14 +42,14 @@ def _sdk_text_body(raw: bytes, path: Path) -> str:
         text = raw.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise SelectedSkillReadError(
-            f"selected skill is not valid UTF-8: {path}"
+            f"required document is not valid UTF-8: {path}"
         ) from exc
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     return text[:-1] if text.endswith("\n") else text
 
 
 class SelectedSkillReadMiddleware(AgentMiddleware):
-    """Block coding tools until exact selected ``SKILL.md`` reads finish."""
+    """Block coding tools until every required full-body read finishes."""
 
     name = "guardkitfactory-selected-skill-reads"
 
@@ -53,13 +68,14 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
             digest = hashlib.sha256(raw).hexdigest()
             if digest != item["sha256"]:
                 raise SelectedSkillReadError(
-                    f"selected skill changed before graph construction: {path}"
+                    f"required {_label(item)} changed before graph construction: {path}"
                 )
             body = _sdk_text_body(raw, path)
             line_count = len(body.split("\n"))
             if line_count != item["line_count"]:
                 raise SelectedSkillReadError(
-                    f"selected skill line metadata changed before graph construction: {path}"
+                    f"required {_label(item)} line metadata changed before graph "
+                    f"construction: {path}"
                 )
             self._expected[path] = {
                 **item,
@@ -80,7 +96,8 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
             missing = self._missing()
         if missing:
             raise SelectedSkillReadError(
-                "selected skill bodies must be read successfully before "
+                "selected skill bodies and project-declared documents "
+                "must be read successfully before "
                 f"{tool_name!r}; missing: {[str(path) for path in missing]}"
             )
 
@@ -141,11 +158,11 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
             digest = hashlib.sha256(canonical.read_bytes()).hexdigest()
         except OSError as exc:
             raise SelectedSkillReadError(
-                f"selected skill cannot be revalidated after read: {canonical}"
+                f"required document cannot be revalidated after read: {canonical}"
             ) from exc
         if digest != expected["sha256"]:
             raise SelectedSkillReadError(
-                f"selected skill changed while it was read: {canonical}"
+                f"required {_label(expected)} changed while it was read: {canonical}"
             )
         with self._lock:
             self._observed.setdefault(
@@ -154,6 +171,7 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
                     "path": str(canonical),
                     "relative_path": expected["relative_path"],
                     "sha256": digest,
+                    "kind": str(expected.get("kind", "skill")),
                     "tool_call_id": call_id,
                 },
             )
@@ -166,7 +184,8 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
             observed = [dict(item) for item in self._observed.values()]
         if missing:
             raise SelectedSkillReadError(
-                "selected skill bodies were not read successfully: "
+                "selected skill bodies and project-declared documents "
+                "were not read successfully: "
                 f"{[str(path) for path in missing]}"
             )
         return {

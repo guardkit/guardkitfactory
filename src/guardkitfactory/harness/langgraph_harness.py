@@ -113,6 +113,12 @@ def _system_prompt_for_role(role: str) -> str:
     return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
 
 
+_READ_KINDS = {
+    "skill": "selected skill",
+    "declared_document": "project-declared document",
+}
+
+
 def _player_context_prompt(
     config: PlayerConfig,
     required_skill_documents: tuple[dict[str, Any], ...] = (),
@@ -132,12 +138,14 @@ def _player_context_prompt(
             sections.append(f"#### {relative}\n{path.read_text(encoding='utf-8')}")
     if required_skill_documents:
         sections.append(
-            "### Required selected-skill reads\n"
-            "Before execution, delegation, or file changes, use read_file to read "
-            "every document below. Discovery alone does not satisfy this requirement."
+            "### Required reads before execution, delegation or file changes\n"
+            "Use read_file to read every document below in full: the selected "
+            "skill bodies and the documents this project declared as required. "
+            "Discovery alone does not satisfy this requirement."
         )
         sections.extend(
-            f"- {item['path']} (sha256 {item['sha256']}; "
+            f"- [{_READ_KINDS.get(str(item.get('kind', 'skill')), 'required document')}] "
+            f"{item['path']} (sha256 {item['sha256']}; {item['line_count']} lines; "
             f"read from offset 0 with limit at least {item['line_count']})"
             for item in required_skill_documents
         )

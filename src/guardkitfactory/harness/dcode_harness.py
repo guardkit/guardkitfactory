@@ -72,32 +72,54 @@ def _tree(path: Path) -> dict[str, str]:
     return result
 
 
-def required_skill_reads(config: PlayerConfig) -> tuple[dict[str, Any], ...]:
-    """Return the exact selected skill documents that every Player must read."""
+def _required_entry(canonical: Path, *, config: PlayerConfig, kind: str) -> dict[str, Any]:
+    """Describe one document the Player must read in full before it works."""
 
-    required: list[dict[str, Any]] = []
+    body = _read(canonical, config.cwd)
+    try:
+        line_count = len(body.decode("utf-8").splitlines())
+    except UnicodeDecodeError:
+        label = "selected skill" if kind == "skill" else "declared document"
+        _refuse(f"{label} is not valid UTF-8: {canonical}")
+    return {
+        "path": str(canonical),
+        "relative_path": str(canonical.relative_to(config.cwd)),
+        "sha256": hashlib.sha256(body).hexdigest(),
+        "line_count": line_count,
+        "kind": kind,
+    }
+
+
+def required_skill_reads(config: PlayerConfig) -> tuple[dict[str, Any], ...]:
+    """Return every document the Player must read: skills, then declarations.
+
+    The selected ``SKILL.md`` bodies come first and carry ``kind="skill"``; the
+    project-declared mandatory supporting documents follow and carry
+    ``kind="declared_document"``. Nothing parses Markdown, so an optional link
+    inside a skill body stays optional — only what the project declared is
+    required.
+    """
+
+    skill_reads: list[dict[str, Any]] = []
     for source in config.skills:
         source_root = source.resolve(strict=True)
         for path in sorted(source_root.rglob("SKILL.md")):
             canonical = path.resolve(strict=True)
             if not canonical.is_relative_to(source_root) or not canonical.is_file():
                 _refuse(f"escaping or invalid selected skill document: {path}")
-            body = _read(canonical, config.cwd)
-            try:
-                line_count = len(body.decode("utf-8").splitlines())
-            except UnicodeDecodeError:
-                _refuse(f"selected skill is not valid UTF-8: {canonical}")
-            required.append(
-                {
-                    "path": str(canonical),
-                    "relative_path": str(canonical.relative_to(config.cwd)),
-                    "sha256": hashlib.sha256(body).hexdigest(),
-                    "line_count": line_count,
-                }
-            )
-    if config.skills and not required:
+            skill_reads.append(_required_entry(canonical, config=config, kind="skill"))
+    if config.skills and not skill_reads:
         _refuse("selected skills contain no SKILL.md documents")
-    return tuple(required)
+
+    declared_reads: list[dict[str, Any]] = []
+    for document in config.required_documents:
+        canonical = document.resolve(strict=True)
+        if not canonical.is_relative_to(config.cwd) or not canonical.is_file():
+            _refuse(f"escaping or invalid declared document: {document}")
+        declared_reads.append(
+            _required_entry(canonical, config=config, kind="declared_document")
+        )
+    return tuple(skill_reads) + tuple(declared_reads)
 
 
 def validate_skill_reads(

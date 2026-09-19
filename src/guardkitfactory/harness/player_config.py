@@ -31,7 +31,11 @@ class PlayerConfig:
     protected_paths: tuple[Path, ...]
     cwd: Path
     dcode_home: Path
+    required_documents: tuple[Path, ...] = ()
 
+
+_MAX_REQUIRED_DOCUMENTS = 32
+_MAX_REQUIRED_DOCUMENT_BYTES = 65_536
 
 _READ_BITS = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 _WRITE_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH
@@ -130,6 +134,45 @@ def _canonical_protected_paths(
     return tuple(resolved)
 
 
+def _canonical_required_documents(
+    values: Iterable[str | Path], *, cwd: Path
+) -> tuple[Path, ...]:
+    """Canonicalise project-declared mandatory supporting documents.
+
+    Same discipline as ``_canonical_sources(..., directories=False)`` — the
+    declaration is a finite list of repository-relative regular files that stay
+    inside the task worktree after canonical resolution, with no duplicates —
+    plus the two extra limits the documents themselves must respect: a readable
+    UTF-8 body and a bounded size, so the required read the Player must perform
+    is always renderable and always finite.
+    """
+
+    selected = list(values)
+    if len(selected) > _MAX_REQUIRED_DOCUMENTS:
+        raise PlayerConfigError(
+            f"required_documents declares {len(selected)} entries; at most "
+            f"{_MAX_REQUIRED_DOCUMENTS} are accepted "
+            f"(first refused entry: {selected[_MAX_REQUIRED_DOCUMENTS]})"
+        )
+    resolved = _canonical_sources(
+        selected, label="required_documents", cwd=cwd, directories=False
+    )
+    for index, path in enumerate(resolved):
+        size = path.stat().st_size
+        if size > _MAX_REQUIRED_DOCUMENT_BYTES:
+            raise PlayerConfigError(
+                f"required_documents[{index}] is {size} bytes; at most "
+                f"{_MAX_REQUIRED_DOCUMENT_BYTES} are accepted: {path}"
+            )
+        try:
+            path.read_bytes().decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise PlayerConfigError(
+                f"required_documents[{index}] is not valid UTF-8: {path}"
+            ) from exc
+    return resolved
+
+
 def _canonical_commands(values: Sequence[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
     commands: list[tuple[str, str]] = []
     seen: set[str] = set()
@@ -170,6 +213,7 @@ def build_player_config(
     repository_instructions: Iterable[str | Path] = (),
     declared_commands: Sequence[tuple[str, str]] = (),
     protected_paths: Iterable[str | Path] = (),
+    required_documents: Iterable[str | Path] = (),
 ) -> PlayerConfig:
     """Validate the project-supplied inputs for one normal Player."""
 
@@ -187,6 +231,9 @@ def build_player_config(
         protected_paths=_canonical_protected_paths(protected_paths, cwd=actual_cwd),
         cwd=actual_cwd,
         dcode_home=_canonical_dcode_home(dcode_home, cwd=actual_cwd),
+        required_documents=_canonical_required_documents(
+            required_documents, cwd=actual_cwd
+        ),
     )
 
 
@@ -203,6 +250,7 @@ def revalidate_player_config(config: PlayerConfig, *, cwd: Path) -> PlayerConfig
         repository_instructions=config.repository_instructions,
         declared_commands=config.declared_commands,
         protected_paths=config.protected_paths,
+        required_documents=config.required_documents,
     )
     if rebuilt != config:
         raise PlayerConfigError("Player configuration changed before invocation")
