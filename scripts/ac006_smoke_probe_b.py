@@ -8,8 +8,10 @@ reasoning block on the same transport.
 
 Run from the factory repo root:
 
-  PYTHONPATH=/home/richardwoollcott/Projects/appmilla_github/guardkit \\
+  PYTHONPATH=../guardkit \\
   .venv/bin/python scripts/ac006_smoke_probe_b.py
+
+(``../guardkit`` is the sibling guardkit checkout — see the README.)
 """
 
 from __future__ import annotations

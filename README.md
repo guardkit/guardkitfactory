@@ -104,15 +104,19 @@ checkout** via `[tool.uv.sources]`, pinned to the published version contract
 (`guardkitfactory>=0.2.0,<1`):
 
 ```bash
-# Sibling checkouts
-~/Projects/appmilla_github/guardkit          # AutoBuild orchestrator
-~/Projects/appmilla_github/guardkitfactory   # this repo
+# Clone both into one folder of your choosing, side by side:
+<your-projects-folder>/guardkit          # AutoBuild orchestrator
+<your-projects-folder>/guardkitfactory   # this repo
 
 # guardkit resolves ../guardkitfactory editable via [tool.uv.sources];
 # `uv sync --extra autobuild` (or pip install -e ../guardkitfactory) wires it.
-cd ~/Projects/appmilla_github/guardkit
+cd <your-projects-folder>/guardkit
 uv sync --extra autobuild
 ```
+
+The only thing that matters is that the two checkouts are siblings — the path
+`../guardkitfactory` is relative to the guardkit checkout, so the folder they
+sit in can be called anything and live anywhere.
 
 Editable means changes here are picked up by `from guardkitfactory import
 LangGraphHarness` in guardkit without a reinstall. The version contract

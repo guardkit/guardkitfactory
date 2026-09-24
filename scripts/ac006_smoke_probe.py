@@ -15,8 +15,10 @@ and replay a Coach-style turn end-to-end through the orchestrator
 
 Run from the factory repo root:
 
-  PYTHONPATH=/home/richardwoollcott/Projects/appmilla_github/guardkit \\
+  PYTHONPATH=../guardkit \\
   .venv/bin/python scripts/ac006_smoke_probe.py
+
+(``../guardkit`` is the sibling guardkit checkout — see the README.)
 
 Writes ``docs/state/TASK-FIX-AC006SMOKE-LG/{captured_aimessage,probe_report}.json``.
 """
