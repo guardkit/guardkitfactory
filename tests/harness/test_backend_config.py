@@ -882,6 +882,33 @@ class TestScratchFolder:
         assert result.error is not None
         assert not (elsewhere / "verify.py").exists()
         assert "scratch folder" not in result.error
+        assert backend.default.scratch_root is None
+
+    def test_scratch_folder_inside_the_project_is_skipped(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        inside = worktree / "src"
+        inside.mkdir()
+
+        backend = build_autobuild_backend(worktree, scratch_root=inside)
+
+        assert backend.default.scratch_root is None
+        assert "scratch folder" not in backend.write("/tmp/x.py", "x").error
+        # Nothing is created inside the project either.
+        build_autobuild_backend(worktree, scratch_root=inside / "guardkit-scratch")
+        assert not (inside / "guardkit-scratch").exists()
+
+    def test_accepted_scratch_folder_is_reported(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        backend = build_autobuild_backend(
+            worktree, scratch_root=scratch, max_tool_result_chars=1000
+        )
+
+        # Readable through the optional truncating wrapper too.
+        assert backend.default.scratch_root == scratch.resolve()
 
     def test_without_a_scratch_folder_the_refusal_is_unchanged(
         self, tmp_path: Path

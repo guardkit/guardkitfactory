@@ -460,6 +460,15 @@ class PathConfinedBackend:
         # backend method/attribute except the four confined mutators below.
         return getattr(self._inner, name)
 
+    @property
+    def scratch_root(self) -> Path | None:
+        """The scratch folder this backend allows, or ``None``.
+
+        guardkit reads it to name the folder to the builder and to leave
+        its files off the builder's lists only when it is really writable.
+        """
+        return self._scratch_root
+
     def _resolve_path(self, file_path: str) -> Path:
         """Resolve a backend path exactly where the mutation would land."""
         candidate = Path(file_path)
@@ -840,8 +849,10 @@ def build_autobuild_backend(
             builder may write throwaway scripts (guardkit passes one inside
             the worktree's git directory). It is created if missing, added to
             the allowed write roots, and named in every refusal. A symlink, a
-            non-directory or a folder that cannot be created is skipped with
-            a warning. ``None`` keeps the earlier behaviour.
+            non-directory, a folder inside the project (other than under the
+            worktree's own ``.git``) or one that cannot be created is skipped
+            with a warning; ``backend.default.scratch_root`` then reads
+            ``None``. ``None`` keeps the earlier behaviour.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -852,10 +863,25 @@ def build_autobuild_backend(
     worktree = Path(worktree)
     temp_directory = _ensure_worktree_temp_directory(worktree)
     if scratch_root is not None:
-        try:
-            scratch_root = _ensure_private_directory(
-                Path(scratch_root), "scratch folder"
+        project = worktree.resolve()
+
+        def inside_project(path: Path) -> bool:
+            return path.is_relative_to(project) and not path.is_relative_to(
+                project / ".git"
             )
+
+        try:
+            # Judged before and after creation, so nothing lands in the project.
+            planned = Path(scratch_root)
+            if inside_project(planned.parent.resolve() / planned.name):
+                raise ValueError(
+                    f"AutoBuild scratch folder is inside the project: {planned}"
+                )
+            scratch_root = _ensure_private_directory(planned, "scratch folder").resolve()
+            if inside_project(scratch_root):
+                raise ValueError(
+                    f"AutoBuild scratch folder is inside the project: {scratch_root}"
+                )
         except ValueError as exc:
             # A convenience, not a safeguard: without it the build still runs
             # and a scratch write is refused like any other outside write.
