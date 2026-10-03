@@ -267,7 +267,7 @@ def get_reasoning_mode(model_name: str) -> ReasoningMode:
     return _normalize_entry(entry).get("reasoning_mode", "auto")  # type: ignore[return-value]
 
 
-def _resolve_model_for_transport(model: str) -> BaseChatModel:
+def _resolve_model_for_transport(model: str, *, role: str | None = None) -> BaseChatModel:
     """Resolve a model string without changing the factory's HTTP contract.
 
     The factory's ``openai:<alias>`` names point at local OpenAI-compatible
@@ -278,6 +278,11 @@ def _resolve_model_for_transport(model: str) -> BaseChatModel:
     identity sent to the server.
 
     Other providers still use Deep Agents' resolver unchanged.
+
+    For ``role == "player"`` the local model also keeps each reply's thinking
+    and sends it back on later steps (see
+    :mod:`guardkitfactory.harness.reasoning_replay`). Other roles, including
+    the coach, keep plain ``ChatOpenAI``.
     """
     provider, separator, bare = model.partition(":")
     if provider != "openai" or not separator or not bare:
@@ -295,7 +300,7 @@ def _resolve_model_for_transport(model: str) -> BaseChatModel:
     configured_key = os.environ.get("OPENAI_API_KEY")
     if configured_key:
         kwargs["api_key"] = configured_key
-    return create_chat_openai(**kwargs)
+    return create_chat_openai(replay_reasoning=role == "player", **kwargs)
 
 
 def _normalize_prebuilt_openai_transport(model: BaseChatModel) -> BaseChatModel:
@@ -375,7 +380,7 @@ def resolve_autobuild_model(
     """
     if isinstance(model, str):
         bare = _bare_model_name(model)
-        resolved = _resolve_model_for_transport(model)
+        resolved = _resolve_model_for_transport(model, role=role)
     else:
         resolved = _normalize_prebuilt_openai_transport(model)
         identifier = _get_identifier(resolved)
@@ -545,7 +550,7 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
             "without credentials, query or fragment"
         )
 
-    resolved = _resolve_model_for_transport(model)
+    resolved = _resolve_model_for_transport(model, role="player")
     if (
         not isinstance(resolved, ChatOpenAI)
         or resolved.model_name != model.removeprefix("openai:")

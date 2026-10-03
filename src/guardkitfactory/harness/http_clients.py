@@ -62,8 +62,13 @@ def with_invocation_clients(
     return wrapped
 
 
-def create_chat_openai(**kwargs: Any) -> Any:
+def create_chat_openai(*, replay_reasoning: bool = False, **kwargs: Any) -> Any:
     """Build a local model with uncached clients when an invocation owns it.
+
+    ``replay_reasoning=True`` builds
+    :class:`~guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI`,
+    which keeps each reply's thinking and sends it back on later requests.
+    Only the Player asks for it; every other caller keeps plain ``ChatOpenAI``.
 
     Use the resolved langchain-openai provider's *uncached* builders. They
     select the HTTP implementation appropriate for the OpenAI SDK and retain
@@ -72,7 +77,12 @@ def create_chat_openai(**kwargs: Any) -> Any:
     Keep the provider's proxy decision from the original, client-free kwargs:
     injecting a client first would change its env-proxy/socket-option branch.
     """
-    from langchain_openai import ChatOpenAI
+    if replay_reasoning:
+        from guardkitfactory.harness.reasoning_replay import (
+            ReasoningReplayChatOpenAI as ChatOpenAI,
+        )
+    else:
+        from langchain_openai import ChatOpenAI
 
     stack = _owner.get()
     if stack is None:

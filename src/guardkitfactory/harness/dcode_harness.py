@@ -195,6 +195,8 @@ def _validate_launch(config: PlayerConfig) -> Path:
 def _validate_model(model: Any) -> dict[str, Any]:
     from langchain_openai.chat_models.base import ChatOpenAI
 
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
     expected = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
     if not isinstance(model, ChatOpenAI) or model.use_responses_api is not False:
         _refuse("requires a resolved local ChatOpenAI using ChatCompletions; no model fallback")
@@ -218,6 +220,8 @@ def _validate_model(model: Any) -> dict[str, Any]:
         "alias": model.model_name,
         "endpoint": actual,
         "transport": "chat/completions",
+        # True when each step's earlier thinking is sent back to the model.
+        "reasoning_replay": isinstance(model, ReasoningReplayChatOpenAI),
         "temperature": model.temperature,
         "max_tokens": model.max_tokens,
         "profile": model.profile,

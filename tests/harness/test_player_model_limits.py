@@ -625,3 +625,16 @@ def test_silent_limit_assignment_is_refused(monkeypatch):
     ):
         with pytest.raises(LangGraphHarnessError, match="not retained"):
             LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+
+
+def test_player_limits_path_builds_reasoning_replay_model(monkeypatch):
+    """Coding speed fix A also reaches the Player through the limits carrier."""
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    monkeypatch.setenv(ENV, json.dumps(LIMITS))
+    player = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert isinstance(player, ReasoningReplayChatOpenAI)
+    assert player.max_tokens == 8192
+    assert player.profile["max_input_tokens"] == 131072
+    coach = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("coach")
+    assert type(coach) is ChatOpenAI

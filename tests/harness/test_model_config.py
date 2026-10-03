@@ -221,16 +221,20 @@ def test_get_reasoning_mode_returns_registry_policy() -> None:
     assert get_reasoning_mode("some-future-model") == "auto"
 
 
+@pytest.mark.parametrize("role", ["coach", "specialist", None])
 def test_openai_string_uses_chat_completions_and_preserves_alias(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, role: str | None
 ) -> None:
-    """Local aliases must keep the factory's Chat Completions HTTP contract."""
+    """Local aliases must keep the factory's Chat Completions HTTP contract.
+
+    Every role except the Player still builds plain ``ChatOpenAI``.
+    """
     fake = FakeListChatModel(responses=["ok"])
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
 
     with patch("langchain_openai.ChatOpenAI", return_value=fake) as constructor:
-        resolved = resolve_autobuild_model("openai:flash-next-t06", role="player")
+        resolved = resolve_autobuild_model("openai:flash-next-t06", role=role)
 
     assert resolved is fake
     constructor.assert_called_once_with(
@@ -239,3 +243,295 @@ def test_openai_string_uses_chat_completions_and_preserves_alias(
         base_url="http://model.test/v1",
         api_key="local-test-key",
     )
+
+
+# ---------------------------------------------------------------------------
+# Player reasoning replay (coding speed fix A, 3 October 2026)
+#
+# These tests run langchain-openai's real request building and reply parsing
+# through an in-memory HTTP transport. Nothing that the replay overrides is
+# mocked, so a library change that stops calling an override fails here.
+# ---------------------------------------------------------------------------
+
+
+def _reply(
+    *,
+    content: str | None = "done",
+    tool_call: bool = False,
+    reasoning: dict[str, str] | None = None,
+) -> dict:
+    message: dict = {"role": "assistant", "content": content}
+    if tool_call:
+        message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {
+                    "id": "call-1",
+                    "type": "function",
+                    "function": {"name": "read_file", "arguments": '{"path": "a.txt"}'},
+                }
+            ],
+        }
+    message.update(reasoning or {})
+    return {
+        "id": "chat-1",
+        "object": "chat.completion",
+        "created": 1,
+        "model": "flash-next-t06",
+        "choices": [
+            {
+                "index": 0,
+                "message": message,
+                "finish_reason": "tool_calls" if tool_call else "stop",
+            }
+        ],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+    }
+
+
+class _Server:
+    """Records each request body and answers with the queued replies."""
+
+    def __init__(self, *replies: dict) -> None:
+        self.replies = list(replies)
+        self.bodies: list[dict] = []
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        import json
+
+        self.bodies.append(json.loads(request.content))
+        return httpx.Response(200, json=self.replies.pop(0))
+
+
+def _local_model(cls: type, server: _Server, **extra) -> tuple:
+    transport = httpx.MockTransport(server)
+    sync_client = httpx.Client(transport=transport)
+    async_client = httpx.AsyncClient(transport=transport)
+    model = cls(
+        model="flash-next-t06",
+        api_key="synthetic-test",
+        base_url="http://model.test/v1",
+        use_responses_api=False,
+        max_retries=0,
+        http_client=sync_client,
+        http_async_client=async_client,
+        http_socket_options=(),
+        **extra,
+    )
+    return model, sync_client, async_client
+
+
+def _call(model, messages, mode: str):
+    import asyncio
+
+    if mode == "async":
+        return asyncio.run(model.ainvoke(messages))
+    return model.invoke(messages)
+
+
+def _close(sync_client: httpx.Client, async_client: httpx.AsyncClient) -> None:
+    import asyncio
+
+    asyncio.run(async_client.aclose())
+    sync_client.close()
+
+
+def test_player_string_builds_reasoning_replay_model_and_others_do_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
+
+    player = resolve_autobuild_model("openai:flash-next-t06", role="player")
+    assert isinstance(player, ReasoningReplayChatOpenAI)
+    assert player.model_name == "flash-next-t06"
+    assert player.use_responses_api is False
+    assert player.openai_api_base == "http://model.test/v1"
+    for role in ("coach", "specialist", None):
+        other = resolve_autobuild_model("openai:flash-next-t06", role=role)
+        assert type(other) is ChatOpenAI
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+@pytest.mark.parametrize("field", ["reasoning_content", "reasoning"])
+def test_player_keeps_reply_thinking_and_sends_it_back(mode: str, field: str) -> None:
+    """LiteLLM's ``reasoning_content`` and vLLM's ``reasoning`` are kept and replayed."""
+    from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    server = _Server(
+        _reply(tool_call=True, reasoning={field: "R1 earlier thinking"}),
+        _reply(content="finished"),
+    )
+    model, sync_client, async_client = _local_model(ReasoningReplayChatOpenAI, server)
+    try:
+        history = [SystemMessage("system"), HumanMessage("read a.txt")]
+        first = _call(model, history, mode)
+        assert first.additional_kwargs["reasoning_content"] == "R1 earlier thinking"
+        assert first.tool_calls[0]["id"] == "call-1"
+
+        history += [first, ToolMessage("contents", tool_call_id="call-1")]
+        second = _call(model, history, mode)
+        assert "reasoning_content" not in second.additional_kwargs
+    finally:
+        _close(sync_client, async_client)
+
+    sent = server.bodies[1]["messages"]
+    assert [m["role"] for m in sent] == ["system", "user", "assistant", "tool"]
+    assert sent[2]["reasoning_content"] == "R1 earlier thinking"
+    assert sent[2]["tool_calls"][0]["id"] == "call-1"
+    assert all("reasoning_content" not in m for i, m in enumerate(sent) if i != 2)
+    assert all("reasoning" not in m for m in sent)
+
+
+def test_player_payload_without_thinking_is_unchanged() -> None:
+    """With no thinking anywhere, the Player sends exactly what ChatOpenAI sends."""
+    from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    history = [
+        SystemMessage("system"),
+        HumanMessage("question"),
+        AIMessage("earlier answer"),
+        HumanMessage("say done"),
+    ]
+    bodies = []
+    for cls in (ChatOpenAI, ReasoningReplayChatOpenAI):
+        server = _Server(_reply(content="done"))
+        model, sync_client, async_client = _local_model(cls, server, temperature=0)
+        try:
+            reply = model.invoke(history)
+        finally:
+            _close(sync_client, async_client)
+        assert "reasoning_content" not in reply.additional_kwargs
+        bodies.append(server.bodies[0])
+    assert bodies[0] == bodies[1]
+
+
+def test_player_ignores_empty_or_non_text_thinking() -> None:
+    from langchain_core.messages import HumanMessage
+
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    server = _Server(
+        _reply(reasoning={"reasoning_content": ""}),
+        _reply(reasoning={"reasoning": {"summary": "not text"}}),
+    )
+    model, sync_client, async_client = _local_model(ReasoningReplayChatOpenAI, server)
+    try:
+        for _ in range(2):
+            assert "reasoning_content" not in model.invoke([HumanMessage("q")]).additional_kwargs
+    finally:
+        _close(sync_client, async_client)
+
+
+def test_plain_chatopenai_neither_keeps_nor_sends_thinking() -> None:
+    """The coach's plain model is untouched: why the Player needs its own class."""
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    server = _Server(
+        _reply(reasoning={"reasoning_content": "R1"}),
+        _reply(content="done"),
+    )
+    model, sync_client, async_client = _local_model(ChatOpenAI, server)
+    try:
+        first = model.invoke([HumanMessage("q")])
+        assert "reasoning_content" not in first.additional_kwargs
+        carried = AIMessage("answer", additional_kwargs={"reasoning_content": "R1"})
+        model.invoke([HumanMessage("q"), carried, HumanMessage("say done")])
+    finally:
+        _close(sync_client, async_client)
+    assert all("reasoning_content" not in m for m in server.bodies[1]["messages"])
+
+
+def test_player_streaming_keeps_thinking() -> None:
+    """Streamed thinking pieces add up to the whole text on the merged message."""
+    import asyncio
+    import json
+
+    from langchain_core.messages import HumanMessage
+
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    def chunk(delta: dict, finish: str | None = None) -> str:
+        body = {
+            "id": "chat-s",
+            "object": "chat.completion.chunk",
+            "created": 1,
+            "model": "flash-next-t06",
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}],
+        }
+        return f"data: {json.dumps(body)}\n\n"
+
+    stream = "".join(
+        [
+            chunk({"role": "assistant", "content": ""}),
+            chunk({"reasoning_content": "think "}),
+            chunk({"reasoning_content": "harder"}),
+            chunk({"content": "answer"}),
+            chunk({}, "stop"),
+            "data: [DONE]\n\n",
+        ]
+    )
+
+    def serve(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, content=stream.encode(), headers={"content-type": "text/event-stream"}
+        )
+
+    transport = httpx.MockTransport(serve)
+    async_client = httpx.AsyncClient(transport=transport)
+    sync_client = httpx.Client(transport=transport)
+    model = ReasoningReplayChatOpenAI(
+        model="flash-next-t06",
+        api_key="synthetic-test",
+        base_url="http://model.test/v1",
+        use_responses_api=False,
+        max_retries=0,
+        http_client=sync_client,
+        http_async_client=async_client,
+        http_socket_options=(),
+    )
+
+    async def merged():
+        total = None
+        async for piece in model.astream([HumanMessage("q")]):
+            total = piece if total is None else total + piece
+        return total
+
+    try:
+        message = asyncio.run(merged())
+    finally:
+        _close(sync_client, async_client)
+    assert message.content == "answer"
+    assert message.additional_kwargs["reasoning_content"] == "think harder"
+
+
+def test_reasoning_replay_refuses_a_changed_parent_shape(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A langchain-openai upgrade that reshapes a wrapped method fails loudly."""
+    from guardkitfactory.harness import reasoning_replay
+
+    reasoning_replay._check_parent_shapes()  # the installed version matches
+
+    class Reshaped:
+        def _create_chat_result(self, response, generation_info=None, extra=None): ...
+
+        def _get_request_payload(self, input_, *, stop=None, **kwargs): ...
+
+        def _convert_chunk_to_generation_chunk(
+            self, chunk, default_chunk_class, base_generation_info
+        ): ...
+
+    monkeypatch.setattr(reasoning_replay, "ChatOpenAI", Reshaped)
+    with pytest.raises(reasoning_replay.ReasoningReplayShapeError, match="_create_chat_result"):
+        reasoning_replay._check_parent_shapes()
+
+    del Reshaped._get_request_payload
+    Reshaped._create_chat_result = lambda self, response, generation_info=None: None
+    with pytest.raises(reasoning_replay.ReasoningReplayShapeError, match="missing"):
+        reasoning_replay._check_parent_shapes()

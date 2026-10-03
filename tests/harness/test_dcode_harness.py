@@ -1292,6 +1292,142 @@ def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: 
     )
 
 
+def test_player_replays_its_thinking_on_main_helper_and_compaction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Coding speed fix A: every Player request hands back the earlier thinking.
+
+    The fake server attaches unique thinking to every reply. Each later request
+    must carry that thinking on the matching assistant message, on the main
+    loop, inside the inherited helper agent, and after compaction. The
+    construction inventory must say the replay is on.
+    """
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test")
+    repo = _scaffold(tmp_path)
+    (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
+    artifact = ArtifactExchange(repo)
+    requests: list[dict[str, Any]] = []
+    thinking: dict[str, str] = {}
+    supplied: list[Any] = []
+    graphs: list[Any] = []
+
+    def scripted(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        n = len(requests)
+        if n <= 2:
+            return response(body, call=selected_skill_calls(repo)[n - 1], index=n)
+        if n == 3:
+            return response(
+                body,
+                call=(
+                    "task",
+                    {"subagent_type": "general-purpose", "description": "REPLAY_NESTED_SENTINEL"},
+                ),
+                index=n,
+            )
+        if n == 4:
+            return response(
+                body, call=("read_file", {"file_path": str(repo / "AGENTS.md")}), index=n
+            )
+        if n == 5:
+            return response(body, text="REPLAY_NESTED_SENTINEL complete", index=n)
+        return artifact(request)
+
+    def exchange(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        n = len(requests)
+        reply = scripted(request)
+        payload = json.loads(reply.content)
+        message = payload["choices"][0]["message"]
+        message["reasoning_content"] = f"THINKING-{n}"
+        for call in message.get("tool_calls") or []:
+            # Unique ids pair each assistant message with the thinking sent on it.
+            call["id"] = f"call-{n}"
+            thinking[call["id"]] = message["reasoning_content"]
+        return httpx.Response(200, json=payload)
+
+    transport = httpx.MockTransport(exchange)
+    clients: list[Any] = []
+
+    def sync_builder(*args: Any, **kwargs: Any) -> httpx.Client:
+        clients.append(httpx.Client(transport=transport))
+        return clients[-1]
+
+    def async_builder(*args: Any, **kwargs: Any) -> httpx.AsyncClient:
+        clients.append(httpx.AsyncClient(transport=transport))
+        return clients[-1]
+
+    from deepagents_code.agent import create_cli_agent
+
+    def observe(*args: Any, **kwargs: Any) -> Any:
+        supplied.append(kwargs["model"])
+        built = create_cli_agent(*args, **kwargs)
+        graphs.append(built[0])
+        return built
+
+    harness = LangGraphHarness(
+        "openai:qwen36-workhorse",
+        backend=_backend(repo),
+        player_config=config(repo),
+        recursion_limit=200,
+    )
+    with (
+        patch(
+            "langchain_openai.chat_models._client_utils._build_sync_httpx_client",
+            side_effect=sync_builder,
+        ),
+        patch(
+            "langchain_openai.chat_models._client_utils._build_async_httpx_client",
+            side_effect=async_builder,
+        ),
+        patch("deepagents_code.agent.create_cli_agent", side_effect=observe),
+    ):
+        events = asyncio.run(_collect(harness, repo))
+    assert any(isinstance(e, ResultMessageEvent) for e in events)
+    assert artifact.summary_count >= 1
+    assert isinstance(supplied[0], ReasoningReplayChatOpenAI)
+    assert graphs[0].guardkit_dcode_evidence["model"]["reasoning_replay"] is True
+
+    # The inherited helper continues the main conversation after a user turn
+    # naming its task; its own steps follow that turn. The compaction request
+    # itself sends the history as one plain-text user message (no assistant
+    # entries), so compaction is checked on the main requests that follow it.
+    checked = {"main": 0, "helper": 0, "after_compaction": 0}
+    for body in requests:
+        phase = "after_compaction" if "SUMMARY_SENTINEL" in json.dumps(body) else "main"
+        for message in body["messages"]:
+            if message["role"] == "user" and "REPLAY_NESTED_SENTINEL" in str(message["content"]):
+                phase = "helper"
+            if message["role"] != "assistant":
+                assert "reasoning_content" not in message
+                continue
+            if not message.get("tool_calls"):
+                continue
+            call_id = message["tool_calls"][0]["id"]
+            assert message.get("reasoning_content") == thinking[call_id], (phase, call_id)
+            checked[phase] += 1
+    assert all(count > 0 for count in checked.values()), checked
+    evidence("reasoning-replay", {"checked": checked, "requests": len(requests)})
+
+
+def test_inventory_reports_no_replay_for_a_plain_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    from langchain_openai import ChatOpenAI
+
+    from guardkitfactory.harness.dcode_harness import _validate_model
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    for cls, expected in ((ChatOpenAI, False), (ReasoningReplayChatOpenAI, True)):
+        model = cls(
+            model="qwen36-workhorse",
+            base_url="http://fake.test/v1",
+            api_key="synthetic-test",
+            use_responses_api=False,
+        )
+        assert _validate_model(model)["reasoning_replay"] is expected
+
+
 # --- Project-declared mandatory supporting documents (Lane A) ----------------
 
 
