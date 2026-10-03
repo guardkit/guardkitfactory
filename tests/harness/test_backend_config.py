@@ -817,6 +817,84 @@ class TestSymlinkPolicy:
         assert (sibling / "allowed.txt").read_text() == "ok"
 
 
+class TestScratchFolder:
+    """3 October 2026: a scratch folder outside the project for throwaway
+    scripts. Before it, a builder's ``/tmp`` script was refused and the
+    builder put it inside the worktree, where it counted as project work."""
+
+    def _scratch(self, tmp_path: Path) -> Path:
+        # Where guardkit puts it: inside the worktree's git directory.
+        git_dir = tmp_path / "host" / ".git" / "worktrees" / "FEAT-X"
+        git_dir.mkdir(parents=True)
+        return git_dir / "guardkit-scratch"
+
+    def test_scratch_folder_is_created_and_writable(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+        backend = build_autobuild_backend(worktree, scratch_root=scratch)
+
+        result = backend.write(str(scratch / "verify.py"), "print('ok')\n")
+
+        assert result.error is None
+        assert (scratch / "verify.py").read_text() == "print('ok')\n"
+        assert backend.delete(str(scratch / "verify.py")).error is None
+        # The folder itself cannot be deleted, like any allowed root.
+        assert backend.delete(str(scratch)).error is not None
+
+    def test_refusal_names_the_scratch_folder(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+        backend = build_autobuild_backend(worktree, scratch_root=scratch)
+
+        result = backend.write("/tmp/verify_e592_002.py", "x")
+
+        assert result.error is not None
+        assert "outside the worktree" in result.error
+        assert f"use the scratch folder '{scratch.resolve()}'" in result.error
+
+    def test_traversal_escaping_both_roots_is_still_refused(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+        backend = build_autobuild_backend(worktree, scratch_root=scratch)
+
+        result = backend.write(str(scratch / ".." / "config"), "x")
+        result_relative = backend.write("../../../escape.txt", "x")
+
+        assert result.error is not None
+        assert result_relative.error is not None
+        assert not (scratch.parent / "config").exists()
+        assert not (tmp_path / "host" / "escape.txt").exists()
+
+    def test_symlinked_scratch_folder_is_skipped_not_followed(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        scratch.symlink_to(elsewhere)
+
+        backend = build_autobuild_backend(worktree, scratch_root=scratch)
+        result = backend.write(str(scratch / "verify.py"), "x")
+
+        assert result.error is not None
+        assert not (elsewhere / "verify.py").exists()
+        assert "scratch folder" not in result.error
+
+    def test_without_a_scratch_folder_the_refusal_is_unchanged(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        backend = build_autobuild_backend(worktree)
+
+        result = backend.write("/tmp/verify.py", "x")
+
+        assert result.error is not None
+        assert result.error.endswith("Retry with a worktree-relative path.")
+
+
 class TestEscapeObservability:
     """AC-004 — escaped-write attempts surface as WARNINGs in the turn log."""
 

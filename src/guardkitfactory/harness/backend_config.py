@@ -417,9 +417,15 @@ class PathConfinedBackend:
         inner: Any,
         allowed_roots: Sequence[Path],
         protected_paths: Sequence[Path | str] = (),
+        scratch_root: Path | str | None = None,
     ) -> None:
         self._inner = inner
         self._allowed_roots = [Path(root).resolve() for root in allowed_roots]
+        # Named in the refusal so a builder that aimed a throwaway script
+        # outside the worktree is told where such files may go.
+        self._scratch_root = (
+            Path(scratch_root).resolve() if scratch_root is not None else None
+        )
         worktree = self._allowed_roots[0]
         protected_files: set[Path] = set()
         protected_directories: set[Path] = set()
@@ -535,12 +541,18 @@ class PathConfinedBackend:
             resolved,
             [str(r) for r in self._allowed_roots],
         )
-        return (
+        message = (
             f"Error: refusing to {op} '{file_path}': it resolves to "
             f"'{resolved}', outside the worktree. All file writes must stay "
             f"inside the worktree root '{self._allowed_roots[0]}'. Retry "
             f"with a worktree-relative path."
         )
+        if self._scratch_root is not None:
+            message += (
+                f" For throwaway scripts and other files you will not keep, "
+                f"use the scratch folder '{self._scratch_root}'."
+            )
+        return message
 
     # -- write ------------------------------------------------------------
     def write(self, file_path: str, content: str) -> Any:
@@ -732,27 +744,31 @@ def _ensure_worktree_temp_directory(worktree: Path) -> Path:
     accepted, including a broken one, because that would redirect temporary
     files outside the worktree despite the environment claiming otherwise.
     """
-    temp_directory = worktree / ".tmp"
+    return _ensure_private_directory(worktree / ".tmp", "TMPDIR")
+
+
+def _ensure_private_directory(directory: Path, label: str) -> Path:
+    """Create ``directory`` (mode 0700) or reuse it; refuse anything else."""
     try:
-        status = temp_directory.lstat()
+        status = directory.lstat()
     except FileNotFoundError:
         try:
-            temp_directory.mkdir(mode=0o700)
-            status = temp_directory.lstat()
+            directory.mkdir(mode=0o700)
+            status = directory.lstat()
         except OSError as exc:
             raise ValueError(
-                f"AutoBuild TMPDIR could not be created at {temp_directory}"
+                f"AutoBuild {label} could not be created at {directory}"
             ) from exc
     except OSError as exc:
         raise ValueError(
-            f"AutoBuild TMPDIR could not be inspected at {temp_directory}"
+            f"AutoBuild {label} could not be inspected at {directory}"
         ) from exc
 
     if stat.S_ISLNK(status.st_mode):
-        raise ValueError(f"AutoBuild TMPDIR must not be a symlink: {temp_directory}")
+        raise ValueError(f"AutoBuild {label} must not be a symlink: {directory}")
     if not stat.S_ISDIR(status.st_mode):
-        raise ValueError(f"AutoBuild TMPDIR must be a directory: {temp_directory}")
-    return temp_directory
+        raise ValueError(f"AutoBuild {label} must be a directory: {directory}")
+    return directory
 
 
 def build_autobuild_backend(
@@ -761,6 +777,7 @@ def build_autobuild_backend(
     max_tool_result_chars: int | None = None,
     extra_write_roots: Sequence[Path | str] | None = None,
     protected_paths: Sequence[Path | str] = (),
+    scratch_root: Path | str | None = None,
 ) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
@@ -819,6 +836,12 @@ def build_autobuild_backend(
             the Player may read but may not write, edit, or delete. Relative
             paths resolve from ``worktree``. Missing, escaping, or invalid
             declarations fail construction instead of weakening protection.
+        scratch_root: 3 October 2026. A folder outside the project where the
+            builder may write throwaway scripts (guardkit passes one inside
+            the worktree's git directory). It is created if missing, added to
+            the allowed write roots, and named in every refusal. A symlink, a
+            non-directory or a folder that cannot be created is skipped with
+            a warning. ``None`` keeps the earlier behaviour.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -828,6 +851,18 @@ def build_autobuild_backend(
     """
     worktree = Path(worktree)
     temp_directory = _ensure_worktree_temp_directory(worktree)
+    if scratch_root is not None:
+        try:
+            scratch_root = _ensure_private_directory(
+                Path(scratch_root), "scratch folder"
+            )
+        except ValueError as exc:
+            # A convenience, not a safeguard: without it the build still runs
+            # and a scratch write is refused like any other outside write.
+            logger.warning("%s; continuing without a scratch folder.", exc)
+            scratch_root = None
+        else:
+            extra_write_roots = [*(extra_write_roots or []), scratch_root]
 
     env: dict[str, str] = {
         "PATH": _AUTOBUILD_PATH,
@@ -860,6 +895,7 @@ def build_autobuild_backend(
         local_shell,
         _allowed_write_roots(worktree, extra_write_roots),
         protected_paths=protected_paths,
+        scratch_root=scratch_root,
     )
 
     # TASK-PERF-COACHSYNTH — optionally cap per-tool-result size for the
