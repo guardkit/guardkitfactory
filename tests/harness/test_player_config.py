@@ -247,3 +247,86 @@ def test_declared_documents_are_bounded_in_count(tmp_path: Path) -> None:
     )
     with pytest.raises(PlayerConfigError, match="at most 32 are accepted"):
         build_player_config(cwd=root, dcode_home=profile, required_documents=declared)
+
+
+# Repository instructions: CLAUDE.md that links to AGENTS.md (7 October 2026).
+# GuardKit adds both conventional names when both are files, so a project
+# whose CLAUDE.md is a symbolic link to AGENTS.md used to be refused for a
+# "duplicate resolved path".
+
+
+def test_claude_md_linked_to_agents_md_is_one_document_read_once(
+    tmp_path: Path,
+) -> None:
+    from guardkitfactory.harness.langgraph_harness import _player_context_prompt
+
+    root, profile = _worktree(tmp_path)
+    (root / "AGENTS.md").write_text("# Agent guidance\nRun the declared check.\n")
+    (root / "CLAUDE.md").symlink_to("AGENTS.md")
+
+    config = build_player_config(
+        cwd=root,
+        dcode_home=profile,
+        repository_instructions=["AGENTS.md", "CLAUDE.md"],
+    )
+
+    assert config.repository_instructions == ((root / "AGENTS.md").resolve(),)
+    assert revalidate_player_config(config, cwd=root) is config
+    prompt = _player_context_prompt(config)
+    assert prompt.count("Run the declared check.") == 1
+
+
+def test_claude_md_and_agents_md_as_separate_files_are_both_kept(
+    tmp_path: Path,
+) -> None:
+    root, profile = _worktree(tmp_path)
+    (root / "AGENTS.md").write_text("# Agent guidance\n")
+    # A one-line pointer is its own file, so both are read.
+    (root / "CLAUDE.md").write_text("See AGENTS.md.\n")
+
+    config = build_player_config(
+        cwd=root,
+        dcode_home=profile,
+        repository_instructions=["AGENTS.md", "CLAUDE.md"],
+    )
+
+    assert config.repository_instructions == (
+        (root / "AGENTS.md").resolve(),
+        (root / "CLAUDE.md").resolve(),
+    )
+
+
+def test_claude_md_linked_outside_the_project_is_still_refused(
+    tmp_path: Path,
+) -> None:
+    root, profile = _worktree(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "AGENTS.md").write_text("outside the worktree\n")
+    (root / "AGENTS.md").write_text("# Agent guidance\n")
+    (root / "CLAUDE.md").symlink_to(outside / "AGENTS.md")
+
+    with pytest.raises(PlayerConfigError, match="outside the task worktree"):
+        build_player_config(
+            cwd=root,
+            dcode_home=profile,
+            repository_instructions=["AGENTS.md", "CLAUDE.md"],
+        )
+
+
+def test_a_repeated_declared_document_is_still_refused(tmp_path: Path) -> None:
+    """Only repository instructions treat aliases as one document; a declared
+    list naming the same file twice is still a declaration to fix."""
+
+    root, profile = _worktree(tmp_path)
+    (root / "references" / "alias.md").symlink_to("project-conventions.md")
+
+    with pytest.raises(PlayerConfigError, match="duplicate resolved path"):
+        build_player_config(
+            cwd=root,
+            dcode_home=profile,
+            required_documents=[
+                "references/project-conventions.md",
+                "references/alias.md",
+            ],
+        )

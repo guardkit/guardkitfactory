@@ -65,7 +65,18 @@ def _canonical_sources(
     label: str,
     cwd: Path,
     directories: bool,
+    aliases_are_one_document: bool = False,
 ) -> tuple[Path, ...]:
+    """Resolve each path, inside the task worktree, readable, no duplicates.
+
+    With ``aliases_are_one_document``, two entries that resolve to the same
+    file are one document, kept once at its first position, instead of a
+    refusal. Repository instructions need this: many projects keep
+    ``AGENTS.md`` as the source and make ``CLAUDE.md`` a symbolic link to it,
+    and GuardKit adds both conventional names when both are present. Every
+    other check still applies to each entry, so a link that leads outside the
+    worktree is still refused.
+    """
     resolved_sources: list[Path] = []
     seen: set[Path] = set()
     for index, value in enumerate(values):
@@ -80,6 +91,8 @@ def _canonical_sources(
         if not _inside(resolved, cwd):
             raise PlayerConfigError(f"{label}[{index}] resolves outside the task worktree: {value}")
         if resolved in seen:
+            if aliases_are_one_document:
+                continue
             raise PlayerConfigError(f"{label} contains duplicate resolved path: {resolved}")
         mode = resolved.stat().st_mode
         if directories:
@@ -226,6 +239,7 @@ def build_player_config(
             label="repository_instructions",
             cwd=actual_cwd,
             directories=False,
+            aliases_are_one_document=True,
         ),
         declared_commands=_canonical_commands(declared_commands),
         protected_paths=_canonical_protected_paths(protected_paths, cwd=actual_cwd),
