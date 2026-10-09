@@ -800,7 +800,24 @@ class LangGraphHarness(HarnessAdapter):
         intact. Profile injection is a best-effort fallback; never a
         failure mode.
         """
+        from guardkitfactory.harness.http_clients import (
+            feature_routing_is_configured,
+            is_supported_routed_model,
+        )
+
         model = self.model
+        routing_configured = feature_routing_is_configured()
+        if routing_configured:
+            if isinstance(model, BaseChatModel):
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: feature routing cannot use a caller-owned "
+                    "prebuilt model"
+                )
+            if not is_supported_routed_model(model):
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: feature routing requires a supported local "
+                    "openai:<model> transport"
+                )
         if role == "player" and "GUARDKIT_PLAYER_MODEL_LIMITS" in os.environ:
             from guardkitfactory.harness.model_config import resolve_player_model_limits
 
@@ -1229,6 +1246,11 @@ class LangGraphHarness(HarnessAdapter):
         """
         from langchain_core.language_models import BaseChatModel
 
+        from guardkitfactory.harness.http_clients import (
+            feature_routing_is_configured,
+            is_supported_routed_model,
+        )
+
         # TASK-PERF-COACHTURNBUDGET (Lever 2): assemble the request-body extras.
         # ``grammar`` (TASK-ARCH-COACHSPLIT) and ``reasoning_budget`` (this task,
         # default-off) ride together as top-level body fields. When BOTH are
@@ -1244,7 +1266,13 @@ class LangGraphHarness(HarnessAdapter):
             _extras["chat_template_kwargs"] = {"enable_thinking": False}
         extra_body: dict[str, Any] | None = _extras or None
 
+        routing_configured = feature_routing_is_configured()
         if isinstance(self.model, BaseChatModel):
+            if routing_configured:
+                raise LangGraphHarnessError(
+                    "LangGraphHarness: feature routing cannot use a caller-owned "
+                    "prebuilt synthesis model"
+                )
             # Injected local ChatOpenAI instances need the same transport
             # normalisation as Player/Coach graph models. Resolve without a
             # role here so a caller-provided synthesis budget stays intact.
@@ -1260,6 +1288,12 @@ class LangGraphHarness(HarnessAdapter):
                         sorted(extra_body), type(self.model).__name__, exc,
                     )
             return model
+
+        if routing_configured and not is_supported_routed_model(self.model):
+            raise LangGraphHarnessError(
+                "LangGraphHarness: feature routing requires a supported local "
+                "openai:<model> synthesis transport"
+            )
 
         # Production string-alias path: build a chat-completions ChatOpenAI.
         from guardkitfactory.harness.model_config import _bare_model_name

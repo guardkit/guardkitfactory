@@ -25,7 +25,15 @@ from langchain_openai._compat import httpx
 from guardkitfactory.harness import http_clients
 from guardkitfactory.harness import langgraph_harness as harness_module
 from guardkitfactory.harness.backend_config import build_autobuild_backend
-from guardkitfactory.harness.http_clients import create_chat_openai, with_invocation_clients
+from guardkitfactory.harness.http_clients import (
+    FEATURE_ROUTING_HEADER,
+    FEATURE_ROUTING_ID_ENV,
+    FEATURE_ROUTING_REQUIRED_ENV,
+    FeatureRoutingError,
+    create_chat_openai,
+    resolve_feature_routing_headers,
+    with_invocation_clients,
+)
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness, LangGraphHarnessError
 
 
@@ -42,7 +50,9 @@ def server(monkeypatch):
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            state.requests.append((self.path, body, self.client_address[1]))
+            state.requests.append(
+                (self.path, body, self.client_address[1], dict(self.headers))
+            )
             state.arrived.set()
             if state.block is not None:
                 state.block.wait(10)
@@ -136,6 +146,8 @@ async def collect(harness, tmp_path, *, synthesis=False):
 def test_workhorse_then_synthesis_and_repeat_across_loops(
     server, owned, monkeypatch, tmp_path, proxy
 ):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_wire-A")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     if proxy:
         monkeypatch.setenv("HTTP_PROXY", server.url)
         monkeypatch.setenv("OPENAI_BASE_URL", "http://fixture.invalid/v1")
@@ -157,7 +169,14 @@ def test_workhorse_then_synthesis_and_repeat_across_loops(
     assert coach["model"] == "coach" and coach["temperature"] == 0
     assert coach["max_completion_tokens"] == 16384 and "tools" not in coach
     assert coach["grammar"] == 'root ::= "ok"'
-    assert all(path.endswith("/v1/chat/completions") for path, _, _ in server.requests)
+    assert all(path.endswith("/v1/chat/completions") for path, _, _, _ in server.requests)
+    assert all(
+        {name.lower(): value for name, value in request[3].items()}[
+            FEATURE_ROUTING_HEADER
+        ]
+        == "feature_wire-A"
+        for request in server.requests
+    )
 
 
 def test_simultaneous_worker_loops_and_same_loop(server, owned, tmp_path):
@@ -179,6 +198,170 @@ def test_simultaneous_worker_loops_and_same_loop(server, owned, tmp_path):
     assert len(server.requests) == 8
     assert len(owned) == len({id(client) for client in owned}) == 8
     assert all(client.is_closed for client in owned)
+
+
+def test_player_transmits_feature_header(server, owned, monkeypatch):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "player_route-B")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
+
+    @with_invocation_clients
+    async def run():
+        model = create_chat_openai(
+            model="workhorse",
+            replay_reasoning=True,
+            use_responses_api=False,
+        )
+        yield await model.ainvoke("fixture prompt")
+
+    asyncio.run(run().__anext__())
+    assert len(server.requests) == 1
+    headers = {name.lower(): value for name, value in server.requests[0][3].items()}
+    assert headers[FEATURE_ROUTING_HEADER] == "player_route-B"
+    assert all(client.is_closed for client in owned)
+
+
+def test_external_construction_branch_transmits_feature_header(
+    server, owned, monkeypatch,
+):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "external_route-B2")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
+
+    async def run():
+        sync_client = httpx.Client(timeout=None)
+        async_client = httpx.AsyncClient(timeout=None)
+        model = create_chat_openai(
+            model="coach",
+            use_responses_api=False,
+            http_client=sync_client,
+            http_async_client=async_client,
+            http_socket_options=(),
+        )
+        try:
+            await model.ainvoke("fixture prompt")
+        finally:
+            await async_client.aclose()
+            sync_client.close()
+
+    asyncio.run(run())
+    assert not owned
+    headers = {name.lower(): value for name, value in server.requests[0][3].items()}
+    assert headers[FEATURE_ROUTING_HEADER] == "external_route-B2"
+
+
+@pytest.mark.parametrize("synthesis", [False, True])
+def test_missing_required_feature_route_refuses_before_http(
+    server, owned, monkeypatch, tmp_path, synthesis,
+):
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
+    monkeypatch.delenv(FEATURE_ROUTING_ID_ENV, raising=False)
+    with pytest.raises((FeatureRoutingError, LangGraphHarnessError)):
+        asyncio.run(
+            collect(
+                LangGraphHarness("openai:coach"),
+                tmp_path,
+                synthesis=synthesis,
+            )
+        )
+    assert server.requests == []
+    assert all(client.is_closed for client in owned)
+
+
+@pytest.mark.parametrize("model", ["anthropic:coach", "openai:", "openai", object()])
+@pytest.mark.parametrize("synthesis", [False, True])
+def test_required_feature_route_refuses_unsupported_model_before_http(
+    server, monkeypatch, tmp_path, model, synthesis,
+):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-C")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
+    with pytest.raises(LangGraphHarnessError, match="feature routing requires"):
+        asyncio.run(collect(LangGraphHarness(model), tmp_path, synthesis=synthesis))
+    assert server.requests == []
+
+
+def test_required_feature_route_refuses_caller_owned_prebuilt_model(
+    server, owned, monkeypatch, tmp_path,
+):
+    sync_client = httpx.Client(timeout=None)
+    async_client = httpx.AsyncClient(timeout=None)
+    model = ChatOpenAI(
+        model="caller-model",
+        use_responses_api=False,
+        http_client=sync_client,
+        http_async_client=async_client,
+    )
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-D")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
+    try:
+        for synthesis in (False, True):
+            with pytest.raises(LangGraphHarnessError, match="caller-owned prebuilt"):
+                asyncio.run(
+                    collect(LangGraphHarness(model), tmp_path, synthesis=synthesis)
+                )
+        assert not async_client.is_closed
+        assert not sync_client.is_closed
+        assert not owned
+        assert server.requests == []
+    finally:
+        asyncio.run(async_client.aclose())
+        sync_client.close()
+
+
+def test_conflicting_caller_header_refuses_without_mutation(monkeypatch):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-E")
+    original = {"X-Trace": "trace", "X-Feature-ID": "other"}
+    with pytest.raises(FeatureRoutingError, match="conflicts"):
+        create_chat_openai(
+            model="workhorse",
+            use_responses_api=False,
+            default_headers=original,
+        )
+    assert original == {"X-Trace": "trace", "X-Feature-ID": "other"}
+
+
+@pytest.mark.parametrize(
+    "routing_id",
+    ["", " padded", "dotted.id", "unicode-\N{SNOWMAN}", "a" * 257],
+)
+def test_invalid_feature_route_is_never_coerced(routing_id):
+    with pytest.raises(FeatureRoutingError):
+        resolve_feature_routing_headers(environ={FEATURE_ROUTING_ID_ENV: routing_id})
+
+
+def test_feature_route_accepts_256_ascii_bytes_and_preserves_caller_headers():
+    routing_id = "a" * 256
+    original = {"X-Trace": "trace"}
+    assert resolve_feature_routing_headers(
+        original,
+        environ={
+            FEATURE_ROUTING_ID_ENV: routing_id,
+            FEATURE_ROUTING_REQUIRED_ENV: "1",
+        },
+    ) == {"X-Trace": "trace", FEATURE_ROUTING_HEADER: routing_id}
+    assert original == {"X-Trace": "trace"}
+
+
+@pytest.mark.parametrize("required", ["", "true", " 1", "2"])
+def test_required_feature_route_setting_is_exact(required):
+    with pytest.raises(FeatureRoutingError):
+        resolve_feature_routing_headers(
+            environ={FEATURE_ROUTING_REQUIRED_ENV: required}
+        )
+
+
+def test_header_resolution_is_isolated_across_concurrent_child_contexts():
+    def resolve(name):
+        return resolve_feature_routing_headers(
+            {"X-Trace": name},
+            environ={
+                FEATURE_ROUTING_ID_ENV: name,
+                FEATURE_ROUTING_REQUIRED_ENV: "1",
+            },
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        a, b = pool.map(resolve, ("feature_A", "feature_B"))
+    assert a == {"X-Trace": "feature_A", FEATURE_ROUTING_HEADER: "feature_A"}
+    assert b == {"X-Trace": "feature_B", FEATURE_ROUTING_HEADER: "feature_B"}
 
 
 @pytest.mark.parametrize("synthesis", [False, True])
@@ -415,7 +598,11 @@ def test_configured_timeout_is_retained_and_closes_clients(server, owned):
     assert len(server.requests) == 1 and all(client.is_closed for client in owned)
 
 
-def test_nested_subagent_keeps_owned_client_until_parent_finishes(server, owned, tmp_path):
+def test_nested_subagent_keeps_owned_client_until_parent_finishes(
+    server, owned, monkeypatch, tmp_path
+):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "nested_route-F")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     def reply(body):
         assert owned and not any(client.is_closed for client in owned)
         last = body["messages"][-1]
@@ -437,11 +624,20 @@ def test_nested_subagent_keeps_owned_client_until_parent_finishes(server, owned,
                for event in events)
     assert len(owned) == 1 and owned[0].is_closed
     assert len({r[2] for r in server.requests}) == 1
+    assert all(
+        {name.lower(): value for name, value in request[3].items()}[
+            FEATURE_ROUTING_HEADER
+        ]
+        == "nested_route-F"
+        for request in server.requests
+    )
 
 
 def test_real_compaction_uses_owned_client_through_final_request(
     server, owned, monkeypatch, tmp_path,
 ):
+    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "compact_route-G")
+    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     from deepagents import create_deep_agent
     from deepagents.middleware.summarization import SummarizationMiddleware
 
@@ -472,6 +668,13 @@ def test_real_compaction_uses_owned_client_through_final_request(
     assert "compact summary" in json.dumps(server.requests[1][1]["messages"])
     assert len(owned) == 1 and owned[0].is_closed
     assert len({r[2] for r in server.requests}) == 1
+    assert all(
+        {name.lower(): value for name, value in request[3].items()}[
+            FEATURE_ROUTING_HEADER
+        ]
+        == "compact_route-G"
+        for request in server.requests
+    )
     assert list((tmp_path / "conversation_history").glob("session_*.md"))
 
 
