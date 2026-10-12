@@ -16,7 +16,6 @@ import sys
 import threading
 import time
 from collections.abc import Mapping
-from contextlib import suppress
 from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import urlsplit
@@ -178,7 +177,10 @@ _INVENTORY_MAX_ENTRIES = 1000
 _INVENTORY_MAX_FILE_BYTES = 16 * 1024 * 1024
 _INVENTORY_MAX_TOTAL_BYTES = 64 * 1024 * 1024
 _INVENTORY_SECONDS = 2.0
-# How long an invocation's finalisation waits for its inventory to be logged.
+# How long a caller waits for the inventory, which runs on a daemon thread
+# because a read can block whatever the in-walk budget says: a refusal waits
+# briefly before raising, an invocation's finalisation a little longer.
+_REFUSAL_INVENTORY_SECONDS = 3.0
 _POST_INVOCATION_INVENTORY_SECONDS = 5.0
 _NOT_REGULAR = "not a regular file when opened"
 _TOO_LARGE = "not recorded: too large"
@@ -234,22 +236,14 @@ def _hash_regular_file(path: Path, entry: dict[str, Any], budget: _Budget) -> No
         os.close(descriptor)
 
 
-def profile_inventory(profile: Path) -> list[dict[str, Any]]:
-    """Describe every entry in a run profile without exposing its contents.
+def _walk_profile(profile: Path, entries: list[dict[str, Any]], current: list[str]) -> None:
+    """Fill ``entries`` in walk order; ``current`` names the entry in progress."""
 
-    Each entry gives the path relative to the profile, its file type, its size
-    and, for regular files, its SHA-256. Links are recorded, never followed, and
-    an unreadable entry is recorded with the error's type rather than refused,
-    so the inventory itself never fails a launch. Entries, bytes hashed and time
-    are bounded; what a bound cut short is marked "not recorded" and every entry
-    gathered before it is kept.
-    """
-
-    entries: list[dict[str, Any]] = []
     budget = _Budget()
 
     def record(path: Path) -> bool:
         """Record ``path`` (and below); return False once a bound stops the walk."""
+        current[0] = str(path.relative_to(profile)) if path != profile else "."
         if len(entries) >= _INVENTORY_MAX_ENTRIES or budget.expired():
             entries.append(
                 {
@@ -300,9 +294,70 @@ def profile_inventory(profile: Path) -> list[dict[str, Any]]:
     try:
         profile.lstat()
     except FileNotFoundError:
-        return entries
+        return
     record(profile)
-    return entries
+
+
+def _bounded_inventory(profile: Path, seconds: float) -> tuple[list[dict[str, Any]], bool]:
+    """Take the inventory on a daemon thread, waiting at most ``seconds``.
+
+    Returns the entries and whether the walk finished. On expiry the entries
+    gathered so far are kept and the entry in progress is marked
+    "not recorded: timed out"; the thread is abandoned.
+    """
+
+    entries: list[dict[str, Any]] = []
+    current = ["."]
+    finished = threading.Event()
+
+    def take() -> None:
+        try:
+            _walk_profile(profile, entries, current)
+        except Exception as exc:  # noqa: BLE001 - diagnostics never raise
+            entries.append(
+                {
+                    "path": current[0],
+                    "type": "other",
+                    "size": None,
+                    "sha256": None,
+                    "error": type(exc).__name__,
+                }
+            )
+        finally:
+            finished.set()
+
+    threading.Thread(target=take, name="dcode-profile-inventory", daemon=True).start()
+    done = finished.wait(seconds)
+    snapshot = [dict(entry) for entry in list(entries)]
+    if not done:
+        snapshot.append(
+            {
+                "path": current[0],
+                "type": "other",
+                "size": None,
+                "sha256": None,
+                "error": _TIMED_OUT,
+            }
+        )
+    return snapshot, done
+
+
+def profile_inventory(
+    profile: Path, *, seconds: float | None = None
+) -> list[dict[str, Any]]:
+    """Describe every entry in a run profile without exposing its contents.
+
+    Each entry gives the path relative to the profile, its file type, its size
+    and, for regular files, its SHA-256. Links are recorded, never followed, and
+    an unreadable entry is recorded with the error's type rather than refused,
+    so the inventory itself never fails a launch. Entries, bytes hashed and time
+    are bounded, and the caller waits at most ``seconds`` (the refusal bound by
+    default) however a read behaves; what a bound cut short is marked
+    "not recorded" and every entry gathered before it is kept.
+    """
+
+    wait = _REFUSAL_INVENTORY_SECONDS if seconds is None else seconds
+    return _bounded_inventory(profile, wait)[0]
 
 
 def _unexpected_profile_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -364,24 +419,16 @@ def log_profile_inventory(profile: Path, *, cwd: Path) -> list[dict[str, Any]]:
     completed or cancelled invocation from returning.
     """
 
-    result: list[list[dict[str, Any]]] = []
-
-    def take() -> None:
-        with suppress(Exception):
-            result.append(profile_inventory(profile))
-
-    worker = threading.Thread(target=take, name="dcode-profile-inventory", daemon=True)
-    worker.start()
-    worker.join(_POST_INVOCATION_INVENTORY_SECONDS)
-    if not result:
+    entries, finished = _bounded_inventory(profile, _POST_INVOCATION_INVENTORY_SECONDS)
+    if not finished:
         logger.warning(
-            "dcode Player post-invocation profile inventory not recorded: %s; cwd=%s profile=%s",
-            "timed out" if worker.is_alive() else "failed",
+            "dcode Player post-invocation profile inventory not recorded: timed out; "
+            "cwd=%s profile=%s partial entries=%s",
             cwd,
             profile,
+            entries,
         )
-        return []
-    entries = result[0]
+        return entries
     logger.info(
         "dcode Player post-invocation profile inventory: cwd=%s profile=%s "
         "unexpected=%s entries=%s",

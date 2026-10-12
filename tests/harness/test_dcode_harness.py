@@ -2133,3 +2133,61 @@ def test_invocation_returns_when_the_post_invocation_inventory_blocks(
         release.set()
         if blocked.exists():
             blocked.unlink()
+
+
+def test_refusal_is_raised_promptly_when_its_diagnostic_read_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The integrity check rejects at once; a blocked diagnostic read cannot delay it."""
+    import threading
+    import time
+
+    from guardkitfactory.harness import PlayerLaunchRefused, dcode_harness
+
+    monkeypatch.setattr(dcode_harness, "_REFUSAL_INVENTORY_SECONDS", 0.3)
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    agent_dir = selected.dcode_home / "guardkit-player"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    link = agent_dir / "a-link"
+    link.symlink_to(repo)
+    blocked = agent_dir / "z.bin"
+    blocked.write_bytes(b"z" * 8)
+    release = _block_profile_reads(monkeypatch, blocked)
+    outcome: list[BaseException] = []
+
+    def launch() -> None:
+        try:
+            dcode_harness._validate_launch(selected)
+        except BaseException as exc:  # noqa: BLE001 - recorded for the assertion
+            outcome.append(exc)
+
+    try:
+        begun = time.monotonic()
+        worker = threading.Thread(target=launch, daemon=True)
+        worker.start()
+        worker.join(10)
+        elapsed = time.monotonic() - begun
+        assert not worker.is_alive(), "the refusal waited on its diagnostics"
+        assert elapsed < 3
+        error = outcome[0]
+        assert isinstance(error, PlayerLaunchRefused)
+        assert "symlink inside discovery source" in str(error)
+        assert {
+            "path": "guardkit-player/a-link",
+            "type": "symlink",
+            "size": len(str(repo)),
+            "sha256": None,
+        } in error.entries
+        assert {
+            "path": "guardkit-player/z.bin",
+            "type": "other",
+            "size": None,
+            "sha256": None,
+            "error": "not recorded: timed out",
+        } in error.entries
+    finally:
+        release.set()
+        link.unlink()
+        blocked.unlink()
