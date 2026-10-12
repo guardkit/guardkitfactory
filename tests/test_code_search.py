@@ -796,6 +796,11 @@ def _run_fake(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdou
         [{}, _RG_SUMMARY],
         [{"type": "match", "data": {}}, _RG_SUMMARY],
         [_rg_match("src/users.py", 0), _RG_SUMMARY],
+        [{"type": "begin"}, _RG_SUMMARY],
+        [{"type": "match", "data": {"path": {"text": "src/users.py"}, "lines": 42,
+                                    "line_number": 3}}, _RG_SUMMARY],
+        [{"type": "match", "data": {"path": {"text": "src/users.py"},
+                                    "lines": {"bytes": "%%%"}, "line_number": 3}}, _RG_SUMMARY],
     ],
 )
 def test_malformed_ripgrep_output_is_never_no_matches(
@@ -857,3 +862,18 @@ def test_probe_results_without_limits_are_accepted(
     answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="count")
     assert answer["status"] == "ok" and answer["results"][0]["first_line"] == 8
 
+
+def test_ripgrep_encoded_bytes_lines_are_read(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import base64
+
+    match = {"type": "match", "data": {
+        "path": {"text": "./src/users.py"},
+        "lines": {"bytes": base64.b64encode(b"caf\xe9 = 1\n").decode()},
+        "line_number": 2, "submatches": []}}
+    begin = {"type": "begin", "data": {"path": {"text": "./src/users.py"}}}
+    stdout = "\n".join(json.dumps(e) for e in [begin, match, _RG_SUMMARY]) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="caf", mode="literal")
+    assert answer["status"] == "ok"
+    assert answer["results"][0]["text"] == "caf\ufffd = 1"

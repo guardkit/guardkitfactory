@@ -23,6 +23,8 @@ an image.
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import contextlib
 import hashlib
 import json
@@ -911,10 +913,10 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
             continue
         kind = event.get("type") if isinstance(event, dict) else None
         data = event.get("data") if isinstance(event, dict) else None
-        if kind in ("begin", "end", "context"):
-            continue
         if not isinstance(data, dict):
             unparsed += 1
+            continue
+        if kind in ("begin", "end", "context"):
             continue
         if kind == "summary":
             candidate = data.get("stats")
@@ -928,27 +930,24 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
             continue
         where = data.get("path")
         reported = where.get("text") if isinstance(where, dict) else None
-        lines = data.get("lines") if isinstance(data.get("lines"), dict) else {}
-        text = lines.get("text")
+        text = _rg_text(data.get("lines"))
         number = _count(data.get("line_number"))
         path = (
             _relative_result_path(call.root, reported)
             if isinstance(reported, str) and reported
             else None
         )
-        if path is None or path == "." or number is None or number < 1 or (
-            text is not None and not isinstance(text, str)
-        ):
+        if path is None or path == "." or number is None or number < 1 or text is None:
             unparsed += 1
             continue
-        if text is not None and len(text.rstrip("\n")) > MAX_LINE_CHARS:
+        if len(text.rstrip("\n")) > MAX_LINE_CHARS:
             facts.shown_in_part += 1
         found.append(
             {
                 "path": path,
                 "first_line": number,
                 "last_line": number,
-                "text": _cut((text if text is not None else "[not UTF-8]").rstrip("\n")),
+                "text": _cut(text.rstrip("\n")),
             }
         )
     # ripgrep's threads finish files in any order: sort, so the same search
@@ -1061,6 +1060,23 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
     max_bytes = limits.get("max_bytes")
     if max_bytes is not None and (limits.get("total_bytes") or 0) >= max_bytes:
         facts.limits.append(f"Probe's byte limit {max_bytes} reached")
+
+
+def _rg_text(lines: Any) -> str | None:
+    """A matched line from ripgrep's ``lines``: ``{"text": ...}``, or
+    ``{"bytes": <base64>}`` for a line that is not UTF-8 (decoded with
+    replacement characters). Any other shape is ``None``: unreadable."""
+    if not isinstance(lines, dict):
+        return None
+    if isinstance(lines.get("text"), str):
+        return lines["text"]
+    if isinstance(lines.get("bytes"), str):
+        try:
+            raw = base64.b64decode(lines["bytes"], validate=True)
+        except (ValueError, binascii.Error):
+            return None
+        return raw.decode("utf-8", errors="replace")
+    return None
 
 
 def _count(value: Any) -> int | None:
