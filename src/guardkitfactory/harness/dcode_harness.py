@@ -251,10 +251,18 @@ def _describe_entries(entries: list[dict[str, Any]]) -> str:
         + (f", error={entry['error']}" if "error" in entry else "")
         + ")"
         for entry in entries
-    ) or "none listed"
+    )
 
 
-def _refuse_launch(message: str, profile: Path, entries: list[dict[str, Any]]) -> NoReturn:
+def _refuse_launch(
+    message: str, profile: Path | None, entries: list[dict[str, Any]]
+) -> NoReturn:
+    """Refuse a launch that would be refused the same way on every later turn.
+
+    Used for the process-wide launch conditions (interpreter, dependency,
+    profile selection, offline and tracing settings) and for the profile's own
+    contents; ``entries`` is empty unless the profile's contents are at fault.
+    """
     from guardkitfactory.harness.langgraph_harness import PlayerLaunchRefused
 
     unexpected = _unexpected_profile_entries(entries)
@@ -264,9 +272,12 @@ def _refuse_launch(message: str, profile: Path, entries: list[dict[str, Any]]) -
         profile,
         unexpected,
     )
+    detail = (
+        f"; unexpected profile entries: {_describe_entries(unexpected)}" if unexpected else ""
+    )
     raise PlayerLaunchRefused(
-        f"dcode Player: {message}; unexpected profile entries: {_describe_entries(unexpected)}",
-        profile=str(profile),
+        f"dcode Player: {message}{detail}",
+        profile="" if profile is None else str(profile),
         entries=unexpected,
     )
 
@@ -287,27 +298,33 @@ def log_profile_inventory(profile: Path, *, cwd: Path) -> list[dict[str, Any]]:
 
 
 def _validate_launch(config: PlayerConfig) -> Path:
-    if not (3, 12) <= sys.version_info[:2] < (4, 0):
-        _refuse(f"unsupported interpreter; {_INSTALL}")
-    if importlib.util.find_spec("deepagents_code") is None:
-        _refuse(f"required dependency is not installed; {_INSTALL}")
+    # Every refusal here is fixed for this process and never reaches the
+    # model, so each is raised as PlayerLaunchRefused rather than left to be
+    # retried as if it were an implementation failure.
     profile = config.dcode_home
+    if not (3, 12) <= sys.version_info[:2] < (4, 0):
+        _refuse_launch(f"unsupported interpreter; {_INSTALL}", profile, [])
+    if importlib.util.find_spec("deepagents_code") is None:
+        _refuse_launch(f"required dependency is not installed; {_INSTALL}", profile, [])
     configured = os.environ.get("DEEPAGENTS_HOME", "")
     if profile is None or not Path(configured).is_absolute():
-        _refuse("set absolute DEEPAGENTS_HOME to the selected fresh run profile before import")
+        _refuse_launch(
+            "set absolute DEEPAGENTS_HOME to the selected fresh run profile before import",
+            profile,
+            [],
+        )
     if Path(configured).resolve(strict=True) != profile:
-        _refuse("DEEPAGENTS_HOME does not match the selected Player profile")
+        _refuse_launch("DEEPAGENTS_HOME does not match the selected Player profile", profile, [])
     if profile == Path.home().resolve() or profile == Path("/"):
-        _refuse("dcode_home must be a dedicated run profile")
+        _refuse_launch("dcode_home must be a dedicated run profile", profile, [])
     if os.environ.get("DEEPAGENTS_CODE_OFFLINE") != "1":
-        _refuse("DEEPAGENTS_CODE_OFFLINE=1 is required")
+        _refuse_launch("DEEPAGENTS_CODE_OFFLINE=1 is required", profile, [])
     for name in ("LANGCHAIN_TRACING", "LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING"):
         if os.environ.get(name, "false").lower() not in {"false", "0", ""}:
-            _refuse(f"{name} must be disabled for the Player run")
+            _refuse_launch(f"{name} must be disabled for the Player run", profile, [])
     # Permit only the empty directories/files dcode itself creates. This blocks
     # config, dotenv, hooks, plugins, credentials and another agent's profile.
-    # A refusal here never reaches the model and would repeat on every turn, so
-    # it is raised as PlayerLaunchRefused with the offending entries described.
+    # The offending entries are described in the refusal.
     from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
 
     try:
@@ -468,7 +485,11 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     user_memory = get_user_agent_md_path(_AGENT)
     if user_memory.exists() or user_memory.is_symlink():
         if _read(user_memory, config.dcode_home) != b"":
-            _refuse("profile AGENTS.md must remain empty")
+            _refuse_launch(
+                "profile AGENTS.md must remain empty",
+                config.dcode_home,
+                profile_inventory(config.dcode_home),
+            )
     return {
         "skills": sources,
         "memory": memory,
@@ -541,7 +562,11 @@ def create_dcode_player(
     )
 
     if PATHS.profile.root != profile:
-        _refuse("already-imported dcode profile differs; start a new process for this run")
+        _refuse_launch(
+            "already-imported dcode profile differs; start a new process for this run",
+            profile,
+            [],
+        )
     # dcode's auxiliary summarizer otherwise defaults to five extra retries for
     # prebuilt models. A shallow copy preserves the factory-owned clients and
     # every generation setting without changing the caller's model instance.

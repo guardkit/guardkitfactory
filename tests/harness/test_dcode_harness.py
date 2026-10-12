@@ -1288,6 +1288,81 @@ def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
         _close_clients(sync_two, async_two)
 
 
+@pytest.mark.parametrize("setting", ["offline", "tracing", "home_mismatch", "already_imported"])
+def test_process_wide_launch_refusals_are_typed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting: str
+) -> None:
+    """Refusals fixed for the whole process repeat every turn, so they are typed too."""
+    from guardkitfactory.harness import PlayerLaunchRefused
+    from guardkitfactory.harness.dcode_harness import _validate_launch, create_dcode_player
+
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    exchange = Exchange([])
+    model, sync, async_ = _model(exchange)
+    try:
+        with pytest.raises(PlayerLaunchRefused) as refused:
+            if setting == "offline":
+                monkeypatch.delenv("DEEPAGENTS_CODE_OFFLINE")
+                _validate_launch(selected)
+            elif setting == "tracing":
+                monkeypatch.setenv("LANGSMITH_TRACING", "true")
+                _validate_launch(selected)
+            elif setting == "home_mismatch":
+                monkeypatch.setenv("DEEPAGENTS_HOME", str(tmp_path))
+                _validate_launch(selected)
+            else:
+                with patch(
+                    "deepagents_code._paths.PATHS",
+                    SimpleNamespace(profile=SimpleNamespace(root=tmp_path)),
+                ):
+                    create_dcode_player(
+                        model=model,
+                        backend=_backend(repo),
+                        cwd=repo,
+                        config=selected,
+                        recursion_limit=None,
+                    )
+        error = refused.value
+        assert error.failure_kind == "agent_launch_refused"
+        assert error.entries == ()
+        assert error.profile == str(selected.dcode_home)
+        assert "unexpected profile entries" not in str(error)
+        assert not exchange.requests
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_nonempty_profile_memory_after_construction_is_typed(tmp_path: Path) -> None:
+    from deepagents_code.project_utils import ProjectContext
+
+    from guardkitfactory.harness import PlayerLaunchRefused
+    from guardkitfactory.harness.dcode_harness import _inventory
+
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    memory = selected.dcode_home / "guardkit-player" / "AGENTS.md"
+    original = memory.read_bytes() if memory.exists() else None
+    memory.parent.mkdir(parents=True, exist_ok=True)
+    memory.write_text("remembered")
+    try:
+        with pytest.raises(PlayerLaunchRefused, match="must remain empty") as refused:
+            _inventory(selected, ProjectContext(user_cwd=repo, project_root=repo))
+        assert {
+            "path": "guardkit-player/AGENTS.md",
+            "type": "file",
+            "size": 10,
+            "sha256": hashlib.sha256(b"remembered").hexdigest(),
+        } in refused.value.entries
+    finally:
+        if original is None:
+            memory.unlink()
+        else:
+            memory.write_bytes(original)
+
+
 def test_profile_inventory_describes_entries_without_contents(tmp_path: Path) -> None:
     from guardkitfactory.harness.dcode_harness import profile_inventory
 
