@@ -33,6 +33,7 @@ import os
 import re
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1317,12 +1318,61 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
         ]
 
 
+#: Characters with a meaning in ast-grep's ``--globs``; a path holding any of
+#: them is never turned into an exclusion.
+_GLOB_CHARACTERS = frozenset("*?[]{}!\\")
+#: At most this many empty files are left out of one structural search.
+MAX_EMPTY_EXCLUSIONS = 2_000
+
+
+def _empty_files(call: _Call, language: str) -> list[str] | None:
+    """Empty files of ``language`` under a searched folder, relative to the root.
+
+    ast-grep counts an empty file as skipped, exactly as it counts a file it
+    could not read, so its skipped count cannot tell the two apart. An empty
+    file cannot hold a match, so leaving it out of the walk changes no result
+    and lets the skipped count mean "not searched". Only a little of the
+    call's time is spent here; ``None`` when the walk did not finish."""
+    if not call.target_path.is_dir():
+        return []
+    suffixes = {ext for ext, lang in OUTLINE_EXTENSIONS.items() if lang == language}
+    if not suffixes:
+        return []
+    left = call.timeout_s if call.deadline is None else call.deadline - time.monotonic()
+    walk_deadline = time.monotonic() + max(0.0, min(2.0, left / 4))
+    found: list[str] = []
+    for current, dirs, names in os.walk(call.target_path):
+        if _stop(walk_deadline, call.cancel):
+            return None
+        dirs[:] = [d for d in dirs if not d.startswith(".")]
+        for name in names:
+            if name.startswith(".") or Path(name).suffix.lower() not in suffixes:
+                continue
+            path = Path(current) / name
+            try:
+                st = path.lstat()
+            except OSError:
+                continue
+            if not stat.S_ISREG(st.st_mode) or st.st_size:
+                continue
+            relative = path.relative_to(call.root).as_posix()
+            if _GLOB_CHARACTERS.intersection(relative):
+                continue
+            if len(found) >= MAX_EMPTY_EXCLUSIONS:
+                return None
+            found.append(relative)
+    return found
+
+
 def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
+    empties = _empty_files(call, language) or []
+    exclusions = [flag for path in empties for flag in ("--globs", f"!/{path}")]
     argv = [call.exe, "run", "--config", str(call.private / "sgconfig.yml"),
             "--pattern", pattern, "--lang", language, "--json=stream", "--color", "never",
             "--inspect", "summary", "--threads", THREADS,
-            *_sg_ignore_flags(call.respect_ignore), call.operand]
+            *_sg_ignore_flags(call.respect_ignore), *exclusions, call.operand]
     run = call.execute(argv)
+    facts.coverage["empty_files_left_out"] = len(empties)
     cut_short = _stopped(run, facts, call.timeout_s)
     total = bad = 0
     for raw in run.stdout.splitlines():
@@ -1372,7 +1422,7 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
     failed = run.returncode != 0 and not nothing_matched
     if bad and not facts.results:
         facts.fatal = f"ast-grep's output could not be read ({bad} unreadable record(s))"
-    elif failed and not run.stdout:
+    elif failed and not run.stdout and not (run.returncode == 1 and counts):
         facts.fatal = f"ast-grep ended with status {run.returncode}: {' '.join(errors)[:200]}"
     elif failed or errors or bad:
         facts.program_errors = errors or [
@@ -1384,9 +1434,12 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
     elif counts.get("files_scanned") == 0:
         facts.unsupported = f"no {language} file was searched here"
     if counts.get("files_skipped"):
-        # ast-grep counts a file it could not read as skipped, with no error
-        # line and an ordinary exit, so the search did not cover it.
-        facts.limits.append(f"ast-grep skipped {counts['files_skipped']} file(s) it could not read")
+        # With empty files left out of the walk, what ast-grep still skips
+        # (with no error line and an ordinary exit) was not searched.
+        facts.limits.append(
+            f"ast-grep skipped {counts['files_skipped']} file(s) it could not search "
+            "(unreadable, not UTF-8, too large, or empty)"
+        )
 
 
 def _snapshot_omissions(omitted: Sequence[Mapping[str, Any]], target: str) -> list[str]:

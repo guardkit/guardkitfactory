@@ -201,6 +201,38 @@ def test_pattern_with_an_unreadable_file_is_partial(repo: Path, pattern: str) ->
     assert any("skipped 1 file" in reason for reason in answer["truncation"]), answer
 
 
+@pytest.mark.parametrize(
+    ("pattern", "status"), [("count_active($A)", "ok"), ("zzqq_nothing($A)", "no_matches")]
+)
+def test_empty_files_do_not_make_a_pattern_search_partial(
+    repo: Path, pattern: str, status: str
+) -> None:
+    # ast-grep counts an empty file as skipped; an empty file cannot match, so
+    # it must not turn a complete search into a partial one.
+    (repo / "src" / "__init__.py").write_text("")
+    (repo / "tests" / "__init__.py").write_text("")
+    answer = code_search.run("pattern", repo, pattern=pattern, language="python")
+    assert answer["status"] == status, answer
+    assert answer["truncation"] == []
+    assert answer["coverage"]["files_skipped"] == 0
+    assert answer["coverage"]["empty_files_left_out"] == 2
+
+
+def test_an_unreadable_folder_with_no_match_is_partial(repo: Path) -> None:
+    if os.geteuid() == 0:
+        pytest.skip("root reads everything")
+    locked = repo / "src" / "locked"
+    locked.mkdir()
+    (locked / "a.py").write_text("zzqq_nothing(1)\n")
+    locked.chmod(0)
+    try:
+        answer = code_search.run("pattern", repo, pattern="zzqq_other($A)", language="python")
+    finally:
+        locked.chmod(0o755)
+    assert answer["status"] == "partial", answer
+    assert any("Permission denied" in line for line in answer["diagnostics"]), answer
+
+
 #: A Markdown list item with a multi-byte character at byte 49: Probe
 #: 0.6.0-rc341 aborts on it (found on the first real-repository run).
 _PROBE_CRASHING_MARKDOWN = '# Notes\n\n- "The users that are active are counted every d→ hurl\n'
