@@ -1,6 +1,10 @@
 """JavaScript wiring dialect descriptor.
 
 Registers the ``WiringDialect`` for JavaScript at import time.
+
+``.jsx`` files are read by this dialect: the pack's ``javascript`` grammar
+includes JSX, and JSX element names (``<Card />``) are ``identifier`` nodes,
+so a component used as an element counts as a reference.
 """
 
 from __future__ import annotations
@@ -11,7 +15,10 @@ dialect = register_dialect(
     WiringDialect(
         language="javascript",
         ts_language_name="javascript",
-        file_globs=("**/*.js", "*.js", "**/*.mjs", "*.mjs", "**/*.cjs", "*.cjs"),
+        file_globs=(
+            "**/*.js", "*.js", "**/*.mjs", "*.mjs", "**/*.cjs", "*.cjs",
+            "**/*.jsx", "*.jsx",
+        ),
         # Export-wrapped declarations only: an unexported top-level symbol
         # is module-private, not a wiring candidate (scope §3.2).
         public_symbols_query="""

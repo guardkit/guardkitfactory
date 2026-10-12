@@ -396,9 +396,11 @@ _ALIASES: dict[str, str] = {
     "py": "python",
     "javascript": "javascript",
     "js": "javascript",
+    "jsx": "javascript",
     "typescript": "typescript",
     "ts": "typescript",
-    "tsx": "typescript",
+    # TSX has its own dialect: the same queries over the JSX-aware grammar.
+    "tsx": "tsx",
 }
 
 
