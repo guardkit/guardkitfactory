@@ -166,6 +166,126 @@ def validate_skill_reads(
     return telemetry
 
 
+_CLEAN_PROFILE = {f"{_AGENT}/AGENTS.md": hashlib.sha256(b"").hexdigest()}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def profile_inventory(profile: Path) -> list[dict[str, Any]]:
+    """Describe every entry in a run profile without exposing its contents.
+
+    Each entry gives the path relative to the profile, its file type, its size
+    and, for regular files, its SHA-256. Links are recorded, never followed, and
+    an unreadable entry is recorded with the error's type rather than refused,
+    so the inventory itself never fails a launch.
+    """
+
+    entries: list[dict[str, Any]] = []
+
+    def record(path: Path) -> None:
+        relative = str(path.relative_to(profile)) if path != profile else "."
+        entry: dict[str, Any] = {"path": relative, "type": "other", "size": None, "sha256": None}
+        try:
+            status = path.lstat()
+        except OSError as exc:
+            entry["error"] = type(exc).__name__
+            entries.append(entry)
+            return
+        mode = status.st_mode
+        if stat.S_ISLNK(mode):
+            entry.update(type="symlink", size=status.st_size)
+        elif stat.S_ISDIR(mode):
+            entry["type"] = "directory"
+        elif stat.S_ISREG(mode):
+            entry.update(type="file", size=status.st_size)
+            try:
+                entry["sha256"] = _sha256_file(path)
+            except OSError as exc:
+                entry["error"] = type(exc).__name__
+        if path != profile:
+            entries.append(entry)
+        if entry["type"] == "directory":
+            try:
+                children = sorted(path.iterdir())
+            except OSError as exc:
+                entry["error"] = type(exc).__name__
+                if path == profile:
+                    entries.append(entry)
+                return
+            for child in children:
+                record(child)
+        elif path == profile:
+            entries.append(entry)
+
+    try:
+        profile.lstat()
+    except FileNotFoundError:
+        return entries
+    record(profile)
+    return entries
+
+
+def _unexpected_profile_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Entries the launch check does not permit: anything but the empty memory file."""
+
+    def permitted(entry: dict[str, Any]) -> bool:
+        if "error" in entry:
+            return False
+        if entry["type"] == "directory":
+            return True
+        return entry["type"] == "file" and _CLEAN_PROFILE.get(entry["path"]) == entry["sha256"]
+
+    return [entry for entry in entries if not permitted(entry)]
+
+
+def _describe_entries(entries: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        f"{entry['path']} ({entry['type']}, size={entry['size']}, "
+        f"sha256={entry['sha256']}"
+        + (f", error={entry['error']}" if "error" in entry else "")
+        + ")"
+        for entry in entries
+    ) or "none listed"
+
+
+def _refuse_launch(message: str, profile: Path, entries: list[dict[str, Any]]) -> NoReturn:
+    from guardkitfactory.harness.langgraph_harness import PlayerLaunchRefused
+
+    unexpected = _unexpected_profile_entries(entries)
+    logger.error(
+        "dcode Player launch refused: %s; profile=%s unexpected entries=%s",
+        message,
+        profile,
+        unexpected,
+    )
+    raise PlayerLaunchRefused(
+        f"dcode Player: {message}; unexpected profile entries: {_describe_entries(unexpected)}",
+        profile=str(profile),
+        entries=unexpected,
+    )
+
+
+def log_profile_inventory(profile: Path, *, cwd: Path) -> list[dict[str, Any]]:
+    """Log the profile as one invocation left it, so a later refusal can be traced."""
+
+    entries = profile_inventory(profile)
+    logger.info(
+        "dcode Player post-invocation profile inventory: cwd=%s profile=%s "
+        "unexpected=%s entries=%s",
+        cwd,
+        profile,
+        _unexpected_profile_entries(entries),
+        entries,
+    )
+    return entries
+
+
 def _validate_launch(config: PlayerConfig) -> Path:
     if not (3, 12) <= sys.version_info[:2] < (4, 0):
         _refuse(f"unsupported interpreter; {_INSTALL}")
@@ -186,9 +306,22 @@ def _validate_launch(config: PlayerConfig) -> Path:
             _refuse(f"{name} must be disabled for the Player run")
     # Permit only the empty directories/files dcode itself creates. This blocks
     # config, dotenv, hooks, plugins, credentials and another agent's profile.
-    files = _tree(profile)
-    if files and files != {f"{_AGENT}/AGENTS.md": hashlib.sha256(b"").hexdigest()}:
-        _refuse("run profile contains unexpected configuration or nonempty memory")
+    # A refusal here never reaches the model and would repeat on every turn, so
+    # it is raised as PlayerLaunchRefused with the offending entries described.
+    from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
+
+    try:
+        files = _tree(profile)
+    except LangGraphHarnessError as exc:
+        _refuse_launch(
+            str(exc).removeprefix("dcode Player: "), profile, profile_inventory(profile)
+        )
+    if files and files != _CLEAN_PROFILE:
+        _refuse_launch(
+            "run profile contains unexpected configuration or nonempty memory",
+            profile,
+            profile_inventory(profile),
+        )
     return profile
 
 

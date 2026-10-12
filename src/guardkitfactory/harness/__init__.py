@@ -14,6 +14,7 @@ from guardkitfactory.harness.backend_config import build_autobuild_backend
 from guardkitfactory.harness.langgraph_harness import (
     LangGraphHarness,
     LangGraphHarnessError,
+    PlayerLaunchRefused,
 )
 from guardkitfactory.harness.model_config import (
     MODEL_CONTEXT_WINDOWS,
@@ -32,6 +33,7 @@ __all__ = [
     "LangGraphHarnessError",
     "PlayerConfig",
     "PlayerConfigError",
+    "PlayerLaunchRefused",
     "build_autobuild_backend",
     "build_player_config",
     "build_autobuild_permissions",

@@ -275,7 +275,7 @@ _SYNTHESIS_DISABLE_THINKING_ENV = "GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING"
 # whole task budget and overflowing the 98 K window (run-22 TP05).
 _RECURSION_LIMIT_DEFAULT: int | None = None
 
-__all__ = ["LangGraphHarness", "LangGraphHarnessError"]
+__all__ = ["LangGraphHarness", "LangGraphHarnessError", "PlayerLaunchRefused"]
 
 
 def _iter_tool_use_events(result: Any) -> list[ToolUseEvent]:
@@ -376,6 +376,33 @@ class LangGraphHarnessError(RuntimeError):
     def __init__(self, message: str, *, raw_result: Any = None) -> None:
         super().__init__(message)
         self.raw_result = raw_result
+
+
+class PlayerLaunchRefused(LangGraphHarnessError):
+    """The dcode Player's run profile failed its launch integrity check.
+
+    Nothing reached the model, and every later turn would be refused the same
+    way, so the orchestrator stops the task instead of treating this as an
+    implementation failure. ``entries`` lists each unexpected profile entry by
+    relative path, file type, size and SHA-256 (never its contents) so the
+    file, and the invocation that wrote it, can be traced.
+
+    GuardKit does not depend on this package. It recognises the refusal by the
+    stable ``failure_kind`` value rather than by importing this class.
+    """
+
+    failure_kind = "agent_launch_refused"
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        profile: str,
+        entries: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    ) -> None:
+        super().__init__(message)
+        self.profile = profile
+        self.entries = tuple(dict(entry) for entry in entries)
 
 
 @dataclass(frozen=True)
@@ -1159,6 +1186,15 @@ class LangGraphHarness(HarnessAdapter):
                 task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await task
+            # The Player profile is reused across invocations and checked
+            # before each launch. Recording what this invocation left there
+            # lets a later launch refusal be traced to the invocation that
+            # wrote the file. Evidence only: it never changes the outcome.
+            if role == "player" and self.player_config is not None:
+                from guardkitfactory.harness.dcode_harness import log_profile_inventory
+
+                with suppress(Exception):
+                    log_profile_inventory(self.player_config.dcode_home, cwd=Path(cwd))
 
     def _synthesis_max_tokens(self) -> int:
         """Resolve the toolless-synthesis generation budget (env-overridable)."""

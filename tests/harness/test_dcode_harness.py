@@ -1197,6 +1197,123 @@ def test_dcode_without_selected_skills_or_instructions(tmp_path: Path) -> None:
         _close_clients(sync, async_)
 
 
+@pytest.mark.parametrize("kind", ["unexpected_file", "nonempty_memory", "link"])
+def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
+    tmp_path: Path, kind: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """B463: a reused profile changed after a clean launch; the next launch refused.
+
+    The first invocation launches from a clean profile and, through its own
+    shell tool, leaves a file in the profile. Its post-invocation inventory
+    records that file. The second launch is refused with the typed error,
+    which names the entry by path, type, size and hash, and never its contents.
+    """
+    from guardkitfactory.harness import PlayerLaunchRefused
+
+    repo = tmp_path / "empty-task"
+    repo.mkdir()
+    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
+    agent_dir = profile / "guardkit-player"
+    secret = "remember-this-secret"
+    relative = {
+        "unexpected_file": "guardkit-player/notes.json",
+        "nonempty_memory": "guardkit-player/AGENTS.md",
+        "link": "guardkit-player/linked.md",
+    }[kind]
+    target = profile / relative
+    memory = agent_dir / "AGENTS.md"
+    original_memory = memory.read_bytes() if memory.exists() else None
+    if kind == "link":
+        command = f"mkdir -p {agent_dir} && ln -s {repo} {target}"
+    else:
+        command = f"mkdir -p {agent_dir} && printf '%s' '{secret}' > {target}"
+    selected = build_player_config(cwd=repo, dcode_home=str(profile))
+    first = Exchange([("execute", {"command": command})])
+    model, sync, async_ = _model(first)
+    second = Exchange([])
+    model_two, sync_two, async_two = _model(second)
+    try:
+        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
+            events = asyncio.run(_collect(harness, repo))
+        # The clean profile launched as before and the command ran.
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert target.is_symlink() if kind == "link" else target.read_text() == secret
+        traces = [
+            record.getMessage()
+            for record in caplog.records
+            if "post-invocation profile inventory" in record.getMessage()
+        ]
+        assert len(traces) == 1 and f"cwd={repo}" in traces[0]
+        assert relative in traces[0] and secret not in traces[0]
+
+        caplog.clear()
+        harness_two = LangGraphHarness(
+            model_two, backend=_backend(repo), player_config=selected
+        )
+        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
+            with pytest.raises(PlayerLaunchRefused) as refused:
+                asyncio.run(_collect(harness_two, repo))
+        error = refused.value
+        assert isinstance(error, LangGraphHarnessError)
+        assert error.failure_kind == "agent_launch_refused"
+        assert error.profile == str(profile)
+        if kind == "link":
+            expected = {"path": relative, "type": "symlink", "size": len(str(repo)), "sha256": None}
+        else:
+            expected = {
+                "path": relative,
+                "type": "file",
+                "size": len(secret),
+                "sha256": hashlib.sha256(secret.encode()).hexdigest(),
+            }
+        assert expected in error.entries
+        assert relative in str(error) and secret not in str(error)
+        if kind != "link":
+            assert expected["sha256"] in str(error)
+            assert "unexpected configuration or nonempty memory" in str(error)
+        logged = [r.getMessage() for r in caplog.records if "launch refused" in r.getMessage()]
+        assert logged and relative in logged[0] and secret not in logged[0]
+        # Nothing reached the model, and the profile was left for diagnosis.
+        assert not second.requests
+        assert target.is_symlink() or target.exists()
+    finally:
+        if kind != "nonempty_memory" and (target.is_symlink() or target.exists()):
+            target.unlink()
+        if original_memory is not None:
+            memory.write_bytes(original_memory)
+        elif memory.exists():
+            memory.unlink()
+        _close_clients(sync, async_)
+        _close_clients(sync_two, async_two)
+
+
+def test_profile_inventory_describes_entries_without_contents(tmp_path: Path) -> None:
+    from guardkitfactory.harness.dcode_harness import profile_inventory
+
+    profile = tmp_path / "profile"
+    (profile / "guardkit-player" / "nested").mkdir(parents=True)
+    (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
+    (profile / "guardkit-player" / "nested" / "hooks.json").write_text("{}")
+    assert profile_inventory(profile) == [
+        {"path": "guardkit-player", "type": "directory", "size": None, "sha256": None},
+        {
+            "path": "guardkit-player/AGENTS.md",
+            "type": "file",
+            "size": 0,
+            "sha256": hashlib.sha256(b"").hexdigest(),
+        },
+        {"path": "guardkit-player/nested", "type": "directory", "size": None, "sha256": None},
+        {
+            "path": "guardkit-player/nested/hooks.json",
+            "type": "file",
+            "size": 2,
+            "sha256": hashlib.sha256(b"{}").hexdigest(),
+        },
+    ]
+    assert profile_inventory(tmp_path / "absent") == []
+
+
 def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
     (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
