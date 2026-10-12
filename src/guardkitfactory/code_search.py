@@ -1321,8 +1321,10 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
 #: Characters with a meaning in ast-grep's ``--globs``; a path holding any of
 #: them is never turned into an exclusion.
 _GLOB_CHARACTERS = frozenset("*?[]{}!\\")
-#: At most this many empty files are left out of one structural search.
+#: At most this many empty files, and this many bytes of their paths, are
+#: left out of one structural search, so the command line stays short.
 MAX_EMPTY_EXCLUSIONS = 2_000
+MAX_EMPTY_EXCLUSION_BYTES = 64 * 1024
 
 
 def _empty_files(call: _Call, language: str) -> list[str] | None:
@@ -1341,6 +1343,7 @@ def _empty_files(call: _Call, language: str) -> list[str] | None:
     left = call.timeout_s if call.deadline is None else call.deadline - time.monotonic()
     walk_deadline = time.monotonic() + max(0.0, min(2.0, left / 4))
     found: list[str] = []
+    size = 0
     for current, dirs, names in os.walk(call.target_path):
         if _stop(walk_deadline, call.cancel):
             return None
@@ -1358,7 +1361,8 @@ def _empty_files(call: _Call, language: str) -> list[str] | None:
             relative = path.relative_to(call.root).as_posix()
             if _GLOB_CHARACTERS.intersection(relative):
                 continue
-            if len(found) >= MAX_EMPTY_EXCLUSIONS:
+            size += len(relative.encode()) + 16
+            if len(found) >= MAX_EMPTY_EXCLUSIONS or size > MAX_EMPTY_EXCLUSION_BYTES:
                 return None
             found.append(relative)
     return found
