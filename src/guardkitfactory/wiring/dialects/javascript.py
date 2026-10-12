@@ -21,8 +21,11 @@ dialect = register_dialect(
         ),
         # Export-wrapped declarations only: an unexported top-level symbol
         # is module-private, not a wiring candidate (scope §3.2).
+        # ``@default_export`` marks ``export default`` (never UNWIRED: the
+        # importer names it), as for TypeScript.
         public_symbols_query="""
             (export_statement
+              "default"? @default_export
               [
                 (function_declaration
                   name: (identifier) @name)

@@ -74,7 +74,10 @@ class WiringDialect:
         function/class/export declarations plus their ``@name`` capture.
         May also capture ``@visibility`` (e.g. C# modifiers); the analyzer
         pairs ``@visibility`` with ``@name`` per match and applies
-        ``public_visibilities``.
+        ``public_visibilities``.  May also capture ``@default_export``: a
+        match carrying it is a default export, which an importer binds
+        under a name of its own choosing, so the declared name is never an
+        UNWIRED candidate (it still counts as examined).
     references_query:
         tree-sitter S-expression that captures identifier / member-access
         nodes used for reference detection.

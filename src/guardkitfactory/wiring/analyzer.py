@@ -105,6 +105,9 @@ _KNOWN_UNDIALECTED_EXTENSIONS = {
     ".scala": "scala",
     ".ex": "elixir",
     ".erl": "erlang",
+    # Single-file components: not read by the TS/JS dialects.
+    ".vue": "vue",
+    ".svelte": "svelte",
 }
 
 # ---------------------------------------------------------------------------
@@ -811,6 +814,7 @@ def _extract_public_symbols(
                 "name": name,
                 "lineno": node.start_point[0] + 1,
                 "kind": _symbol_kind(node),
+                "default_export": bool(captures.get("default_export")),
             })
     return symbols
 
@@ -1195,6 +1199,11 @@ def _analyze_dialect(
     # --- Classify ----------------------------------------------------------
     for defining_file, sym in candidates:
         name = sym["name"]
+        if sym.get("default_export"):
+            # Imported under the importer's own name (or by path alone, as in
+            # React's ``lazy(() => import("./page"))``); the declared name
+            # proves nothing either way — biased WIRED, accepted false-negative.
+            continue
         if name in wired_by_dunder_all:
             continue  # exported via __all__ — counts as wired
         if name in registrations:

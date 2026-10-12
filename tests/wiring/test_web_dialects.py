@@ -313,3 +313,139 @@ class TestUndialectedFiles:
         assert result is not None
         assert result["status"] == "complete"
         assert result["undialected_files"] == []
+
+
+# ---------------------------------------------------------------------------
+# Default exports: the importer names them, so they are never UNWIRED
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultExports:
+    def test_react_default_export_pages_are_wired(
+        self, tmp_worktree: Path
+    ) -> None:
+        """A page imported under another name, and one loaded lazily by path,
+        are not flagged; a genuinely unused NAMED export still is."""
+        authored = [
+            _write(
+                tmp_worktree,
+                "web/src/pages/index.tsx",
+                "export default function IndexPage() {\n  return <h1>Home</h1>;\n}\n",
+            ),
+            _write(
+                tmp_worktree,
+                "web/src/pages/settings.tsx",
+                "export default function SettingsPage() {\n"
+                "  return <h1>Settings</h1>;\n"
+                "}\n",
+            ),
+            _write(
+                tmp_worktree,
+                "web/src/pages/Unused.tsx",
+                "export function UnusedWidget() {\n  return <div />;\n}\n",
+            ),
+            _write(
+                tmp_worktree,
+                "web/src/Routes.tsx",
+                'import { lazy } from "react";\n'
+                'import Home from "./pages/index";\n'
+                'const Settings = lazy(() => import("./pages/settings"));\n'
+                "export function AppRoutes() {\n"
+                "  return <><Home /><Settings /></>;\n"
+                "}\n",
+            ),
+        ]
+        _write(
+            tmp_worktree,
+            "web/src/main.tsx",
+            'import { AppRoutes } from "./Routes";\nrender(<AppRoutes />);\n',
+        )
+
+        result = analyze_wiring(authored, tmp_worktree, "FEATURE")
+
+        assert result is not None
+        assert result["status"] == "complete"
+        assert {f["symbol"] for f in result["findings"]} == {"UnusedWidget"}
+
+    def test_ts_and_jsx_default_exports_are_not_flagged(
+        self, tmp_worktree: Path
+    ) -> None:
+        authored = [
+            _write(
+                tmp_worktree,
+                "src/a.ts",
+                "export default function Foo() { return 1; }\n"
+                "export function Lonely() { return 2; }\n",
+            ),
+            _write(
+                tmp_worktree,
+                "web/src/Page.jsx",
+                "export default function JsxPage() {\n  return <p />;\n}\n",
+            ),
+        ]
+        _write(tmp_worktree, "src/b.ts", 'import Bar from "./a";\nBar();\n')
+        _write(
+            tmp_worktree,
+            "web/src/main.jsx",
+            'import P from "./Page";\nrender(<P />);\n',
+        )
+
+        result = analyze_wiring(authored, tmp_worktree, "FEATURE")
+        stubs = analyze_stub_scan(
+            [
+                _write(
+                    tmp_worktree,
+                    "web/src/Todo.tsx",
+                    "export default function TodoPage() {\n  return null;\n}\n",
+                )
+            ],
+            tmp_worktree,
+            "FEATURE",
+        )
+
+        assert result is not None and stubs is not None
+        assert {f["symbol"] for f in result["findings"]} == {"Lonely"}
+        # A default-export stub is still a stub.
+        assert {f["symbol"] for f in stubs["findings"]} == {"TodoPage"}
+
+
+# ---------------------------------------------------------------------------
+# Other TypeScript and single-file-component extensions
+# ---------------------------------------------------------------------------
+
+
+class TestMoreExtensions:
+    def test_mts_and_cts_read_as_typescript(self, tmp_worktree: Path) -> None:
+        authored = [
+            _write(tmp_worktree, "src/esm.mts", "export class EsmOrphan {}\n"),
+            _write(tmp_worktree, "src/cjs.cts", "export class CjsOrphan {}\n"),
+        ]
+
+        result = analyze_wiring(authored, tmp_worktree, "FEATURE")
+
+        assert result is not None
+        assert result["status"] == "complete"
+        assert result["languages"] == ["typescript"]
+        assert {f["symbol"] for f in result["findings"]} == {
+            "EsmOrphan", "CjsOrphan",
+        }
+
+    @pytest.mark.parametrize(
+        ("rel", "language"),
+        [("web/src/Panel.vue", "vue"), ("web/src/Panel.svelte", "svelte")],
+    )
+    def test_vue_and_svelte_listed_not_ignored(
+        self, tmp_worktree: Path, rel: str, language: str
+    ) -> None:
+        component = _write(tmp_worktree, rel, "<template><div /></template>\n")
+        alone = analyze_wiring([component], tmp_worktree, "FEATURE")
+
+        authored = _react_tsx_app(tmp_worktree) + [component]
+        mixed = analyze_wiring(authored, tmp_worktree, "FEATURE")
+
+        assert alone is not None and mixed is not None
+        assert alone["status"] == "unsupported_stack"
+        assert alone["language"] == language
+        assert alone["undialected_files"] == [rel]
+        assert mixed["status"] == "partly_unsupported"
+        assert mixed["undialected_files"] == [rel]

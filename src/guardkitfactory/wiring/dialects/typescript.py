@@ -28,11 +28,17 @@ dialect = register_dialect(
     WiringDialect(
         language="typescript",
         ts_language_name="typescript",
-        file_globs=("**/*.ts", "*.ts"),
+        file_globs=(
+            "**/*.ts", "*.ts", "**/*.mts", "*.mts", "**/*.cts", "*.cts",
+        ),
         # Export-wrapped declarations only (scope §3.2).  Class/interface
-        # names are (type_identifier) in the TS grammar.
+        # names are (type_identifier) in the TS grammar.  ``@default_export``
+        # marks ``export default``: the importer picks its own local name
+        # (``import Home from "./pages/index"``, ``lazy(() => import(...))``),
+        # so the declared name is examined but never an UNWIRED candidate.
         public_symbols_query="""
             (export_statement
+              "default"? @default_export
               [
                 (function_declaration
                   name: (identifier) @name)
