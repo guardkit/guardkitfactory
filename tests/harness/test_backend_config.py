@@ -1261,3 +1261,254 @@ class TestDeclaredPathProtection:
             build_autobuild_backend(worktree, protected_paths=["missing"])
         with pytest.raises(ValueError, match="escapes the worktree"):
             build_autobuild_backend(worktree, protected_paths=[outside])
+
+
+class TestLaunchEnvironment:
+    """12 October 2026: the project's ``launch:`` names reach the shell.
+
+    The shell does not inherit this process's environment and its ``HOME`` is
+    the worktree, so a tool cache would land in the project. The project
+    declares settings to carry over and scratch folders for its caches; the
+    backend applies exactly what is declared and knows no tool.
+    """
+
+    def _scratch(self, tmp_path: Path) -> Path:
+        git_dir = tmp_path / "host" / ".git" / "worktrees" / "FEAT-X"
+        git_dir.mkdir(parents=True)
+        return git_dir / "guardkit-scratch"
+
+    def test_no_declaration_leaves_the_env_identical(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        plain = build_autobuild_backend(worktree, scratch_root=scratch)
+        declared_none = build_autobuild_backend(
+            worktree, scratch_root=scratch, launch_environment=None
+        )
+
+        assert declared_none.default._env == plain.default._env
+        # Exactly the environment the shell had before launch declarations.
+        assert plain.default._env == {
+            "PATH": "/usr/bin:/bin",
+            "HOME": str(worktree),
+            "TMPDIR": str(worktree / ".tmp"),
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PYTHONNOUSERSITE": "1",
+        }
+        assert not (scratch / "toolchain").exists()
+
+    def test_scratch_names_resolve_under_the_scratch_folder(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        backend = build_autobuild_backend(
+            worktree,
+            scratch_root=scratch,
+            launch_environment={"scratch": ["TOOL_CACHE", "TOOL_HOME"]},
+        )
+
+        env = backend.default._env
+        for name in ("TOOL_CACHE", "TOOL_HOME"):
+            folder = scratch.resolve() / "toolchain" / name
+            assert env[name] == str(folder)
+            assert folder.is_dir()
+            assert (folder.stat().st_mode & 0o777) == 0o700
+        assert env["HOME"] == str(worktree)
+
+    def test_settings_pass_through_only_when_set(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        monkeypatch.setenv("BROWSERS_AT", "/opt/browsers")
+        monkeypatch.delenv("NOT_SET_HERE", raising=False)
+
+        backend = build_autobuild_backend(
+            worktree,
+            launch_environment={"settings": ["BROWSERS_AT", "NOT_SET_HERE"]},
+        )
+
+        env = backend.default._env
+        assert env["BROWSERS_AT"] == "/opt/browsers"
+        assert "NOT_SET_HERE" not in env
+
+    def test_a_setting_never_replaces_the_backends_own(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        monkeypatch.setenv("PYTHONNOUSERSITE", "0")
+
+        backend = build_autobuild_backend(
+            worktree, launch_environment={"settings": ["PYTHONNOUSERSITE"]}
+        )
+
+        assert backend.default._env["PYTHONNOUSERSITE"] == "1"
+
+    def test_declared_scratch_without_a_scratch_folder_fails(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+
+        with pytest.raises(ValueError, match="no scratch folder"):
+            build_autobuild_backend(
+                worktree, launch_environment={"scratch": ["TOOL_CACHE"]}
+            )
+        assert list(worktree.iterdir()) == []
+
+    def test_declared_scratch_with_a_refused_scratch_folder_fails(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        inside = worktree / "src"
+        inside.mkdir()
+
+        with pytest.raises(ValueError, match="inside the project"):
+            build_autobuild_backend(
+                worktree,
+                scratch_root=inside / "guardkit-scratch",
+                launch_environment={"scratch": ["TOOL_CACHE"]},
+            )
+        assert not (inside / "guardkit-scratch").exists()
+
+    def test_malformed_names_fail(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        with pytest.raises(ValueError, match="is not a variable name"):
+            build_autobuild_backend(
+                worktree, launch_environment={"settings": ["1BAD"]}
+            )
+        with pytest.raises(ValueError, match="unknown keys"):
+            build_autobuild_backend(
+                worktree, launch_environment={"pass_through": ["X"]}
+            )
+        with pytest.raises(ValueError, match="set by the backend itself"):
+            build_autobuild_backend(
+                worktree,
+                scratch_root=scratch,
+                launch_environment={"scratch": ["PYTHONNOUSERSITE"]},
+            )
+
+    @pytest.mark.parametrize(
+        "name",
+        ["PATH", "SSH_AUTH_SOCK", "GUARDKIT_X", "forge_x", "OPENAI_API_BASE",
+         "REGISTRY_TOKEN", "db_password", "X" * 129],
+    )
+    def test_reserved_and_credential_shaped_names_fail(
+        self, tmp_path: Path, name: str
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        for key in ("settings", "scratch"):
+            with pytest.raises(ValueError, match="AutoBuild launch"):
+                build_autobuild_backend(
+                    worktree,
+                    scratch_root=scratch,
+                    launch_environment={key: [name]},
+                )
+
+    def test_launch_scratch_root_places_names_without_write_access(
+        self, tmp_path: Path
+    ) -> None:
+        """The Coach's shell: names resolve under the handed-over folder, and
+        its file tools still cannot write there."""
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        backend = build_autobuild_backend(
+            worktree,
+            launch_environment={"scratch": ["TOOL_CACHE"]},
+            launch_scratch_root=scratch,
+        )
+
+        folder = scratch.resolve() / "toolchain" / "TOOL_CACHE"
+        assert backend.default._env["TOOL_CACHE"] == str(folder)
+        assert folder.is_dir()
+        assert backend.default.scratch_root is None
+        refused = backend.write(str(folder / "x.txt"), "x")
+        assert refused.error is not None
+        assert not (folder / "x.txt").exists()
+        # The shell itself can still fill its cache.
+        assert backend.execute('echo c > "$TOOL_CACHE/c"').exit_code == 0
+        assert (folder / "c").read_text() == "c\n"
+
+    def test_launch_scratch_root_inside_the_project_fails(
+        self, tmp_path: Path
+    ) -> None:
+        worktree = _make_worktree(tmp_path)
+
+        with pytest.raises(ValueError, match="inside the project"):
+            build_autobuild_backend(
+                worktree,
+                launch_environment={"scratch": ["TOOL_CACHE"]},
+                launch_scratch_root=worktree / "cache",
+            )
+        assert not (worktree / "cache").exists()
+
+    def test_launch_scratch_root_alone_changes_nothing(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        plain = build_autobuild_backend(worktree)
+        handed = build_autobuild_backend(worktree, launch_scratch_root=scratch)
+
+        assert handed.default._env == plain.default._env
+        assert not scratch.exists()
+
+    def test_real_go_and_npm_use_the_declared_folders(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real shell, with host toolchains when present (skipped if not).
+
+        ``go env`` and ``npm cache verify`` report the scratch folders, and
+        the worktree gains no files. ``XDG_CONFIG_HOME`` (Go's telemetry
+        folder) and ``NODE_COMPILE_CACHE`` are declared because without them
+        go and node write under the worktree ``HOME`` and ``TMPDIR``.
+        """
+        import shutil
+
+        go = shutil.which("go")
+        node = shutil.which("node")
+        npm = shutil.which("npm")
+        if go is None or node is None or npm is None:
+            pytest.skip("go, node or npm is not on this machine's PATH")
+        npm_cli = Path(npm).resolve()
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+        # Keeps go from fetching another toolchain; also proves a declared
+        # setting reaches the real shell.
+        monkeypatch.setenv("GOTOOLCHAIN", "local")
+        backend = build_autobuild_backend(
+            worktree,
+            scratch_root=scratch,
+            launch_environment={
+                "settings": ["GOTOOLCHAIN"],
+                "scratch": [
+                    "GOPATH",
+                    "GOCACHE",
+                    "npm_config_cache",
+                    "XDG_CONFIG_HOME",
+                    "NODE_COMPILE_CACHE",
+                ],
+            },
+        )
+        before = sorted(str(p.relative_to(worktree)) for p in worktree.rglob("*"))
+
+        go_env = backend.execute(f"{go} env GOCACHE GOPATH GOTOOLCHAIN")
+        npm_cache = backend.execute(f"{node} {npm_cli} cache verify")
+
+        toolchain = scratch.resolve() / "toolchain"
+        assert go_env.exit_code == 0, go_env.output
+        assert go_env.output.split() == [
+            str(toolchain / "GOCACHE"),
+            str(toolchain / "GOPATH"),
+            "local",
+        ]
+        assert npm_cache.exit_code == 0, npm_cache.output
+        assert (
+            f"({toolchain / 'npm_config_cache' / '_cacache'})" in npm_cache.output
+        )
+        after = sorted(str(p.relative_to(worktree)) for p in worktree.rglob("*"))
+        assert after == before
