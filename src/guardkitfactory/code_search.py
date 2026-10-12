@@ -986,12 +986,17 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
     ):
         facts.fatal = f"Probe ended with status {run.returncode}"
         return
+    bad = 0
     for item in parsed["results"]:
-        if not isinstance(item, dict):
-            continue
-        path = _relative_result_path(call.root, str(item.get("file") or ""))
-        lines = item.get("lines")
-        if path is None or not isinstance(lines, list) or len(lines) != 2:
+        lines = _probe_lines(item.get("lines")) if isinstance(item, dict) else None
+        score = _probe_score(item) if lines is not None else None
+        path = (
+            _relative_result_path(call.root, item["file"])
+            if lines is not None and isinstance(item.get("file"), str) and item["file"]
+            else None
+        )
+        if lines is None or score is None or path is None or path == ".":
+            bad += 1
             continue
         text, cut = _cut_block(str(item.get("code") or ""))
         entry: dict[str, Any] = {
@@ -999,7 +1004,7 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
             "first_line": lines[0],
             "last_line": lines[1],
             "text": text,
-            "score": round(float(item.get("bm25_score") or item.get("score") or 0.0), 4),
+            "score": score,
             "kind": item.get("node_type"),
             "language": item.get("language"),
             "matched": item.get("matched_keywords") or [],
@@ -1008,15 +1013,40 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
             entry["text_cut"] = True
             facts.shown_in_part += 1
         facts.results.append(entry)
-    if facts.diagnostics:
+    if bad and not facts.results:
+        facts.fatal = f"Probe's output could not be read ({bad} unreadable result(s))"
+        return
+    if facts.diagnostics or bad:
         # Probe reports an unreadable path only on stderr, with exit 0.
-        facts.program_errors = list(facts.diagnostics)
+        facts.program_errors = list(facts.diagnostics) or [f"{bad} unreadable result(s)"]
     if len(facts.results) >= call.max_results:
         facts.limits.append(f"result limit {call.max_results} reached; more may exist")
     limits = parsed.get("limits") or {}
     max_bytes = limits.get("max_bytes")
     if isinstance(max_bytes, int) and (limits.get("total_bytes") or 0) >= max_bytes:
         facts.limits.append(f"Probe's byte limit {max_bytes} reached")
+
+
+def _probe_lines(lines: Any) -> tuple[int, int] | None:
+    """Probe's ``lines: [first, last]``, 1-based, or ``None`` when malformed."""
+    if (
+        not isinstance(lines, list)
+        or len(lines) != 2
+        or not all(isinstance(n, int) and not isinstance(n, bool) for n in lines)
+        or lines[0] < 1
+        or lines[1] < lines[0]
+    ):
+        return None
+    return lines[0], lines[1]
+
+
+def _probe_score(item: dict[str, Any]) -> float | None:
+    raw = item.get("bm25_score", item.get("score", 0.0))
+    if raw is None:
+        return 0.0
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return None
+    return round(float(raw), 4)
 
 
 def _sg_counts(stderr: str) -> dict[str, int]:

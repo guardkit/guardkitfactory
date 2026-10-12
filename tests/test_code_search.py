@@ -417,16 +417,26 @@ def test_repeated_edits_to_an_untracked_file_change_the_fingerprint(repo: Path) 
 
 def test_change_during_a_query_is_partial(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     real = code_search._execute
+    edited: list[str] = []
 
-    def edit_while_running(*args, **kwargs):
-        result = real(*args, **kwargs)
-        (repo / "src" / "users.py").write_text("changed = True\n")
+    def edit_while_running(argv, *args, **kwargs):
+        result = real(argv, *args, **kwargs)
+        # Only the search program, after the baseline identity was taken.
+        if argv and argv[0] != "git":
+            (repo / "src" / "users.py").write_text("changed = True\n")
+            edited.append(argv[0])
         return result
 
     monkeypatch.setattr(code_search, "_execute", edit_while_running)
     answer = code_search.run("search", repo, query="count_active", mode="literal")
+    assert edited, "the search program never ran"
     assert answer["status"] == "partial"
     assert "the worktree changed while it was searched" in answer["truncation"]
+    # Control: nothing edited, nothing reported.
+    monkeypatch.setattr(code_search, "_execute", real)
+    again = code_search.run("search", repo, query="changed", mode="literal")
+    assert again["status"] == "ok"
+    assert "the worktree changed while it was searched" not in again["truncation"]
 
 
 def test_no_writes_to_the_tree_or_home(repo: Path, tmp_path: Path,
@@ -702,4 +712,57 @@ def test_cancelled_identity_is_not_described(repo: Path) -> None:
     cancel.set()
     described = code_search.worktree_source(repo, cancel=cancel)
     assert described["fingerprint"] is None and "cancelled" in described["note"]
+
+
+# -- Codex implementation review round 3 --------------------------------------
+
+
+def _probe_output(results: list) -> str:
+    return json.dumps({"results": results, "summary": {"count": len(results)},
+                       "limits": {"max_bytes": 1_000_000, "total_bytes": 10},
+                       "version": "0.6.0"})
+
+
+@pytest.mark.parametrize(
+    "results",
+    [
+        [{}],
+        [{"file": "src/users.py", "lines": [5, 2], "code": "x"}],
+        [{"file": "src/users.py", "lines": [1, "2"], "code": "x"}],
+        [{"file": "src/users.py", "lines": [1, 2], "code": "x", "bm25_score": "high"}],
+        [{"file": "", "lines": [1, 2], "code": "x"}],
+    ],
+)
+def test_malformed_probe_results_are_never_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, results: list
+) -> None:
+    output = tmp_path / "probe.json"
+    output.write_text(_probe_output(results))
+    script = _fake_program(tmp_path, f"cat {output}\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    answer = code_search.run("search", repo, query="count")
+    assert answer["status"] == "tool_error", answer
+
+
+def test_a_malformed_probe_result_beside_a_good_one_is_partial(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    good = {"file": str(repo / "src" / "users.py"), "lines": [8, 9], "code": "def count_active",
+            "bm25_score": 1.5}
+    output = tmp_path / "probe.json"
+    output.write_text(_probe_output([good, {}]))
+    script = _fake_program(tmp_path, f"cat {output}\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    answer = code_search.run("search", repo, query="count")
+    assert answer["status"] == "partial" and len(answer["results"]) == 1
+
+
+def test_genuinely_empty_probe_output_is_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    output = tmp_path / "probe.json"
+    output.write_text(_probe_output([]))
+    script = _fake_program(tmp_path, f"cat {output}\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    assert code_search.run("search", repo, query="count")["status"] == "no_matches"
 
