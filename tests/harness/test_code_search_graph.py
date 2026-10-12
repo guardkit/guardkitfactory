@@ -9,9 +9,11 @@ real caller and consumer.
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +28,13 @@ from .test_dcode_harness import Exchange, config, isolate, selected_skill_calls 
 from .test_player_skills_graph import _backend, _close_clients, _collect, _model, _scaffold
 
 _READY, _WHY = code_search.available()
-pytestmark = pytest.mark.skipif(not _READY, reason=f"pinned programs not installed: {_WHY}")
+pytestmark = [
+    pytest.mark.skipif(not _READY, reason=f"pinned programs not installed: {_WHY}"),
+    pytest.mark.skipif(
+        sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None,
+        reason="dcode graph acceptance requires Python 3.12+ and the required dependency",
+    ),
+]
 
 
 def _git_init(repo: Path) -> None:
@@ -142,8 +150,8 @@ def test_bad_arguments_come_back_to_the_model(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
     tools, _ = code_search_tools(repo)
     search = next(t for t in tools if t.name == "code_search")
-    answer = search.invoke({"query": "x", "mode": "fuzzy"})
-    assert "mode" in str(answer)
+    answer = json.loads(search.invoke({"query": "x", "mode": "fuzzy"}))
+    assert answer["status"] == "input_error" and "mode" in answer["note"]
 
 
 async def _gather(harness: LangGraphHarness, repo: Path) -> list[Any]:

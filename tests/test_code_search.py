@@ -101,7 +101,11 @@ def test_literal_and_regex_search_report_lines_and_coverage(repo: Path) -> None:
     }
     assert literal["coverage"]["files_searched"] >= 4
     regex = code_search.run("search", repo, query=r"def \w+_active", mode="regex")
-    assert regex["status"] == "ok" and regex["results"][0]["first_line"] == 8
+    assert regex["status"] == "ok"
+    assert ("src/users.py", 8) in {(r["path"], r["first_line"]) for r in regex["results"]}
+    # The same search keeps the same results in the same order every time.
+    again = code_search.run("search", repo, query=r"def \w+_active", mode="regex")
+    assert again["results"] == regex["results"]
 
 
 def test_outline_lists_symbols_with_one_based_lines(repo: Path) -> None:
@@ -294,8 +298,41 @@ def test_cancelled_task_stops_the_program_group(repo: Path, tmp_path: Path) -> N
         asyncio.run(scenario())
     child = int(marker.read_text().strip())
     time.sleep(0.2)
-    with pytest.raises(ProcessLookupError):
-        os.kill(child, 0)
+    # Gone, or a zombie waiting for a reaper (a container whose PID 1 does not
+    # reap): either way it is no longer running.
+    stat = Path(f"/proc/{child}/stat")
+    assert not stat.exists() or stat.read_text().split(") ", 1)[1].startswith("Z")
+
+
+def test_file_names_that_look_like_flags_stay_paths(repo: Path) -> None:
+    flag = repo / "--rewrite=x"
+    flag.mkdir()
+    (flag / "inside.py").write_text("flag_marker = 1\n")
+    for operation, kwargs in (
+        ("search", {"query": "flag marker"}),
+        ("search", {"query": "flag_marker", "mode": "literal"}),
+        ("outline", {}),
+        ("pattern", {"pattern": "flag_marker = $V", "language": "python"}),
+    ):
+        answer = code_search.run(operation, repo, path="--rewrite=x", **kwargs)
+        assert answer["status"] == "ok", (operation, answer)
+        assert all(r["path"].startswith("--rewrite=x/") for r in answer["results"])
+
+
+def test_line_breaks_in_literal_queries_are_input_errors(repo: Path) -> None:
+    answer = code_search.run("search", repo, query="a\nb", mode="literal")
+    assert answer["status"] == "input_error"
+
+
+def test_a_planted_git_config_is_not_used(repo: Path, tmp_path: Path,
+                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    home = tmp_path / "planted"
+    home.mkdir()
+    touched = tmp_path / "fsmonitor-ran"
+    (home / ".gitconfig").write_text(f"[core]\n\tfsmonitor = touch {touched}\n")
+    monkeypatch.setenv("HOME", str(home))
+    code_search.worktree_source(repo)
+    assert not touched.exists()
 
 
 def test_cancel_event_before_start(repo: Path) -> None:
@@ -403,14 +440,24 @@ def test_no_writes_to_the_tree_or_home(repo: Path, tmp_path: Path,
 
 
 def test_snapshot_omission_inside_the_path_makes_no_match_partial(repo: Path) -> None:
-    source = {"kind": "commit", "commit": "0" * 40,
-              "omitted": [{"path": "src/huge.py", "reason": "larger than the file size limit"}]}
+    source = {"kind": "commit", "commit": "0" * 40, "omitted_count": 1}
+    omitted = [{"path": "src/huge.py", "reason": "larger than the file size limit"}]
     inside = code_search.run("search", repo, query="zzqq", mode="literal", source=source,
-                             respect_ignore=False)
+                             omitted=omitted, respect_ignore=False)
     assert inside["status"] == "partial" and inside["results"] == []
+    assert inside["source"] == source  # the list is used, not copied into the answer
     elsewhere = code_search.run("search", repo, query="zzqq", mode="literal", path="tests",
-                                source=source, respect_ignore=False)
+                                source=source, omitted=omitted, respect_ignore=False)
     assert elsewhere["status"] == "no_matches"
+
+
+def test_a_long_omitted_list_never_crowds_out_results(repo: Path) -> None:
+    omitted = [{"path": f"vendor/f{i}.py", "reason": "beyond the path limit"}
+               for i in range(5_000)]
+    answer = code_search.run("search", repo, query="count_active", mode="literal",
+                             source={"kind": "commit", "omitted_count": 5_000},
+                             omitted=omitted, respect_ignore=False, max_chars=4_000)
+    assert answer["results"] and answer["status"] == "partial"
 
 
 def test_self_check_passes() -> None:

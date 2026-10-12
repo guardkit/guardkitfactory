@@ -68,6 +68,13 @@ def _render(answer: dict[str, Any]) -> str:
     return json.dumps(answer, ensure_ascii=False)
 
 
+def _bad_arguments(error: Exception) -> str:
+    """Tell the model which argument was wrong, in the tools' own answer shape
+    (LangChain's default is a fixed sentence that names nothing)."""
+    return _render({"status": "input_error", "note": f"invalid arguments: {error}",
+                    "results": []})
+
+
 def code_search_tools(
     root: Path, *, max_chars: int = code_search.DEFAULT_MAX_CHARS
 ) -> tuple[list[BaseTool], str]:
@@ -125,7 +132,7 @@ def code_search_tools(
                 "code. " + _STATUS_HELP
             ),
             args_schema=_SearchArgs,
-            handle_validation_error=True,
+            handle_validation_error=_bad_arguments,
         ),
         StructuredTool.from_function(
             func=outline,
@@ -137,7 +144,7 @@ def code_search_tools(
                 "'unsupported'. " + _STATUS_HELP
             ),
             args_schema=_OutlineArgs,
-            handle_validation_error=True,
+            handle_validation_error=_bad_arguments,
         ),
         StructuredTool.from_function(
             func=pattern,
@@ -149,7 +156,7 @@ def code_search_tools(
                 "of behaviour or of every caller. " + _STATUS_HELP
             ),
             args_schema=_PatternArgs,
-            handle_validation_error=True,
+            handle_validation_error=_bad_arguments,
         ),
     ]
     return tools, ""

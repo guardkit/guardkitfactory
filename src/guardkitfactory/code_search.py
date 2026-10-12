@@ -35,7 +35,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -223,7 +223,7 @@ def toolkit() -> dict[str, Any]:
                         capture_output=True,
                         text=True,
                         timeout=10,
-                        env=_base_environment(Path(tempfile.gettempdir())),
+                        env={**_git_environment(), "NO_COLOR": "1"},
                         stdin=subprocess.DEVNULL,
                         check=False,
                     )
@@ -282,6 +282,20 @@ def _base_environment(private: Path) -> dict[str, str]:
     }
 
 
+def _git_environment() -> dict[str, str]:
+    """git with no user, system or shared-folder configuration: nothing a
+    planted ``.gitconfig`` says (an fsmonitor command, say) can run."""
+
+    return {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/nonexistent",
+        "GIT_CONFIG_NOSYSTEM": "1",
+        "GIT_CONFIG_GLOBAL": "/dev/null",
+        "GIT_OPTIONAL_LOCKS": "0",
+        "LC_ALL": "C.UTF-8",
+    }
+
+
 def _kill_group(process: subprocess.Popen[bytes]) -> None:
     with contextlib.suppress(ProcessLookupError, PermissionError, OSError):
         os.killpg(process.pid, signal.SIGKILL)
@@ -296,7 +310,7 @@ def _execute(
     env: Mapping[str, str],
     timeout_s: float,
     cancel: threading.Event | None,
-    max_bytes: int = MAX_OUTPUT_BYTES,
+    max_bytes: int | None = None,
 ) -> _Run:
     """Run one program in its own process group, bounded in time and output.
 
@@ -304,6 +318,8 @@ def _execute(
     output; the answer says which happened.
     """
 
+    if max_bytes is None:
+        max_bytes = MAX_OUTPUT_BYTES
     started = time.monotonic()
     process = subprocess.Popen(  # noqa: S603 - fixed argv, no shell
         argv,
@@ -359,10 +375,10 @@ def _execute(
                 break
             time.sleep(0.02)
     finally:
-        if process.poll() is None:
+        stopped_early = process.poll() is None or timed_out or cancelled or capped.is_set()
+        if stopped_early:
+            # The whole group, so a child that kept a pipe open stops too.
             _kill_group(process)
-        # Stopping the group also stops any child that kept a pipe open.
-        _kill_group(process)
         with contextlib.suppress(subprocess.TimeoutExpired):
             process.wait(timeout=5)
         for reader in readers:
@@ -476,9 +492,8 @@ def worktree_source(root: Path, timeout_s: float = 10.0) -> dict[str, Any]:
     modification time and ``fingerprint_complete`` is false.
     """
 
-    env = _base_environment(Path(tempfile.gettempdir()))
-    env["GIT_OPTIONAL_LOCKS"] = "0"
-    base = ["git", "-c", "safe.directory=*", "-C", str(root)]
+    env = _git_environment()
+    base = ["git", "-c", "safe.directory=*", "-c", "core.fsmonitor=false", "-C", str(root)]
     try:
         head = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [*base, "rev-parse", "--verify", "--quiet", "HEAD"],
@@ -580,14 +595,10 @@ def _new_facts(respect_ignore: bool) -> _Facts:
     )
 
 
-#: When several apply, the first wins.
-STATUS_ORDER = (
-    "input_error", "tool_unavailable", "cancelled", "tool_error", "unsupported",
-    "partial", "ok", "no_matches",
-)
-
-
 def _decide(facts: _Facts) -> tuple[str, str]:
+    """When several apply, the first wins: input_error, cancelled, tool_error,
+    unsupported, partial, then ok or no_matches (tool_unavailable is decided
+    before any program runs)."""
     if facts.input_problem:
         return "input_error", facts.input_problem
     if facts.cancelled:
@@ -684,21 +695,28 @@ def _relative_result_path(root: Path, reported: str) -> str | None:
 
 
 def _fit_to_chars(answer: dict[str, Any], max_chars: int) -> dict[str, Any]:
-    """Drop trailing results until the whole answer fits ``max_chars``."""
+    """Drop trailing results until the whole answer, including the sentence
+    saying so, fits ``max_chars``."""
 
-    results = answer["results"]
+    def size() -> int:
+        return len(json.dumps(answer, ensure_ascii=False))
+
+    if size() <= max_chars or not answer["results"]:
+        return answer
+    answer["truncated"] = True
+    answer["truncation"].append("")
+    if answer["status"] == "ok":
+        answer["status"] = "partial"
+        answer["note"] = "the search did not cover everything; see truncation"
     dropped = 0
-    while results and len(json.dumps(answer, ensure_ascii=False)) > max_chars:
-        results.pop()
+    while answer["results"]:
+        answer["results"].pop()
         dropped += 1
-    if dropped:
-        answer["truncated"] = True
-        answer["truncation"].append(
+        answer["truncation"][-1] = (
             f"{dropped} more result(s) left out to fit {max_chars} characters"
         )
-        if answer["status"] == "ok":
-            answer["status"] = "partial"
-            answer["note"] = "the search did not cover everything; see truncation"
+        if size() <= max_chars:
+            break
     return answer
 
 
@@ -759,12 +777,12 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
         argv.append("--fixed-strings")
     if not call.respect_ignore:
         argv.append("--no-ignore")
-    argv += ["--regexp", query, "--", call.target]
+    argv += ["--regexp", query, "--", str(call.target_path)]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
-    total = 0
     stats: dict[str, Any] | None = None
     unparsed = 0
+    found: list[dict[str, Any]] = []
     for raw in run.stdout.splitlines():
         try:
             event = json.loads(raw)
@@ -774,15 +792,12 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
         kind = event.get("type")
         data = event.get("data") or {}
         if kind == "match":
-            total += 1
-            if len(facts.results) >= call.max_results:
-                continue
             path = _relative_result_path(call.root, str((data.get("path") or {}).get("text")))
             if path is None:
                 continue
             text = (data.get("lines") or {}).get("text")
             number = data.get("line_number")
-            facts.results.append(
+            found.append(
                 {
                     "path": path,
                     "first_line": number,
@@ -792,6 +807,11 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
             )
         elif kind == "summary":
             stats = data.get("stats") or {}
+    # ripgrep's threads finish files in any order: sort, so the same search
+    # always keeps the same results.
+    found.sort(key=lambda r: (r["path"], r["first_line"] or 0))
+    total = len(found)
+    facts.results.extend(found[: call.max_results])
     facts.coverage.update(
         {
             "files_searched": (stats or {}).get("searches"),
@@ -808,14 +828,14 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
         facts.input_problem = "the regular expression is not valid ripgrep syntax"
     elif run.returncode not in (0, 1, 2) or stats is None:
         facts.fatal = f"ripgrep ended with status {run.returncode} and no summary"
-    elif run.returncode == 2 or unparsed:
+    elif run.returncode == 2 or unparsed or facts.diagnostics:
         # ripgrep carries on past a file it cannot read and exits 2.
         facts.program_errors = facts.diagnostics or ["ripgrep output could not be read"]
 
 
 def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
     argv = [
-        call.exe, "search", " ".join(words), call.target,
+        call.exe, "search", " ".join(words), str(call.target_path),
         "--format", "json",
         "--allow-tests",
         "--max-results", str(call.max_results),
@@ -926,7 +946,8 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
         )
         return
     argv = [call.exe, "outline", "--items", items, "--json=stream", "--color", "never",
-            "--threads", THREADS, *_sg_ignore_flags(call.respect_ignore), call.target]
+            "--threads", THREADS, *_sg_ignore_flags(call.respect_ignore),
+            str(call.target_path)]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
     total = files = without_support = 0
@@ -995,7 +1016,7 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
     argv = [call.exe, "run", "--config", str(call.private / "sgconfig.yml"),
             "--pattern", pattern, "--lang", language, "--json=stream", "--color", "never",
             "--inspect", "summary", "--threads", THREADS,
-            *_sg_ignore_flags(call.respect_ignore), call.target]
+            *_sg_ignore_flags(call.respect_ignore), str(call.target_path)]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
     total = 0
@@ -1039,13 +1060,12 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
     elif not counts:
         facts.fatal = "ast-grep did not report what it scanned"
     elif counts.get("files_scanned") == 0:
-        facts.unsupported = f"no {language} file was found here to match against"
+        facts.unsupported = f"no {language} file was searched here"
 
 
-def _snapshot_omissions(source: Mapping[str, Any] | None, target: str) -> list[str]:
+def _snapshot_omissions(omitted: Sequence[Mapping[str, Any]], target: str) -> list[str]:
     """Files a commit snapshot left out inside the searched path."""
 
-    omitted = (source or {}).get("omitted") or []
     inside = [
         item for item in omitted
         if isinstance(item, dict)
@@ -1075,14 +1095,16 @@ def run(
     max_chars: int = DEFAULT_MAX_CHARS,
     timeout_s: float = DEFAULT_TIMEOUT_S,
     source: Mapping[str, Any] | None = None,
+    omitted: Sequence[Mapping[str, Any]] = (),
     respect_ignore: bool = True,
     cancel: threading.Event | None = None,
 ) -> dict[str, Any]:
     """One bounded, read-only operation over ``root``.
 
     ``source`` describes what ``root`` holds (a commit snapshot, from the
-    Forge helper, with any files it left out under ``omitted``); without it
-    the worktree is described before and after the program runs.
+    Forge helper); ``omitted`` lists the files that snapshot left out, each
+    ``{path, reason}``, and is used, not copied into the answer. Without
+    ``source`` the worktree is described before and after the program runs.
     ``respect_ignore`` is false for a snapshot, which holds exactly the
     tracked files.
     """
@@ -1124,6 +1146,9 @@ def run(
             return refused("input_error", f"mode must be one of {', '.join(SEARCH_MODES)}")
         if not query or len(query) > MAX_QUERY_CHARS:
             return refused("input_error", f"the query must be 1 to {MAX_QUERY_CHARS} characters")
+        if mode != "ranked" and any(ch in query for ch in "\n\r\0"):
+            return refused("input_error", "literal and regex searches match one line at a time; "
+                           "the query must not contain a line break")
         tool = "probe" if mode == "ranked" else "ripgrep"
         if mode == "ranked":
             words = query_words(query)
@@ -1157,7 +1182,7 @@ def run(
         return refused("cancelled", "the search was cancelled before it started", tool)
 
     facts = _new_facts(respect_ignore)
-    facts.limits.extend(_snapshot_omissions(source, target))
+    facts.limits.extend(_snapshot_omissions(omitted, target))
     private = _private_folder(root_path)
     try:
         call = _Call(root_path, target_path, target, limit, respect_ignore, entry["path"],
@@ -1253,8 +1278,23 @@ def self_check(out: Callable[[str], None] = print) -> int:
              lambda a: a["status"] == "input_error"),
             ("snapshot omission is partial",
              {"operation": "search", "query": "zzqqnothinghere", "mode": "literal",
-              "source": {**snapshot, "omitted": [{"path": "big.bin", "reason": "too large"}]}},
+              "omitted": [{"path": "big.bin", "reason": "too large"}]},
              lambda a: a["status"] == "partial" and not a["results"]),
+            ("snapshot mode ranked",
+             {"operation": "search", "query": "ledger balance", "respect_ignore": False},
+             lambda a: a["status"] == "ok"
+             and any(r["path"].startswith("tests/") for r in a["results"])),
+            ("snapshot mode literal",
+             {"operation": "search", "query": "balance", "mode": "literal",
+              "respect_ignore": False},
+             lambda a: a["status"] == "ok"),
+            ("snapshot mode pattern",
+             {"operation": "pattern", "pattern": "return $X", "language": "python",
+              "respect_ignore": False},
+             lambda a: a["status"] == "ok"),
+            ("snapshot mode outline",
+             {"operation": "outline", "path": "src", "respect_ignore": False},
+             lambda a: a["status"] == "ok"),
         ]
         for name, call, accept in checks:
             kwargs = dict(call)
