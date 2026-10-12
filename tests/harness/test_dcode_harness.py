@@ -1288,7 +1288,9 @@ def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
         _close_clients(sync_two, async_two)
 
 
-@pytest.mark.parametrize("setting", ["offline", "tracing", "home_mismatch", "already_imported"])
+@pytest.mark.parametrize(
+    "setting", ["offline", "tracing", "home_mismatch", "already_imported", "endpoint_mismatch"]
+)
 def test_process_wide_launch_refusals_are_typed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting: str
 ) -> None:
@@ -1312,6 +1314,15 @@ def test_process_wide_launch_refusals_are_typed(
             elif setting == "home_mismatch":
                 monkeypatch.setenv("DEEPAGENTS_HOME", str(tmp_path))
                 _validate_launch(selected)
+            elif setting == "endpoint_mismatch":
+                monkeypatch.setenv("OPENAI_BASE_URL", "http://other.test/v1")
+                create_dcode_player(
+                    model=model,
+                    backend=_backend(repo),
+                    cwd=repo,
+                    config=selected,
+                    recursion_limit=None,
+                )
             else:
                 with patch(
                     "deepagents_code._paths.PATHS",
@@ -1332,6 +1343,36 @@ def test_process_wide_launch_refusals_are_typed(
         assert not exchange.requests
     finally:
         _close_clients(sync, async_)
+
+
+def test_owner_unreadable_profile_file_is_a_typed_refusal(tmp_path: Path) -> None:
+    """A profile file the owner cannot read (mode 0044) is refused, not retried."""
+    from guardkitfactory.harness import PlayerLaunchRefused
+    from guardkitfactory.harness.dcode_harness import _validate_launch
+
+    if os.geteuid() == 0:
+        pytest.skip("root reads files regardless of mode")
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    hidden = selected.dcode_home / "guardkit-player" / "hidden.json"
+    hidden.parent.mkdir(parents=True, exist_ok=True)
+    hidden.write_text("{}")
+    hidden.chmod(0o044)
+    try:
+        with pytest.raises(PlayerLaunchRefused) as refused:
+            _validate_launch(selected)
+        assert {
+            "path": "guardkit-player/hidden.json",
+            "type": "file",
+            "size": 2,
+            "sha256": None,
+            "error": "PermissionError",
+        } in refused.value.entries
+        assert "PermissionError" in str(refused.value)
+    finally:
+        hidden.chmod(0o644)
+        hidden.unlink()
 
 
 def test_nonempty_profile_memory_after_construction_is_typed(tmp_path: Path) -> None:
@@ -1617,7 +1658,8 @@ def test_inventory_reports_no_replay_for_a_plain_model(monkeypatch: pytest.Monke
             api_key="synthetic-test",
             use_responses_api=False,
         )
-        assert _validate_model(model)["reasoning_replay"] is expected
+        settings = _validate_model(model, SimpleNamespace(dcode_home=None))
+        assert settings["reasoning_replay"] is expected
 
 
 # --- Project-declared mandatory supporting documents (Lane A) ----------------

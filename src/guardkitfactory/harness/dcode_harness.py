@@ -329,10 +329,13 @@ def _validate_launch(config: PlayerConfig) -> Path:
 
     try:
         files = _tree(profile)
-    except LangGraphHarnessError as exc:
-        _refuse_launch(
-            str(exc).removeprefix("dcode Player: "), profile, profile_inventory(profile)
+    except (LangGraphHarnessError, OSError) as exc:
+        message = (
+            str(exc).removeprefix("dcode Player: ")
+            if isinstance(exc, LangGraphHarnessError)
+            else f"run profile could not be inspected ({type(exc).__name__})"
         )
+        _refuse_launch(message, profile, profile_inventory(profile))
     if files and files != _CLEAN_PROFILE:
         _refuse_launch(
             "run profile contains unexpected configuration or nonempty memory",
@@ -342,14 +345,20 @@ def _validate_launch(config: PlayerConfig) -> Path:
     return profile
 
 
-def _validate_model(model: Any) -> dict[str, Any]:
+def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
+    # The model and OPENAI_BASE_URL are fixed for the process, so a mismatch
+    # would be refused on every turn: these refusals are typed launch refusals.
     from langchain_openai.chat_models.base import ChatOpenAI
 
     from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
 
     expected = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
     if not isinstance(model, ChatOpenAI) or model.use_responses_api is not False:
-        _refuse("requires a resolved local ChatOpenAI using ChatCompletions; no model fallback")
+        _refuse_launch(
+            "requires a resolved local ChatOpenAI using ChatCompletions; no model fallback",
+            config.dcode_home,
+            [],
+        )
     actual = str(model.openai_api_base or "").rstrip("/")
     parsed = urlsplit(actual)
     if (
@@ -363,9 +372,13 @@ def _validate_model(model: Any) -> dict[str, Any]:
         or parsed.query
         or parsed.fragment
     ):
-        _refuse("model endpoint does not match the accepted local OPENAI_BASE_URL")
+        _refuse_launch(
+            "model endpoint does not match the accepted local OPENAI_BASE_URL",
+            config.dcode_home,
+            [],
+        )
     if not model.model_name or ":" in model.model_name:
-        _refuse("requires an explicit local model alias")
+        _refuse_launch("requires an explicit local model alias", config.dcode_home, [])
     return {
         "alias": model.model_name,
         "endpoint": actual,
@@ -545,7 +558,7 @@ def create_dcode_player(
 ) -> Any:
     """Construct dcode lazily after the harness's shared worktree checks."""
     profile = _validate_launch(config)
-    settings = _validate_model(model)
+    settings = _validate_model(model, config)
     from deepagents_code._paths import PATHS
     from deepagents_code._env_vars import EXPERIMENTAL
     from deepagents_code.agent import create_cli_agent
