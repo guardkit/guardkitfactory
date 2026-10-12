@@ -903,8 +903,10 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
     argv += ["--regexp", query, "--", call.operand]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
-    stats: dict[str, Any] | None = None
+    stats: dict[str, int] | None = None
     unparsed = 0
+    #: Every record ripgrep sent as a match, readable or not.
+    match_records = 0
     found: list[dict[str, Any]] = []
     for raw in run.stdout.splitlines():
         try:
@@ -914,14 +916,16 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
             continue
         kind = event.get("type") if isinstance(event, dict) else None
         data = event.get("data") if isinstance(event, dict) else None
+        if kind == "match":
+            match_records += 1
         if not isinstance(data, dict):
             unparsed += 1
             continue
         if kind in ("begin", "end", "context"):
             continue
         if kind == "summary":
-            candidate = data.get("stats")
-            if isinstance(candidate, dict) and _count(candidate.get("searches")) is not None:
+            candidate = _rg_stats(data.get("stats"))
+            if candidate is not None:
                 stats = candidate
             else:
                 unparsed += 1
@@ -972,11 +976,50 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
         facts.input_problem = "the regular expression is not valid ripgrep syntax"
     elif run.returncode not in (0, 1, 2) or stats is None:
         facts.fatal = f"ripgrep ended with status {run.returncode} and no readable summary"
+    elif (contradiction := _rg_contradiction(stats, found, match_records)) and not found:
+        facts.fatal = f"ripgrep's summary contradicts its output: {contradiction}"
+    elif contradiction:
+        facts.limits.append(f"ripgrep's summary contradicts its output: {contradiction}")
     elif unparsed and not facts.results:
         facts.fatal = f"ripgrep's output could not be read ({unparsed} unreadable record(s))"
     elif run.returncode == 2 or unparsed or facts.diagnostics:
         # ripgrep carries on past a file it cannot read and exits 2.
         facts.program_errors = facts.diagnostics or ["ripgrep output could not be read"]
+
+
+#: The summary counters an answer's completeness rests on.
+_RG_COUNTERS = ("searches", "searches_with_match", "matched_lines", "matches")
+
+
+def _rg_stats(stats: Any) -> dict[str, int] | None:
+    """ripgrep's summary counters as whole, non-negative numbers, else ``None``."""
+    if not isinstance(stats, dict):
+        return None
+    counts = {name: _count(stats.get(name)) for name in _RG_COUNTERS}
+    if any(value is None for value in counts.values()):
+        return None
+    return counts  # type: ignore[return-value]
+
+
+def _rg_contradiction(
+    stats: Mapping[str, int], found: Sequence[Mapping[str, Any]], match_records: int
+) -> str:
+    """Why ripgrep's summary and the match records it sent disagree, or ``""``.
+
+    ripgrep sends one match record per matching line (``matched_lines``);
+    ``matches`` counts every occurrence, so it is at least that. Every match
+    record received is counted, before the runner's own result limit."""
+    lines, files = stats["matched_lines"], stats["searches_with_match"]
+    if lines != match_records:
+        return f"it counted {lines} matching line(s) but sent {match_records}"
+    if stats["matches"] < lines or (lines == 0) != (stats["matches"] == 0):
+        return f"{stats['matches']} match(es) on {lines} matching line(s)"
+    if files > stats["searches"] or (lines == 0) != (files == 0):
+        return f"{files} file(s) with matches of {stats['searches']} searched, {lines} line(s)"
+    if len(found) == match_records and len({r["path"] for r in found}) != files:
+        return f"it counted {files} file(s) with matches but sent lines from " \
+               f"{len({r['path'] for r in found})}"
+    return ""
 
 
 def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:

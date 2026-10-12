@@ -850,8 +850,17 @@ def test_genuinely_empty_probe_output_is_no_matches(
 
 # -- Codex implementation review round 4 --------------------------------------
 
-_RG_SUMMARY = {"type": "summary", "data": {"stats": {"searches": 3, "searches_with_match": 0,
-                                                     "matches": 0}}}
+def _rg_summary(lines: int = 0, files: int = 0, matches: int | None = None,
+                searches: int = 3) -> dict:
+    """A ripgrep summary consistent with ``lines`` match records in ``files`` files."""
+    return {"type": "summary", "data": {"stats": {
+        "searches": searches, "searches_with_match": files, "matched_lines": lines,
+        "matches": lines if matches is None else matches}}}
+
+
+_RG_SUMMARY = _rg_summary()
+#: The summary for exactly one match record.
+_RG_ONE = _rg_summary(lines=1, files=1)
 
 
 def _rg_match(path: str, line: int) -> dict:
@@ -875,13 +884,13 @@ def _run_fake(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdou
         [{"type": "summary", "data": {"stats": {}}}],
         [None, _RG_SUMMARY],
         [{}, _RG_SUMMARY],
-        [{"type": "match", "data": {}}, _RG_SUMMARY],
-        [_rg_match("src/users.py", 0), _RG_SUMMARY],
+        [{"type": "match", "data": {}}, _RG_ONE],
+        [_rg_match("src/users.py", 0), _RG_ONE],
         [{"type": "begin"}, _RG_SUMMARY],
         [{"type": "match", "data": {"path": {"text": "src/users.py"}, "lines": 42,
-                                    "line_number": 3}}, _RG_SUMMARY],
+                                    "line_number": 3}}, _RG_ONE],
         [{"type": "match", "data": {"path": {"text": "src/users.py"},
-                                    "lines": {"bytes": "%%%"}, "line_number": 3}}, _RG_SUMMARY],
+                                    "lines": {"bytes": "%%%"}, "line_number": 3}}, _RG_ONE],
     ],
 )
 def test_malformed_ripgrep_output_is_never_no_matches(
@@ -897,9 +906,78 @@ def test_ripgrep_valid_and_malformed_together_is_partial(
 ) -> None:
     stdout = "\n".join(json.dumps(e) for e in
                        [_rg_match("./src/users.py", 3), {"type": "match", "data": {}},
-                        _RG_SUMMARY]) + "\n"
+                        _rg_summary(lines=2, files=1)]) + "\n"
     answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
     assert answer["status"] == "partial" and len(answer["results"]) == 1
+
+
+@pytest.mark.parametrize(
+    "stats",
+    [
+        {"searches": 1, "searches_with_match": 0, "matched_lines": 0, "matches": "0"},
+        {"searches": 1, "searches_with_match": 0, "matched_lines": -1, "matches": 0},
+        {"searches": 1, "searches_with_match": 0, "matched_lines": 0, "matches": 0.0},
+        {"searches": 1, "searches_with_match": False, "matched_lines": 0, "matches": 0},
+        {"searches": 1, "searches_with_match": 0, "matches": 0},
+    ],
+)
+def test_ripgrep_summary_counters_must_be_whole_numbers(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stats: dict
+) -> None:
+    stdout = json.dumps({"type": "summary", "data": {"stats": stats}}) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
+    assert answer["status"] == "tool_error", answer
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        # Codex round 7, R10: a positive count with no match records at all.
+        {"type": "summary", "data": {"stats": {
+            "searches": 1, "searches_with_match": 1, "matched_lines": 1, "matches": 1}}},
+        _rg_summary(lines=0, files=1),
+        _rg_summary(lines=0, files=0, matches=2),
+        {"type": "summary", "data": {"stats": {
+            "searches": 0, "searches_with_match": 1, "matched_lines": 0, "matches": 0}}},
+    ],
+)
+def test_a_summary_claiming_matches_that_never_came_is_never_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, summary: dict
+) -> None:
+    stdout = json.dumps(summary) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
+    assert answer["status"] == "tool_error", answer
+    assert "contradicts" in answer["note"], answer
+
+
+@pytest.mark.parametrize(
+    "summary",
+    [
+        _rg_summary(lines=3, files=1),
+        _rg_summary(lines=1, files=2),
+        _rg_summary(lines=1, files=1, matches=0),
+    ],
+)
+def test_a_summary_that_disagrees_with_the_records_is_partial(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, summary: dict
+) -> None:
+    stdout = "\n".join(json.dumps(e) for e in [_rg_match("./src/users.py", 3), summary]) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
+    assert answer["status"] == "partial", answer
+    assert len(answer["results"]) == 1
+    assert any("contradicts" in reason for reason in answer["truncation"]), answer
+
+
+def test_a_summary_matching_its_records_is_ok(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    records = [_rg_match("./src/users.py", 3), _rg_match("./src/users.py", 5),
+               _rg_match("./tests/test_users.py", 1)]
+    stdout = "\n".join(json.dumps(e) for e in
+                       [*records, _rg_summary(lines=3, files=2, matches=4)]) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
+    assert answer["status"] == "ok", answer
+    assert len(answer["results"]) == 3
 
 
 def test_ripgrep_valid_empty_output_is_no_matches(
@@ -954,7 +1032,7 @@ def test_ripgrep_encoded_bytes_lines_are_read(
         "lines": {"bytes": base64.b64encode(b"caf\xe9 = 1\n").decode()},
         "line_number": 2, "submatches": []}}
     begin = {"type": "begin", "data": {"path": {"text": "./src/users.py"}}}
-    stdout = "\n".join(json.dumps(e) for e in [begin, match, _RG_SUMMARY]) + "\n"
+    stdout = "\n".join(json.dumps(e) for e in [begin, match, _RG_ONE]) + "\n"
     answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="caf", mode="literal")
     assert answer["status"] == "ok"
     assert answer["results"][0]["text"] == "caf\ufffd = 1"
