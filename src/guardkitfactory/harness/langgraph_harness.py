@@ -681,9 +681,19 @@ class LangGraphHarness(HarnessAdapter):
                 raise LangGraphHarnessError(
                     "LangGraphHarness: player_config may only be used for role='player'"
                 )
+            # Only the Coach's tool-using pass gets the read-only code search
+            # tools (12 October 2026); every other role stays on the built-ins,
+            # and invoke_synthesis binds no tools at all.
+            extra_tools: list[Any] = []
+            if role == "coach":
+                from guardkitfactory.harness.code_search_tools import code_search_tools
+
+                extra_tools, unavailable = code_search_tools(Path(cwd))
+                if unavailable:
+                    logger.info("Coach code search unavailable: %s", unavailable)
             return create_deep_agent(
                 model=resolved_model,
-                tools=[],
+                tools=extra_tools,
                 middleware=[TodoListMiddleware()],
                 backend=self.backend,
                 permissions=self.permissions,

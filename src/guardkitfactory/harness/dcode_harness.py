@@ -392,8 +392,8 @@ def create_dcode_player(
     """Construct dcode lazily after the harness's shared worktree checks."""
     profile = _validate_launch(config)
     settings = _validate_model(model)
-    from deepagents_code._paths import PATHS
     from deepagents_code._env_vars import EXPERIMENTAL
+    from deepagents_code._paths import PATHS
     from deepagents_code.agent import create_cli_agent
     from deepagents_code.config import MODEL_RETRIES_ATTR
     from deepagents_code.extensions.registry import (
@@ -403,6 +403,7 @@ def create_dcode_player(
     )
     from deepagents_code.project_utils import ProjectContext
 
+    from guardkitfactory.harness.code_search_tools import code_search_tools
     from guardkitfactory.harness.skill_read_middleware import (
         SelectedSkillReadMiddleware,
     )
@@ -430,8 +431,12 @@ def create_dcode_player(
     )
     dcode_environment = dict(os.environ)
     dcode_environment[EXPERIMENTAL] = "1"
+    # Read-only code search over this worktree; none when the pinned programs
+    # are not installed, and the reason goes into the launch evidence.
+    search_tools, search_unavailable = code_search_tools(cwd)
     graph, effective = create_cli_agent(
         model=model,
+        tools=search_tools,
         assistant_id=_AGENT,
         sandbox=adapted,
         interactive=False,
@@ -461,6 +466,10 @@ def create_dcode_player(
         "required_skill_reads": [dict(item) for item in required],
         "model": settings,
         "tools": tools,
+        "code_search": {
+            "tools": [tool.name for tool in search_tools],
+            "unavailable": search_unavailable,
+        },
         "artifacts": {
             f"/{name}/": str(cwd / name) for name in ("conversation_history", "large_tool_results")
         },

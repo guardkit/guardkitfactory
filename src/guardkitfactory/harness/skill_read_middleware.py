@@ -18,7 +18,10 @@ from langchain.agents.middleware.types import AgentMiddleware, ToolCallRequest
 from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
-_SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos"}
+from guardkitfactory.harness.code_search_tools import TOOL_NAMES as _CODE_SEARCH_TOOLS
+
+# The code search tools only read, like grep and glob (12 October 2026).
+_SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos", *_CODE_SEARCH_TOOLS}
 
 
 class SelectedSkillReadError(RuntimeError):
