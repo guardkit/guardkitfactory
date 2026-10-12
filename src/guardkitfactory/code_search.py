@@ -1328,19 +1328,29 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
         facts.input_problem = f"the pattern is not valid {language} code"
         return
     errors = _sg_errors(facts.diagnostics)
+    # ast-grep 0.50's ``run`` exits 1 when nothing matched, like grep. That is
+    # a normal end only with no output, no error line and a readable summary.
+    nothing_matched = (
+        run.returncode == 1 and not run.stdout.strip() and not errors and bool(counts)
+    )
+    failed = run.returncode != 0 and not nothing_matched
     if bad and not facts.results:
         facts.fatal = f"ast-grep's output could not be read ({bad} unreadable record(s))"
-    elif run.returncode != 0 and not run.stdout:
+    elif failed and not run.stdout:
         facts.fatal = f"ast-grep ended with status {run.returncode}: {' '.join(errors)[:200]}"
-    elif run.returncode != 0 or errors or bad:
+    elif failed or errors or bad:
         facts.program_errors = errors or [
-            f"ast-grep ended with status {run.returncode}" if run.returncode
+            f"ast-grep ended with status {run.returncode}" if failed
             else f"{bad} unreadable output record(s)"
         ]
     elif not counts:
         facts.fatal = "ast-grep did not report what it scanned"
     elif counts.get("files_scanned") == 0:
         facts.unsupported = f"no {language} file was searched here"
+    if counts.get("files_skipped"):
+        # ast-grep counts a file it could not read as skipped, with no error
+        # line and an ordinary exit, so the search did not cover it.
+        facts.limits.append(f"ast-grep skipped {counts['files_skipped']} file(s) it could not read")
 
 
 def _snapshot_omissions(omitted: Sequence[Mapping[str, Any]], target: str) -> list[str]:

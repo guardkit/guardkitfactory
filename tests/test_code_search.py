@@ -183,6 +183,24 @@ def test_unreadable_path_is_an_input_error(repo: Path) -> None:
         locked.chmod(0o755)
 
 
+@pytest.mark.parametrize("pattern", ["count_active($A)", "zzqq_nothing($A)"])
+def test_pattern_with_an_unreadable_file_is_partial(repo: Path, pattern: str) -> None:
+    # ast-grep skips a file it cannot read with no error line and an ordinary
+    # exit, so neither a match elsewhere nor "no match" may claim full coverage.
+    if os.geteuid() == 0:
+        pytest.skip("root reads everything")
+    locked = repo / "src" / "locked.py"
+    locked.write_text("count_active(store)\nzzqq_nothing(1)\n")
+    locked.chmod(0)
+    try:
+        answer = code_search.run("pattern", repo, pattern=pattern, language="python")
+    finally:
+        locked.chmod(0o644)
+    assert answer["status"] == "partial", answer
+    assert answer["coverage"]["files_skipped"] == 1
+    assert any("skipped 1 file" in reason for reason in answer["truncation"]), answer
+
+
 @pytest.mark.parametrize(
     "query", ["AND OR NOT", "and (", "!!! ??? ...", "   "]
 )
