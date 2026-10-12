@@ -13,6 +13,8 @@ import logging
 import os
 import stat
 import sys
+import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, NoReturn
@@ -166,40 +168,340 @@ def validate_skill_reads(
     return telemetry
 
 
+_CLEAN_PROFILE = {f"{_AGENT}/AGENTS.md": hashlib.sha256(b"").hexdigest()}
+
+
+# Bounds on the diagnostic profile inventory. It only describes the profile;
+# it must never hold up a launch decision or an invocation's return.
+_INVENTORY_MAX_ENTRIES = 1000
+_INVENTORY_MAX_FILE_BYTES = 16 * 1024 * 1024
+_INVENTORY_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+_INVENTORY_SECONDS = 2.0
+# How long a caller waits for the inventory, which runs on a daemon thread
+# because a read can block whatever the in-walk budget says: a refusal waits
+# briefly before raising, an invocation's finalisation a little longer.
+_REFUSAL_INVENTORY_SECONDS = 3.0
+_POST_INVOCATION_INVENTORY_SECONDS = 5.0
+_NOT_REGULAR = "not a regular file when opened"
+_TOO_LARGE = "not recorded: too large"
+_TIMED_OUT = "not recorded: timed out"
+_CHANGED = "not recorded: changed while reading"
+_TOO_MANY = "not recorded: too many entries"
+
+
+class _Budget:
+    def __init__(self) -> None:
+        self.deadline = time.monotonic() + _INVENTORY_SECONDS
+        self.bytes_left = _INVENTORY_MAX_TOTAL_BYTES
+
+    def expired(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+
+def _hash_regular_file(path: Path, entry: dict[str, Any], budget: _Budget) -> None:
+    """Hash a file without following a link or blocking on a swapped-in FIFO."""
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            entry["error"] = _NOT_REGULAR
+            return
+        size = status.st_size
+        entry["size"] = size
+        if size > _INVENTORY_MAX_FILE_BYTES or size > budget.bytes_left:
+            entry["error"] = _TOO_LARGE
+            return
+        digest = hashlib.sha256()
+        remaining = size
+        while remaining > 0:
+            if budget.expired():
+                entry["error"] = _TIMED_OUT
+                return
+            chunk = os.read(descriptor, min(1 << 16, remaining))
+            if not chunk:
+                entry["error"] = _CHANGED
+                return
+            digest.update(chunk)
+            remaining -= len(chunk)
+            budget.bytes_left -= len(chunk)
+        # A file still growing has more than fstat reported: its hash would
+        # describe a prefix, so it is not recorded.
+        if os.read(descriptor, 1):
+            entry["error"] = _CHANGED
+            return
+        entry["sha256"] = digest.hexdigest()
+    finally:
+        os.close(descriptor)
+
+
+def _walk_profile(profile: Path, entries: list[dict[str, Any]], current: list[str]) -> None:
+    """Fill ``entries`` in walk order; ``current`` names the entry in progress."""
+
+    budget = _Budget()
+
+    def record(path: Path) -> bool:
+        """Record ``path`` (and below); return False once a bound stops the walk."""
+        current[0] = str(path.relative_to(profile)) if path != profile else "."
+        if len(entries) >= _INVENTORY_MAX_ENTRIES or budget.expired():
+            entries.append(
+                {
+                    "path": str(path.relative_to(profile)) if path != profile else ".",
+                    "type": "other",
+                    "size": None,
+                    "sha256": None,
+                    "error": _TOO_MANY if len(entries) >= _INVENTORY_MAX_ENTRIES else _TIMED_OUT,
+                }
+            )
+            return False
+        relative = str(path.relative_to(profile)) if path != profile else "."
+        entry: dict[str, Any] = {"path": relative, "type": "other", "size": None, "sha256": None}
+        try:
+            status = path.lstat()
+        except OSError as exc:
+            entry["error"] = type(exc).__name__
+            entries.append(entry)
+            return True
+        mode = status.st_mode
+        if stat.S_ISLNK(mode):
+            entry.update(type="symlink", size=status.st_size)
+        elif stat.S_ISDIR(mode):
+            entry["type"] = "directory"
+        elif stat.S_ISREG(mode):
+            entry.update(type="file", size=status.st_size)
+            try:
+                _hash_regular_file(path, entry, budget)
+            except OSError as exc:
+                entry["error"] = type(exc).__name__
+        if path != profile:
+            entries.append(entry)
+        if entry["type"] == "directory":
+            try:
+                children = sorted(path.iterdir())
+            except OSError as exc:
+                entry["error"] = type(exc).__name__
+                if path == profile:
+                    entries.append(entry)
+                return True
+            for child in children:
+                if not record(child):
+                    return False
+        elif path == profile:
+            entries.append(entry)
+        return True
+
+    try:
+        profile.lstat()
+    except FileNotFoundError:
+        return
+    record(profile)
+
+
+def _bounded_inventory(profile: Path, seconds: float) -> tuple[list[dict[str, Any]], bool]:
+    """Take the inventory on a daemon thread, waiting at most ``seconds``.
+
+    Returns the entries and whether the walk finished. On expiry the entries
+    gathered so far are kept and the entry in progress is marked
+    "not recorded: timed out"; the thread is abandoned.
+    """
+
+    entries: list[dict[str, Any]] = []
+    current = ["."]
+    finished = threading.Event()
+
+    def take() -> None:
+        try:
+            _walk_profile(profile, entries, current)
+        except Exception as exc:  # noqa: BLE001 - diagnostics never raise
+            entries.append(
+                {
+                    "path": current[0],
+                    "type": "other",
+                    "size": None,
+                    "sha256": None,
+                    "error": type(exc).__name__,
+                }
+            )
+        finally:
+            finished.set()
+
+    threading.Thread(target=take, name="dcode-profile-inventory", daemon=True).start()
+    done = finished.wait(seconds)
+    snapshot = [dict(entry) for entry in list(entries)]
+    if not done:
+        snapshot.append(
+            {
+                "path": current[0],
+                "type": "other",
+                "size": None,
+                "sha256": None,
+                "error": _TIMED_OUT,
+            }
+        )
+    return snapshot, done
+
+
+def profile_inventory(
+    profile: Path, *, seconds: float | None = None
+) -> list[dict[str, Any]]:
+    """Describe every entry in a run profile without exposing its contents.
+
+    Each entry gives the path relative to the profile, its file type, its size
+    and, for regular files, its SHA-256. Links are recorded, never followed, and
+    an unreadable entry is recorded with the error's type rather than refused,
+    so the inventory itself never fails a launch. Entries, bytes hashed and time
+    are bounded, and the caller waits at most ``seconds`` (the refusal bound by
+    default) however a read behaves; what a bound cut short is marked
+    "not recorded" and every entry gathered before it is kept.
+    """
+
+    wait = _REFUSAL_INVENTORY_SECONDS if seconds is None else seconds
+    return _bounded_inventory(profile, wait)[0]
+
+
+def _unexpected_profile_entries(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Entries the launch check does not permit: anything but the empty memory file."""
+
+    def permitted(entry: dict[str, Any]) -> bool:
+        if "error" in entry:
+            return False
+        if entry["type"] == "directory":
+            return True
+        return entry["type"] == "file" and _CLEAN_PROFILE.get(entry["path"]) == entry["sha256"]
+
+    return [entry for entry in entries if not permitted(entry)]
+
+
+def _describe_entries(entries: list[dict[str, Any]]) -> str:
+    return "; ".join(
+        f"{entry['path']} ({entry['type']}, size={entry['size']}, "
+        f"sha256={entry['sha256']}"
+        + (f", error={entry['error']}" if "error" in entry else "")
+        + ")"
+        for entry in entries
+    )
+
+
+def _refuse_launch(
+    message: str, profile: Path | None, entries: list[dict[str, Any]]
+) -> NoReturn:
+    """Refuse a launch that would be refused the same way on every later turn.
+
+    Used for the process-wide launch conditions (interpreter, dependency,
+    profile selection, offline and tracing settings) and for the profile's own
+    contents; ``entries`` is empty unless the profile's contents are at fault.
+    """
+    from guardkitfactory.harness.langgraph_harness import PlayerLaunchRefused
+
+    unexpected = _unexpected_profile_entries(entries)
+    logger.error(
+        "dcode Player launch refused: %s; profile=%s unexpected entries=%s",
+        message,
+        profile,
+        unexpected,
+    )
+    detail = (
+        f"; unexpected profile entries: {_describe_entries(unexpected)}" if unexpected else ""
+    )
+    raise PlayerLaunchRefused(
+        f"dcode Player: {message}{detail}",
+        profile="" if profile is None else str(profile),
+        entries=unexpected,
+    )
+
+
+def log_profile_inventory(profile: Path, *, cwd: Path) -> list[dict[str, Any]]:
+    """Log the profile as one invocation left it, so a later refusal can be traced.
+
+    Runs in the invocation's finalisation, so the inventory is taken on a
+    daemon thread and waited for only briefly: diagnostics never stop a
+    completed or cancelled invocation from returning.
+    """
+
+    entries, finished = _bounded_inventory(profile, _POST_INVOCATION_INVENTORY_SECONDS)
+    if not finished:
+        logger.warning(
+            "dcode Player post-invocation profile inventory not recorded: timed out; "
+            "cwd=%s profile=%s partial entries=%s",
+            cwd,
+            profile,
+            entries,
+        )
+        return entries
+    logger.info(
+        "dcode Player post-invocation profile inventory: cwd=%s profile=%s "
+        "unexpected=%s entries=%s",
+        cwd,
+        profile,
+        _unexpected_profile_entries(entries),
+        entries,
+    )
+    return entries
+
+
 def _validate_launch(config: PlayerConfig) -> Path:
-    if not (3, 12) <= sys.version_info[:2] < (4, 0):
-        _refuse(f"unsupported interpreter; {_INSTALL}")
-    if importlib.util.find_spec("deepagents_code") is None:
-        _refuse(f"required dependency is not installed; {_INSTALL}")
+    # Every refusal here is fixed for this process and never reaches the
+    # model, so each is raised as PlayerLaunchRefused rather than left to be
+    # retried as if it were an implementation failure.
     profile = config.dcode_home
+    if not (3, 12) <= sys.version_info[:2] < (4, 0):
+        _refuse_launch(f"unsupported interpreter; {_INSTALL}", profile, [])
+    if importlib.util.find_spec("deepagents_code") is None:
+        _refuse_launch(f"required dependency is not installed; {_INSTALL}", profile, [])
     configured = os.environ.get("DEEPAGENTS_HOME", "")
     if profile is None or not Path(configured).is_absolute():
-        _refuse("set absolute DEEPAGENTS_HOME to the selected fresh run profile before import")
+        _refuse_launch(
+            "set absolute DEEPAGENTS_HOME to the selected fresh run profile before import",
+            profile,
+            [],
+        )
     if Path(configured).resolve(strict=True) != profile:
-        _refuse("DEEPAGENTS_HOME does not match the selected Player profile")
+        _refuse_launch("DEEPAGENTS_HOME does not match the selected Player profile", profile, [])
     if profile == Path.home().resolve() or profile == Path("/"):
-        _refuse("dcode_home must be a dedicated run profile")
+        _refuse_launch("dcode_home must be a dedicated run profile", profile, [])
     if os.environ.get("DEEPAGENTS_CODE_OFFLINE") != "1":
-        _refuse("DEEPAGENTS_CODE_OFFLINE=1 is required")
+        _refuse_launch("DEEPAGENTS_CODE_OFFLINE=1 is required", profile, [])
     for name in ("LANGCHAIN_TRACING", "LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING"):
         if os.environ.get(name, "false").lower() not in {"false", "0", ""}:
-            _refuse(f"{name} must be disabled for the Player run")
+            _refuse_launch(f"{name} must be disabled for the Player run", profile, [])
     # Permit only the empty directories/files dcode itself creates. This blocks
     # config, dotenv, hooks, plugins, credentials and another agent's profile.
-    files = _tree(profile)
-    if files and files != {f"{_AGENT}/AGENTS.md": hashlib.sha256(b"").hexdigest()}:
-        _refuse("run profile contains unexpected configuration or nonempty memory")
+    # The offending entries are described in the refusal.
+    from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
+
+    try:
+        files = _tree(profile)
+    except (LangGraphHarnessError, OSError) as exc:
+        message = (
+            str(exc).removeprefix("dcode Player: ")
+            if isinstance(exc, LangGraphHarnessError)
+            else f"run profile could not be inspected ({type(exc).__name__})"
+        )
+        _refuse_launch(message, profile, profile_inventory(profile))
+    if files and files != _CLEAN_PROFILE:
+        _refuse_launch(
+            "run profile contains unexpected configuration or nonempty memory",
+            profile,
+            profile_inventory(profile),
+        )
     return profile
 
 
-def _validate_model(model: Any) -> dict[str, Any]:
+def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
+    # The model and OPENAI_BASE_URL are fixed for the process, so a mismatch
+    # would be refused on every turn: these refusals are typed launch refusals.
     from langchain_openai.chat_models.base import ChatOpenAI
 
     from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
 
     expected = os.environ.get("OPENAI_BASE_URL", "").rstrip("/")
     if not isinstance(model, ChatOpenAI) or model.use_responses_api is not False:
-        _refuse("requires a resolved local ChatOpenAI using ChatCompletions; no model fallback")
+        _refuse_launch(
+            "requires a resolved local ChatOpenAI using ChatCompletions; no model fallback",
+            config.dcode_home,
+            [],
+        )
     actual = str(model.openai_api_base or "").rstrip("/")
     parsed = urlsplit(actual)
     if (
@@ -213,9 +515,13 @@ def _validate_model(model: Any) -> dict[str, Any]:
         or parsed.query
         or parsed.fragment
     ):
-        _refuse("model endpoint does not match the accepted local OPENAI_BASE_URL")
+        _refuse_launch(
+            "model endpoint does not match the accepted local OPENAI_BASE_URL",
+            config.dcode_home,
+            [],
+        )
     if not model.model_name or ":" in model.model_name:
-        _refuse("requires an explicit local model alias")
+        _refuse_launch("requires an explicit local model alias", config.dcode_home, [])
     return {
         "alias": model.model_name,
         "endpoint": actual,
@@ -335,7 +641,11 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     user_memory = get_user_agent_md_path(_AGENT)
     if user_memory.exists() or user_memory.is_symlink():
         if _read(user_memory, config.dcode_home) != b"":
-            _refuse("profile AGENTS.md must remain empty")
+            _refuse_launch(
+                "profile AGENTS.md must remain empty",
+                config.dcode_home,
+                profile_inventory(config.dcode_home),
+            )
     return {
         "skills": sources,
         "memory": memory,
@@ -391,7 +701,7 @@ def create_dcode_player(
 ) -> Any:
     """Construct dcode lazily after the harness's shared worktree checks."""
     profile = _validate_launch(config)
-    settings = _validate_model(model)
+    settings = _validate_model(model, config)
     from deepagents_code._env_vars import EXPERIMENTAL
     from deepagents_code._paths import PATHS
     from deepagents_code.agent import create_cli_agent
@@ -409,7 +719,11 @@ def create_dcode_player(
     )
 
     if PATHS.profile.root != profile:
-        _refuse("already-imported dcode profile differs; start a new process for this run")
+        _refuse_launch(
+            "already-imported dcode profile differs; start a new process for this run",
+            profile,
+            [],
+        )
     # dcode's auxiliary summarizer otherwise defaults to five extra retries for
     # prebuilt models. A shallow copy preserves the factory-owned clients and
     # every generation setting without changing the caller's model instance.

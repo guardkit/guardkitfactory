@@ -1197,6 +1197,239 @@ def test_dcode_without_selected_skills_or_instructions(tmp_path: Path) -> None:
         _close_clients(sync, async_)
 
 
+@pytest.mark.parametrize("kind", ["unexpected_file", "nonempty_memory", "link"])
+def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
+    tmp_path: Path, kind: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """B463: a reused profile changed after a clean launch; the next launch refused.
+
+    The first invocation launches from a clean profile and, through its own
+    shell tool, leaves a file in the profile. Its post-invocation inventory
+    records that file. The second launch is refused with the typed error,
+    which names the entry by path, type, size and hash, and never its contents.
+    """
+    from guardkitfactory.harness import PlayerLaunchRefused
+
+    repo = tmp_path / "empty-task"
+    repo.mkdir()
+    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
+    agent_dir = profile / "guardkit-player"
+    secret = "remember-this-secret"
+    relative = {
+        "unexpected_file": "guardkit-player/notes.json",
+        "nonempty_memory": "guardkit-player/AGENTS.md",
+        "link": "guardkit-player/linked.md",
+    }[kind]
+    target = profile / relative
+    memory = agent_dir / "AGENTS.md"
+    original_memory = memory.read_bytes() if memory.exists() else None
+    if kind == "link":
+        command = f"mkdir -p {agent_dir} && ln -s {repo} {target}"
+    else:
+        command = f"mkdir -p {agent_dir} && printf '%s' '{secret}' > {target}"
+    selected = build_player_config(cwd=repo, dcode_home=str(profile))
+    first = Exchange([("execute", {"command": command})])
+    model, sync, async_ = _model(first)
+    second = Exchange([])
+    model_two, sync_two, async_two = _model(second)
+    try:
+        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
+            events = asyncio.run(_collect(harness, repo))
+        # The clean profile launched as before and the command ran.
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert target.is_symlink() if kind == "link" else target.read_text() == secret
+        traces = [
+            record.getMessage()
+            for record in caplog.records
+            if "post-invocation profile inventory" in record.getMessage()
+        ]
+        assert len(traces) == 1 and f"cwd={repo}" in traces[0]
+        assert relative in traces[0] and secret not in traces[0]
+
+        caplog.clear()
+        harness_two = LangGraphHarness(
+            model_two, backend=_backend(repo), player_config=selected
+        )
+        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
+            with pytest.raises(PlayerLaunchRefused) as refused:
+                asyncio.run(_collect(harness_two, repo))
+        error = refused.value
+        assert isinstance(error, LangGraphHarnessError)
+        assert error.failure_kind == "agent_launch_refused"
+        assert error.profile == str(profile)
+        if kind == "link":
+            expected = {"path": relative, "type": "symlink", "size": len(str(repo)), "sha256": None}
+        else:
+            expected = {
+                "path": relative,
+                "type": "file",
+                "size": len(secret),
+                "sha256": hashlib.sha256(secret.encode()).hexdigest(),
+            }
+        assert expected in error.entries
+        assert relative in str(error) and secret not in str(error)
+        if kind != "link":
+            assert expected["sha256"] in str(error)
+            assert "unexpected configuration or nonempty memory" in str(error)
+        logged = [r.getMessage() for r in caplog.records if "launch refused" in r.getMessage()]
+        assert logged and relative in logged[0] and secret not in logged[0]
+        # Nothing reached the model, and the profile was left for diagnosis.
+        assert not second.requests
+        assert target.is_symlink() or target.exists()
+    finally:
+        if kind != "nonempty_memory" and (target.is_symlink() or target.exists()):
+            target.unlink()
+        if original_memory is not None:
+            memory.write_bytes(original_memory)
+        elif memory.exists():
+            memory.unlink()
+        _close_clients(sync, async_)
+        _close_clients(sync_two, async_two)
+
+
+@pytest.mark.parametrize(
+    "setting", ["offline", "tracing", "home_mismatch", "already_imported", "endpoint_mismatch"]
+)
+def test_process_wide_launch_refusals_are_typed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, setting: str
+) -> None:
+    """Refusals fixed for the whole process repeat every turn, so they are typed too."""
+    from guardkitfactory.harness import PlayerLaunchRefused
+    from guardkitfactory.harness.dcode_harness import _validate_launch, create_dcode_player
+
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    exchange = Exchange([])
+    model, sync, async_ = _model(exchange)
+    try:
+        with pytest.raises(PlayerLaunchRefused) as refused:
+            if setting == "offline":
+                monkeypatch.delenv("DEEPAGENTS_CODE_OFFLINE")
+                _validate_launch(selected)
+            elif setting == "tracing":
+                monkeypatch.setenv("LANGSMITH_TRACING", "true")
+                _validate_launch(selected)
+            elif setting == "home_mismatch":
+                monkeypatch.setenv("DEEPAGENTS_HOME", str(tmp_path))
+                _validate_launch(selected)
+            elif setting == "endpoint_mismatch":
+                monkeypatch.setenv("OPENAI_BASE_URL", "http://other.test/v1")
+                create_dcode_player(
+                    model=model,
+                    backend=_backend(repo),
+                    cwd=repo,
+                    config=selected,
+                    recursion_limit=None,
+                )
+            else:
+                with patch(
+                    "deepagents_code._paths.PATHS",
+                    SimpleNamespace(profile=SimpleNamespace(root=tmp_path)),
+                ):
+                    create_dcode_player(
+                        model=model,
+                        backend=_backend(repo),
+                        cwd=repo,
+                        config=selected,
+                        recursion_limit=None,
+                    )
+        error = refused.value
+        assert error.failure_kind == "agent_launch_refused"
+        assert error.entries == ()
+        assert error.profile == str(selected.dcode_home)
+        assert "unexpected profile entries" not in str(error)
+        assert not exchange.requests
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_owner_unreadable_profile_file_is_a_typed_refusal(tmp_path: Path) -> None:
+    """A profile file the owner cannot read (mode 0044) is refused, not retried."""
+    from guardkitfactory.harness import PlayerLaunchRefused
+    from guardkitfactory.harness.dcode_harness import _validate_launch
+
+    if os.geteuid() == 0:
+        pytest.skip("root reads files regardless of mode")
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    hidden = selected.dcode_home / "guardkit-player" / "hidden.json"
+    hidden.parent.mkdir(parents=True, exist_ok=True)
+    hidden.write_text("{}")
+    hidden.chmod(0o044)
+    try:
+        with pytest.raises(PlayerLaunchRefused) as refused:
+            _validate_launch(selected)
+        assert {
+            "path": "guardkit-player/hidden.json",
+            "type": "file",
+            "size": 2,
+            "sha256": None,
+            "error": "PermissionError",
+        } in refused.value.entries
+        assert "PermissionError" in str(refused.value)
+    finally:
+        hidden.chmod(0o644)
+        hidden.unlink()
+
+
+def test_nonempty_profile_memory_after_construction_is_typed(tmp_path: Path) -> None:
+    from deepagents_code.project_utils import ProjectContext
+
+    from guardkitfactory.harness import PlayerLaunchRefused
+    from guardkitfactory.harness.dcode_harness import _inventory
+
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    memory = selected.dcode_home / "guardkit-player" / "AGENTS.md"
+    original = memory.read_bytes() if memory.exists() else None
+    memory.parent.mkdir(parents=True, exist_ok=True)
+    memory.write_text("remembered")
+    try:
+        with pytest.raises(PlayerLaunchRefused, match="must remain empty") as refused:
+            _inventory(selected, ProjectContext(user_cwd=repo, project_root=repo))
+        assert {
+            "path": "guardkit-player/AGENTS.md",
+            "type": "file",
+            "size": 10,
+            "sha256": hashlib.sha256(b"remembered").hexdigest(),
+        } in refused.value.entries
+    finally:
+        if original is None:
+            memory.unlink()
+        else:
+            memory.write_bytes(original)
+
+
+def test_profile_inventory_describes_entries_without_contents(tmp_path: Path) -> None:
+    from guardkitfactory.harness.dcode_harness import profile_inventory
+
+    profile = tmp_path / "profile"
+    (profile / "guardkit-player" / "nested").mkdir(parents=True)
+    (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
+    (profile / "guardkit-player" / "nested" / "hooks.json").write_text("{}")
+    assert profile_inventory(profile) == [
+        {"path": "guardkit-player", "type": "directory", "size": None, "sha256": None},
+        {
+            "path": "guardkit-player/AGENTS.md",
+            "type": "file",
+            "size": 0,
+            "sha256": hashlib.sha256(b"").hexdigest(),
+        },
+        {"path": "guardkit-player/nested", "type": "directory", "size": None, "sha256": None},
+        {
+            "path": "guardkit-player/nested/hooks.json",
+            "type": "file",
+            "size": 2,
+            "sha256": hashlib.sha256(b"{}").hexdigest(),
+        },
+    ]
+    assert profile_inventory(tmp_path / "absent") == []
+
+
 def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
     (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
@@ -1425,7 +1658,8 @@ def test_inventory_reports_no_replay_for_a_plain_model(monkeypatch: pytest.Monke
             api_key="synthetic-test",
             use_responses_api=False,
         )
-        assert _validate_model(model)["reasoning_replay"] is expected
+        settings = _validate_model(model, SimpleNamespace(dcode_home=None))
+        assert settings["reasoning_replay"] is expected
 
 
 # --- Project-declared mandatory supporting documents (Lane A) ----------------
@@ -1675,3 +1909,285 @@ def test_skill_only_declaration_is_unchanged(tmp_path: Path) -> None:
     required = required_skill_reads(selected)
     assert [item["kind"] for item in required] == ["skill", "skill"]
     assert [Path(item["path"]).name for item in required] == ["SKILL.md", "SKILL.md"]
+
+
+# --- Bounded, race-safe profile inventory (Repair 3, review R7) ---------------
+
+
+def _inventory_in_thread(profile: Path, seconds: float = 10.0) -> list[dict[str, Any]]:
+    """Run the inventory where a hang fails the test instead of the suite."""
+    import threading
+
+    from guardkitfactory.harness.dcode_harness import profile_inventory
+
+    result: list[Any] = []
+    worker = threading.Thread(target=lambda: result.append(profile_inventory(profile)), daemon=True)
+    worker.start()
+    worker.join(seconds)
+    assert not worker.is_alive(), "profile inventory did not return"
+    return result[0]
+
+
+def test_inventory_does_not_hash_a_growing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    growing = profile / "growing.log"
+    growing.write_bytes(b"x" * 10)
+    real_read = os.read
+    grown = []
+
+    def read(descriptor: int, count: int) -> bytes:
+        if not grown and os.fstat(descriptor).st_ino == growing.stat().st_ino:
+            grown.append(1)
+            with growing.open("ab") as handle:
+                handle.write(b"y" * 10)
+        return real_read(descriptor, count)
+
+    monkeypatch.setattr(os, "read", read)
+    entries = _inventory_in_thread(profile)
+    assert entries == [
+        {
+            "path": "growing.log",
+            "type": "file",
+            "size": 10,
+            "sha256": None,
+            "error": "not recorded: changed while reading",
+        }
+    ]
+
+
+def test_inventory_does_not_block_on_a_fifo_swapped_in_after_lstat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    swapped = profile / "swap.json"
+    swapped.write_text("{}")
+    real_open = os.open
+
+    def swap_then_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if Path(path) == swapped and not stat_is_fifo(swapped):
+            swapped.unlink()
+            os.mkfifo(swapped)
+        return real_open(path, flags, *args, **kwargs)
+
+    def stat_is_fifo(path: Path) -> bool:
+        import stat as stat_module
+
+        return stat_module.S_ISFIFO(path.lstat().st_mode)
+
+    monkeypatch.setattr(os, "open", swap_then_open)
+    entries = _inventory_in_thread(profile)
+    assert entries == [
+        {
+            "path": "swap.json",
+            "type": "file",
+            "size": 2,
+            "sha256": None,
+            "error": "not a regular file when opened",
+        }
+    ]
+
+
+def test_inventory_bounds_keep_partial_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from guardkitfactory.harness import dcode_harness
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "a.txt").write_text("a")
+    (profile / "b.bin").write_bytes(b"b" * 100)
+    (profile / "c.txt").write_text("c")
+    (profile / "d.txt").write_text("d")
+    monkeypatch.setattr(dcode_harness, "_INVENTORY_MAX_FILE_BYTES", 10)
+    monkeypatch.setattr(dcode_harness, "_INVENTORY_MAX_ENTRIES", 3)
+    entries = _inventory_in_thread(profile)
+    assert entries[0]["sha256"] == hashlib.sha256(b"a").hexdigest()
+    assert entries[1] == {
+        "path": "b.bin",
+        "type": "file",
+        "size": 100,
+        "sha256": None,
+        "error": "not recorded: too large",
+    }
+    assert entries[2]["path"] == "c.txt" and entries[2]["sha256"]
+    assert entries[3] == {
+        "path": "d.txt",
+        "type": "other",
+        "size": None,
+        "sha256": None,
+        "error": "not recorded: too many entries",
+    }
+    assert len(entries) == 4
+
+    monkeypatch.setattr(dcode_harness, "_INVENTORY_SECONDS", 0.0)
+    timed_out = _inventory_in_thread(profile)
+    assert timed_out[-1]["error"] == "not recorded: timed out"
+
+
+def _block_profile_reads(monkeypatch: pytest.MonkeyPatch, blocked: Path) -> Any:
+    """Make any read of ``blocked`` hang until the returned event is set."""
+    import threading
+
+    release = threading.Event()
+    real_read = os.read
+
+    def read(descriptor: int, count: int) -> bytes:
+        try:
+            target = blocked.stat().st_ino
+        except OSError:
+            target = None
+        if target is not None and os.fstat(descriptor).st_ino == target:
+            release.wait(30)
+        return real_read(descriptor, count)
+
+    monkeypatch.setattr(os, "read", read)
+    return release
+
+
+@pytest.mark.parametrize("ending", ["completed", "cancelled"])
+def test_invocation_returns_when_the_post_invocation_inventory_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    ending: str,
+) -> None:
+    import time
+
+    from guardkitfactory.harness import dcode_harness
+
+    monkeypatch.setattr(dcode_harness, "_POST_INVOCATION_INVENTORY_SECONDS", 0.3)
+    repo = tmp_path / "empty-task"
+    repo.mkdir()
+    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
+    blocked = profile / "guardkit-player" / "block.bin"
+    release = _block_profile_reads(monkeypatch, blocked)
+    selected = build_player_config(cwd=repo, dcode_home=str(profile))
+    started = asyncio.Event()
+
+    class Transport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            # The launch has passed its checks; now something writes the file
+            # whose read will hang during the post-invocation inventory.
+            blocked.parent.mkdir(parents=True, exist_ok=True)
+            blocked.write_bytes(b"z" * 8)
+            if ending == "completed":
+                return response(body)
+            started.set()
+            await asyncio.Future()
+            raise AssertionError("unreachable")
+
+    async def run() -> float:
+        from langchain_openai import ChatOpenAI
+
+        sync = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+        client = httpx.AsyncClient(transport=Transport())
+        model = ChatOpenAI(
+            model="qwen36-workhorse",
+            base_url="http://fake.test/v1",
+            api_key="synthetic",
+            use_responses_api=False,
+            temperature=0,
+            max_tokens=8192,
+            profile={"max_input_tokens": 131072},
+            http_client=sync,
+            http_async_client=client,
+            max_retries=0,
+            disable_streaming=True,
+            http_socket_options=(),
+        )
+        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+        task = asyncio.create_task(_collect(harness, repo))
+        try:
+            if ending == "cancelled":
+                await asyncio.wait_for(started.wait(), 10)
+                begun = time.monotonic()
+                await harness.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(task, 10)
+            else:
+                begun = time.monotonic()
+                events = await asyncio.wait_for(task, 10)
+                assert any(isinstance(event, ResultMessageEvent) for event in events)
+            return time.monotonic() - begun
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await client.aclose()
+            sync.close()
+
+    try:
+        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
+            elapsed = asyncio.run(run())
+        assert elapsed < 5
+        assert any(
+            "profile inventory not recorded: timed out" in record.getMessage()
+            for record in caplog.records
+        )
+    finally:
+        release.set()
+        if blocked.exists():
+            blocked.unlink()
+
+
+def test_refusal_is_raised_promptly_when_its_diagnostic_read_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The integrity check rejects at once; a blocked diagnostic read cannot delay it."""
+    import threading
+    import time
+
+    from guardkitfactory.harness import PlayerLaunchRefused, dcode_harness
+
+    monkeypatch.setattr(dcode_harness, "_REFUSAL_INVENTORY_SECONDS", 0.3)
+    repo = tmp_path / "task"
+    repo.mkdir()
+    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
+    agent_dir = selected.dcode_home / "guardkit-player"
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    link = agent_dir / "a-link"
+    link.symlink_to(repo)
+    blocked = agent_dir / "z.bin"
+    blocked.write_bytes(b"z" * 8)
+    release = _block_profile_reads(monkeypatch, blocked)
+    outcome: list[BaseException] = []
+
+    def launch() -> None:
+        try:
+            dcode_harness._validate_launch(selected)
+        except BaseException as exc:  # noqa: BLE001 - recorded for the assertion
+            outcome.append(exc)
+
+    try:
+        begun = time.monotonic()
+        worker = threading.Thread(target=launch, daemon=True)
+        worker.start()
+        worker.join(10)
+        elapsed = time.monotonic() - begun
+        assert not worker.is_alive(), "the refusal waited on its diagnostics"
+        assert elapsed < 3
+        error = outcome[0]
+        assert isinstance(error, PlayerLaunchRefused)
+        assert "symlink inside discovery source" in str(error)
+        assert {
+            "path": "guardkit-player/a-link",
+            "type": "symlink",
+            "size": len(str(repo)),
+            "sha256": None,
+        } in error.entries
+        assert {
+            "path": "guardkit-player/z.bin",
+            "type": "other",
+            "size": None,
+            "sha256": None,
+            "error": "not recorded: timed out",
+        } in error.entries
+    finally:
+        release.set()
+        link.unlink()
+        blocked.unlink()
