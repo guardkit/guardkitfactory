@@ -98,7 +98,12 @@ def test_coach_gather_graph_has_the_tools_and_synthesis_has_none(tmp_path: Path)
     _git_init(repo)
     (repo / "candidate.py").write_text("def candidate_marker():\n    return 2\n")
     exchange = Exchange(
-        [("code_search", {"query": "candidate marker"})],
+        [
+            ("code_search", {"query": "candidate marker"}),
+            ("code_outline", {"path": "candidate.py"}),
+            ("code_pattern", {"pattern": "return $V", "language": "python",
+                              "path": "candidate.py"}),
+        ],
         final_text="findings: candidate_marker exists in candidate.py",
     )
     model, sync, async_ = _model(exchange)
@@ -108,9 +113,11 @@ def test_coach_gather_graph_has_the_tools_and_synthesis_has_none(tmp_path: Path)
             _gather(harness, repo)
         )
         assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
-        answer = _answers(events)[0]
-        assert answer["status"] == "ok"
-        assert answer["results"][0]["path"] == "candidate.py"
+        search, outline, pattern = _answers(events)[:3]
+        assert search["status"] == "ok"
+        assert search["results"][0]["path"] == "candidate.py"
+        assert outline["status"] == "ok" and outline["results"][0]["name"] == "candidate_marker"
+        assert pattern["status"] == "ok" and pattern["results"][0]["path"] == "candidate.py"
         offered_before = len(exchange.requests)
         asyncio.run(_synthesis(harness, repo))
         synthesis_requests = exchange.requests[offered_before:]

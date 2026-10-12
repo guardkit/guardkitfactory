@@ -258,7 +258,8 @@ def test_timeout_stops_the_program_and_is_partial(repo: Path) -> None:
     assert time.monotonic() - started < 10
     assert answer["status"] in ("partial", "ok", "no_matches")
     if answer["status"] == "partial":
-        assert any("stopped after" in reason for reason in answer["truncation"])
+        assert any("stopped after" in reason or "limit ran out" in reason
+                   or "could not be recorded" in reason for reason in answer["truncation"])
 
 
 def test_cancelled_task_stops_the_program_group(repo: Path, tmp_path: Path) -> None:
@@ -488,3 +489,110 @@ def test_wrong_binary_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyP
     assert not ok and "not the pinned" in reason
     answer = code_search.run("search", tmp_path, query="x", mode="literal")
     assert answer["status"] == "tool_unavailable"
+
+
+# -- Codex implementation review round 1 --------------------------------------
+
+
+def _fake_toolkit(script: Path) -> dict:
+    return {
+        "dir": str(script.parent), "ok": True, "problems": [],
+        "tools": {name: {"path": str(script), "version": t.version, "ok": True}
+                  for name, t in code_search.PINNED_TOOLS.items()},
+    }
+
+
+def _fake_program(tmp_path: Path, body: str) -> Path:
+    folder = tmp_path / "fakebin"
+    folder.mkdir(exist_ok=True)
+    script = folder / "prog"
+    script.write_text("#!/bin/sh\n" + body)
+    script.chmod(0o755)
+    return script
+
+
+@pytest.mark.parametrize("operation", ["outline", "pattern"])
+def test_malformed_ast_grep_output_is_never_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    script = _fake_program(tmp_path, "echo 'not json'\n"
+                           "echo 'sg: summary|file: scannedFileCount=3,skippedFileCount=0' >&2\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    kwargs = {"pattern": "$X", "language": "python"} if operation == "pattern" else {}
+    answer = code_search.run(operation, repo, **kwargs)
+    assert answer["status"] == "tool_error", answer
+
+
+def test_malformed_record_beside_a_good_one_is_partial(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    good = json.dumps({"text": "x", "file": "src/users.py", "lines": "x",
+                       "range": {"start": {"line": 0}, "end": {"line": 0}}})
+    script = _fake_program(tmp_path, f"echo '{good}'\necho 'garbage'\n"
+                           "echo 'sg: summary|file: scannedFileCount=3,skippedFileCount=0' >&2\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    answer = code_search.run("pattern", repo, pattern="$X", language="python")
+    assert answer["status"] == "partial" and len(answer["results"]) == 1
+
+
+def test_genuinely_empty_ast_grep_output_is_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _fake_program(
+        tmp_path, "echo 'sg: summary|file: scannedFileCount=3,skippedFileCount=0' >&2\n"
+    )
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    answer = code_search.run("pattern", repo, pattern="$X", language="python")
+    assert answer["status"] == "no_matches"
+
+
+def test_every_answer_fits_its_character_limit(repo: Path) -> None:
+    huge = "x" * 100_000
+    refused = code_search.run("search", repo, query=huge, mode="literal", max_chars=2_000)
+    assert refused["status"] == "input_error"
+    assert len(json.dumps(refused)) <= 2_000
+    omitted = [{"path": f"vendor/{i}.py", "reason": "beyond the path limit"} for i in range(500)]
+    heavy = code_search.run(
+        "search", repo, query="zzqq", mode="literal", max_chars=2_000, respect_ignore=False,
+        source={"kind": "commit", "omitted": omitted, "omitted_count": 500}, omitted=omitted,
+    )
+    assert heavy["status"] == "partial"
+    assert len(json.dumps(heavy)) <= 2_000
+
+
+def test_cancel_during_preparation_stops_the_call(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cancel = threading.Event()
+    real = code_search.worktree_source
+
+    def described_then_cancelled(*args, **kwargs):
+        result = real(*args, **kwargs)
+        cancel.set()
+        return result
+
+    monkeypatch.setattr(code_search, "worktree_source", described_then_cancelled)
+    answer = code_search.run("search", repo, query="count", mode="literal", cancel=cancel)
+    assert answer["status"] == "cancelled"
+
+
+def test_time_limit_covers_preparation(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = code_search.worktree_source
+
+    def slow(*args, **kwargs):
+        time.sleep(1.2)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(code_search, "worktree_source", slow)
+    started = time.monotonic()
+    answer = code_search.run("search", repo, query="count", mode="literal", timeout_s=1.0)
+    assert answer["status"] == "partial"
+    assert time.monotonic() - started < 5
+
+
+def test_one_long_line_alone_makes_the_answer_partial(repo: Path) -> None:
+    (repo / "wide.py").write_text("wide_marker = '" + "y" * 1_000 + "'\n")
+    answer = code_search.run("search", repo, query="wide_marker", mode="literal", path="wide.py")
+    assert answer["status"] == "partial"
+    assert any("shown only in part" in reason for reason in answer["truncation"])
+

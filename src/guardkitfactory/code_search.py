@@ -86,6 +86,10 @@ DEFAULT_TIMEOUT_S = 20.0
 DEFAULT_MAX_RESULTS = 20
 MAX_RESULTS_LIMIT = 50
 DEFAULT_MAX_CHARS = 12_000
+#: No answer is cut below this: room for its status, source and reasons.
+MIN_ANSWER_CHARS = 2_000
+#: How much of a caller's argument an answer repeats back.
+ECHO_CHARS = 200
 #: Raw program output read before the program is stopped.
 MAX_OUTPUT_BYTES = 4 * 1024 * 1024
 MAX_STDERR_BYTES = 64 * 1024
@@ -480,7 +484,26 @@ def query_words(text: str) -> list[str]:
 FINGERPRINT_CONTENT_BYTES = 32 * 1024 * 1024
 
 
-def worktree_source(root: Path, timeout_s: float = 10.0) -> dict[str, Any]:
+def _left(deadline: float | None, ceiling: float) -> float:
+    """Seconds left before ``deadline``, at most ``ceiling``."""
+    if deadline is None:
+        return ceiling
+    return min(ceiling, deadline - time.monotonic())
+
+
+def _stop(deadline: float | None, cancel: threading.Event | None) -> bool:
+    return (cancel is not None and cancel.is_set()) or (
+        deadline is not None and time.monotonic() >= deadline
+    )
+
+
+def worktree_source(
+    root: Path,
+    timeout_s: float = 10.0,
+    *,
+    deadline: float | None = None,
+    cancel: threading.Event | None = None,
+) -> dict[str, Any]:
     """What the worktree holds at query time: where it is, its commit and its
     changes.
 
@@ -488,22 +511,34 @@ def worktree_source(root: Path, timeout_s: float = 10.0) -> dict[str, Any]:
     changed or untracked regular file, so two worktrees at the same commit
     with the same changed paths but different edits differ, and so does a
     second edit to an already-changed file. Content hashing stops at
-    :data:`FINGERPRINT_CONTENT_BYTES`; later files contribute their size and
-    modification time and ``fingerprint_complete`` is false.
+    :data:`FINGERPRINT_CONTENT_BYTES`, at the call's ``deadline`` or on
+    ``cancel``; later files then contribute their size and modification time
+    and ``fingerprint_complete`` is false. With no time left at all the
+    worktree is not described and ``fingerprint`` is ``None``.
     """
 
     env = _git_environment()
     base = ["git", "-c", "safe.directory=*", "-c", "core.fsmonitor=false", "-C", str(root)]
+    unknown = {"kind": "worktree", "root": str(root), "fingerprint": None,
+               "fingerprint_complete": False}
     try:
+        left = _left(deadline, timeout_s)
+        if left <= 0 or _stop(None, cancel):
+            return {**unknown, "note": "not described: the call's time ran out or it was cancelled"}
         head = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [*base, "rev-parse", "--verify", "--quiet", "HEAD"],
-            capture_output=True, text=True, timeout=timeout_s, env=env, check=False,
+            capture_output=True, text=True, timeout=left, env=env, check=False,
         )
+        left = _left(deadline, timeout_s)
+        if left <= 0 or _stop(None, cancel):
+            return {**unknown, "note": "not described: the call's time ran out or it was cancelled"}
         status = subprocess.run(  # noqa: S603 - fixed argv, no shell
             [*base, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-            capture_output=True, timeout=timeout_s, env=env, check=False,
+            capture_output=True, timeout=left, env=env, check=False,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
+    except subprocess.TimeoutExpired:
+        return {**unknown, "note": "not described: git did not answer within the call's time"}
+    except OSError as exc:
         return {"kind": "folder", "root": str(root), "note": f"git could not describe it: {exc}"}
     if status.returncode != 0:
         detail = status.stderr.decode("utf-8", errors="replace").strip().splitlines()[:1]
@@ -541,7 +576,7 @@ def worktree_source(root: Path, timeout_s: float = 10.0) -> dict[str, Any]:
         digest.update(f"\0{name}\0{st.st_size}".encode())
         if not path.is_file() or path.is_symlink():
             continue
-        if st.st_size > budget:
+        if st.st_size > budget or _stop(deadline, cancel):
             complete = False
             digest.update(f"\0{st.st_mtime_ns}".encode())
             continue
@@ -549,6 +584,10 @@ def worktree_source(root: Path, timeout_s: float = 10.0) -> dict[str, Any]:
             with path.open("rb") as handle:
                 for chunk in iter(lambda: handle.read(1 << 20), b""):
                     digest.update(chunk)
+                    if _stop(deadline, cancel):
+                        complete = False
+                        digest.update(f"\0cut\0{st.st_mtime_ns}".encode())
+                        break
             budget -= st.st_size
         except OSError:
             complete = False
@@ -583,6 +622,8 @@ class _Facts:
     fatal: str | None = None
     cancelled: bool = False
     elapsed_ms: int = 0
+    #: Results whose text is shown only in part (long lines or blocks).
+    shown_in_part: int = 0
 
 
 def _new_facts(respect_ignore: bool) -> _Facts:
@@ -650,15 +691,24 @@ def _answer(
     }
 
 
+def _echo(value: str, limit: int = ECHO_CHARS) -> str:
+    """At most ``limit`` characters of a caller's argument, said when cut."""
+    return value if len(value) <= limit else value[:limit] + f"…[{len(value)} characters]"
+
+
 def _cut(text: str) -> str:
     return text if len(text) <= MAX_LINE_CHARS else text[:MAX_LINE_CHARS] + " …[line cut]"
 
 
 def _cut_block(text: str) -> tuple[str, bool]:
+    """The text, at most :data:`MAX_BLOCK_LINES` lines each cut to
+    :data:`MAX_LINE_CHARS`; ``True`` when anything was cut."""
     lines = text.split("\n")
-    cut = len(lines) > MAX_BLOCK_LINES
+    cut = len(lines) > MAX_BLOCK_LINES or any(
+        len(line) > MAX_LINE_CHARS for line in lines[:MAX_BLOCK_LINES]
+    )
     shown = [_cut(line) for line in lines[:MAX_BLOCK_LINES]]
-    if cut:
+    if len(lines) > MAX_BLOCK_LINES:
         shown.append(f"…[{len(lines) - MAX_BLOCK_LINES} more lines not shown]")
     return "\n".join(shown), cut
 
@@ -701,7 +751,10 @@ def _fit_to_chars(answer: dict[str, Any], max_chars: int) -> dict[str, Any]:
     def size() -> int:
         return len(json.dumps(answer, ensure_ascii=False))
 
-    if size() <= max_chars or not answer["results"]:
+    if size() > max_chars and not answer["results"]:
+        _shrink_metadata(answer)
+        return answer
+    if size() <= max_chars:
         return answer
     answer["truncated"] = True
     answer["truncation"].append("")
@@ -717,7 +770,24 @@ def _fit_to_chars(answer: dict[str, Any], max_chars: int) -> dict[str, Any]:
         )
         if size() <= max_chars:
             break
+    if size() > max_chars:
+        _shrink_metadata(answer)
     return answer
+
+
+def _shrink_metadata(answer: dict[str, Any]) -> None:
+    """Cut an answer's descriptive fields to fixed sizes, so even an answer
+    with no results stays within :data:`MIN_ANSWER_CHARS`."""
+    answer["note"] = _echo(answer.get("note") or "", 300)
+    answer["diagnostics"] = [_echo(d, 200) for d in (answer.get("diagnostics") or [])[:2]]
+    answer["truncation"] = [_echo(t, 200) for t in (answer.get("truncation") or [])[:4]]
+    answer["query"] = {k: (_echo(v, 100) if isinstance(v, str) else v)
+                       for k, v in (answer.get("query") or {}).items()}
+    if isinstance(answer.get("query", {}).get("words"), list):
+        answer["query"]["words"] = answer["query"]["words"][:8]
+    source = answer.get("source")
+    if isinstance(source, dict) and isinstance(source.get("omitted"), list):
+        source["omitted"] = source["omitted"][:3]
 
 
 def _stopped(run: _Run, facts: _Facts, timeout_s: float) -> bool:
@@ -765,6 +835,7 @@ class _Call:
     private: Path
     timeout_s: float
     cancel: threading.Event | None
+    deadline: float | None = None
 
     @property
     def operand(self) -> str:
@@ -803,6 +874,8 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
                 continue
             text = (data.get("lines") or {}).get("text")
             number = data.get("line_number")
+            if text is not None and len(text.rstrip("\n")) > MAX_LINE_CHARS:
+                facts.shown_in_part += 1
             found.append(
                 {
                     "path": path,
@@ -850,7 +923,7 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
     ]
     if not call.respect_ignore:
         argv.append("--no-gitignore")
-    run = call.execute(argv, extra_s=2.0)
+    run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
     facts.coverage.update(
         {
@@ -891,6 +964,7 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
         }
         if cut:
             entry["text_cut"] = True
+            facts.shown_in_part += 1
         facts.results.append(entry)
     if facts.diagnostics:
         # Probe reports an unreadable path only on stderr, with exit 0.
@@ -921,8 +995,14 @@ def _sg_errors(diagnostics: list[str]) -> list[str]:
     return [line for line in diagnostics if not line.startswith(_ADVICE_LINES)]
 
 
-def _has_outline_files(folder: Path) -> bool:
+def _has_outline_files(
+    folder: Path, deadline: float | None = None, cancel: threading.Event | None = None
+) -> bool | None:
+    """Whether any file under ``folder`` has outline support; ``None`` when
+    the walk was stopped by the call's time limit or a cancellation."""
     for _current, dirs, names in os.walk(folder):
+        if _stop(deadline, cancel):
+            return None
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         if any(
             Path(n).suffix.lower() in OUTLINE_EXTENSIONS for n in names if not n.startswith(".")
@@ -946,20 +1026,29 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
             "use code_search instead"
         )
         return
-    if call.target_path.is_dir() and not _has_outline_files(call.target_path):
-        facts.unsupported = (
-            "no file here is in a language with symbol outlines; use code_search instead"
-        )
-        return
+    if call.target_path.is_dir():
+        found = _has_outline_files(call.target_path, call.deadline, call.cancel)
+        if found is None and call.cancel is not None and call.cancel.is_set():
+            facts.cancelled = True
+            return
+        if found is False:
+            facts.unsupported = (
+                "no file here is in a language with symbol outlines; use code_search instead"
+            )
+            return
     argv = [call.exe, "outline", "--items", items, "--json=stream", "--color", "never",
             "--threads", THREADS, *_sg_ignore_flags(call.respect_ignore), call.operand]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
-    total = files = without_support = 0
+    total = files = without_support = bad = 0
     for raw in run.stdout.splitlines():
         try:
             entry = json.loads(raw)
         except ValueError:
+            bad += 1
+            continue
+        if not isinstance(entry, dict) or not isinstance(entry.get("items", []), list):
+            bad += 1
             continue
         path = _relative_result_path(call.root, str(entry.get("path") or ""))
         if path is None:
@@ -983,7 +1072,10 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
                 "exported": bool(item.get("isExported")),
             }
             if item.get("signature"):
-                record["text"] = _cut(str(item["signature"]))
+                signature = str(item["signature"])
+                if len(signature) > MAX_LINE_CHARS:
+                    facts.shown_in_part += 1
+                record["text"] = _cut(signature)
             members = [
                 {
                     "name": member.get("name"),
@@ -1010,11 +1102,16 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
     if cut_short:
         return
     errors = _sg_errors(facts.diagnostics)
-    if run.returncode != 0 and not run.stdout:
+    if bad and not facts.results:
+        facts.fatal = f"ast-grep's output could not be read ({bad} unreadable record(s))"
+    elif run.returncode != 0 and not run.stdout:
         facts.fatal = f"ast-grep ended with status {run.returncode}"
-    elif run.returncode != 0 or errors:
+    elif run.returncode != 0 or errors or bad:
         # ast-grep outline answers an unreadable path with exit 0 and an error line.
-        facts.program_errors = errors or [f"ast-grep ended with status {run.returncode}"]
+        facts.program_errors = errors or [
+            f"ast-grep ended with status {run.returncode}" if run.returncode
+            else f"{bad} unreadable output record(s)"
+        ]
 
 
 def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
@@ -1024,11 +1121,15 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
             *_sg_ignore_flags(call.respect_ignore), call.operand]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
-    total = 0
+    total = bad = 0
     for raw in run.stdout.splitlines():
         try:
             match = json.loads(raw)
         except ValueError:
+            bad += 1
+            continue
+        if not isinstance(match, dict) or not isinstance(match.get("range"), dict):
+            bad += 1
             continue
         path = _relative_result_path(call.root, str(match.get("file") or ""))
         if path is None:
@@ -1046,6 +1147,7 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
         }
         if cut:
             record["text_cut"] = True
+            facts.shown_in_part += 1
         facts.results.append(record)
     counts = _sg_counts(run.stderr)
     facts.coverage.update(counts)
@@ -1058,10 +1160,15 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
         facts.input_problem = f"the pattern is not valid {language} code"
         return
     errors = _sg_errors(facts.diagnostics)
-    if run.returncode != 0 and not run.stdout:
+    if bad and not facts.results:
+        facts.fatal = f"ast-grep's output could not be read ({bad} unreadable record(s))"
+    elif run.returncode != 0 and not run.stdout:
         facts.fatal = f"ast-grep ended with status {run.returncode}: {' '.join(errors)[:200]}"
-    elif run.returncode != 0 or errors:
-        facts.program_errors = errors or [f"ast-grep ended with status {run.returncode}"]
+    elif run.returncode != 0 or errors or bad:
+        facts.program_errors = errors or [
+            f"ast-grep ended with status {run.returncode}" if run.returncode
+            else f"{bad} unreadable output record(s)"
+        ]
     elif not counts:
         facts.fatal = "ast-grep did not report what it scanned"
     elif counts.get("files_scanned") == 0:
@@ -1115,19 +1222,30 @@ def run(
     """
 
     limit = _limit(max_results, DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT)
-    shown_query: dict[str, Any] = {"path": path or "."}
+    max_chars = max(MIN_ANSWER_CHARS, int(max_chars))
+    shown_query: dict[str, Any] = {"path": _echo(path or ".")}
     if operation == "search":
-        shown_query.update({"text": query, "mode": mode})
+        shown_query.update({"text": _echo(query), "mode": _echo(mode)})
     elif operation == "outline":
-        shown_query["items"] = items
+        shown_query["items"] = _echo(items)
     elif operation == "pattern":
-        shown_query.update({"pattern": pattern, "language": language})
+        shown_query.update({"pattern": _echo(pattern), "language": _echo(language)})
+    else:
+        operation = _echo(str(operation))
     started = time.monotonic()
+    # One deadline for the whole call: describing the worktree, finding
+    # files, the program, and checking the worktree again afterwards. The
+    # program stops early enough to leave the last check its share.
+    deadline = started + timeout_s
+    after_reserve = min(2.0, timeout_s * 0.2)
 
     def refused(status: str, note: str, tool: str | None = None) -> dict[str, Any]:
-        return _answer(
-            operation=operation, status=status, source=source, query=shown_query,
-            tool=tool, note=note, elapsed_ms=int((time.monotonic() - started) * 1000),
+        return _fit_to_chars(
+            _answer(
+                operation=operation, status=status, source=source, query=shown_query,
+                tool=tool, note=note, elapsed_ms=int((time.monotonic() - started) * 1000),
+            ),
+            max_chars,
         )
 
     if operation not in OPERATIONS:
@@ -1138,12 +1256,12 @@ def run(
         return refused("input_error", str(exc))
     described_here = source is None
     if described_here:
-        source = worktree_source(root_path)
+        source = worktree_source(root_path, deadline=deadline - after_reserve, cancel=cancel)
     try:
         target_path, target = _resolve_target(root_path, path)
     except _InputError as exc:
         return refused("input_error", str(exc))
-    shown_query["path"] = target
+    shown_query["path"] = _echo(target)
 
     words: list[str] = []
     if operation == "search":
@@ -1188,11 +1306,15 @@ def run(
 
     facts = _new_facts(respect_ignore)
     facts.limits.extend(_snapshot_omissions(omitted, target))
+    program_time = deadline - after_reserve - time.monotonic()
     private = _private_folder(root_path)
     try:
         call = _Call(root_path, target_path, target, limit, respect_ignore, entry["path"],
-                     _base_environment(private), private, timeout_s, cancel)
-        if operation == "search" and mode == "ranked":
+                     _base_environment(private), private, max(0.0, program_time), cancel,
+                     deadline - after_reserve)
+        if program_time <= 0:
+            facts.limits.append(f"the {timeout_s:g}-second limit ran out before {tool} could run")
+        elif operation == "search" and mode == "ranked":
             _search_probe(call, words, facts)
         elif operation == "search":
             _search_rg(call, query, mode, facts)
@@ -1204,13 +1326,25 @@ def run(
         facts.fatal = f"{tool} could not be started: {type(exc).__name__}: {exc}"
     finally:
         shutil.rmtree(private, ignore_errors=True)
+    if cancel is not None and cancel.is_set():
+        facts.cancelled = True
     if described_here and source is not None and source.get("kind") == "worktree":
-        after = worktree_source(root_path)
-        if after.get("fingerprint") != source.get("fingerprint") or after.get(
-            "head"
-        ) != source.get("head"):
-            facts.limits.append("the worktree changed while it was searched")
-            source = {**source, "after": after}
+        if source.get("fingerprint") is None:
+            facts.limits.append("the worktree's state could not be recorded before the search")
+        else:
+            after = worktree_source(root_path, deadline=deadline, cancel=cancel)
+            if after.get("fingerprint") is None:
+                facts.limits.append("the worktree could not be checked again after the search")
+            elif after.get("fingerprint") != source.get("fingerprint") or after.get(
+                "head"
+            ) != source.get("head"):
+                facts.limits.append("the worktree changed while it was searched")
+                source = {**source, "after": after}
+    if facts.shown_in_part:
+        facts.limits.append(
+            f"{facts.shown_in_part} result(s) shown only in part (lines cut at "
+            f"{MAX_LINE_CHARS} characters, blocks at {MAX_BLOCK_LINES} lines)"
+        )
     status, note = _decide(facts)
     answer = _answer(
         operation=operation, status=status, source=source, query=shown_query, tool=tool,
