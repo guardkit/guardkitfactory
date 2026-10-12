@@ -1909,3 +1909,227 @@ def test_skill_only_declaration_is_unchanged(tmp_path: Path) -> None:
     required = required_skill_reads(selected)
     assert [item["kind"] for item in required] == ["skill", "skill"]
     assert [Path(item["path"]).name for item in required] == ["SKILL.md", "SKILL.md"]
+
+
+# --- Bounded, race-safe profile inventory (Repair 3, review R7) ---------------
+
+
+def _inventory_in_thread(profile: Path, seconds: float = 10.0) -> list[dict[str, Any]]:
+    """Run the inventory where a hang fails the test instead of the suite."""
+    import threading
+
+    from guardkitfactory.harness.dcode_harness import profile_inventory
+
+    result: list[Any] = []
+    worker = threading.Thread(target=lambda: result.append(profile_inventory(profile)), daemon=True)
+    worker.start()
+    worker.join(seconds)
+    assert not worker.is_alive(), "profile inventory did not return"
+    return result[0]
+
+
+def test_inventory_does_not_hash_a_growing_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    growing = profile / "growing.log"
+    growing.write_bytes(b"x" * 10)
+    real_read = os.read
+    grown = []
+
+    def read(descriptor: int, count: int) -> bytes:
+        if not grown and os.fstat(descriptor).st_ino == growing.stat().st_ino:
+            grown.append(1)
+            with growing.open("ab") as handle:
+                handle.write(b"y" * 10)
+        return real_read(descriptor, count)
+
+    monkeypatch.setattr(os, "read", read)
+    entries = _inventory_in_thread(profile)
+    assert entries == [
+        {
+            "path": "growing.log",
+            "type": "file",
+            "size": 10,
+            "sha256": None,
+            "error": "not recorded: changed while reading",
+        }
+    ]
+
+
+def test_inventory_does_not_block_on_a_fifo_swapped_in_after_lstat(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    swapped = profile / "swap.json"
+    swapped.write_text("{}")
+    real_open = os.open
+
+    def swap_then_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
+        if Path(path) == swapped and not stat_is_fifo(swapped):
+            swapped.unlink()
+            os.mkfifo(swapped)
+        return real_open(path, flags, *args, **kwargs)
+
+    def stat_is_fifo(path: Path) -> bool:
+        import stat as stat_module
+
+        return stat_module.S_ISFIFO(path.lstat().st_mode)
+
+    monkeypatch.setattr(os, "open", swap_then_open)
+    entries = _inventory_in_thread(profile)
+    assert entries == [
+        {
+            "path": "swap.json",
+            "type": "file",
+            "size": 2,
+            "sha256": None,
+            "error": "not a regular file when opened",
+        }
+    ]
+
+
+def test_inventory_bounds_keep_partial_entries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from guardkitfactory.harness import dcode_harness
+
+    profile = tmp_path / "profile"
+    profile.mkdir()
+    (profile / "a.txt").write_text("a")
+    (profile / "b.bin").write_bytes(b"b" * 100)
+    (profile / "c.txt").write_text("c")
+    (profile / "d.txt").write_text("d")
+    monkeypatch.setattr(dcode_harness, "_INVENTORY_MAX_FILE_BYTES", 10)
+    monkeypatch.setattr(dcode_harness, "_INVENTORY_MAX_ENTRIES", 3)
+    entries = _inventory_in_thread(profile)
+    assert entries[0]["sha256"] == hashlib.sha256(b"a").hexdigest()
+    assert entries[1] == {
+        "path": "b.bin",
+        "type": "file",
+        "size": 100,
+        "sha256": None,
+        "error": "not recorded: too large",
+    }
+    assert entries[2]["path"] == "c.txt" and entries[2]["sha256"]
+    assert entries[3] == {
+        "path": "d.txt",
+        "type": "other",
+        "size": None,
+        "sha256": None,
+        "error": "not recorded: too many entries",
+    }
+    assert len(entries) == 4
+
+    monkeypatch.setattr(dcode_harness, "_INVENTORY_SECONDS", 0.0)
+    timed_out = _inventory_in_thread(profile)
+    assert timed_out[-1]["error"] == "not recorded: timed out"
+
+
+def _block_profile_reads(monkeypatch: pytest.MonkeyPatch, blocked: Path) -> Any:
+    """Make any read of ``blocked`` hang until the returned event is set."""
+    import threading
+
+    release = threading.Event()
+    real_read = os.read
+
+    def read(descriptor: int, count: int) -> bytes:
+        try:
+            target = blocked.stat().st_ino
+        except OSError:
+            target = None
+        if target is not None and os.fstat(descriptor).st_ino == target:
+            release.wait(30)
+        return real_read(descriptor, count)
+
+    monkeypatch.setattr(os, "read", read)
+    return release
+
+
+@pytest.mark.parametrize("ending", ["completed", "cancelled"])
+def test_invocation_returns_when_the_post_invocation_inventory_blocks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    ending: str,
+) -> None:
+    import time
+
+    from guardkitfactory.harness import dcode_harness
+
+    monkeypatch.setattr(dcode_harness, "_POST_INVOCATION_INVENTORY_SECONDS", 0.3)
+    repo = tmp_path / "empty-task"
+    repo.mkdir()
+    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
+    blocked = profile / "guardkit-player" / "block.bin"
+    release = _block_profile_reads(monkeypatch, blocked)
+    selected = build_player_config(cwd=repo, dcode_home=str(profile))
+    started = asyncio.Event()
+
+    class Transport(httpx.AsyncBaseTransport):
+        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content)
+            # The launch has passed its checks; now something writes the file
+            # whose read will hang during the post-invocation inventory.
+            blocked.parent.mkdir(parents=True, exist_ok=True)
+            blocked.write_bytes(b"z" * 8)
+            if ending == "completed":
+                return response(body)
+            started.set()
+            await asyncio.Future()
+            raise AssertionError("unreachable")
+
+    async def run() -> float:
+        from langchain_openai import ChatOpenAI
+
+        sync = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+        client = httpx.AsyncClient(transport=Transport())
+        model = ChatOpenAI(
+            model="qwen36-workhorse",
+            base_url="http://fake.test/v1",
+            api_key="synthetic",
+            use_responses_api=False,
+            temperature=0,
+            max_tokens=8192,
+            profile={"max_input_tokens": 131072},
+            http_client=sync,
+            http_async_client=client,
+            max_retries=0,
+            disable_streaming=True,
+            http_socket_options=(),
+        )
+        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+        task = asyncio.create_task(_collect(harness, repo))
+        try:
+            if ending == "cancelled":
+                await asyncio.wait_for(started.wait(), 10)
+                begun = time.monotonic()
+                await harness.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await asyncio.wait_for(task, 10)
+            else:
+                begun = time.monotonic()
+                events = await asyncio.wait_for(task, 10)
+                assert any(isinstance(event, ResultMessageEvent) for event in events)
+            return time.monotonic() - begun
+        finally:
+            if not task.done():
+                task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await client.aclose()
+            sync.close()
+
+    try:
+        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
+            elapsed = asyncio.run(run())
+        assert elapsed < 5
+        assert any(
+            "profile inventory not recorded: timed out" in record.getMessage()
+            for record in caplog.records
+        )
+    finally:
+        release.set()
+        if blocked.exists():
+            blocked.unlink()

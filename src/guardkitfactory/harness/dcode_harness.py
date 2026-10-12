@@ -13,7 +13,10 @@ import logging
 import os
 import stat
 import sys
+import threading
+import time
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import urlsplit
@@ -169,12 +172,66 @@ def validate_skill_reads(
 _CLEAN_PROFILE = {f"{_AGENT}/AGENTS.md": hashlib.sha256(b"").hexdigest()}
 
 
-def _sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 16), b""):
+# Bounds on the diagnostic profile inventory. It only describes the profile;
+# it must never hold up a launch decision or an invocation's return.
+_INVENTORY_MAX_ENTRIES = 1000
+_INVENTORY_MAX_FILE_BYTES = 16 * 1024 * 1024
+_INVENTORY_MAX_TOTAL_BYTES = 64 * 1024 * 1024
+_INVENTORY_SECONDS = 2.0
+# How long an invocation's finalisation waits for its inventory to be logged.
+_POST_INVOCATION_INVENTORY_SECONDS = 5.0
+_NOT_REGULAR = "not a regular file when opened"
+_TOO_LARGE = "not recorded: too large"
+_TIMED_OUT = "not recorded: timed out"
+_CHANGED = "not recorded: changed while reading"
+_TOO_MANY = "not recorded: too many entries"
+
+
+class _Budget:
+    def __init__(self) -> None:
+        self.deadline = time.monotonic() + _INVENTORY_SECONDS
+        self.bytes_left = _INVENTORY_MAX_TOTAL_BYTES
+
+    def expired(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+
+def _hash_regular_file(path: Path, entry: dict[str, Any], budget: _Budget) -> None:
+    """Hash a file without following a link or blocking on a swapped-in FIFO."""
+
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    descriptor = os.open(path, flags)
+    try:
+        status = os.fstat(descriptor)
+        if not stat.S_ISREG(status.st_mode):
+            entry["error"] = _NOT_REGULAR
+            return
+        size = status.st_size
+        entry["size"] = size
+        if size > _INVENTORY_MAX_FILE_BYTES or size > budget.bytes_left:
+            entry["error"] = _TOO_LARGE
+            return
+        digest = hashlib.sha256()
+        remaining = size
+        while remaining > 0:
+            if budget.expired():
+                entry["error"] = _TIMED_OUT
+                return
+            chunk = os.read(descriptor, min(1 << 16, remaining))
+            if not chunk:
+                entry["error"] = _CHANGED
+                return
             digest.update(chunk)
-    return digest.hexdigest()
+            remaining -= len(chunk)
+            budget.bytes_left -= len(chunk)
+        # A file still growing has more than fstat reported: its hash would
+        # describe a prefix, so it is not recorded.
+        if os.read(descriptor, 1):
+            entry["error"] = _CHANGED
+            return
+        entry["sha256"] = digest.hexdigest()
+    finally:
+        os.close(descriptor)
 
 
 def profile_inventory(profile: Path) -> list[dict[str, Any]]:
@@ -183,12 +240,27 @@ def profile_inventory(profile: Path) -> list[dict[str, Any]]:
     Each entry gives the path relative to the profile, its file type, its size
     and, for regular files, its SHA-256. Links are recorded, never followed, and
     an unreadable entry is recorded with the error's type rather than refused,
-    so the inventory itself never fails a launch.
+    so the inventory itself never fails a launch. Entries, bytes hashed and time
+    are bounded; what a bound cut short is marked "not recorded" and every entry
+    gathered before it is kept.
     """
 
     entries: list[dict[str, Any]] = []
+    budget = _Budget()
 
-    def record(path: Path) -> None:
+    def record(path: Path) -> bool:
+        """Record ``path`` (and below); return False once a bound stops the walk."""
+        if len(entries) >= _INVENTORY_MAX_ENTRIES or budget.expired():
+            entries.append(
+                {
+                    "path": str(path.relative_to(profile)) if path != profile else ".",
+                    "type": "other",
+                    "size": None,
+                    "sha256": None,
+                    "error": _TOO_MANY if len(entries) >= _INVENTORY_MAX_ENTRIES else _TIMED_OUT,
+                }
+            )
+            return False
         relative = str(path.relative_to(profile)) if path != profile else "."
         entry: dict[str, Any] = {"path": relative, "type": "other", "size": None, "sha256": None}
         try:
@@ -196,7 +268,7 @@ def profile_inventory(profile: Path) -> list[dict[str, Any]]:
         except OSError as exc:
             entry["error"] = type(exc).__name__
             entries.append(entry)
-            return
+            return True
         mode = status.st_mode
         if stat.S_ISLNK(mode):
             entry.update(type="symlink", size=status.st_size)
@@ -205,7 +277,7 @@ def profile_inventory(profile: Path) -> list[dict[str, Any]]:
         elif stat.S_ISREG(mode):
             entry.update(type="file", size=status.st_size)
             try:
-                entry["sha256"] = _sha256_file(path)
+                _hash_regular_file(path, entry, budget)
             except OSError as exc:
                 entry["error"] = type(exc).__name__
         if path != profile:
@@ -217,11 +289,13 @@ def profile_inventory(profile: Path) -> list[dict[str, Any]]:
                 entry["error"] = type(exc).__name__
                 if path == profile:
                     entries.append(entry)
-                return
+                return True
             for child in children:
-                record(child)
+                if not record(child):
+                    return False
         elif path == profile:
             entries.append(entry)
+        return True
 
     try:
         profile.lstat()
@@ -283,9 +357,31 @@ def _refuse_launch(
 
 
 def log_profile_inventory(profile: Path, *, cwd: Path) -> list[dict[str, Any]]:
-    """Log the profile as one invocation left it, so a later refusal can be traced."""
+    """Log the profile as one invocation left it, so a later refusal can be traced.
 
-    entries = profile_inventory(profile)
+    Runs in the invocation's finalisation, so the inventory is taken on a
+    daemon thread and waited for only briefly: diagnostics never stop a
+    completed or cancelled invocation from returning.
+    """
+
+    result: list[list[dict[str, Any]]] = []
+
+    def take() -> None:
+        with suppress(Exception):
+            result.append(profile_inventory(profile))
+
+    worker = threading.Thread(target=take, name="dcode-profile-inventory", daemon=True)
+    worker.start()
+    worker.join(_POST_INVOCATION_INVENTORY_SECONDS)
+    if not result:
+        logger.warning(
+            "dcode Player post-invocation profile inventory not recorded: %s; cwd=%s profile=%s",
+            "timed out" if worker.is_alive() else "failed",
+            cwd,
+            profile,
+        )
+        return []
+    entries = result[0]
     logger.info(
         "dcode Player post-invocation profile inventory: cwd=%s profile=%s "
         "unexpected=%s entries=%s",
