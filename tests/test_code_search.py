@@ -329,14 +329,14 @@ def test_git_runs_without_any_user_or_system_configuration(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     seen: list[tuple[list[str], dict[str, str]]] = []
-    real = subprocess.run
+    real = code_search._execute
 
     def spy(argv, *args, **kwargs):
         if argv and argv[0] == "git":
             seen.append((list(argv), dict(kwargs.get("env") or {})))
         return real(argv, *args, **kwargs)
 
-    monkeypatch.setattr(code_search.subprocess, "run", spy)
+    monkeypatch.setattr(code_search, "_execute", spy)
     code_search.worktree_source(repo)
     assert seen
     for argv, env in seen:
@@ -595,4 +595,111 @@ def test_one_long_line_alone_makes_the_answer_partial(repo: Path) -> None:
     answer = code_search.run("search", repo, query="wide_marker", mode="literal", path="wide.py")
     assert answer["status"] == "partial"
     assert any("shown only in part" in reason for reason in answer["truncation"])
+
+
+# -- Codex implementation review round 2 --------------------------------------
+
+_SUMMARY = "echo 'sg: summary|file: scannedFileCount=3,skippedFileCount=0' >&2\n"
+
+
+@pytest.mark.parametrize(
+    ("operation", "record"),
+    [
+        ("outline", {}),
+        ("outline", {"path": "src/users.py", "language": "Python", "items": [None]}),
+        ("outline", {"path": "src/users.py", "items": [{"name": "x", "range": {}}]}),
+        ("pattern", {"file": "src/users.py", "text": "x", "range": {}}),
+        ("pattern", {"file": "", "range": {"start": {"line": 0}, "end": {"line": 0}}}),
+    ],
+)
+def test_badly_shaped_records_are_never_trusted(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operation: str, record: dict
+) -> None:
+    script = _fake_program(tmp_path, f"echo '{json.dumps(record)}'\n" + _SUMMARY)
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    kwargs = {"pattern": "$X", "language": "python"} if operation == "pattern" else {}
+    answer = code_search.run(operation, repo, **kwargs)
+    assert answer["status"] == "tool_error", answer
+
+
+def _outline_with_members(count: int) -> str:
+    def rng(line: int) -> dict:
+        return {"start": {"line": line, "column": 0}, "end": {"line": line, "column": 1}}
+
+    members = [{"name": f"m{i}", "symbolType": "method", "range": rng(i + 1)}
+               for i in range(count)]
+    return json.dumps({"path": "src/users.py", "language": "Python",
+                       "items": [{"name": "Big", "symbolType": "class",
+                                  "range": {"start": {"line": 0}, "end": {"line": count}},
+                                  "members": members}]})
+
+
+@pytest.mark.parametrize(("count", "status"), [(41, "partial"), (40, "ok")])
+def test_members_beyond_the_limit_make_the_outline_partial(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, count: int, status: str
+) -> None:
+    record = tmp_path / "record.json"
+    record.write_text(_outline_with_members(count))
+    script = _fake_program(tmp_path, f"cat {record}\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    answer = code_search.run("outline", repo, path="src/users.py", max_chars=60_000)
+    assert answer["status"] == status, answer["truncation"]
+    assert len(answer["results"][0]["members"]) == min(count, 40)
+
+
+def test_long_omitted_paths_still_fit(repo: Path) -> None:
+    omitted = [{"path": "deep/" + "x" * 800 + f"/{i}.py", "reason": "larger than the limit"}
+               for i in range(3)]
+    answer = code_search.run(
+        "search", repo, query="zzqq", mode="literal", max_chars=2_000, respect_ignore=False,
+        source={"kind": "commit", "root": "/" + "r" * 900, "omitted": omitted,
+                "omitted_count": 3},
+        omitted=omitted,
+    )
+    assert answer["status"] == "partial"
+    assert len(json.dumps(answer)) <= 2_000
+
+
+def test_outline_discovery_out_of_time_does_not_launch(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    launched: list[list[str]] = []
+    real = code_search._execute
+
+    def spy(argv, *args, **kwargs):
+        if argv and argv[0] != "git":
+            launched.append(argv)
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(code_search, "_execute", spy)
+    monkeypatch.setattr(code_search, "_has_outline_files", lambda *a, **k: None)
+    answer = code_search.run("outline", repo)
+    assert answer["status"] == "partial" and launched == []
+    assert any("finding files" in reason for reason in answer["truncation"])
+
+
+def test_identity_not_rechecked_after_the_search_is_partial(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real = code_search.worktree_source
+    calls = []
+
+    def first_then_unknown(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 1:
+            return real(*args, **kwargs)
+        return {"kind": "worktree", "root": str(repo), "fingerprint": None,
+                "fingerprint_complete": False, "note": "not described"}
+
+    monkeypatch.setattr(code_search, "worktree_source", first_then_unknown)
+    answer = code_search.run("search", repo, query="count_active", mode="literal")
+    assert answer["status"] == "partial"
+    assert "the worktree could not be checked again after the search" in answer["truncation"]
+
+
+def test_cancelled_identity_is_not_described(repo: Path) -> None:
+    cancel = threading.Event()
+    cancel.set()
+    described = code_search.worktree_source(repo, cancel=cancel)
+    assert described["fingerprint"] is None and "cancelled" in described["note"]
 

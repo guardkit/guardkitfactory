@@ -510,38 +510,36 @@ def worktree_source(
     The fingerprint is a SHA-256 over ``git status`` and the content of every
     changed or untracked regular file, so two worktrees at the same commit
     with the same changed paths but different edits differ, and so does a
-    second edit to an already-changed file. Content hashing stops at
-    :data:`FINGERPRINT_CONTENT_BYTES`, at the call's ``deadline`` or on
-    ``cancel``; later files then contribute their size and modification time
-    and ``fingerprint_complete`` is false. With no time left at all the
-    worktree is not described and ``fingerprint`` is ``None``.
+    second edit to an already-changed file. Past
+    :data:`FINGERPRINT_CONTENT_BYTES` of content, later files contribute their
+    size and modification time and ``fingerprint_complete`` is false. git runs
+    through the same bounded, cancellable runner as the search programs; when
+    the call's ``deadline`` passes or it is cancelled before the identity is
+    complete, ``fingerprint`` is ``None`` and ``note`` says why.
     """
+
+    def unknown(note: str) -> dict[str, Any]:
+        return {"kind": "worktree", "root": str(root), "fingerprint": None,
+                "fingerprint_complete": False, "note": note}
 
     env = _git_environment()
     base = ["git", "-c", "safe.directory=*", "-c", "core.fsmonitor=false", "-C", str(root)]
-    unknown = {"kind": "worktree", "root": str(root), "fingerprint": None,
-               "fingerprint_complete": False}
-    try:
+    answers = []
+    for args in (("rev-parse", "--verify", "--quiet", "HEAD"),
+                 ("status", "--porcelain=v1", "-z", "--untracked-files=all")):
         left = _left(deadline, timeout_s)
         if left <= 0 or _stop(None, cancel):
-            return {**unknown, "note": "not described: the call's time ran out or it was cancelled"}
-        head = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            [*base, "rev-parse", "--verify", "--quiet", "HEAD"],
-            capture_output=True, text=True, timeout=left, env=env, check=False,
-        )
-        left = _left(deadline, timeout_s)
-        if left <= 0 or _stop(None, cancel):
-            return {**unknown, "note": "not described: the call's time ran out or it was cancelled"}
-        status = subprocess.run(  # noqa: S603 - fixed argv, no shell
-            [*base, "status", "--porcelain=v1", "-z", "--untracked-files=all"],
-            capture_output=True, timeout=left, env=env, check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return {**unknown, "note": "not described: git did not answer within the call's time"}
-    except OSError as exc:
-        return {"kind": "folder", "root": str(root), "note": f"git could not describe it: {exc}"}
+            return unknown("not described: the call's time ran out or it was cancelled")
+        try:
+            answer = _execute([*base, *args], cwd=root, env=env, timeout_s=left, cancel=cancel)
+        except OSError as exc:
+            return {"kind": "folder", "root": str(root), "note": f"git could not run: {exc}"}
+        if answer.cancelled or answer.timed_out or answer.output_capped:
+            return unknown("not described: git did not finish within the call's time or limits")
+        answers.append(answer)
+    head, status = answers
     if status.returncode != 0:
-        detail = status.stderr.decode("utf-8", errors="replace").strip().splitlines()[:1]
+        detail = status.stderr.strip().splitlines()[:1]
         return {
             "kind": "folder",
             "root": str(root),
@@ -554,6 +552,8 @@ def worktree_source(
     records = status.stdout.split(b"\0")
     index = 0
     while index < len(records):
+        if _stop(deadline, cancel):
+            return unknown("not described: the call's time ran out or it was cancelled")
         record = records[index]
         index += 1
         if len(record) < 4:
@@ -576,7 +576,7 @@ def worktree_source(
         digest.update(f"\0{name}\0{st.st_size}".encode())
         if not path.is_file() or path.is_symlink():
             continue
-        if st.st_size > budget or _stop(deadline, cancel):
+        if st.st_size > budget:
             complete = False
             digest.update(f"\0{st.st_mtime_ns}".encode())
             continue
@@ -585,9 +585,9 @@ def worktree_source(
                 for chunk in iter(lambda: handle.read(1 << 20), b""):
                     digest.update(chunk)
                     if _stop(deadline, cancel):
-                        complete = False
-                        digest.update(f"\0cut\0{st.st_mtime_ns}".encode())
-                        break
+                        return unknown(
+                            "not described: the call's time ran out or it was cancelled"
+                        )
             budget -= st.st_size
         except OSError:
             complete = False
@@ -595,7 +595,7 @@ def worktree_source(
     return {
         "kind": "worktree",
         "root": str(root),
-        "head": head.stdout.strip() or None,
+        "head": head.stdout.decode("utf-8", errors="replace").strip() or None,
         "changed": changed,
         "untracked": untracked,
         "deleted": deleted,
@@ -776,8 +776,37 @@ def _fit_to_chars(answer: dict[str, Any], max_chars: int) -> dict[str, Any]:
 
 
 def _shrink_metadata(answer: dict[str, Any]) -> None:
-    """Cut an answer's descriptive fields to fixed sizes, so even an answer
-    with no results stays within :data:`MIN_ANSWER_CHARS`."""
+    """Cut an answer's descriptive fields to fixed sizes. If that is still
+    not small enough, keep only the identity fields, each cut short, so the
+    answer always fits :data:`MIN_ANSWER_CHARS`."""
+    _cut_metadata(answer)
+    if len(json.dumps(answer, ensure_ascii=False)) > MIN_ANSWER_CHARS:
+        _minimal_metadata(answer)
+
+
+_IDENTITY_FIELDS = ("kind", "root", "commit", "head", "fingerprint", "fingerprint_complete",
+                    "files", "omitted_count", "changed", "untracked", "deleted")
+
+
+def _minimal_metadata(answer: dict[str, Any]) -> None:
+    source = answer.get("source") if isinstance(answer.get("source"), dict) else {}
+    answer["source"] = {
+        key: (_echo(value, 60) if isinstance(value, str) else value)
+        for key, value in source.items()
+        if key in _IDENTITY_FIELDS
+    }
+    answer["query"] = {key: (_echo(value, 40) if isinstance(value, str) else None)
+                       for key, value in (answer.get("query") or {}).items()
+                       if key in ("path", "mode", "text", "pattern", "language", "items")}
+    answer["coverage"] = {}
+    answer["diagnostics"] = []
+    answer["truncation"] = [_echo(t, 100) for t in (answer.get("truncation") or [])[:2]]
+    answer["note"] = _echo(answer.get("note") or "", 150) + " (details abbreviated to fit)"
+    answer["operation"] = _echo(str(answer.get("operation") or ""), 40)
+    answer["results"] = []
+
+
+def _cut_metadata(answer: dict[str, Any]) -> None:
     answer["note"] = _echo(answer.get("note") or "", 300)
     answer["diagnostics"] = [_echo(d, 200) for d in (answer.get("diagnostics") or [])[:2]]
     answer["truncation"] = [_echo(t, 200) for t in (answer.get("truncation") or [])[:4]]
@@ -786,8 +815,17 @@ def _shrink_metadata(answer: dict[str, Any]) -> None:
     if isinstance(answer.get("query", {}).get("words"), list):
         answer["query"]["words"] = answer["query"]["words"][:8]
     source = answer.get("source")
-    if isinstance(source, dict) and isinstance(source.get("omitted"), list):
-        source["omitted"] = source["omitted"][:3]
+    if isinstance(source, dict):
+        if isinstance(source.get("omitted"), list):
+            source["omitted"] = [
+                {k: _echo(str(v), 120) for k, v in item.items()} if isinstance(item, dict)
+                else _echo(str(item), 120)
+                for item in source["omitted"][:3]
+            ]
+        source.pop("after", None)
+        for key, value in list(source.items()):
+            if isinstance(value, str):
+                source[key] = _echo(value, 200)
 
 
 def _stopped(run: _Run, facts: _Facts, timeout_s: float) -> bool:
@@ -843,9 +881,13 @@ class _Call:
         in, always starting ``./`` so a name like ``--rewrite`` stays a path."""
         return "." if self.target == "." else f"./{self.target}"
 
-    def execute(self, argv: list[str], extra_s: float = 0.0) -> _Run:
-        return _execute(argv, cwd=self.root, env=self.env,
-                        timeout_s=self.timeout_s + extra_s, cancel=self.cancel)
+    def execute(self, argv: list[str]) -> _Run:
+        """Run the program with whatever is left of the call's time, measured
+        now, not when the call began; with none left it does not start."""
+        left = self.timeout_s if self.deadline is None else self.deadline - time.monotonic()
+        if left <= 0:
+            return _Run(None, b"", "", False, True, False, 0)
+        return _execute(argv, cwd=self.root, env=self.env, timeout_s=left, cancel=self.cancel)
 
 
 def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
@@ -1011,6 +1053,21 @@ def _has_outline_files(
     return False
 
 
+def _range(rng: Any) -> tuple[int, int] | None:
+    """An ast-grep range as 1-based ``(first, last)`` lines, or ``None`` when
+    it is not a well-formed range."""
+    if not isinstance(rng, dict):
+        return None
+    first, last = _line(rng.get("start")), _line(rng.get("end"))
+    if first is None or last is None or first < 1 or last < first:
+        return None
+    return first, last
+
+
+#: The most members listed under one symbol; more are counted as cut.
+MAX_MEMBERS = 40
+
+
 def _line(position: Any) -> int | None:
     """ast-grep counts lines from 0."""
 
@@ -1028,8 +1085,11 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
         return
     if call.target_path.is_dir():
         found = _has_outline_files(call.target_path, call.deadline, call.cancel)
-        if found is None and call.cancel is not None and call.cancel.is_set():
-            facts.cancelled = True
+        if found is None:
+            if call.cancel is not None and call.cancel.is_set():
+                facts.cancelled = True
+            else:
+                facts.limits.append("the time limit ran out while finding files to outline")
             return
         if found is False:
             facts.unsupported = (
@@ -1047,25 +1107,34 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
         except ValueError:
             bad += 1
             continue
-        if not isinstance(entry, dict) or not isinstance(entry.get("items", []), list):
+        if (
+            not isinstance(entry, dict)
+            or not isinstance(entry.get("path"), str)
+            or not entry["path"]
+            or not isinstance(entry.get("items"), list)
+        ):
             bad += 1
             continue
-        path = _relative_result_path(call.root, str(entry.get("path") or ""))
-        if path is None:
+        path = _relative_result_path(call.root, entry["path"])
+        if path is None or path == ".":
+            bad += 1
             continue
         if Path(path).suffix.lower() not in OUTLINE_EXTENSIONS:
             without_support += 1
             continue
         files += 1
-        for item in entry.get("items") or []:
+        for item in entry["items"]:
+            lines = _range(item.get("range")) if isinstance(item, dict) else None
+            if lines is None or not isinstance(item.get("members", []), list):
+                bad += 1
+                continue
             total += 1
             if len(facts.results) >= call.max_results:
                 continue
-            rng = item.get("range") or {}
             record: dict[str, Any] = {
                 "path": path,
-                "first_line": _line(rng.get("start")),
-                "last_line": _line(rng.get("end")),
+                "first_line": lines[0],
+                "last_line": lines[1],
                 "kind": item.get("symbolType"),
                 "name": item.get("name"),
                 "import": bool(item.get("isImport")),
@@ -1076,15 +1145,20 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
                 if len(signature) > MAX_LINE_CHARS:
                     facts.shown_in_part += 1
                 record["text"] = _cut(signature)
-            members = [
-                {
-                    "name": member.get("name"),
-                    "kind": member.get("symbolType"),
-                    "first_line": _line((member.get("range") or {}).get("start")),
-                    "last_line": _line((member.get("range") or {}).get("end")),
-                }
-                for member in (item.get("members") or [])[:40]
-            ]
+            members = []
+            for member in item.get("members") or []:
+                member_lines = (
+                    _range(member.get("range")) if isinstance(member, dict) else None
+                )
+                if member_lines is None:
+                    bad += 1
+                    continue
+                members.append({"name": member.get("name"), "kind": member.get("symbolType"),
+                                "first_line": member_lines[0], "last_line": member_lines[1]})
+            if len(members) > MAX_MEMBERS:
+                record["members_not_shown"] = len(members) - MAX_MEMBERS
+                members = members[:MAX_MEMBERS]
+                facts.shown_in_part += 1
             if members:
                 record["members"] = members
             facts.results.append(record)
@@ -1128,21 +1202,22 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
         except ValueError:
             bad += 1
             continue
-        if not isinstance(match, dict) or not isinstance(match.get("range"), dict):
+        lines = _range(match.get("range")) if isinstance(match, dict) else None
+        if lines is None or not isinstance(match.get("file"), str) or not match["file"]:
             bad += 1
             continue
-        path = _relative_result_path(call.root, str(match.get("file") or ""))
-        if path is None:
+        path = _relative_result_path(call.root, match["file"])
+        if path is None or path == ".":
+            bad += 1
             continue
         total += 1
         if len(facts.results) >= call.max_results:
             continue
-        rng = match.get("range") or {}
         text, cut = _cut_block(str(match.get("lines") or match.get("text") or ""))
         record: dict[str, Any] = {
             "path": path,
-            "first_line": _line(rng.get("start")),
-            "last_line": _line(rng.get("end")),
+            "first_line": lines[0],
+            "last_line": lines[1],
             "text": text,
         }
         if cut:
