@@ -307,12 +307,12 @@ def test_cancelled_task_stops_the_program_group(repo: Path, tmp_path: Path) -> N
 def test_file_names_that_look_like_flags_stay_paths(repo: Path) -> None:
     flag = repo / "--rewrite=x"
     flag.mkdir()
-    (flag / "inside.py").write_text("flag_marker = 1\n")
+    (flag / "inside.py").write_text("def flag_marker():\n    return 1\n")
     for operation, kwargs in (
         ("search", {"query": "flag marker"}),
         ("search", {"query": "flag_marker", "mode": "literal"}),
         ("outline", {}),
-        ("pattern", {"pattern": "flag_marker = $V", "language": "python"}),
+        ("pattern", {"pattern": "return $V", "language": "python"}),
     ):
         answer = code_search.run(operation, repo, path="--rewrite=x", **kwargs)
         assert answer["status"] == "ok", (operation, answer)
@@ -324,15 +324,25 @@ def test_line_breaks_in_literal_queries_are_input_errors(repo: Path) -> None:
     assert answer["status"] == "input_error"
 
 
-def test_a_planted_git_config_is_not_used(repo: Path, tmp_path: Path,
-                                          monkeypatch: pytest.MonkeyPatch) -> None:
-    home = tmp_path / "planted"
-    home.mkdir()
-    touched = tmp_path / "fsmonitor-ran"
-    (home / ".gitconfig").write_text(f"[core]\n\tfsmonitor = touch {touched}\n")
-    monkeypatch.setenv("HOME", str(home))
+def test_git_runs_without_any_user_or_system_configuration(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[tuple[list[str], dict[str, str]]] = []
+    real = subprocess.run
+
+    def spy(argv, *args, **kwargs):
+        if argv and argv[0] == "git":
+            seen.append((list(argv), dict(kwargs.get("env") or {})))
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(code_search.subprocess, "run", spy)
     code_search.worktree_source(repo)
-    assert not touched.exists()
+    assert seen
+    for argv, env in seen:
+        assert "core.fsmonitor=false" in argv
+        assert env["HOME"] == "/nonexistent"
+        assert env["GIT_CONFIG_GLOBAL"] == "/dev/null"
+        assert env["GIT_CONFIG_NOSYSTEM"] == "1"
 
 
 def test_cancel_event_before_start(repo: Path) -> None:

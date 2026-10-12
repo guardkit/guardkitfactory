@@ -766,6 +766,12 @@ class _Call:
     timeout_s: float
     cancel: threading.Event | None
 
+    @property
+    def operand(self) -> str:
+        """The target as the programs get it: relative to the root they run
+        in, always starting ``./`` so a name like ``--rewrite`` stays a path."""
+        return "." if self.target == "." else f"./{self.target}"
+
     def execute(self, argv: list[str], extra_s: float = 0.0) -> _Run:
         return _execute(argv, cwd=self.root, env=self.env,
                         timeout_s=self.timeout_s + extra_s, cancel=self.cancel)
@@ -777,7 +783,7 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
         argv.append("--fixed-strings")
     if not call.respect_ignore:
         argv.append("--no-ignore")
-    argv += ["--regexp", query, "--", str(call.target_path)]
+    argv += ["--regexp", query, "--", call.operand]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
     stats: dict[str, Any] | None = None
@@ -835,7 +841,7 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
 
 def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
     argv = [
-        call.exe, "search", " ".join(words), str(call.target_path),
+        call.exe, "search", " ".join(words), call.operand,
         "--format", "json",
         "--allow-tests",
         "--max-results", str(call.max_results),
@@ -946,8 +952,7 @@ def _outline(call: _Call, items: str, facts: _Facts) -> None:
         )
         return
     argv = [call.exe, "outline", "--items", items, "--json=stream", "--color", "never",
-            "--threads", THREADS, *_sg_ignore_flags(call.respect_ignore),
-            str(call.target_path)]
+            "--threads", THREADS, *_sg_ignore_flags(call.respect_ignore), call.operand]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
     total = files = without_support = 0
@@ -1016,7 +1021,7 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
     argv = [call.exe, "run", "--config", str(call.private / "sgconfig.yml"),
             "--pattern", pattern, "--lang", language, "--json=stream", "--color", "never",
             "--inspect", "summary", "--threads", THREADS,
-            *_sg_ignore_flags(call.respect_ignore), str(call.target_path)]
+            *_sg_ignore_flags(call.respect_ignore), call.operand]
     run = call.execute(argv)
     cut_short = _stopped(run, facts, call.timeout_s)
     total = 0
