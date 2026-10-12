@@ -766,3 +766,94 @@ def test_genuinely_empty_probe_output_is_no_matches(
     monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
     assert code_search.run("search", repo, query="count")["status"] == "no_matches"
 
+
+# -- Codex implementation review round 4 --------------------------------------
+
+_RG_SUMMARY = {"type": "summary", "data": {"stats": {"searches": 3, "searches_with_match": 0,
+                                                     "matches": 0}}}
+
+
+def _rg_match(path: str, line: int) -> dict:
+    return {"type": "match", "data": {"path": {"text": path}, "lines": {"text": "x\n"},
+                                       "line_number": line, "submatches": []}}
+
+
+def _run_fake(repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, stdout: str,
+              **kwargs) -> dict:
+    output = tmp_path / "out.txt"
+    output.write_text(stdout)
+    script = _fake_program(tmp_path, f"cat {output}\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    return code_search.run("search", repo, **kwargs)
+
+
+@pytest.mark.parametrize(
+    "events",
+    [
+        [{"type": "summary"}],
+        [{"type": "summary", "data": {"stats": {}}}],
+        [None, _RG_SUMMARY],
+        [{}, _RG_SUMMARY],
+        [{"type": "match", "data": {}}, _RG_SUMMARY],
+        [_rg_match("src/users.py", 0), _RG_SUMMARY],
+    ],
+)
+def test_malformed_ripgrep_output_is_never_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, events: list
+) -> None:
+    stdout = "\n".join(json.dumps(e) for e in events) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
+    assert answer["status"] == "tool_error", answer
+
+
+def test_ripgrep_valid_and_malformed_together_is_partial(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stdout = "\n".join(json.dumps(e) for e in
+                       [_rg_match("./src/users.py", 3), {"type": "match", "data": {}},
+                        _RG_SUMMARY]) + "\n"
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="x", mode="literal")
+    assert answer["status"] == "partial" and len(answer["results"]) == 1
+
+
+def test_ripgrep_valid_empty_output_is_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script = _fake_program(tmp_path, f"echo '{json.dumps(_RG_SUMMARY)}'\nexit 1\n")
+    monkeypatch.setattr(code_search, "toolkit", lambda: _fake_toolkit(script))
+    assert code_search.run("search", repo, query="x", mode="literal")["status"] == "no_matches"
+
+
+@pytest.mark.parametrize(
+    "limits",
+    [
+        {"max_bytes": "100", "total_bytes": 100},
+        {"max_bytes": 100, "total_bytes": "100"},
+        ["not", "a", "mapping"],
+    ],
+)
+def test_malformed_probe_limits_are_never_no_matches(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, limits
+) -> None:
+    stdout = json.dumps({"results": [], "limits": limits, "version": "0.6.0"})
+    assert _run_fake(repo, tmp_path, monkeypatch, stdout, query="count")["status"] == "tool_error"
+
+
+def test_probe_score_overflow_is_unreadable(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = {"file": str(repo / "src" / "users.py"), "lines": [8, 9], "code": "x",
+              "bm25_score": 10 ** 400}
+    stdout = json.dumps({"results": [result], "limits": {}, "version": "0.6.0"})
+    assert _run_fake(repo, tmp_path, monkeypatch, stdout, query="count")["status"] == "tool_error"
+
+
+def test_probe_results_without_limits_are_accepted(
+    repo: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    result = {"file": str(repo / "src" / "users.py"), "lines": [8, 9], "code": "x",
+              "bm25_score": 1.0}
+    stdout = json.dumps({"results": [result], "version": "0.6.0"})
+    answer = _run_fake(repo, tmp_path, monkeypatch, stdout, query="count")
+    assert answer["status"] == "ok" and answer["results"][0]["first_line"] == 8
+

@@ -26,6 +26,7 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -908,26 +909,48 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
         except ValueError:
             unparsed += 1
             continue
-        kind = event.get("type")
-        data = event.get("data") or {}
-        if kind == "match":
-            path = _relative_result_path(call.root, str((data.get("path") or {}).get("text")))
-            if path is None:
-                continue
-            text = (data.get("lines") or {}).get("text")
-            number = data.get("line_number")
-            if text is not None and len(text.rstrip("\n")) > MAX_LINE_CHARS:
-                facts.shown_in_part += 1
-            found.append(
-                {
-                    "path": path,
-                    "first_line": number,
-                    "last_line": number,
-                    "text": _cut((text if text is not None else "[not UTF-8]").rstrip("\n")),
-                }
-            )
-        elif kind == "summary":
-            stats = data.get("stats") or {}
+        kind = event.get("type") if isinstance(event, dict) else None
+        data = event.get("data") if isinstance(event, dict) else None
+        if kind in ("begin", "end", "context"):
+            continue
+        if not isinstance(data, dict):
+            unparsed += 1
+            continue
+        if kind == "summary":
+            candidate = data.get("stats")
+            if isinstance(candidate, dict) and _count(candidate.get("searches")) is not None:
+                stats = candidate
+            else:
+                unparsed += 1
+            continue
+        if kind != "match":
+            unparsed += 1
+            continue
+        where = data.get("path")
+        reported = where.get("text") if isinstance(where, dict) else None
+        lines = data.get("lines") if isinstance(data.get("lines"), dict) else {}
+        text = lines.get("text")
+        number = _count(data.get("line_number"))
+        path = (
+            _relative_result_path(call.root, reported)
+            if isinstance(reported, str) and reported
+            else None
+        )
+        if path is None or path == "." or number is None or number < 1 or (
+            text is not None and not isinstance(text, str)
+        ):
+            unparsed += 1
+            continue
+        if text is not None and len(text.rstrip("\n")) > MAX_LINE_CHARS:
+            facts.shown_in_part += 1
+        found.append(
+            {
+                "path": path,
+                "first_line": number,
+                "last_line": number,
+                "text": _cut((text if text is not None else "[not UTF-8]").rstrip("\n")),
+            }
+        )
     # ripgrep's threads finish files in any order: sort, so the same search
     # always keeps the same results.
     found.sort(key=lambda r: (r["path"], r["first_line"] or 0))
@@ -948,7 +971,9 @@ def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
     if run.returncode == 2 and any("regex parse error" in d for d in facts.diagnostics):
         facts.input_problem = "the regular expression is not valid ripgrep syntax"
     elif run.returncode not in (0, 1, 2) or stats is None:
-        facts.fatal = f"ripgrep ended with status {run.returncode} and no summary"
+        facts.fatal = f"ripgrep ended with status {run.returncode} and no readable summary"
+    elif unparsed and not facts.results:
+        facts.fatal = f"ripgrep's output could not be read ({unparsed} unreadable record(s))"
     elif run.returncode == 2 or unparsed or facts.diagnostics:
         # ripgrep carries on past a file it cannot read and exits 2.
         facts.program_errors = facts.diagnostics or ["ripgrep output could not be read"]
@@ -1021,10 +1046,28 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
         facts.program_errors = list(facts.diagnostics) or [f"{bad} unreadable result(s)"]
     if len(facts.results) >= call.max_results:
         facts.limits.append(f"result limit {call.max_results} reached; more may exist")
-    limits = parsed.get("limits") or {}
+    limits = parsed.get("limits", {})
+    readable = isinstance(limits, dict) and all(
+        limits.get(key) is None or _count(limits.get(key)) is not None
+        for key in ("max_bytes", "total_bytes", "max_results", "max_tokens", "total_tokens")
+    )
+    if not readable:
+        # Without its limits Probe's answer cannot say whether it is complete.
+        if facts.results:
+            facts.program_errors = facts.program_errors or ["Probe's limits could not be read"]
+        else:
+            facts.fatal = "Probe's limits could not be read"
+        return
     max_bytes = limits.get("max_bytes")
-    if isinstance(max_bytes, int) and (limits.get("total_bytes") or 0) >= max_bytes:
+    if max_bytes is not None and (limits.get("total_bytes") or 0) >= max_bytes:
         facts.limits.append(f"Probe's byte limit {max_bytes} reached")
+
+
+def _count(value: Any) -> int | None:
+    """A whole, non-negative number from program output, else ``None``."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 def _probe_lines(lines: Any) -> tuple[int, int] | None:
@@ -1046,7 +1089,11 @@ def _probe_score(item: dict[str, Any]) -> float | None:
         return 0.0
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         return None
-    return round(float(raw), 4)
+    try:
+        score = float(raw)
+    except OverflowError:
+        return None
+    return round(score, 4) if math.isfinite(score) else None
 
 
 def _sg_counts(stderr: str) -> dict[str, int]:
@@ -1429,6 +1476,11 @@ def run(
             _pattern(call, pattern, language, facts)
     except OSError as exc:
         facts.fatal = f"{tool} could not be started: {type(exc).__name__}: {exc}"
+    except Exception as exc:  # noqa: BLE001 - output this runner could not interpret
+        # A shape the parsers did not foresee is never a result and never a
+        # crash: nothing from this run is trusted.
+        facts.results.clear()
+        facts.fatal = f"{tool}'s output could not be interpreted ({type(exc).__name__}: {exc})"
     finally:
         shutil.rmtree(private, ignore_errors=True)
     if cancel is not None and cancel.is_set():
