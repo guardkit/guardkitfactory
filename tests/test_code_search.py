@@ -201,6 +201,37 @@ def test_pattern_with_an_unreadable_file_is_partial(repo: Path, pattern: str) ->
     assert any("skipped 1 file" in reason for reason in answer["truncation"]), answer
 
 
+#: A Markdown list item with a multi-byte character at byte 49: Probe
+#: 0.6.0-rc341 aborts on it (found on the first real-repository run).
+_PROBE_CRASHING_MARKDOWN = '# Notes\n\n- "The users that are active are counted every d→ hurl\n'
+
+
+@pytest.mark.parametrize("name", ["notes.md", "notes.markdown"])
+def test_a_probe_crash_on_markdown_is_searched_again_without_it(
+    repo: Path, name: str
+) -> None:
+    (repo / "docs").mkdir()
+    (repo / "docs" / name).write_text(_PROBE_CRASHING_MARKDOWN, encoding="utf-8")
+    before = _tree_state(repo)
+    answer = code_search.run("search", repo, query="count active users")
+    assert answer["status"] == "partial", answer
+    assert any("Markdown files were left out" in r for r in answer["truncation"]), answer
+    assert any("panicked" in line for line in answer["diagnostics"]), answer
+    paths = {r["path"] for r in answer["results"]}
+    assert "src/users.py" in paths and not any(p.startswith("docs/") for p in paths)
+    assert _tree_state(repo) == before
+
+
+def test_markdown_without_the_crash_is_still_searched(repo: Path) -> None:
+    (repo / "docs").mkdir()
+    (repo / "docs" / "notes.md").write_text(
+        _PROBE_CRASHING_MARKDOWN.replace("→", "->"), encoding="utf-8"
+    )
+    answer = code_search.run("search", repo, query="count active users")
+    assert answer["status"] == "ok", answer
+    assert answer["truncation"] == []
+
+
 @pytest.mark.parametrize(
     "query", ["AND OR NOT", "and (", "!!! ??? ...", "   "]
 )

@@ -990,6 +990,42 @@ def _search_probe(call: _Call, words: list[str], facts: _Facts) -> None:
     if not call.respect_ignore:
         argv.append("--no-gitignore")
     run = call.execute(argv)
+    crash: list[str] = []
+    if _probe_markdown_crash(run):
+        # Probe 0.6.0-rc341 aborts on some Markdown list items holding a
+        # multi-byte character, losing the whole search. Search once more,
+        # within what is left of the call's time, without Markdown files, and
+        # say so: the answer is then partial, never complete.
+        crash = _diagnostic_lines(run.stderr)
+        first_ms = run.elapsed_ms
+        ignore = [flag for pattern in _PROBE_MARKDOWN for flag in ("--ignore", pattern)]
+        run = call.execute(argv + ignore)
+        run.elapsed_ms += first_ms
+    try:
+        _read_probe(call, run, facts)
+    finally:
+        if crash:
+            facts.diagnostics = crash + facts.diagnostics
+            facts.limits.append(
+                "Markdown files were left out: Probe stopped with an internal error "
+                "reading one, so the search ran again without them"
+            )
+
+
+#: File names Probe 0.6.0-rc341 parses as Markdown (checked on this release).
+_PROBE_MARKDOWN = ("*.md", "*.markdown")
+
+
+def _probe_markdown_crash(run: _Run) -> bool:
+    """Probe's own crash in its Markdown parser, not a limit or cancellation."""
+    return (
+        not (run.timed_out or run.cancelled or run.output_capped)
+        and run.returncode not in (0, None)
+        and "panicked at src/language/markdown.rs" in run.stderr
+    )
+
+
+def _read_probe(call: _Call, run: _Run, facts: _Facts) -> None:
     cut_short = _stopped(run, facts, call.timeout_s)
     facts.coverage.update(
         {
