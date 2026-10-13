@@ -1932,3 +1932,389 @@ def test_prebuilt_responses_model_uses_chat_completions_for_synthesis(
         isinstance(event, AssistantMessageEvent) and event.text == "{}"
         for event in events
     )
+
+
+# ---------------------------------------------------------------------------
+# 13 October 2026 (proof defect 5): a read-only request binds only the
+# requested read and search tools. Real compiled graph, scripted model over a
+# fake HTTP transport that records the tool schemas sent on every request and
+# plays back chosen tool calls, whether or not they were offered.
+# ---------------------------------------------------------------------------
+
+_FULL_COACH_TOOLS = {
+    "write_todos",
+    "ls",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "delete",
+    "glob",
+    "grep",
+    "execute",
+    "task",
+}
+_REFUSED_PATH = Path("/tmp/count-check/build.mjs")
+
+
+def _available_code_search_tools() -> set[str]:
+    from guardkitfactory import code_search
+    from guardkitfactory.harness.code_search_tools import TOOL_NAMES
+
+    ready, _why = code_search.available()
+    return set(TOOL_NAMES) if ready else set()
+
+
+def _review_worktree(tmp_path: Path) -> Path:
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / "counter.mjs").write_text(
+        "export function countCreated(rows) {\n"
+        "  return rows.filter((row) => row.created).length;\n"
+        "}\n"
+    )
+    return worktree
+
+
+def _run_scripted_graph(
+    monkeypatch: pytest.MonkeyPatch,
+    worktree: Path,
+    *,
+    tools: list[str],
+    calls: list[tuple[str, dict[str, Any]]],
+    role: str = "coach",
+    backend: Any = None,
+) -> tuple[list[dict[str, Any]], list[Any]]:
+    """Run one real graph turn; return (request bodies, harness events)."""
+
+    bodies: list[dict[str, Any]] = []
+
+    def _response(message: dict[str, Any], finish_reason: str) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": f"chatcmpl-{len(bodies)}",
+                "object": "chat.completion",
+                "created": 1,
+                "model": "flash-next-t06",
+                "choices": [
+                    {"index": 0, "message": message, "finish_reason": finish_reason}
+                ],
+                "usage": {
+                    "prompt_tokens": 10,
+                    "completion_tokens": 1,
+                    "total_tokens": 11,
+                },
+            },
+        )
+
+    def _handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        bodies.append(body)
+        index = len(bodies) - 1
+        if index < len(calls):
+            name, arguments = calls[index]
+            return _response(
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"call-{index}",
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(arguments),
+                            },
+                        }
+                    ],
+                },
+                "tool_calls",
+            )
+        return _response(
+            {"role": "assistant", "content": '{"verdict":"approve","findings":[]}'},
+            "stop",
+        )
+
+    transport = httpx.MockTransport(_handler)
+    real_constructor = langchain_openai.ChatOpenAI
+
+    def _chat_model(**kwargs: Any) -> Any:
+        for key in ("http_client", "http_async_client", "http_socket_options"):
+            kwargs.pop(key, None)
+        return real_constructor(
+            **kwargs,
+            http_client=httpx.Client(transport=transport),
+            http_async_client=httpx.AsyncClient(transport=transport),
+            http_socket_options=(),
+            max_retries=0,
+        )
+
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
+    harness = LangGraphHarness(
+        model="openai:flash-next-t06",
+        backend=backend if backend is not None else build_autobuild_backend(worktree),
+        recursion_limit=80,
+    )
+
+    async def _collect() -> list[Any]:
+        events: list[Any] = []
+        with patch("langchain_openai.ChatOpenAI", side_effect=_chat_model):
+            async for event in harness.invoke(
+                prompt="Review the change and return the verdict JSON.",
+                role=role,
+                tools=tools,
+                cwd=worktree,
+                timeout_seconds=30,
+            ):
+                events.append(event)
+        return events
+
+    events = asyncio.run(_collect())
+    return bodies, events
+
+
+def _bound(body: dict[str, Any]) -> set[str]:
+    return {tool["function"]["name"] for tool in body.get("tools", [])}
+
+
+def _results_by_call(events: list[Any]) -> dict[str, Any]:
+    return {
+        event.tool_use_id: event
+        for event in events
+        if isinstance(event, ToolResultEvent)
+    }
+
+
+def test_read_only_request_binds_only_the_requested_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = _review_worktree(tmp_path)
+    bodies, _events = _run_scripted_graph(
+        monkeypatch,
+        worktree,
+        tools=["Read", "Search", "Grep"],
+        calls=[("read_file", {"file_path": str(worktree / "counter.mjs")})],
+    )
+
+    assert len(bodies) == 2
+    expected = {"ls", "read_file", "glob", "grep"} | _available_code_search_tools()
+    for body in bodies:
+        bound = _bound(body)
+        assert bound == expected
+        assert not bound & {"write_file", "edit_file", "delete", "execute", "write_todos", "task"}
+    system_text = json.dumps(bodies[0]["messages"][0]["content"])
+    assert "read-only" in system_text
+    assert "use write_todos" not in system_text
+
+
+def test_read_only_reviewer_can_still_read_and_search(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = _review_worktree(tmp_path)
+    _bodies, events = _run_scripted_graph(
+        monkeypatch,
+        worktree,
+        tools=["Read", "Search", "Grep"],
+        calls=[
+            ("read_file", {"file_path": str(worktree / "counter.mjs")}),
+            (
+                "grep",
+                {
+                    "pattern": "row.created",
+                    "path": str(worktree),
+                    "output_mode": "content",
+                },
+            ),
+            ("glob", {"pattern": "*.mjs", "path": str(worktree)}),
+            ("ls", {"path": str(worktree)}),
+        ],
+    )
+
+    results = _results_by_call(events)
+    assert not any(result.is_error for result in results.values())
+    assert "export function countCreated" in str(results["call-0"].content)
+    assert "rows.filter((row) => row.created)" in str(results["call-1"].content)
+    assert "counter.mjs" in str(results["call-2"].content)
+    assert "counter.mjs" in str(results["call-3"].content)
+
+
+def test_read_only_reviewer_cannot_write_run_or_delegate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = _review_worktree(tmp_path)
+    marker = tmp_path / "process-started"
+    refused_existed = _REFUSED_PATH.exists()
+    calls = [
+        ("write_file", {"file_path": str(_REFUSED_PATH), "content": "console.log(1)\n"}),
+        ("write_file", {"file_path": str(worktree / "build.mjs"), "content": "x\n"}),
+        (
+            "edit_file",
+            {
+                "file_path": str(worktree / "counter.mjs"),
+                "old_string": "created",
+                "new_string": "removed",
+            },
+        ),
+        ("execute", {"command": f"node --version; touch {marker}"}),
+        ("task", {"description": "write a scratch script", "subagent_type": "general-purpose"}),
+        ("write_todos", {"todos": [{"content": "plan", "status": "in_progress"}]}),
+        ("run_shell", {"command": f"touch {marker}"}),
+    ]
+    # The backend is the ordinary one: the tool allowlist alone refuses.
+    bodies, events = _run_scripted_graph(
+        monkeypatch,
+        worktree,
+        tools=["Read", "Search", "Grep"],
+        calls=calls,
+    )
+
+    # Nothing was written, edited or started.
+    assert not (worktree / "build.mjs").exists()
+    assert "row.created" in (worktree / "counter.mjs").read_text()
+    assert _REFUSED_PATH.exists() == refused_existed
+    assert not marker.exists()
+    # Each call came back as a refusal the model can read.
+    assert len(bodies) == len(calls) + 1
+    results = _results_by_call(events)
+    for index, (name, _arguments) in enumerate(calls):
+        result = results[f"call-{index}"]
+        assert result.is_error, (name, result.content)
+        assert "not available" in str(result.content), (name, result.content)
+    # The model keeps being offered only the read tools after each refusal.
+    assert all(not _bound(body) & {"write_file", "execute", "task"} for body in bodies)
+
+
+def test_player_and_tool_using_coach_graphs_are_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = _review_worktree(tmp_path)
+    # The tool-using Coach asks for Bash, so its graph is today's full graph,
+    # the same as a caller that gives no restriction at all.
+    unrestricted, _ = _run_scripted_graph(monkeypatch, worktree, tools=[], calls=[])
+    tool_using, _ = _run_scripted_graph(
+        monkeypatch, worktree, tools=["Read", "Bash", "Grep", "Glob"], calls=[]
+    )
+    full = _FULL_COACH_TOOLS | _available_code_search_tools()
+    assert _bound(unrestricted[0]) == full
+    assert _bound(tool_using[0]) == full
+    assert unrestricted[0]["messages"][0] == tool_using[0]["messages"][0]
+    assert "write_todos" in json.dumps(tool_using[0]["messages"][0]["content"])
+
+    # Writing, unknown or non-string requests, and every Player request, are
+    # not read-only.
+    player_tools = ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+    for request, role in (
+        (player_tools, "player"),
+        (["Read", "Grep"], "player"),
+        (player_tools, "coach"),
+        (["Read", "Task"], "coach"),
+        (["Read", "Fetch"], "coach"),
+        ([], "coach"),
+        ([object()], "coach"),
+    ):
+        harness = LangGraphHarness(model="ignored")
+        with patch.object(
+            LangGraphHarness, "_create_agent", return_value=_make_fake_agent()
+        ) as create, patch.object(
+            LangGraphHarness, "_resolve_model_for_invoke", return_value="ignored"
+        ):
+
+            async def _collect(
+                harness: LangGraphHarness = harness,
+                tools: list[Any] = request,
+                role: str = role,
+            ) -> None:
+                async for _event in harness.invoke(
+                    prompt="hi", role=role, tools=tools, cwd=worktree, timeout_seconds=5
+                ):
+                    pass
+
+            asyncio.run(_collect())
+        assert "allowed_tools" not in create.call_args.kwargs, (request, role)
+
+
+def test_read_only_allowlist_table() -> None:
+    from guardkitfactory.harness.code_search_tools import TOOL_NAMES
+    from guardkitfactory.harness.langgraph_harness import read_only_allowlist
+
+    assert read_only_allowlist(["Read"], "coach") == {"read_file", "ls"}
+    assert read_only_allowlist(["Glob"], "coach") == {"glob"}
+    assert read_only_allowlist(["Read", "Search", "Grep"], "coach") == {
+        "read_file",
+        "ls",
+        "glob",
+        "grep",
+        *TOOL_NAMES,
+    }
+    assert read_only_allowlist(["Read", "Search"], "specialist") == {
+        "read_file",
+        "ls",
+        "glob",
+        "grep",
+    }
+    for request in (
+        ["Read", "Write", "Edit", "Bash", "Grep", "Glob"],
+        ["Read", "Bash", "Grep", "Glob"],
+        ["Read", "Task"],
+        ["Read", "Fetch"],
+        ["read"],
+        [],
+        None,
+        "Read",
+        [object()],
+    ):
+        assert read_only_allowlist(request, "coach") is None, request
+
+
+def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
+    tmp_path: Path,
+) -> None:
+    from langchain.agents.middleware import TodoListMiddleware
+    from langchain_core.tools import StructuredTool
+
+    from guardkitfactory.harness.code_search_tools import TOOL_NAMES
+    from guardkitfactory.harness.langgraph_harness import (
+        _AllowedToolsMiddleware,
+        read_only_allowlist,
+    )
+
+    fake_tools = [
+        StructuredTool.from_function(func=lambda: "{}", name=name, description=name)
+        for name in TOOL_NAMES
+    ]
+    harness = LangGraphHarness(model="ignored", backend=object())
+    allowed = read_only_allowlist(["Read", "Search", "Grep"], "coach")
+    with patch(
+        "guardkitfactory.harness.code_search_tools.code_search_tools",
+        return_value=(fake_tools, ""),
+    ), patch(
+        "guardkitfactory.harness.langgraph_harness.create_deep_agent"
+    ) as create:
+        harness._create_agent(
+            role="coach", cwd=tmp_path, resolved_model="m", allowed_tools=allowed
+        )
+    kwargs = create.call_args.kwargs
+    assert [tool.name for tool in kwargs["tools"]] == list(TOOL_NAMES)
+    (middleware,) = kwargs["middleware"]
+    assert isinstance(middleware, _AllowedToolsMiddleware)
+    assert not isinstance(middleware, TodoListMiddleware)
+    assert middleware.allowed == allowed
+    assert "code_search" in kwargs["system_prompt"]
+
+    # Read alone gives no code search tools.
+    with patch(
+        "guardkitfactory.harness.code_search_tools.code_search_tools",
+        return_value=(fake_tools, ""),
+    ) as search, patch(
+        "guardkitfactory.harness.langgraph_harness.create_deep_agent"
+    ) as create:
+        harness._create_agent(
+            role="coach",
+            cwd=tmp_path,
+            resolved_model="m",
+            allowed_tools=read_only_allowlist(["Read"], "coach"),
+        )
+    assert create.call_args.kwargs["tools"] == []
+    search.assert_not_called()
+    assert "code_search" not in create.call_args.kwargs["system_prompt"]

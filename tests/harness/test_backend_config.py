@@ -1533,3 +1533,134 @@ class TestLaunchEnvironment:
         )
         after = sorted(str(p.relative_to(worktree)) for p in worktree.rglob("*"))
         assert after == before
+
+
+# ---------------------------------------------------------------------------
+# 13 October 2026 (proof defect 5): the read-only backend option.
+# ---------------------------------------------------------------------------
+
+
+def test_read_only_backend_refuses_writes_and_offers_no_execution(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from deepagents.middleware.filesystem import supports_execution
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / "app.py").write_text("ANSWER = 42\n")
+    outside = Path("/tmp/count-check/build.mjs")
+    outside_existed = outside.exists()
+
+    backend = build_autobuild_backend(worktree, read_only=True)
+
+    inside = backend.write(str(worktree / "scratch.mjs"), "console.log(1)\n")
+    escaped = backend.write(str(outside), "console.log(1)\n")
+    assert inside.error and "read-only" in inside.error
+    assert escaped.error and "read-only" in escaped.error
+    assert not (worktree / "scratch.mjs").exists()
+    assert outside.exists() == outside_existed
+
+    edited = backend.edit(str(worktree / "app.py"), "42", "43")
+    deleted = backend.delete(str(worktree / "app.py"))
+    async_write = asyncio.run(backend.awrite(str(worktree / "async.txt"), "x"))
+    assert edited.error and deleted.error and async_write.error
+    assert (worktree / "app.py").read_text() == "ANSWER = 42\n"
+    assert not (worktree / "async.txt").exists()
+
+    assert supports_execution(backend) is False
+    assert not hasattr(backend.default, "execute")
+    with pytest.raises(NotImplementedError):
+        backend.execute("node --version")
+
+    # Reading and searching still work.
+    read = backend.read(str(worktree / "app.py"))
+    assert "ANSWER = 42" in str(read.file_data or read)
+    found = backend.grep("ANSWER", path=str(worktree))
+    assert found.matches and found.matches[0]["path"].endswith("app.py")
+
+
+def test_backend_without_read_only_is_unchanged(tmp_path: Path) -> None:
+    from deepagents.middleware.filesystem import supports_execution
+
+    backend = build_autobuild_backend(tmp_path)
+    assert isinstance(backend.default, PathConfinedBackend)
+    assert supports_execution(backend) is True
+    assert backend.write(str(tmp_path / "kept.txt"), "x").error is None
+    assert (tmp_path / "kept.txt").read_text() == "x"
+
+
+def test_read_only_backend_refuses_uploads_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / "app.py").write_text("ANSWER = 42\n")
+    backend = build_autobuild_backend(worktree, read_only=True)
+    # Snapshot after construction: the builder makes the private .tmp folder.
+    before = sorted(p.relative_to(worktree) for p in worktree.rglob("*"))
+    target = worktree / "uploaded.bin"
+    outside = tmp_path / "outside.bin"
+
+    for responses in (
+        backend.upload_files([(str(target), b"x"), (str(outside), b"y")]),
+        backend.default.upload_files([(str(target), b"x")]),
+        asyncio.run(backend.aupload_files([(str(target), b"x")])),
+        asyncio.run(backend.default.aupload_files([(str(outside), b"y")])),
+    ):
+        assert responses
+        for response in responses:
+            assert response.error and "read-only" in str(response.error)
+    assert not target.exists() and not outside.exists()
+    assert sorted(p.relative_to(worktree) for p in worktree.rglob("*")) == before
+
+    # Reading, listing and downloading still pass through.
+    (downloaded,) = backend.download_files([str(worktree / "app.py")])
+    assert downloaded.error is None and downloaded.content == b"ANSWER = 42\n"
+    listed = backend.ls(str(worktree))
+    assert any(
+        str(entry["path"]).endswith("app.py") for entry in (listed.entries or [])
+    )
+
+
+def test_summarisation_offload_with_read_only_backend_warns_and_carries_on(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    import base64
+    import logging
+
+    from deepagents.middleware.summarization import create_summarization_middleware
+    from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    backend = build_autobuild_backend(worktree, read_only=True)
+    before = sorted(p.relative_to(worktree) for p in worktree.rglob("*"))
+    middleware = create_summarization_middleware(
+        GenericFakeChatModel(messages=iter([AIMessage(content="summary")])), backend
+    )
+    image = base64.b64encode(b"\x89PNG\r\n\x1a\nnot-really-a-png").decode()
+    messages = [
+        HumanMessage(
+            content=[
+                {"type": "text", "text": "look at this"},
+                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image}"}},
+            ]
+        ),
+        AIMessage(content="seen"),
+    ]
+
+    with caplog.at_level(logging.WARNING):
+        rewritten, failed = middleware._offload_inline_media(backend, messages)
+        saved = middleware._offload_to_backend(backend, rewritten, "session-1")
+
+    assert failed == 1
+    assert saved is None
+    warnings_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "Failed to upload media" in warnings_text
+    assert "Failed to offload conversation history" in warnings_text
+    assert sorted(p.relative_to(worktree) for p in worktree.rglob("*")) == before
