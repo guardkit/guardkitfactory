@@ -16,7 +16,39 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
+
+
+def project_command_env(
+    worktree: Path, additions: Optional[Mapping[str, str]] = None
+) -> dict[str, str]:
+    """The environment a plugin's project command runs with (13 October 2026).
+
+    Built from nothing by GuardKit's ``project_command_env``
+    (design ``factory-project-commands-without-factory-credentials``): the
+    project's interpreter, its ``npx`` copy or its ``global.json``-chosen
+    ``dotnet`` never see the factory's credentials. The ``launch:`` block is
+    read from the main checkout the worktree was cut from.
+
+    GuardKit is required at run time (``harness/langgraph_harness.py`` already
+    imports it); an ``ImportError`` is raised rather than falling back to this
+    process's environment. Raises GuardKit's ``LaunchEnvironmentError`` (an
+    ``OSError``) when the environment cannot be built.
+    """
+    from guardkit.orchestrator.launch_declaration import (
+        load_launch_declaration,
+        main_checkout_root,
+    )
+    from guardkit.orchestrator.project_command_env import (
+        project_command_environment,
+    )
+
+    folder = Path(worktree)
+    return project_command_environment(
+        folder,
+        load_launch_declaration(main_checkout_root(folder)),
+        additions=dict(additions or {}),
+    )
 
 
 @dataclass(frozen=True)

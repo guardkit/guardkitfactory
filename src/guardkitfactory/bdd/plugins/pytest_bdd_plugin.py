@@ -26,6 +26,7 @@ from xml.etree import ElementTree as ET
 
 from guardkitfactory.bdd.loader import register
 from guardkitfactory.bdd.plugin import (
+    project_command_env,
     BDDPlugin,
     BDDRunResult,
     ContractTestResult,
@@ -77,17 +78,22 @@ class PytestBDDPlugin(BDDPlugin):
             return None
         venv_python = stack.extras.get("venv_python", sys.executable)
         try:
+            # ``python -c`` puts the worktree first on the import path, so a
+            # project file can stand in for the module and run: it gets the
+            # project-command environment, never the factory's.
+            env = project_command_env(worktree)
             subprocess.run(
                 [venv_python, "-c", "import pytest_bdd"],
                 check=True,
                 capture_output=True,
                 cwd=worktree,
                 timeout=10,
+                env=env,
             )
         except (
             subprocess.CalledProcessError,
             subprocess.TimeoutExpired,
-            FileNotFoundError,
+            OSError,
         ):
             return None
         return cls()
@@ -174,8 +180,7 @@ class PytestBDDPlugin(BDDPlugin):
         )
         junit_path.parent.mkdir(parents=True, exist_ok=True)
 
-        env = {**os.environ, "GUARDKIT_BDD_TASK_ID": task_id}
-        venv_python = env.get("GUARDKIT_BDD_VENV_PYTHON", sys.executable)
+        venv_python = os.environ.get("GUARDKIT_BDD_VENV_PYTHON", sys.executable)
 
         # Note: feature path is "features/" (directory glob), NOT specific
         # .feature filenames — this is Contract C4 (identity-bounded
@@ -195,6 +200,21 @@ class PytestBDDPlugin(BDDPlugin):
             "--no-header",
         ]
 
+        try:
+            # Built from nothing (13 October 2026); the task id is the
+            # factory's one addition for this command.
+            env = project_command_env(worktree, {"GUARDKIT_BDD_TASK_ID": task_id})
+        except OSError as exc:
+            return BDDRunResult(
+                scenarios_attempted=0,
+                scenarios_passed=0,
+                scenarios_failed=0,
+                scenarios_skipped=0,
+                scenarios_errored=1,
+                duration_seconds=0.0,
+                raw_report_path=None,
+                errors=[f"pytest-bdd could not start: {exc}"],
+            )
         try:
             proc = subprocess.run(
                 cmd,
@@ -405,6 +425,9 @@ class PytestBDDPlugin(BDDPlugin):
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             worktree = Path(tmpdir)
+            # A git folder, so the run gets its scratch folder (the
+            # project-command environment's private HOME) as in a worktree.
+            (worktree / ".git").mkdir()
             captured: list[list[str]] = []
 
             def _capture(cmd, **kwargs):
@@ -470,6 +493,9 @@ class PytestBDDPlugin(BDDPlugin):
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             worktree = Path(tmpdir)
+            # A git folder, so the run gets its scratch folder (the
+            # project-command environment's private HOME) as in a worktree.
+            (worktree / ".git").mkdir()
             captured: list[list[str]] = []
 
             def _capture(cmd, **kwargs):
@@ -525,6 +551,9 @@ class PytestBDDPlugin(BDDPlugin):
         """C5: ``subprocess.TimeoutExpired`` → structured result, no exception leak."""
         with tempfile.TemporaryDirectory() as tmpdir:
             worktree = Path(tmpdir)
+            # A git folder, so the run gets its scratch folder (the
+            # project-command environment's private HOME) as in a worktree.
+            (worktree / ".git").mkdir()
 
             def _timeout(cmd, **kwargs):
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=2)

@@ -31,6 +31,14 @@ def plugin() -> PytestBDDPlugin:
     return PytestBDDPlugin()
 
 
+@pytest.fixture(autouse=True)
+def _tmp_path_is_a_checkout(tmp_path: Path) -> None:
+    """13 October 2026: ``run()`` builds its command's environment with
+    GuardKit's project-command helper, whose private ``HOME`` lives in the
+    work folder's git directory, so the stand-in worktree has one."""
+    (tmp_path / ".git").mkdir(exist_ok=True)
+
+
 @pytest.fixture()
 def junit_writer(tmp_path: Path):
     """Helper that writes a JUnit XML file with the given counters."""
@@ -457,10 +465,12 @@ class TestRunPropagatesEnvVar:
         )
 
     def test_run_preserves_existing_environ_entries(
-        self, plugin, tmp_path: Path
+        self, plugin, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The env var injection MUST not strip the rest of os.environ — the
-        subprocess needs PATH, HOME, etc. to run pytest at all."""
+        """The subprocess still gets PATH and HOME to run pytest at all, but
+        since 13 October 2026 never the rest of this process's environment:
+        it is built from nothing, so the factory's credentials stay out."""
+        monkeypatch.setenv("OPENAI_API_KEY", "factory-credential")
         captured: list[dict] = []
 
         def _capture(cmd, **kwargs):
@@ -474,9 +484,10 @@ class TestRunPropagatesEnvVar:
 
         # PATH is the canonical "must be there" entry
         assert captured[0].get("PATH"), (
-            "run() must merge GUARDKIT_BDD_TASK_ID onto os.environ, not "
-            "replace it — subprocess needs PATH to locate python"
+            "subprocess needs PATH to locate python"
         )
+        assert captured[0].get("HOME")
+        assert "OPENAI_API_KEY" not in captured[0]
 
 
 # End-to-end C3/C4 exercises live in
