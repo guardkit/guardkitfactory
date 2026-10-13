@@ -157,6 +157,7 @@ from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import (
     DeleteResult,
     EditResult,
+    FileUploadResponse,
     SandboxBackendProtocol,
     WriteResult,
 )
@@ -710,12 +711,13 @@ class ReadOnlyBackend:
     tools to the model, and this wrapper makes the backend itself refuse
     anything else. ``write``, ``edit`` and ``delete`` (sync and async) return
     the same kind of tool error the write fence returns, so the model can
-    read why. ``execute`` is neither defined here nor forwarded through
-    ``__getattr__``, and the class is deliberately NOT registered with
+    read why. ``upload_files`` (sync and async) writes nothing and answers
+    each file with the same readable error. ``execute`` is neither defined
+    here nor forwarded through ``__getattr__``, and the class is deliberately NOT registered with
     ``SandboxBackendProtocol``, so ``supports_execution`` is False and a
     reachable ``execute`` answers "Execution not available".
 
-    Reads, ``ls``, ``glob`` and ``grep`` pass through unchanged.
+    Reads, ``ls``, ``glob``, ``grep`` and downloads pass through unchanged.
     """
 
     def __init__(self, inner: Any) -> None:
@@ -752,6 +754,15 @@ class ReadOnlyBackend:
 
     async def adelete(self, file_path: str) -> Any:
         return DeleteResult(error=self._refusal("delete", file_path))
+
+    def upload_files(self, files: list[tuple[str, bytes]]) -> list[Any]:
+        return [
+            FileUploadResponse(path=path, error=self._refusal("upload", path))
+            for path, _content in files
+        ]
+
+    async def aupload_files(self, files: list[tuple[str, bytes]]) -> list[Any]:
+        return self.upload_files(files)
 
     # Explicit for the SDK's class-level ``max_count`` signature inspection,
     # as on PathConfinedBackend.
