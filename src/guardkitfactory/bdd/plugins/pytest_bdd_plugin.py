@@ -58,6 +58,22 @@ def _marker_for_task(task_id: str) -> str:
     return f"task_{_sanitise_task_id(task_id)}"
 
 
+def _contract_environment():
+    """Run a contract check with a fixed stand-in project environment.
+
+    The contract checks exercise how ``run()`` reads the runner's output;
+    they run at import (``@register``). Building the real project
+    environment there would make registration depend on this process's own
+    settings (a proxy that carries a login refuses it, and the checks would
+    fail before reaching the runner), so the builder is replaced for the
+    check alone. The real ``run()`` always builds the real environment.
+    """
+    return patch(
+        f"{__name__}.project_command_env",
+        lambda worktree, additions=None: {"PATH": "/usr/bin:/bin", **dict(additions or {})},
+    )
+
+
 @register
 class PytestBDDPlugin(BDDPlugin):
     """BDD oracle for Python projects using ``pytest`` + ``pytest-bdd``."""
@@ -423,11 +439,8 @@ class PytestBDDPlugin(BDDPlugin):
         marker to pytest via ``-m``. Two tasks sharing a feature file will
         therefore select non-overlapping scenarios.
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir, _contract_environment():
             worktree = Path(tmpdir)
-            # A git folder, so the run gets its scratch folder (the
-            # project-command environment's private HOME) as in a worktree.
-            (worktree / ".git").mkdir()
             captured: list[list[str]] = []
 
             def _capture(cmd, **kwargs):
@@ -491,11 +504,8 @@ class PytestBDDPlugin(BDDPlugin):
         between turns does not invalidate the run by path-string mismatch
         (`.claude/rules/path-string-mismatch-is-not-dishonesty.md`).
         """
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir, _contract_environment():
             worktree = Path(tmpdir)
-            # A git folder, so the run gets its scratch folder (the
-            # project-command environment's private HOME) as in a worktree.
-            (worktree / ".git").mkdir()
             captured: list[list[str]] = []
 
             def _capture(cmd, **kwargs):
@@ -549,11 +559,8 @@ class PytestBDDPlugin(BDDPlugin):
 
     def _contract_c5_timeout_structured(self) -> ContractTestResult:
         """C5: ``subprocess.TimeoutExpired`` → structured result, no exception leak."""
-        with tempfile.TemporaryDirectory() as tmpdir:
+        with tempfile.TemporaryDirectory() as tmpdir, _contract_environment():
             worktree = Path(tmpdir)
-            # A git folder, so the run gets its scratch folder (the
-            # project-command environment's private HOME) as in a worktree.
-            (worktree / ".git").mkdir()
 
             def _timeout(cmd, **kwargs):
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=2)
