@@ -292,7 +292,8 @@ def _base_environment(private: Path) -> dict[str, str]:
 
 def _git_environment() -> dict[str, str]:
     """git with no user, system or shared-folder configuration: nothing a
-    planted ``.gitconfig`` says (an fsmonitor command, say) can run."""
+    planted ``.gitconfig`` says (an fsmonitor command, say) can run, and no
+    git command can reach another repository."""
 
     return {
         "PATH": "/usr/bin:/bin",
@@ -301,7 +302,75 @@ def _git_environment() -> dict[str, str]:
         "GIT_CONFIG_GLOBAL": "/dev/null",
         "GIT_OPTIONAL_LOCKS": "0",
         "LC_ALL": "C.UTF-8",
+        "GIT_TERMINAL_PROMPT": "0",
+        "GIT_ALLOW_PROTOCOL": "none",
+        "GIT_NO_LAZY_FETCH": "1",
     }
+
+
+#: Settings given on every git command line; they beat the project's own
+#: settings files, includes too. A copy of GuardKit's
+#: ``guardkit.lib.project_git.FIXED_SETTINGS`` (this package does not depend
+#: on GuardKit); the same tests pin both copies.
+GIT_FIXED_SETTINGS: tuple[str, ...] = (
+    "core.fsmonitor=false",
+    "core.hooksPath=/dev/null",
+    "commit.gpgSign=false",
+    "tag.gpgSign=false",
+    "log.showSignature=false",
+    "merge.verifySignatures=false",
+    "gpg.program=false",
+    "gpg.ssh.program=false",
+    "gpg.x509.program=false",
+    "submodule.recurse=false",
+    "diff.ignoreSubmodules=dirty",
+    "diff.submodule=short",
+    "status.submoduleSummary=false",
+    "gc.auto=0",
+    "maintenance.auto=false",
+    "core.alternateRefsCommand=",
+    "merge.default=text",
+    "core.editor=:",
+    "sequence.editor=:",
+    "core.pager=cat",
+    "rebase.instructionFormat=%s",
+    "rebase.rebaseMerges=false",
+    "rebase.updateRefs=false",
+    "rebase.autoSquash=false",
+    "rebase.backend=merge",
+    "rebase.missingCommitsCheck=ignore",
+)
+
+
+def _git_switch_offs(names: list[str]) -> list[str] | None:
+    """Settings that switch off every filter, custom merge program and branch
+    merge option the project names. ``None`` when a name cannot be given on
+    git's command line (a sub-section with ``=`` in it)."""
+
+    out: list[str] = []
+    seen: set[tuple[str, str]] = set()
+    for name in names:
+        parts = name.split(".")
+        if len(parts) < 3:
+            continue
+        section, sub, key = parts[0].lower(), ".".join(parts[1:-1]), parts[-1].lower()
+        if section not in ("filter", "merge", "branch") or (
+            section == "branch" and key != "mergeoptions"
+        ):
+            continue
+        if "=" in sub:
+            return None
+        if (section, sub) in seen:
+            continue
+        seen.add((section, sub))
+        if section == "filter":
+            out += [f"filter.{sub}.clean=", f"filter.{sub}.smudge=",
+                    f"filter.{sub}.process=", f"filter.{sub}.required=false"]
+        elif section == "merge":
+            out.append(f"merge.{sub}.driver=git merge-file --marker-size=%L %A %O %B")
+        else:
+            out.append(f"branch.{sub}.mergeOptions=")
+    return out
 
 
 def _kill_group(process: subprocess.Popen[bytes]) -> None:
@@ -527,27 +596,48 @@ def worktree_source(
                 "fingerprint_complete": False, "note": note}
 
     env = _git_environment()
-    base = ["git", "-c", "safe.directory=*", "-c", "core.fsmonitor=false", "-C", str(root)]
+    # The project's own settings name no program git will run: fixed settings
+    # on every command, and every filter, merge program and branch merge
+    # option named in this worktree switched off (names read just before).
+    base = ["git", "--no-pager", "-c", "safe.directory=*"]
+    for setting in GIT_FIXED_SETTINGS:
+        base += ["-c", setting]
+    base += ["-C", str(root)]
     answers = []
-    for args in (("rev-parse", "--verify", "--quiet", "HEAD"),
-                 ("status", "--porcelain=v1", "-z", "--untracked-files=all")):
+    for args in (("config", "--list", "--name-only", "-z"),
+                 ("rev-parse", "--verify", "--quiet", "HEAD"),
+                 ("status", "--ignore-submodules=dirty", "--porcelain=v1", "-z",
+                  "--untracked-files=all")):
         left = _left(deadline, timeout_s)
         if left <= 0 or _stop(None, cancel):
             return unknown("not described: the call's time ran out or it was cancelled")
+        argv = [*base, *args]
+        if args[0] != "config":
+            names = answers[0].stdout.decode("utf-8", errors="replace").split("\0")
+            switch_offs = _git_switch_offs([n for n in names if n])
+            if switch_offs is None:
+                return {"kind": "folder", "root": str(root),
+                        "note": "not described: the project's git settings use a name "
+                                "that cannot be switched off"}
+            argv = [*base[:-2]]
+            for setting in switch_offs:
+                argv += ["-c", setting]
+            argv += [*base[-2:], *args]
         try:
-            answer = _execute([*base, *args], cwd=root, env=env, timeout_s=left, cancel=cancel)
+            answer = _execute(argv, cwd=root, env=env, timeout_s=left, cancel=cancel)
         except OSError as exc:
-            return {"kind": "folder", "root": str(root), "note": f"git could not run: {exc}"}
+            return {"kind": "folder", "root": str(root),
+                    "note": f"git could not run ({type(exc).__name__})"}
         if answer.cancelled or answer.timed_out or answer.output_capped:
             return unknown("not described: git did not finish within the call's time or limits")
         answers.append(answer)
-    head, status = answers
+    _names, head, status = answers
     if status.returncode != 0:
-        detail = status.stderr.strip().splitlines()[:1]
+        # Git's own text is never handed to the model.
         return {
             "kind": "folder",
             "root": str(root),
-            "note": f"not a git worktree ({detail[0] if detail else 'git status failed'})",
+            "note": "not a git worktree (git status did not succeed)",
         }
     digest = hashlib.sha256(status.stdout)
     changed = untracked = deleted = 0
