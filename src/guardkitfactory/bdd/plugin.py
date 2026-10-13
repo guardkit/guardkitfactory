@@ -18,6 +18,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+# GuardKit is required at run time (``harness/langgraph_harness.py`` imports
+# it at module level too); never a fallback to this process's environment.
+from guardkit.orchestrator.launch_declaration import (
+    load_launch_declaration,
+    main_checkout_root,
+)
+from guardkit.orchestrator.project_command_env import project_command_environment
+
 
 def run_project_command(args: Any, **kwargs: Any) -> Any:
     """GuardKit's ``process_group.run_project_command`` (13 October 2026).
@@ -43,25 +51,14 @@ def project_command_env(
     (design ``factory-project-commands-without-factory-credentials``): the
     project's interpreter, its ``npx`` copy or its ``global.json``-chosen
     ``dotnet`` never see the factory's credentials. The ``launch:`` block is
-    read from the main checkout the worktree was cut from.
-
-    GuardKit is required at run time (``harness/langgraph_harness.py`` already
-    imports it); an ``ImportError`` is raised rather than falling back to this
-    process's environment. Raises GuardKit's ``LaunchEnvironmentError`` (an
-    ``OSError``) when the environment cannot be built.
+    read from the main checkout the worktree was cut from. Raises GuardKit's
+    ``LaunchEnvironmentError`` (an ``OSError``) when the environment cannot
+    be built. It is one ``return`` of the helper's call, so the launch guard
+    can see that is all it ever returns.
     """
-    from guardkit.orchestrator.launch_declaration import (
-        load_launch_declaration,
-        main_checkout_root,
-    )
-    from guardkit.orchestrator.project_command_env import (
-        project_command_environment,
-    )
-
-    folder = Path(worktree)
     return project_command_environment(
-        folder,
-        load_launch_declaration(main_checkout_root(folder)),
+        Path(worktree),
+        load_launch_declaration(main_checkout_root(Path(worktree))),
         additions=dict(additions or {}),
     )
 
