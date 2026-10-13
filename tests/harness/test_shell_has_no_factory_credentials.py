@@ -236,6 +236,39 @@ def test_a_failing_built_in_plugin_does_not_take_down_the_import(
     assert "is not registered" in caplog.text
 
 
+@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs /proc")
+def test_a_timed_out_bdd_run_leaves_nothing_running(
+    factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pytest-bdd run uses GuardKit's process-group runner: a timeout
+    ends everything the run started (13 October 2026)."""
+    import time
+
+    from guardkitfactory.bdd.plugins.pytest_bdd_plugin import PytestBDDPlugin
+
+    factory.out.mkdir()
+    pid = factory.out / "bdd.pid"
+    script = factory.out / "python.sh"
+    script.write_text(f'#!/bin/sh\nsleep 300 &\necho $! > "{pid}"\nwait\n', encoding="utf-8")
+    script.chmod(0o755)
+    monkeypatch.setenv("GUARDKIT_BDD_VENV_PYTHON", str(script))
+    result = PytestBDDPlugin().run([], "TASK-T1", factory.worktree, timeout_seconds=1)
+    assert result.errors == ["timeout"]
+    child = int(pid.read_text().strip())
+
+    def running() -> bool:
+        try:
+            with open(f"/proc/{child}/stat", encoding="utf-8") as fh:
+                return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
+        except OSError:
+            return False
+
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline and running():
+        time.sleep(0.1)
+    assert not running(), f"the run's child {child} is still running"
+
+
 def _which(name: str) -> Optional[str]:
     import shutil
 
@@ -250,6 +283,10 @@ PACKAGE = Path(__file__).resolve().parents[2] / "src" / "guardkitfactory"
 
 #: Launches that are allowed as they are, with a one-line reason each.
 ALLOWED: Dict[Tuple[str, str], str] = {
+    ("bdd/plugin.py", "run_project_command"): (
+        "passes its caller's arguments to GuardKit's run_project_command; "
+        "every call to it is checked"
+    ),
     ("code_search.py", "toolkit"): (
         "the factory's own pinned search programs' --version, with a fixed "
         "six-name environment (_git_environment)"
@@ -266,6 +303,12 @@ ALLOWED: Dict[Tuple[str, str], str] = {
 GENERIC_RUNNERS: Dict[Tuple[str, str], Dict[str, Any]] = {
     ("guardkit:orchestrator/process_group.py", "run_in_own_group"): {
         "names": {"run_in_own_group"},
+    },
+    ("guardkit:orchestrator/process_group.py", "run_project_command"): {
+        "names": {"run_project_command"},
+    },
+    ("bdd/plugin.py", "run_project_command"): {
+        "names": {"run_project_command"},
     },
     ("guardkit:orchestrator/quality_gates/coach_validator.py", "_run_recorded"): {
         "names": {"_run_recorded"},
@@ -288,6 +331,9 @@ HELPERS = {
     "guardkit.orchestrator.project_command_env.project_command_environment",
     "guardkit.orchestrator.project_command_env.finish_project_environment",
 }
+#: ``finish_project_environment`` copies its input and adds to it; it is no
+#: sanitiser. A call to it counts only when its input is itself the helper's.
+_FINISH = "guardkit.orchestrator.project_command_env.finish_project_environment"
 
 #: The factory's own programs, recognised from a literal first argument.
 FACTORY_PROGRAMS = {"git", "docker", "pgrep", "ps"}
@@ -543,6 +589,9 @@ def _helper_shaped(
         return False
     if isinstance(node, ast.Call):
         target = _resolve(mod, node.func, node)
+        if target == _FINISH:
+            given = node.args[0] if node.args else _env_keyword(node)
+            return _helper_shaped(given, mod, func, wrappers, none_is_safe, before_line)
         return target in HELPERS or target in wrappers
     if isinstance(node, ast.IfExp):
         return _helper_shaped(
@@ -660,9 +709,25 @@ def _first_argument(call: ast.Call) -> Optional[ast.AST]:
     return None
 
 
-def _runner_call_matches(call: ast.Call, spec: Dict[str, Any]) -> bool:
-    """A call to a generic runner: by its last name (any object or module
-    spelling), or by a dotted suffix for the generic method names."""
+def _runner_identity(package_name: str, rel: str, fname: str) -> str:
+    """The dotted name a generic runner is imported by."""
+    if rel.startswith("guardkit:"):
+        package_name, rel = "guardkit", rel[len("guardkit:"):]
+    parts = [package_name, *Path(rel).with_suffix("").parts]
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join([*parts, fname])
+
+
+def _runner_call_matches(
+    call: ast.Call, spec: Dict[str, Any], mod: Optional[_Module] = None,
+    identity: Optional[str] = None,
+) -> bool:
+    """A call to a generic runner: by what it resolves to (an imported alias
+    included), by its last name (any object or module spelling), or by a
+    dotted suffix for the generic method names."""
+    if mod is not None and identity is not None and _resolve(mod, call.func, call) == identity:
+        return True
     if _last_name(call.func) in spec.get("names", ()):
         return True
     dotted = _callee_name(call)
@@ -760,11 +825,14 @@ def unaccounted_launches(package: Path) -> List[str]:
                             f"on or wrapped), so its env= cannot be checked"
                         )
     for (rel, fname), spec in GENERIC_RUNNERS.items():
+        identity = _runner_identity(package.name, rel, fname)
         for mod in modules:
             if spec.get("scope") and mod.rel not in spec["scope"]:
                 continue
             for node in ast.walk(mod.tree):
-                if not isinstance(node, ast.Call) or not _runner_call_matches(node, spec):
+                if not isinstance(node, ast.Call) or not _runner_call_matches(
+                    node, spec, mod, identity
+                ):
                     continue
                 func = _enclosing_function(mod, node)
                 if mod.rel == rel and getattr(func, "name", None) == fname:
@@ -894,6 +962,23 @@ GUARD_PROBES = textwrap.dedent(
         pass
 
 
+    from guardkit.orchestrator.process_group import run_in_own_group as launch
+    from guardkit.orchestrator.project_command_env import finish_project_environment
+
+
+    def v22_generic_runner_under_an_alias(cmd):
+        launch(cmd, cwd=".", env=dict(os.environ), timeout=5)
+
+
+    def v23_finish_on_the_factory_environment(cmd):
+        subprocess.run(cmd, shell=True, env=finish_project_environment(dict(os.environ)))
+
+
+    def ok_finish(cmd, wf):
+        env = finish_project_environment(project_command_environment(wf, None), additions={"X": "1"})
+        subprocess.run(cmd, shell=True, env=env)
+
+
     def v16_empty_dict_item_filled(cmd):
         env = {}
         env["OPENAI_API_KEY"] = os.environ["OPENAI_API_KEY"]
@@ -943,7 +1028,7 @@ def test_the_guard_catches_every_probe(tmp_path: Path) -> None:
         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and n.name.startswith("v")
     }
     assert expected - named == set(), f"slipped past the guard: {sorted(expected - named)}"
-    assert not {"ok_helper", "ok_git", "ok_wrapper"} & named, problems
+    assert not {"ok_helper", "ok_git", "ok_wrapper", "ok_finish"} & named, problems
 
 
 def test_every_process_launch_is_accounted_for() -> None:

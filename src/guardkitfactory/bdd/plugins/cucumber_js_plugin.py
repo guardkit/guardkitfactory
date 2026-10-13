@@ -15,6 +15,7 @@ from typing import Optional
 from guardkitfactory.bdd.loader import register
 from guardkitfactory.bdd.plugin import (
     project_command_env,
+    run_project_command,
     BDDPlugin,
     BDDRunResult,
     ContractTestResult,
@@ -53,7 +54,7 @@ class CucumberJSPlugin(BDDPlugin):
             # there is one, so it gets the project-command environment, never
             # the factory's, and runs in the worktree it is asked about.
             env = project_command_env(Path(worktree))
-            subprocess.run(
+            run_project_command(
                 ["npx", "cucumber-js", "--version"],
                 check=True,
                 capture_output=True,

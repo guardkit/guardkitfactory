@@ -19,6 +19,21 @@ from pathlib import Path
 from typing import Any, Mapping, Optional
 
 
+def run_project_command(args: Any, **kwargs: Any) -> Any:
+    """GuardKit's ``process_group.run_project_command`` (13 October 2026).
+
+    The same arguments, results and exceptions as ``subprocess.run``, but the
+    command runs in a process group of its own, so a timeout ends everything
+    it started (a pytest worker, a server), not only its first process.
+    Imported when called: GuardKit imports this package while it loads.
+    """
+    from guardkit.orchestrator.process_group import (
+        run_project_command as _run_in_group,
+    )
+
+    return _run_in_group(args, **kwargs)
+
+
 def project_command_env(
     worktree: Path, additions: Optional[Mapping[str, str]] = None
 ) -> dict[str, str]:

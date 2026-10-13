@@ -164,7 +164,7 @@ class TestC3ParallelDisjointMarkers:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-C3-A", tmp_path, timeout_seconds=5)
             plugin.run([], "TASK-C3-B", tmp_path, timeout_seconds=5)
 
@@ -208,7 +208,7 @@ class TestC4IdentityBoundedResolution:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run(
                 [
                     Scenario(
@@ -253,7 +253,7 @@ class TestC5TimeoutStructured:
         def _timeout(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=2)
 
-        with patch("subprocess.run", side_effect=_timeout):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_timeout):
             result = plugin.run(
                 [], "TASK-C5", tmp_path, timeout_seconds=2,
             )
@@ -269,7 +269,7 @@ class TestC5TimeoutStructured:
         def _timeout(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=1)
 
-        with patch("subprocess.run", side_effect=_timeout):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_timeout):
             # Must not raise — this is the contract.
             plugin.run([], "TASK-C5", tmp_path, timeout_seconds=1)
 
@@ -427,7 +427,7 @@ class TestRunSetsEnvAndPath:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-X1", tmp_path, timeout_seconds=5)
 
         expected = tmp_path / ".guardkit" / "autobuild" / "TASK-X1" / "bdd_TASK-X1.xml"
@@ -440,7 +440,7 @@ class TestRunPropagatesEnvVar:
     """run() MUST pass GUARDKIT_BDD_TASK_ID through to the pytest subprocess.
 
     Tests the env-var contract at the run() level by capturing the
-    ``env=`` kwarg on a mocked ``subprocess.run`` invocation.
+    ``env=`` kwarg on a mocked ``run_project_command`` invocation.
     """
 
     def test_run_sets_guardkit_bdd_task_id_to_active_task(
@@ -454,7 +454,7 @@ class TestRunPropagatesEnvVar:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-ENV-001", tmp_path, timeout_seconds=5)
 
         assert len(captured) == 1
@@ -479,7 +479,7 @@ class TestRunPropagatesEnvVar:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-ENV-002", tmp_path, timeout_seconds=5)
 
         # PATH is the canonical "must be there" entry

@@ -27,6 +27,7 @@ from xml.etree import ElementTree as ET
 from guardkitfactory.bdd.loader import register
 from guardkitfactory.bdd.plugin import (
     project_command_env,
+    run_project_command,
     BDDPlugin,
     BDDRunResult,
     ContractTestResult,
@@ -98,7 +99,7 @@ class PytestBDDPlugin(BDDPlugin):
             # project file can stand in for the module and run: it gets the
             # project-command environment, never the factory's.
             env = project_command_env(worktree)
-            subprocess.run(
+            run_project_command(
                 [venv_python, "-c", "import pytest_bdd"],
                 check=True,
                 capture_output=True,
@@ -232,7 +233,7 @@ class PytestBDDPlugin(BDDPlugin):
                 errors=[f"pytest-bdd could not start: {exc}"],
             )
         try:
-            proc = subprocess.run(
+            proc = run_project_command(
                 cmd,
                 cwd=worktree,
                 env=env,
@@ -449,7 +450,7 @@ class PytestBDDPlugin(BDDPlugin):
                     args=cmd, returncode=5, stdout="", stderr=""
                 )
 
-            with patch("subprocess.run", side_effect=_capture):
+            with patch(f"{__name__}.run_project_command", side_effect=_capture):
                 self.run([], "TASK-C3-A", worktree, timeout_seconds=5)
                 self.run([], "TASK-C3-B", worktree, timeout_seconds=5)
 
@@ -514,7 +515,7 @@ class PytestBDDPlugin(BDDPlugin):
                     args=cmd, returncode=5, stdout="", stderr=""
                 )
 
-            with patch("subprocess.run", side_effect=_capture):
+            with patch(f"{__name__}.run_project_command", side_effect=_capture):
                 self.run(
                     [
                         Scenario(
@@ -566,7 +567,7 @@ class PytestBDDPlugin(BDDPlugin):
                 raise subprocess.TimeoutExpired(cmd=cmd, timeout=2)
 
             try:
-                with patch("subprocess.run", side_effect=_timeout):
+                with patch(f"{__name__}.run_project_command", side_effect=_timeout):
                     result = self.run(
                         [], "TASK-C5", worktree, timeout_seconds=2,
                     )
