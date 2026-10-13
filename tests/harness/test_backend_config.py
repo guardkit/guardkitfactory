@@ -1409,6 +1409,27 @@ class TestLaunchEnvironment:
                     launch_environment={key: [name]},
                 )
 
+    def test_a_name_with_a_trailing_newline_fails(self, tmp_path: Path) -> None:
+        worktree = _make_worktree(tmp_path)
+
+        with pytest.raises(ValueError, match="is not a variable name"):
+            build_autobuild_backend(
+                worktree, launch_environment={"settings": ["GOCACHE\n"]}
+            )
+
+    @pytest.mark.parametrize("raw", ["GOCACHE", {"GOCACHE": 1}, 3])
+    def test_names_that_are_not_a_list_fail(self, tmp_path: Path, raw) -> None:
+        worktree = _make_worktree(tmp_path)
+        scratch = self._scratch(tmp_path)
+
+        for key in ("settings", "scratch"):
+            with pytest.raises(ValueError, match="must be a list of names"):
+                build_autobuild_backend(
+                    worktree,
+                    scratch_root=scratch,
+                    launch_environment={key: raw},
+                )
+
     def test_launch_scratch_root_places_names_without_write_access(
         self, tmp_path: Path
     ) -> None:
