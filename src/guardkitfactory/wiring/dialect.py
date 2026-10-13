@@ -74,7 +74,10 @@ class WiringDialect:
         function/class/export declarations plus their ``@name`` capture.
         May also capture ``@visibility`` (e.g. C# modifiers); the analyzer
         pairs ``@visibility`` with ``@name`` per match and applies
-        ``public_visibilities``.
+        ``public_visibilities``.  May also capture ``@default_export``: a
+        match carrying it is a default export, which an importer binds
+        under a name of its own choosing, so the declared name is never an
+        UNWIRED candidate (it still counts as examined).
     references_query:
         tree-sitter S-expression that captures identifier / member-access
         nodes used for reference detection.
@@ -396,9 +399,11 @@ _ALIASES: dict[str, str] = {
     "py": "python",
     "javascript": "javascript",
     "js": "javascript",
+    "jsx": "javascript",
     "typescript": "typescript",
     "ts": "typescript",
-    "tsx": "typescript",
+    # TSX has its own dialect: the same queries over the JSX-aware grammar.
+    "tsx": "tsx",
 }
 
 

@@ -146,8 +146,9 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import re
 import stat
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -780,6 +781,127 @@ def _ensure_private_directory(directory: Path, label: str) -> Path:
     return directory
 
 
+# 12 October 2026: the project's declared ``launch:`` names for the shell.
+_LAUNCH_KEYS = frozenset({"settings", "scratch"})
+# Scratch entries live here, under the scratch folder.
+_LAUNCH_SCRATCH_SUBDIR = "toolchain"
+# The name rules, mirrored from Forge's ``launch_environment``
+# (``declared_setting_refusal``) and GuardKit's ``launch_declaration``. This
+# package imports neither, so they are copied; keep the three in step.
+_LAUNCH_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+_LAUNCH_MAX_NAME_LENGTH = 128
+_LAUNCH_RESERVED_PREFIXES = ("FORGE_", "GUARDKIT_", "FLEET_MEMORY_", "OPENAI_", "ANTHROPIC_")
+_LAUNCH_RESERVED_NAMES = frozenset({"PATH", "HOME", "TMPDIR", "SSH_AUTH_SOCK"})
+_LAUNCH_CREDENTIAL_WORDS = (
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PASSWD",
+    "API_KEY",
+    "APIKEY",
+    "CREDENTIAL",
+    "PRIVATE_KEY",
+)
+
+
+def _launch_name_refusal(name: object) -> str | None:
+    """``None`` for a name a project may declare, else why not."""
+    # fullmatch: ``$`` in a ``match`` would also accept a trailing newline.
+    if not isinstance(name, str) or not _LAUNCH_NAME_RE.fullmatch(name):
+        return "is not a variable name"
+    if len(name) > _LAUNCH_MAX_NAME_LENGTH:
+        return f"is longer than {_LAUNCH_MAX_NAME_LENGTH} characters"
+    upper = name.upper()
+    if upper.startswith(_LAUNCH_RESERVED_PREFIXES) or upper in _LAUNCH_RESERVED_NAMES:
+        return "is reserved for the factory itself"
+    if any(word in upper for word in _LAUNCH_CREDENTIAL_WORDS):
+        return "is credential-shaped"
+    return None
+
+
+def _launch_names(
+    launch_environment: Mapping[str, Sequence[str]] | None,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return ``(settings, scratch)`` names, refusing anything malformed.
+
+    GuardKit validates the project's declaration first; this is the second
+    check, at the point the names reach the shell.
+    """
+    if not launch_environment:
+        return (), ()
+    unknown = sorted(set(launch_environment) - _LAUNCH_KEYS)
+    if unknown:
+        raise ValueError(f"AutoBuild launch environment has unknown keys: {unknown}")
+    lists = []
+    for key in ("settings", "scratch"):
+        raw = launch_environment.get(key)
+        if raw is None:
+            raw = ()
+        if not isinstance(raw, (list, tuple)):
+            # A string would otherwise be read letter by letter.
+            raise ValueError(
+                f"AutoBuild launch {key} must be a list of names, "
+                f"not {type(raw).__name__}"
+            )
+        names = tuple(raw)
+        for name in names:
+            refusal = _launch_name_refusal(name)
+            if refusal is not None:
+                raise ValueError(f"AutoBuild launch {key} name {name!r} {refusal}")
+        lists.append(names)
+    return lists[0], lists[1]
+
+
+def _no_launch_scratch_folder(scratch: Sequence[str]) -> str:
+    return (
+        "The project declares launch scratch folders "
+        f"({', '.join(scratch)}) but this shell has no scratch folder, so it "
+        "cannot be built. Nothing is put inside the project instead."
+    )
+
+
+def _apply_launch_environment(
+    env: dict[str, str],
+    settings: Sequence[str],
+    scratch: Sequence[str],
+    scratch_root: Path | None,
+) -> None:
+    """Add the declared settings and scratch folders to the shell's ``env``.
+
+    A name never replaces one this module sets itself. A declared setting is
+    copied from this process's environment only when set there. Each scratch
+    name is set to ``<scratch_root>/toolchain/<NAME>``, a private folder made
+    on demand; with no scratch folder construction fails, because the only
+    other place a tool's cache could go is inside the project.
+    """
+    own = set(env) | {"PYTHONPATH"}
+    for name in settings:
+        if name in own:
+            logger.warning(
+                "AutoBuild launch setting %s is set by the backend itself; "
+                "the declared value is not passed.",
+                name,
+            )
+            continue
+        value = os.environ.get(name)
+        if value is not None:
+            env[name] = value
+    if not scratch:
+        return
+    clashing = sorted(set(scratch) & own)
+    if clashing:
+        raise ValueError(
+            f"AutoBuild launch scratch names are set by the backend itself: {clashing}"
+        )
+    if scratch_root is None:
+        raise ValueError(_no_launch_scratch_folder(scratch))
+    base = _ensure_private_directory(
+        scratch_root / _LAUNCH_SCRATCH_SUBDIR, "launch scratch folder"
+    )
+    for name in scratch:
+        env[name] = str(_ensure_private_directory(base / name, "launch scratch folder"))
+
+
 def build_autobuild_backend(
     worktree: Path,
     *,
@@ -787,6 +909,8 @@ def build_autobuild_backend(
     extra_write_roots: Sequence[Path | str] | None = None,
     protected_paths: Sequence[Path | str] = (),
     scratch_root: Path | str | None = None,
+    launch_environment: Mapping[str, Sequence[str]] | None = None,
+    launch_scratch_root: Path | str | None = None,
 ) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
@@ -853,6 +977,21 @@ def build_autobuild_backend(
             worktree's own ``.git``) or one that cannot be created is skipped
             with a warning; ``backend.default.scratch_root`` then reads
             ``None``. ``None`` keeps the earlier behaviour.
+        launch_environment: 12 October 2026. The names the project declares
+            in its ``launch:`` block, as ``{"settings": [...], "scratch":
+            [...]}``. Each setting is copied from this process's environment
+            when set there; each scratch name is set to
+            ``<scratch_root>/toolchain/<NAME>``, created private on demand.
+            Declared scratch names with no usable ``scratch_root`` fail
+            construction (no fallback into the worktree or its ``.tmp``).
+            ``None`` keeps the environment exactly as before.
+        launch_scratch_root: The folder declared scratch names resolve under
+            when this shell has no ``scratch_root`` of its own (guardkit passes
+            the worktree's scratch folder for the Coach and specialists). Held
+            to the same checks as ``scratch_root``, failing construction when
+            refused, but NOT added to the allowed write roots: the caches are
+            written by shell commands, which write confinement does not cover,
+            so the file tools gain no write access.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -861,34 +1000,49 @@ def build_autobuild_backend(
         :class:`guardkitfactory.harness.LangGraphHarness`.
     """
     worktree = Path(worktree)
+    launch_settings, launch_scratch = _launch_names(launch_environment)
+    if launch_scratch and scratch_root is None and launch_scratch_root is None:
+        # Refused before anything is created in the worktree.
+        raise ValueError(_no_launch_scratch_folder(launch_scratch))
     temp_directory = _ensure_worktree_temp_directory(worktree)
-    if scratch_root is not None:
-        project = worktree.resolve()
+    project = worktree.resolve()
 
-        def inside_project(path: Path) -> bool:
-            return path.is_relative_to(project) and not path.is_relative_to(
-                project / ".git"
+    def inside_project(path: Path) -> bool:
+        return path.is_relative_to(project) and not path.is_relative_to(
+            project / ".git"
+        )
+
+    def checked_scratch_folder(planned: Path) -> Path:
+        # Judged before and after creation, so nothing lands in the project.
+        if inside_project(planned.parent.resolve() / planned.name):
+            raise ValueError(
+                f"AutoBuild scratch folder is inside the project: {planned}"
             )
+        folder = _ensure_private_directory(planned, "scratch folder").resolve()
+        if inside_project(folder):
+            raise ValueError(
+                f"AutoBuild scratch folder is inside the project: {folder}"
+            )
+        return folder
 
+    if scratch_root is not None:
         try:
-            # Judged before and after creation, so nothing lands in the project.
-            planned = Path(scratch_root)
-            if inside_project(planned.parent.resolve() / planned.name):
-                raise ValueError(
-                    f"AutoBuild scratch folder is inside the project: {planned}"
-                )
-            scratch_root = _ensure_private_directory(planned, "scratch folder").resolve()
-            if inside_project(scratch_root):
-                raise ValueError(
-                    f"AutoBuild scratch folder is inside the project: {scratch_root}"
-                )
+            scratch_root = checked_scratch_folder(Path(scratch_root))
         except ValueError as exc:
             # A convenience, not a safeguard: without it the build still runs
             # and a scratch write is refused like any other outside write.
+            # Not so when the project's declared caches need it.
+            if launch_scratch:
+                raise
             logger.warning("%s; continuing without a scratch folder.", exc)
             scratch_root = None
         else:
             extra_write_roots = [*(extra_write_roots or []), scratch_root]
+    # Where declared scratch names resolve: the shell's own scratch folder,
+    # else the one handed over for that alone (never a write root).
+    launch_base = scratch_root
+    if launch_base is None and launch_scratch and launch_scratch_root is not None:
+        launch_base = checked_scratch_folder(Path(launch_scratch_root))
 
     env: dict[str, str] = {
         "PATH": _AUTOBUILD_PATH,
@@ -900,6 +1054,10 @@ def build_autobuild_backend(
     venv_site_packages = _detect_venv_site_packages(worktree)
     if venv_site_packages is not None:
         env["PYTHONPATH"] = venv_site_packages
+    if launch_environment is not None:
+        _apply_launch_environment(
+            env, launch_settings, launch_scratch, launch_base
+        )
 
     local_shell = LocalShellBackend(
         root_dir=worktree,

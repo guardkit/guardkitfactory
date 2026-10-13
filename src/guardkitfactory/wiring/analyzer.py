@@ -25,12 +25,14 @@ MOCKED_SEAM result nested under the ``"mocked_seam"`` key (its own §5.1
 shape) so a single CST pass serves both probes::
 
     {
-      "status": "complete" | "parse_degraded" | "unsupported_stack" | "error",
+      "status": "complete" | "parse_degraded" | "partly_unsupported"
+                | "unsupported_stack" | "error",
       "dialect": "<primary>", "language": "<primary>",
       "dialects": [...], "languages": [...],          # polyglot (AC-021)
       "targets_scanned": int, "symbols_examined": int,
       "findings": [ {UNWIRED_PATH finding} ],
       "degraded_files": [...],
+      "undialected_files": [...],   # authored source no dialect read
       "mocked_seam": {
         "status": "ran" | "skipped_no_acceptance_files",
         "ran": bool, "skip_reason": str | None,
@@ -76,6 +78,12 @@ WiringStatus = str  # literal type: see status table below
 #   unsupported_stack           — no dialect for the detected language
 #   parse_degraded              — ≥1 target skipped on CST parse error
 #                                 (biased WIRED, recorded in degraded_files)
+#   partly_unsupported          — some authored files were analysed, but ≥1
+#                                 authored source file is in a language with
+#                                 no dialect (e.g. ``.go`` beside ``.tsx``);
+#                                 those files were NOT analysed and are listed
+#                                 in undialected_files.  Takes precedence over
+#                                 parse_degraded (degraded_files still listed).
 #   error                       — unexpected exception, caught fail-open
 # MOCKED_SEAM sub-result additionally uses:
 #   ran / skipped_no_acceptance_files
@@ -84,7 +92,8 @@ _ANALYZED_TASK_TYPES = frozenset({"FEATURE", "REFACTOR", "INTEGRATION"})
 
 # Source extensions that are real languages we know about but have no
 # registered dialect — used to report unsupported_stack (absent-signal)
-# instead of None when a stack profile is not supplied.
+# instead of None, and to list such files in ``undialected_files`` when they
+# sit beside files a dialect did read.  No wiring analysis is claimed for them.
 _KNOWN_UNDIALECTED_EXTENSIONS = {
     ".rb": "ruby",
     ".go": "go",
@@ -96,6 +105,9 @@ _KNOWN_UNDIALECTED_EXTENSIONS = {
     ".scala": "scala",
     ".ex": "elixir",
     ".erl": "erlang",
+    # Single-file components: not read by the TS/JS dialects.
+    ".vue": "vue",
+    ".svelte": "svelte",
 }
 
 # ---------------------------------------------------------------------------
@@ -158,6 +170,7 @@ class WiringResult:
     symbols_examined: int = 0
     findings: list[Finding] = field(default_factory=list)
     degraded_files: list[str] = field(default_factory=list)
+    undialected_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a serializable dict (scope §5.1 ``bundle.wiring`` shape)."""
@@ -171,6 +184,7 @@ class WiringResult:
             "symbols_examined": self.symbols_examined,
             "findings": [_finding_to_dict(f) for f in self.findings],
             "degraded_files": self.degraded_files,
+            "undialected_files": self.undialected_files,
         }
 
 
@@ -253,6 +267,7 @@ class StubScanResult:
     symbols_examined: int = 0
     findings: list[Finding] = field(default_factory=list)
     degraded_files: list[str] = field(default_factory=list)
+    undialected_files: list[str] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to a serializable dict (``bundle.stub_scan`` shape)."""
@@ -265,6 +280,7 @@ class StubScanResult:
             "symbols_examined": self.symbols_examined,
             "findings": [_finding_to_dict(f) for f in self.findings],
             "degraded_files": self.degraded_files,
+            "undialected_files": self.undialected_files,
         }
 
 
@@ -551,6 +567,7 @@ def analyze_stub_scan(
             "symbols_examined": 0,
             "findings": [],
             "degraded_files": [],
+            "undialected_files": [],
         }
 
 
@@ -597,12 +614,10 @@ def _analyze_stub_scan_impl(
     for a in analyses:
         all_findings.extend(a.findings)
 
-    status: WiringStatus = "parse_degraded" if degraded else "complete"
-    if not all_findings and not degraded:
-        status = "complete"
+    undialected = _undialected_files(authored_files)
 
     result = StubScanResult(
-        status=status,
+        status=_merged_status(degraded, undialected),
         ran=True,
         skip_reason=None,
         dialect=primary,
@@ -610,6 +625,7 @@ def _analyze_stub_scan_impl(
         symbols_examined=sum(a.symbols_examined for a in analyses),
         findings=all_findings,
         degraded_files=degraded,
+        undialected_files=undialected,
     )
 
     return result.to_dict()
@@ -664,6 +680,34 @@ def _is_composition_root(path: str, dialect: WiringDialect) -> bool:
 def _matches_glob(path: str, patterns: tuple[str, ...]) -> bool:
     """Check if a path matches any of the glob patterns."""
     return any(fnmatch.fnmatch(path, p) for p in patterns)
+
+
+def _undialected_files(authored_files: list[str]) -> list[str]:
+    """Authored files in a known source language that no dialect reads.
+
+    These were in the change but nothing analysed them, so a result that
+    lists any can never be a complete positive check (see
+    :func:`_merged_status`).
+    """
+    return [
+        f
+        for f in authored_files
+        if os.path.splitext(f)[1].lower() in _KNOWN_UNDIALECTED_EXTENSIONS
+    ]
+
+
+def _merged_status(degraded: list[str], undialected: list[str]) -> WiringStatus:
+    """Status of a run in which at least one dialect read its targets.
+
+    ``complete`` only when every authored source file was read: a skipped
+    language outranks a parse-degraded file, and both lists travel with the
+    result whichever word is chosen.
+    """
+    if undialected:
+        return "partly_unsupported"
+    if degraded:
+        return "parse_degraded"
+    return "complete"
 
 
 def _collect_source_files(worktree: Path, dialect: WiringDialect) -> list[str]:
@@ -770,6 +814,7 @@ def _extract_public_symbols(
                 "name": name,
                 "lineno": node.start_point[0] + 1,
                 "kind": _symbol_kind(node),
+                "default_export": bool(captures.get("default_export")),
             })
     return symbols
 
@@ -1154,6 +1199,11 @@ def _analyze_dialect(
     # --- Classify ----------------------------------------------------------
     for defining_file, sym in candidates:
         name = sym["name"]
+        if sym.get("default_export"):
+            # Imported under the importer's own name (or by path alone, as in
+            # React's ``lazy(() => import("./page"))``); the declared name
+            # proves nothing either way — biased WIRED, accepted false-negative.
+            continue
         if name in wired_by_dunder_all:
             continue  # exported via __all__ — counts as wired
         if name in registrations:
@@ -1407,6 +1457,7 @@ def analyze_wiring(
             "symbols_examined": 0,
             "findings": [],
             "degraded_files": [],
+            "undialected_files": [],
             "mocked_seam": MockSeamResult(
                 status="error", ran=False, skip_reason="analyzer error"
             ).to_dict(),
@@ -1424,7 +1475,9 @@ def analyze_wiring(
         }
 
 
-def _unsupported_stack_dict(language: str) -> dict[str, Any]:
+def _unsupported_stack_dict(
+    language: str, undialected_files: list[str] | None = None
+) -> dict[str, Any]:
     """The unsupported-stack absent-signal result (never a pass — AC-009)."""
     return {
         "status": "unsupported_stack",
@@ -1436,6 +1489,7 @@ def _unsupported_stack_dict(language: str) -> dict[str, Any]:
         "symbols_examined": 0,
         "findings": [],
         "degraded_files": [],
+        "undialected_files": list(undialected_files or []),
         "mocked_seam": MockSeamResult(
             status="unsupported_stack",
             ran=False,
@@ -1487,20 +1541,23 @@ def _analyze_wiring_impl(
         if targets:
             candidates.append((dialect, targets))
 
+    undialected = _undialected_files(authored_files)
+
     if not candidates:
         # Stack explicitly names a language we have no dialect for →
         # absent-signal, never a silent pass (AC-009).
         if stack_language is not None:
             resolved = _find_language(stack_language)
             if resolved is None or get_dialect(resolved) is None:
-                return _unsupported_stack_dict(stack_language)
-            return None  # dialect exists; zero authored targets → probe didn't run
-        # No stack: a known-but-undialected source extension is still an
-        # absent-signal, not a silent None.
-        for f in authored_files:
-            ext = os.path.splitext(f)[1].lower()
-            if ext in _KNOWN_UNDIALECTED_EXTENSIONS:
-                return _unsupported_stack_dict(_KNOWN_UNDIALECTED_EXTENSIONS[ext])
+                return _unsupported_stack_dict(stack_language, undialected)
+        # A known-but-undialected source extension is still an absent-signal,
+        # not a silent None — also when the stack names a language that has
+        # a dialect but the change touched only, say, Go files.
+        if undialected:
+            ext = os.path.splitext(undialected[0])[1].lower()
+            return _unsupported_stack_dict(
+                _KNOWN_UNDIALECTED_EXTENSIONS[ext], undialected
+            )
         return None  # zero authored source targets → probe didn't run
 
     # --- Run every matching dialect ----------------------------------------
@@ -1518,10 +1575,9 @@ def _analyze_wiring_impl(
             primary = resolved
 
     degraded = [f for a in analyses for f in a.degraded_files]
-    status: WiringStatus = "parse_degraded" if degraded else "complete"
 
     wiring = WiringResult(
-        status=status,
+        status=_merged_status(degraded, undialected),
         dialect=primary,
         language=primary,
         dialects=languages,
@@ -1530,6 +1586,7 @@ def _analyze_wiring_impl(
         symbols_examined=sum(a.symbols_examined for a in analyses),
         findings=[f for a in analyses for f in a.unwired],
         degraded_files=degraded,
+        undialected_files=undialected,
     )
 
     acceptance_scanned = sum(a.acceptance_files_scanned for a in analyses)

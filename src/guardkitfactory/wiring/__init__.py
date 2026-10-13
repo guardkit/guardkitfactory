@@ -18,7 +18,7 @@ Public API
 - ``WiringDialect`` — frozen descriptor dataclass (+ registry helpers).
 
 Side-effect import registers all built-in dialects (python, javascript,
-typescript, c_sharp).
+typescript, tsx, c_sharp).
 """
 
 from __future__ import annotations
