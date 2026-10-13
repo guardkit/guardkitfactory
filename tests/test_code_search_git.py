@@ -179,9 +179,83 @@ def test_worktree_source_gives_the_fixed_settings(
     assert "filter.mark.clean=" in status
 
 
-def test_fixed_settings_match_guardkit() -> None:
-    project_git = pytest.importorskip("guardkit.lib.project_git")
-    assert tuple(code_search.GIT_FIXED_SETTINGS) == tuple(project_git.FIXED_SETTINGS)
-    for name, value in project_git.FIXED_ENVIRONMENT.items():
-        if name != "LC_ALL":
-            assert code_search._git_environment()[name] == value
+#: The fixed settings, pinned here so this package's own tests hold the copy in
+#: place even where GuardKit is not installed. GuardKit's
+#: ``guardkit.lib.project_git.FIXED_SETTINGS`` is pinned to the same list by
+#: GuardKit's tests, and compared live below when it can be imported.
+PINNED_FIXED_SETTINGS = (
+    "core.fsmonitor=false", "core.hooksPath=/dev/null", "commit.gpgSign=false",
+    "tag.gpgSign=false", "log.showSignature=false", "merge.verifySignatures=false",
+    "gpg.program=false", "gpg.ssh.program=false", "gpg.x509.program=false",
+    "submodule.recurse=false", "diff.ignoreSubmodules=dirty", "diff.submodule=short",
+    "status.submoduleSummary=false", "gc.auto=0", "maintenance.auto=false",
+    "core.alternateRefsCommand=", "merge.default=text", "core.editor=:",
+    "sequence.editor=:", "core.pager=cat", "rebase.instructionFormat=%s",
+    "rebase.rebaseMerges=false", "rebase.updateRefs=false", "rebase.autoSquash=false",
+    "rebase.backend=merge", "rebase.missingCommitsCheck=ignore",
+)
+PINNED_ENVIRONMENT = {
+    "GIT_TERMINAL_PROMPT": "0", "GIT_ALLOW_PROTOCOL": "none", "GIT_NO_LAZY_FETCH": "1",
+}
+
+
+def test_fixed_settings_match_the_pinned_copy() -> None:
+    assert tuple(code_search.GIT_FIXED_SETTINGS) == PINNED_FIXED_SETTINGS
+    environment = code_search._git_environment()
+    for name, value in PINNED_ENVIRONMENT.items():
+        assert environment[name] == value
+
+
+def test_fixed_settings_match_guardkit_when_it_is_installed() -> None:
+    try:
+        from guardkit.lib import project_git
+    except ImportError:
+        return  # the pinned copy above still holds this package's list in place
+    assert tuple(project_git.FIXED_SETTINGS) == PINNED_FIXED_SETTINGS
+    for name, value in PINNED_ENVIRONMENT.items():
+        assert project_git.FIXED_ENVIRONMENT[name] == value
+
+
+@pytest.mark.parametrize("name", [b"\xff\xfe", b"caf\xe9"], ids=["ff-fe", "latin1"])
+def test_worktree_source_switches_off_a_filter_whose_name_is_not_utf8(
+    lab: Lab, name: bytes
+) -> None:
+    repo = lab.repo("repo")
+    (repo / ".gitattributes").write_bytes(b"*.txt filter=" + name + b"\n")
+    lab.git(repo, "add", "-A")
+    lab.git(repo, "commit", "-qm", "attributes")
+    with open(repo / ".git" / "config", "ab") as config:
+        config.write(b'[filter "' + name + b'"]\n\tclean = ' + lab.path("clean").encode() + b"\n")
+    (repo / "a.txt").write_text("two\n")
+    lab.fired()
+    _plain_status(repo)
+    assert "clean" in lab.fired()  # positive control
+    (repo / "a.txt").write_text("six\n")
+    described = code_search.worktree_source(repo)
+    assert lab.fired() == []
+    assert described["kind"] == "worktree"
+
+
+@pytest.mark.parametrize("how", ["exits non-zero", "empty in a repository"])
+def test_worktree_source_runs_nothing_when_the_setting_names_cannot_be_read(
+    lab: Lab, monkeypatch: pytest.MonkeyPatch, how: str
+) -> None:
+    repo = lab.marked()
+    real = code_search._execute
+
+    def execute(argv, *args, **kwargs):
+        if "config" in argv and "--list" in argv:
+            done = real(argv, *args, **kwargs)
+            done.stdout = b""
+            if how == "exits non-zero":
+                done.returncode = 128
+            return done
+        return real(argv, *args, **kwargs)
+
+    monkeypatch.setattr(code_search, "_execute", execute)
+    lab.fired()
+    described = code_search.worktree_source(repo)
+    assert lab.fired() == []
+    assert described["note"] == (
+        "not described: the project's git settings could not be read"
+    )

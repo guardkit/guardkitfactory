@@ -342,6 +342,50 @@ GIT_FIXED_SETTINGS: tuple[str, ...] = (
 )
 
 
+#: What worktree_source says of a folder git does not see as a worktree.
+NOT_A_WORKTREE = "not a git worktree (git status did not succeed)"
+
+
+def _git_names_switched_off(
+    read: Any, base: list[str], root: Path, env: Mapping[str, str], left: float,
+    cancel: threading.Event | None,
+) -> list[str] | str:
+    """The switch-off settings for what the name read found, or the note to
+    return when nothing can safely run.
+
+    Names are decoded with ``os.fsdecode`` (``surrogateescape``), so a name
+    that is not valid UTF-8 goes back onto git's command line byte for byte.
+    The read must have succeeded: a non-zero exit, a malformed answer, or a
+    listing with none of a repository's own settings while a repository is
+    there means the names are unknown, and then git runs nothing more.
+    """
+    unreadable = "not described: the project's git settings could not be read"
+    fields = read.stdout.split(b"\0") if read.returncode == 0 else []
+    if fields and fields[-1] == b"":
+        fields.pop()
+    scopes = [os.fsdecode(f) for f in fields[0::2]]
+    names = [os.fsdecode(f) for f in fields[1::2]]
+    if read.returncode != 0 or len(fields) % 2 or not any(
+        scope in ("local", "worktree") for scope in scopes
+    ):
+        # Expected outside a repository; inside one, the read failed or
+        # missed the repository's own settings.
+        try:
+            inside = _execute([*base, "rev-parse", "--git-dir"], cwd=root, env=env,
+                              timeout_s=left, cancel=cancel)
+        except OSError:
+            return unreadable
+        if inside.returncode == 0 or inside.timed_out or inside.cancelled:
+            return unreadable
+        if read.returncode != 0 or len(fields) % 2:
+            return NOT_A_WORKTREE
+    switch_offs = _git_switch_offs(names)
+    if switch_offs is None:
+        return ("not described: the project's git settings use a name that cannot "
+                "be switched off")
+    return switch_offs
+
+
 def _git_switch_offs(names: list[str]) -> list[str] | None:
     """Settings that switch off every filter, custom merge program and branch
     merge option the project names. ``None`` when a name cannot be given on
@@ -604,7 +648,8 @@ def worktree_source(
         base += ["-c", setting]
     base += ["-C", str(root)]
     answers = []
-    for args in (("config", "--list", "--name-only", "-z"),
+    switch_offs: list[str] | None = None
+    for args in (("config", "--list", "--name-only", "-z", "--show-scope"),
                  ("rev-parse", "--verify", "--quiet", "HEAD"),
                  ("status", "--ignore-submodules=dirty", "--porcelain=v1", "-z",
                   "--untracked-files=all")):
@@ -613,12 +658,12 @@ def worktree_source(
             return unknown("not described: the call's time ran out or it was cancelled")
         argv = [*base, *args]
         if args[0] != "config":
-            names = answers[0].stdout.decode("utf-8", errors="replace").split("\0")
-            switch_offs = _git_switch_offs([n for n in names if n])
             if switch_offs is None:
-                return {"kind": "folder", "root": str(root),
-                        "note": "not described: the project's git settings use a name "
-                                "that cannot be switched off"}
+                switch_offs = _git_names_switched_off(answers[0], base, root, env, left, cancel)
+                if switch_offs == NOT_A_WORKTREE:
+                    return {"kind": "folder", "root": str(root), "note": NOT_A_WORKTREE}
+                if isinstance(switch_offs, str):
+                    return unknown(switch_offs)
             argv = [*base[:-2]]
             for setting in switch_offs:
                 argv += ["-c", setting]
@@ -637,7 +682,7 @@ def worktree_source(
         return {
             "kind": "folder",
             "root": str(root),
-            "note": "not a git worktree (git status did not succeed)",
+            "note": NOT_A_WORKTREE,
         }
     digest = hashlib.sha256(status.stdout)
     changed = untracked = deleted = 0
