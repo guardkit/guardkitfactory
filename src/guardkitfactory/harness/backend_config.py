@@ -788,7 +788,7 @@ _LAUNCH_SCRATCH_SUBDIR = "toolchain"
 # The name rules, mirrored from Forge's ``launch_environment``
 # (``declared_setting_refusal``) and GuardKit's ``launch_declaration``. This
 # package imports neither, so they are copied; keep the three in step.
-_LAUNCH_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_LAUNCH_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _LAUNCH_MAX_NAME_LENGTH = 128
 _LAUNCH_RESERVED_PREFIXES = ("FORGE_", "GUARDKIT_", "FLEET_MEMORY_", "OPENAI_", "ANTHROPIC_")
 _LAUNCH_RESERVED_NAMES = frozenset({"PATH", "HOME", "TMPDIR", "SSH_AUTH_SOCK"})
@@ -806,7 +806,8 @@ _LAUNCH_CREDENTIAL_WORDS = (
 
 def _launch_name_refusal(name: object) -> str | None:
     """``None`` for a name a project may declare, else why not."""
-    if not isinstance(name, str) or not _LAUNCH_NAME_RE.match(name):
+    # fullmatch: ``$`` in a ``match`` would also accept a trailing newline.
+    if not isinstance(name, str) or not _LAUNCH_NAME_RE.fullmatch(name):
         return "is not a variable name"
     if len(name) > _LAUNCH_MAX_NAME_LENGTH:
         return f"is longer than {_LAUNCH_MAX_NAME_LENGTH} characters"
@@ -833,7 +834,16 @@ def _launch_names(
         raise ValueError(f"AutoBuild launch environment has unknown keys: {unknown}")
     lists = []
     for key in ("settings", "scratch"):
-        names = tuple(launch_environment.get(key) or ())
+        raw = launch_environment.get(key)
+        if raw is None:
+            raw = ()
+        if not isinstance(raw, (list, tuple)):
+            # A string would otherwise be read letter by letter.
+            raise ValueError(
+                f"AutoBuild launch {key} must be a list of names, "
+                f"not {type(raw).__name__}"
+            )
+        names = tuple(raw)
         for name in names:
             refusal = _launch_name_refusal(name)
             if refusal is not None:
