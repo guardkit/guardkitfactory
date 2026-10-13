@@ -61,10 +61,10 @@ from guardkit.orchestrator.harness import (
     ToolResultEvent,
     ToolUseEvent,
 )
-from langchain.agents.middleware import TodoListMiddleware
+from langchain.agents.middleware import AgentMiddleware, TodoListMiddleware
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
@@ -111,6 +111,124 @@ def _system_prompt_for_role(role: str) -> str:
         "Complete the assigned software-engineering task and verify the result.\n",
     )
     return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
+
+
+# 13 October 2026 (proof defect 5). A caller that asks only to read and search
+# (the code reviewer asks for ``["Read", "Search", "Grep"]``) gets exactly the
+# matching DeepAgents tools and nothing else. Any other request (empty, or one
+# naming a write, shell, delegation or unknown tool) keeps today's graph.
+_READ_ONLY_TOOL_TABLE: dict[str, tuple[str, ...]] = {
+    "Read": ("read_file", "ls"),
+    "Grep": ("grep",),
+    "Glob": ("glob",),
+    "Search": ("glob", "grep"),
+}
+# Requests that also give the Coach its read-only code search tools.
+_CODE_SEARCH_REQUESTS = frozenset({"Search", "Grep"})
+_CODE_SEARCH_TOOL_NAMES = ("code_search", "code_outline", "code_pattern")
+
+
+def read_only_allowlist(tools: Any, role: str) -> frozenset[str] | None:
+    """Return the tool names a read-only request allows, or ``None``.
+
+    A request is read-only when it is a non-empty list of strings and every
+    name is one of ``Read``, ``Grep``, ``Glob`` or ``Search``. ``None`` means
+    the request is not read-only and the graph is built as before.
+    """
+
+    if not tools or isinstance(tools, (str, bytes)):
+        return None
+    requested = list(tools)
+    if not all(isinstance(name, str) and name in _READ_ONLY_TOOL_TABLE for name in requested):
+        return None
+    allowed: set[str] = set()
+    for name in requested:
+        allowed.update(_READ_ONLY_TOOL_TABLE[name])
+    if role == "coach" and _CODE_SEARCH_REQUESTS.intersection(requested):
+        allowed.update(_CODE_SEARCH_TOOL_NAMES)
+    return frozenset(allowed)
+
+
+_READ_ONLY_AGENT_INSTRUCTIONS = """\
+Work inside the assigned repository and inspect the relevant files before answering.
+You have read-only tools only: {tools}.
+You cannot write, edit or delete files, run commands, keep a todo list or delegate;
+any such call is refused. Base your answer on what you read and searched.
+Report concrete results and anything you could not check.
+"""
+
+_READ_ONLY_ROLE_INSTRUCTIONS = {
+    "coach": """\
+Review the implementation independently against the supplied acceptance
+criteria. Inspect the actual changed files and any test evidence supplied, and
+return the structured verdict requested by the user prompt.
+""",
+}
+
+
+def _read_only_system_prompt_for_role(role: str, allowed: frozenset[str]) -> str:
+    role_instructions = _READ_ONLY_ROLE_INSTRUCTIONS.get(
+        role, "Complete the assigned review and report what you found.\n"
+    )
+    common = _READ_ONLY_AGENT_INSTRUCTIONS.format(tools=", ".join(sorted(allowed)))
+    return f"{common}\n{role_instructions}"
+
+
+def _tool_name(tool: Any) -> str | None:
+    if isinstance(tool, dict):
+        name = tool.get("name")
+        if name is None and isinstance(tool.get("function"), dict):
+            name = tool["function"].get("name")
+        return name if isinstance(name, str) else None
+    name = getattr(tool, "name", None)
+    return name if isinstance(name, str) else None
+
+
+class _AllowedToolsMiddleware(AgentMiddleware):
+    """Bind only the allowed tools to the model and refuse every other call.
+
+    The model request keeps only tools whose names are allowed, so the model
+    is never offered ``write_file``, ``edit_file``, ``delete``, ``execute``,
+    ``write_todos`` or ``task``. A call to any other name (one the model
+    invents, or a tool still registered with the executor) comes back as an
+    error tool message the model can read, and is not run.
+    """
+
+    def __init__(self, *, allowed: frozenset[str]) -> None:
+        super().__init__()
+        self.allowed = frozenset(allowed)
+
+    def _filter(self, request: Any) -> Any:
+        tools = [tool for tool in request.tools if _tool_name(tool) in self.allowed]
+        return request.override(tools=tools)
+
+    def wrap_model_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
+        return handler(self._filter(request))
+
+    async def awrap_model_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
+        return await handler(self._filter(request))
+
+    def _refusal(self, request: Any) -> ToolMessage | None:
+        call = request.tool_call
+        name = call.get("name")
+        if name in self.allowed:
+            return None
+        return ToolMessage(
+            content=(
+                f"Error: the tool '{name}' is not available to this agent. "
+                "It may only read and search, using: "
+                f"{', '.join(sorted(self.allowed))}."
+            ),
+            tool_call_id=call.get("id") or "",
+            name=str(name),
+            status="error",
+        )
+
+    def wrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
+        return self._refusal(request) or handler(request)
+
+    async def awrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
+        return self._refusal(request) or await handler(request)
 
 
 _READ_KINDS = {
@@ -699,8 +817,20 @@ class LangGraphHarness(HarnessAdapter):
             )
         return next(root for label, root in resolved_roots if label == execution_label)
 
-    def _create_agent(self, *, role: str, cwd: Path, resolved_model: Any) -> Any:
-        """Construct the shared Coach graph or the required dcode Player."""
+    def _create_agent(
+        self,
+        *,
+        role: str,
+        cwd: Path,
+        resolved_model: Any,
+        allowed_tools: frozenset[str] | None = None,
+    ) -> Any:
+        """Construct the shared Coach graph or the required dcode Player.
+
+        ``allowed_tools`` (from :func:`read_only_allowlist`) builds a graph
+        whose model is bound to exactly those tools, with no todo list; any
+        other call is refused. ``None`` builds the graph as before.
+        """
 
         config = self.player_config
         if role != "player":
@@ -712,12 +842,32 @@ class LangGraphHarness(HarnessAdapter):
             # tools (12 October 2026); every other role stays on the built-ins,
             # and invoke_synthesis binds no tools at all.
             extra_tools: list[Any] = []
-            if role == "coach":
+            wants_code_search = allowed_tools is None or bool(
+                allowed_tools.intersection(_CODE_SEARCH_TOOL_NAMES)
+            )
+            if role == "coach" and wants_code_search:
                 from guardkitfactory.harness.code_search_tools import code_search_tools
 
                 extra_tools, unavailable = code_search_tools(Path(cwd))
                 if unavailable:
                     logger.info("Coach code search unavailable: %s", unavailable)
+            if allowed_tools is not None:
+                # Name only the tools the model will really see: code search is
+                # absent when its pinned programs are not installed.
+                offered = frozenset(
+                    name
+                    for name in allowed_tools
+                    if name not in _CODE_SEARCH_TOOL_NAMES
+                    or name in {getattr(tool, "name", None) for tool in extra_tools}
+                )
+                return create_deep_agent(
+                    model=resolved_model,
+                    tools=extra_tools,
+                    middleware=[_AllowedToolsMiddleware(allowed=allowed_tools)],
+                    backend=self.backend,
+                    permissions=self.permissions,
+                    system_prompt=_read_only_system_prompt_for_role(role, offered),
+                )
             return create_deep_agent(
                 model=resolved_model,
                 tools=extra_tools,
@@ -992,7 +1142,23 @@ class LangGraphHarness(HarnessAdapter):
         # Faithful tool translation (SDK names → BaseTool wrappers around
         # the operator's preferred implementations) is TASK-HMIG-002R's
         # scope, not the Wave-2 skeleton's.
-        if tools:
+        #
+        # 13 October 2026 (proof defect 5): the one exception is a read-only
+        # request (only ``Read``/``Grep``/``Glob``/``Search``) for a non-Player
+        # role. It becomes an allowlist of DeepAgents tool names, and the
+        # graph's model is bound to exactly those tools. Every other request
+        # is still dropped as above.
+        allowed_tools = (
+            read_only_allowlist(tools, role) if role != "player" else None
+        )
+        if allowed_tools is not None:
+            logger.info(
+                "LangGraphHarness: read-only request %s for role=%s; tools limited to %s",
+                list(tools),
+                role,
+                sorted(allowed_tools),
+            )
+        elif tools:
             logger.debug(
                 "LangGraphHarness Wave-2: dropping %d caller-supplied tool(s) "
                 "(%s) — DeepAgents' built-in tool set is used instead. See "
@@ -1012,7 +1178,17 @@ class LangGraphHarness(HarnessAdapter):
         resolved_model = self._resolve_model_for_invoke(role=role)
 
         try:
-            agent = self._create_agent(role=role, cwd=cwd, resolved_model=resolved_model)
+            if allowed_tools is not None:
+                agent = self._create_agent(
+                    role=role,
+                    cwd=cwd,
+                    resolved_model=resolved_model,
+                    allowed_tools=allowed_tools,
+                )
+            else:
+                agent = self._create_agent(
+                    role=role, cwd=cwd, resolved_model=resolved_model
+                )
         except LangGraphHarnessError:
             raise
         except Exception as exc:  # noqa: BLE001 — wrap-and-reraise on purpose

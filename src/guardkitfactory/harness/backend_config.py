@@ -699,6 +699,97 @@ class PathConfinedBackend:
 SandboxBackendProtocol.register(PathConfinedBackend)
 
 
+_NO_EXECUTION_ATTRIBUTES = frozenset({"execute", "aexecute"})
+
+
+class ReadOnlyBackend:
+    """Delegating backend wrapper that refuses every change and every command.
+
+    13 October 2026 (proof defect 5). The second line of defence for a
+    read-only request: the harness already binds only the read and search
+    tools to the model, and this wrapper makes the backend itself refuse
+    anything else. ``write``, ``edit`` and ``delete`` (sync and async) return
+    the same kind of tool error the write fence returns, so the model can
+    read why. ``execute`` is neither defined here nor forwarded through
+    ``__getattr__``, and the class is deliberately NOT registered with
+    ``SandboxBackendProtocol``, so ``supports_execution`` is False and a
+    reachable ``execute`` answers "Execution not available".
+
+    Reads, ``ls``, ``glob`` and ``grep`` pass through unchanged.
+    """
+
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def __getattr__(self, name: str) -> Any:
+        if name in _NO_EXECUTION_ATTRIBUTES:
+            raise AttributeError(
+                f"{type(self).__name__} offers no command execution ({name})"
+            )
+        return getattr(self._inner, name)
+
+    @staticmethod
+    def _refusal(op: str, file_path: str) -> str:
+        return (
+            f"Error: cannot {op} '{file_path}': this agent is read-only. "
+            "It may read and search files but not change them."
+        )
+
+    def write(self, file_path: str, content: str) -> Any:
+        return WriteResult(error=self._refusal("write", file_path))
+
+    async def awrite(self, file_path: str, content: str) -> Any:
+        return WriteResult(error=self._refusal("write", file_path))
+
+    def edit(self, file_path: str, *args: Any, **kwargs: Any) -> Any:
+        return EditResult(error=self._refusal("edit", file_path))
+
+    async def aedit(self, file_path: str, *args: Any, **kwargs: Any) -> Any:
+        return EditResult(error=self._refusal("edit", file_path))
+
+    def delete(self, file_path: str) -> Any:
+        return DeleteResult(error=self._refusal("delete", file_path))
+
+    async def adelete(self, file_path: str) -> Any:
+        return DeleteResult(error=self._refusal("delete", file_path))
+
+    # Explicit for the SDK's class-level ``max_count`` signature inspection,
+    # as on PathConfinedBackend.
+    def grep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        max_count: int | None = None,
+        context_lines: int = 0,
+    ) -> Any:
+        return self._inner.grep(
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            context_lines=context_lines,
+        )
+
+    async def agrep(
+        self,
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        *,
+        max_count: int | None = None,
+        context_lines: int = 0,
+    ) -> Any:
+        return await self._inner.agrep(
+            pattern,
+            path=path,
+            glob=glob,
+            max_count=max_count,
+            context_lines=context_lines,
+        )
+
+
 def _allowed_write_roots(
     worktree: Path,
     extra_write_roots: Sequence[Path | str] | None,
@@ -911,6 +1002,7 @@ def build_autobuild_backend(
     scratch_root: Path | str | None = None,
     launch_environment: Mapping[str, Sequence[str]] | None = None,
     launch_scratch_root: Path | str | None = None,
+    read_only: bool = False,
 ) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
@@ -992,6 +1084,12 @@ def build_autobuild_backend(
             refused, but NOT added to the allowed write roots: the caches are
             written by shell commands, which write confinement does not cover,
             so the file tools gain no write access.
+        read_only: 13 October 2026. When True, the backend is wrapped in a
+            :class:`ReadOnlyBackend`: write, edit and delete come back as tool
+            errors and no command can be run (``supports_execution`` is
+            False). The caller asks for this when the agent's tool request is
+            read-only; it backs up the harness's own tool allowlist. False
+            (the default) keeps the backend exactly as before.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -1090,6 +1188,11 @@ def build_autobuild_backend(
     # results uncapped (Player/synthesis behaviour unchanged).
     if max_tool_result_chars is not None:
         default_backend = TruncatingBackend(default_backend, max_tool_result_chars)
+
+    # 13 October 2026 (proof defect 5): outermost, so nothing underneath can
+    # re-offer writes or execution.
+    if read_only:
+        default_backend = ReadOnlyBackend(default_backend)
 
     # TASK-HMIG-002R-SUMM-ROOT — wrap so SummarizationMiddleware's offload
     # prefix becomes ``<worktree>/conversation_history`` instead of literal

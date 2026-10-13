@@ -1533,3 +1533,59 @@ class TestLaunchEnvironment:
         )
         after = sorted(str(p.relative_to(worktree)) for p in worktree.rglob("*"))
         assert after == before
+
+
+# ---------------------------------------------------------------------------
+# 13 October 2026 (proof defect 5): the read-only backend option.
+# ---------------------------------------------------------------------------
+
+
+def test_read_only_backend_refuses_writes_and_offers_no_execution(
+    tmp_path: Path,
+) -> None:
+    import asyncio
+
+    from deepagents.middleware.filesystem import supports_execution
+
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    (worktree / "app.py").write_text("ANSWER = 42\n")
+    outside = Path("/tmp/count-check/build.mjs")
+    outside_existed = outside.exists()
+
+    backend = build_autobuild_backend(worktree, read_only=True)
+
+    inside = backend.write(str(worktree / "scratch.mjs"), "console.log(1)\n")
+    escaped = backend.write(str(outside), "console.log(1)\n")
+    assert inside.error and "read-only" in inside.error
+    assert escaped.error and "read-only" in escaped.error
+    assert not (worktree / "scratch.mjs").exists()
+    assert outside.exists() == outside_existed
+
+    edited = backend.edit(str(worktree / "app.py"), "42", "43")
+    deleted = backend.delete(str(worktree / "app.py"))
+    async_write = asyncio.run(backend.awrite(str(worktree / "async.txt"), "x"))
+    assert edited.error and deleted.error and async_write.error
+    assert (worktree / "app.py").read_text() == "ANSWER = 42\n"
+    assert not (worktree / "async.txt").exists()
+
+    assert supports_execution(backend) is False
+    assert not hasattr(backend.default, "execute")
+    with pytest.raises(NotImplementedError):
+        backend.execute("node --version")
+
+    # Reading and searching still work.
+    read = backend.read(str(worktree / "app.py"))
+    assert "ANSWER = 42" in str(read.file_data or read)
+    found = backend.grep("ANSWER", path=str(worktree))
+    assert found.matches and found.matches[0]["path"].endswith("app.py")
+
+
+def test_backend_without_read_only_is_unchanged(tmp_path: Path) -> None:
+    from deepagents.middleware.filesystem import supports_execution
+
+    backend = build_autobuild_backend(tmp_path)
+    assert isinstance(backend.default, PathConfinedBackend)
+    assert supports_execution(backend) is True
+    assert backend.write(str(tmp_path / "kept.txt"), "x").error is None
+    assert (tmp_path / "kept.txt").read_text() == "x"
