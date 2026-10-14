@@ -35,11 +35,9 @@ def run_project_command(args: Any, **kwargs: Any) -> Any:
     it started (a pytest worker, a server), not only its first process.
     Imported when called: GuardKit imports this package while it loads.
     """
-    from guardkit.orchestrator.process_group import (
-        run_project_command as _run_in_group,
-    )
+    from guardkit.orchestrator import process_group
 
-    return _run_in_group(args, **kwargs)
+    return process_group.run_project_command(args, **kwargs)
 
 
 def project_command_env(
