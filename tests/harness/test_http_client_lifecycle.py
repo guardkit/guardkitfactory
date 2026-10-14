@@ -15,6 +15,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import AsyncExitStack
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -656,7 +657,8 @@ def test_real_compaction_uses_owned_client_through_final_request(
 
     server.reply = reply
     monkeypatch.setattr(harness_module, "create_deep_agent", create)
-    harness = LangGraphHarness("openai:workhorse", backend=build_autobuild_backend(tmp_path))
+    backend = build_autobuild_backend(tmp_path)
+    harness = LangGraphHarness("openai:workhorse", backend=backend)
     messages = []
     for index in range(12):
         messages.extend([{"role": "user", "content": f"user-{index} " + "x" * 80},
@@ -675,7 +677,9 @@ def test_real_compaction_uses_owned_client_through_final_request(
         == "compact_route-G"
         for request in server.requests
     )
-    assert list((tmp_path / "conversation_history").glob("session_*.md"))
+    # Offloaded to the private folder, never into the worktree (14 October 2026).
+    assert list((Path(backend.artifacts_root) / "conversation_history").glob("session_*.md"))
+    assert not (tmp_path / "conversation_history").exists()
 
 
 def test_cancel_during_client_cleanup_waits_for_closure(server, owned, monkeypatch, tmp_path):

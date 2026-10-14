@@ -1853,12 +1853,16 @@ def test_real_graph_compaction_uses_chat_completions_and_worktree_offload(
     assert "Context Extraction Assistant" in json.dumps(requests[0][1]["messages"])
     assert "compact summary" in json.dumps(requests[1][1]["messages"])
 
-    history_files = list((tmp_path / "conversation_history").glob("session_*.md"))
+    # Offloaded to the private folder, never into the worktree (14 October 2026).
+    assert not (tmp_path / "conversation_history").exists()
+    history_files = list(
+        (Path(backend.artifacts_root) / "conversation_history").glob("session_*.md")
+    )
     assert len(history_files) == 1
     history = history_files[0].read_text()
     assert "user-0-marker" in history
     assert "assistant-0-marker" in history
-    assert history_files[0].is_relative_to(tmp_path)
+    assert not history_files[0].is_relative_to(tmp_path)
 
 
 def test_prebuilt_responses_model_uses_chat_completions_for_synthesis(

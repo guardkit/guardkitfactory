@@ -9,6 +9,7 @@ import json
 import os
 import re
 import socket
+import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -580,6 +581,7 @@ def test_false_success_preserves_raw_and_emits_no_events(
         "endpoint",
         "unresolved",
         "artifact_link",
+        "artifact_in_worktree",
         "extra_skill",
         "duplicate",
         "escape",
@@ -607,7 +609,12 @@ def test_refusals_before_model_activity(tmp_path: Path, kind: str) -> None:
     elif kind == "unresolved":
         model = "unknown:model"
     elif kind == "artifact_link":
-        (repo / "conversation_history").symlink_to(tmp_path)
+        history = Path(backend.artifacts_root) / "conversation_history"
+        history.rmdir()
+        history.symlink_to(tmp_path)
+    elif kind == "artifact_in_worktree":
+        # The old location: the worktree itself (14 October 2026 leak).
+        backend.artifacts_root = str(repo)
     elif kind == "extra_skill":
         extra = repo / ".claude/skills/unselected"
         extra.mkdir(parents=True)
@@ -640,7 +647,11 @@ def test_refusals_before_model_activity(tmp_path: Path, kind: str) -> None:
                 with pytest.raises(LangGraphHarnessError, match="changed"):
                     asyncio.run(_collect(harness, repo))
         else:
-            with pytest.raises(LangGraphHarnessError):
+            expected = {
+                "artifact_link": "symlink",
+                "artifact_in_worktree": "inside the worktree",
+            }.get(kind)
+            with pytest.raises(LangGraphHarnessError, match=expected):
                 asyncio.run(_collect(harness, repo))
         assert not exchange.requests
     finally:
@@ -741,12 +752,20 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
     (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
     immutable = repo / "acceptance.txt"
     immutable.write_text("IMMUTABLE_ACCEPTANCE")
+    # A real git checkout, so the artifacts take the production route: the
+    # private folder in the worktree's own git directory (14 October 2026).
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
     exchange = ArtifactExchange(repo)
     model, sync, async_ = _model(exchange)
     activity = []
+    backend = _backend(repo)
+    private = Path(backend.artifacts_root)
+    assert private == (repo / ".git" / "guardkit-scratch" / "model-artifacts").resolve()
+    # Opened up after the backend was built: dcode closes it again.
+    (private / "conversation_history").chmod(0o755)
     harness = LangGraphHarness(
         model,
-        backend=_backend(repo),
+        backend=backend,
         player_config=config(repo),
         on_model_activity=lambda: activity.append(1),
         recursion_limit=200,
@@ -764,7 +783,7 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
     assert any("outside" in value.lower() or "not permitted" in value.lower() for value in results)
     assert any(
         "HISTORY_SENTINEL" in p.read_text()
-        for p in (repo / "conversation_history").rglob("*")
+        for p in (private / "conversation_history").rglob("*")
         if p.is_file()
     )
     assert any("SUMMARY_SENTINEL" in str(b["messages"]) for b in exchange.bodies)
@@ -773,10 +792,19 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
     assert not any("does not exist" in value or "File not found" in value for value in results)
     artifacts = {}
     for name in ("conversation_history", "large_tool_results"):
-        files = [p for p in (repo / name).rglob("*") if p.is_file()]
+        files = [p for p in (private / name).rglob("*") if p.is_file()]
         assert files
         artifacts[name] = {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
-        assert all(p.resolve().is_relative_to(repo / name) for p in files)
+        assert all(p.resolve().is_relative_to(private / name) for p in files)
+        # Nothing of the model's own lands in the worktree, where a
+        # checkpoint commit would take it.
+        assert not (repo / name).exists()
+        assert ((private / name).stat().st_mode & 0o777) == 0o700
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=repo, check=True, capture_output=True, text=True,
+    ).stdout
+    assert "conversation_history" not in status and "large_tool_results" not in status
     assert activity
     assert all(
         b["max_completion_tokens"] == 8192 and b["temperature"] == 0 for b in exchange.bodies

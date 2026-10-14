@@ -52,6 +52,17 @@ fixes on the two ends of the same path-resolution gap:
 * SUMM-ROOT (conversation history writes): want SDK-hard-coded ``/conversation_history``
   re-rooted under the worktree.
 
+Moved out of the worktree (14 October 2026). Under the worktree, GuardKit's
+checkpoint commit took the transcripts into the build's branch: build
+FEAT-7F1D committed a 216 KB transcript, quoting the owner's home folder
+throughout, to a public project. ``artifacts_root`` is now a private folder
+in the worktree's own git directory (:func:`model_artifacts_root`), and the
+composite routes ``<root>/conversation_history/`` and
+``<root>/large_tool_results/`` to it, because the write fence below refuses
+any write outside the worktree. The reason for the wrapper is unchanged: the
+offload needs a real, writable path, and still gets one. Every other path
+falls through to the default backend as before.
+
 The companion fix that makes summarisation actually *fire* on sub-Sonnet
 context windows is TASK-HMIG-002R-MODEL-PROFILE in
 :mod:`guardkitfactory.harness.model_config` — without it, the SDK's no-profile
@@ -143,16 +154,21 @@ applies to the built-in tools (parent review §14.7), and a custom
 
 from __future__ import annotations
 
+import atexit
 import dataclasses
 import logging
 import os
 import re
+import shutil
 import stat
+import tempfile
+import threading
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 from deepagents.backends.composite import CompositeBackend
+from deepagents.backends.filesystem import FilesystemBackend
 from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import (
     DeleteResult,
@@ -164,7 +180,12 @@ from deepagents.backends.protocol import (
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["build_autobuild_backend", "PathConfinedBackend", "TruncatingBackend"]
+__all__ = [
+    "build_autobuild_backend",
+    "model_artifacts_root",
+    "PathConfinedBackend",
+    "TruncatingBackend",
+]
 
 
 # These match LocalShellBackend's call-site defaults rather than DeepAgents'
@@ -860,16 +881,28 @@ def _ensure_worktree_temp_directory(worktree: Path) -> Path:
 
 
 def _ensure_private_directory(directory: Path, label: str) -> Path:
-    """Create ``directory`` (mode 0700) or reuse it; refuse anything else."""
+    """Create ``directory`` (mode 0700) or reuse it; refuse anything else.
+
+    Two backends built at once for one new worktree may both find it missing;
+    the one that loses the ``mkdir`` race reuses the folder the other made
+    (14 October 2026), still subject to the checks below.
+    """
     try:
         status = directory.lstat()
     except FileNotFoundError:
         try:
             directory.mkdir(mode=0o700)
-            status = directory.lstat()
+        except FileExistsError:
+            pass
         except OSError as exc:
             raise ValueError(
                 f"AutoBuild {label} could not be created at {directory}"
+            ) from exc
+        try:
+            status = directory.lstat()
+        except OSError as exc:
+            raise ValueError(
+                f"AutoBuild {label} could not be inspected at {directory}"
             ) from exc
     except OSError as exc:
         raise ValueError(
@@ -881,6 +914,136 @@ def _ensure_private_directory(directory: Path, label: str) -> Path:
     if not stat.S_ISDIR(status.st_mode):
         raise ValueError(f"AutoBuild {label} must be a directory: {directory}")
     return directory
+
+
+def ensure_owner_only_directory(directory: Path, label: str) -> Path:
+    """Make an existing ``directory`` readable by its owner alone, or refuse.
+
+    14 October 2026: for the folders holding the coding model's transcripts.
+    The folder is opened without following a symlink, must belong to this
+    process's user, and is set to mode 0700 if it is not already. Anything
+    else (a symlink, not a directory, another owner, a failed change) raises
+    ``ValueError``.
+    """
+    try:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ValueError(
+            f"AutoBuild {label} is not a real folder that can be opened: {directory}"
+        ) from exc
+    try:
+        status = os.fstat(descriptor)
+        if status.st_uid != os.geteuid():
+            raise ValueError(
+                f"AutoBuild {label} belongs to another user: {directory}"
+            )
+        if stat.S_IMODE(status.st_mode) != 0o700:
+            os.fchmod(descriptor, 0o700)
+            if stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o700:
+                raise ValueError(
+                    f"AutoBuild {label} could not be made private: {directory}"
+                )
+    except OSError as exc:
+        raise ValueError(
+            f"AutoBuild {label} could not be made private: {directory}"
+        ) from exc
+    finally:
+        os.close(descriptor)
+    return directory
+
+
+def _private_artifacts_folder(directory: Path, label: str) -> Path:
+    """Create or reuse ``directory``, then make it owner-only."""
+    return ensure_owner_only_directory(
+        _ensure_private_directory(directory, label), label
+    )
+
+
+# 14 October 2026: the coding model's own working files. deepagents writes
+# them under ``<artifacts_root>/<name>/``.
+MODEL_ARTIFACT_NAMES = ("conversation_history", "large_tool_results")
+# Their folder, inside GuardKit's builder scratch folder.
+_MODEL_ARTIFACTS_SUBDIR = "model-artifacts"
+# The temporary folder each non-git worktree was given in this process, so
+# every backend for it (and the paths quoted to the model) stays the same.
+_temporary_model_artifacts: dict[Path, Path] = {}
+_temporary_model_artifacts_lock = threading.Lock()
+
+
+def _remove_temporary_model_artifacts() -> None:
+    """At process exit, remove the temporary folders (best effort)."""
+    with _temporary_model_artifacts_lock:
+        folders = list(_temporary_model_artifacts.values())
+        _temporary_model_artifacts.clear()
+    for folder in folders:
+        shutil.rmtree(folder, ignore_errors=True)
+
+
+def model_artifacts_root(worktree: Path) -> Path:
+    """Return the private folder for the coding model's own working files.
+
+    14 October 2026. deepagents writes ``conversation_history/<thread>.md``
+    (a summarised transcript, which quotes every path the model saw) and
+    ``large_tool_results/<id>`` (tool output too big to keep inline) under
+    the backend's ``artifacts_root``. That root was the worktree, so
+    GuardKit's checkpoint commit took them into the build's branch: build
+    FEAT-7F1D committed a 216 KB transcript to a public project.
+
+    They now go to ``model-artifacts/`` in GuardKit's builder scratch folder
+    (``guardkit.orchestrator.paths.prepare_builder_scratch_dir``), which sits
+    in the worktree's own git directory: git never stages it, ``git worktree
+    remove`` deletes it with the worktree, and every backend built for one
+    worktree gets the same folder.
+
+    When GuardKit has no safe scratch folder for the worktree (it is not a
+    git checkout, or ``guardkit-scratch`` is a symlink, not a folder, inside
+    the project or cannot be made), ``prepare_builder_scratch_dir`` returns
+    ``None`` and a private temporary folder is used instead, with a warning:
+    the same one for that worktree for the rest of the process, removed when
+    the process exits.
+
+    Every time, the folder is made owner-only (mode 0700, owned by this
+    user) and returned resolved. ``model-artifacts`` itself being a symlink,
+    not a folder, another user's or impossible to make private, or a folder
+    inside the project, refuses construction with ``ValueError``.
+    """
+    try:
+        from guardkit.orchestrator.paths import prepare_builder_scratch_dir
+    except ImportError as exc:  # pragma: no cover - GuardKit is a run-time need
+        raise RuntimeError(
+            "The AutoBuild backend needs GuardKit's builder scratch folder and "
+            f"GuardKit cannot be imported ({exc}); the backend is not built."
+        ) from exc
+
+    worktree = Path(worktree)
+    project = worktree.resolve()
+    scratch = prepare_builder_scratch_dir(worktree)
+    if scratch is None:
+        with _temporary_model_artifacts_lock:
+            folder = _temporary_model_artifacts.get(project)
+            if folder is None or folder.is_symlink() or not folder.is_dir():
+                if not _temporary_model_artifacts:
+                    atexit.register(_remove_temporary_model_artifacts)
+                folder = Path(
+                    tempfile.mkdtemp(prefix="guardkit-model-artifacts-")
+                ).resolve()
+                _temporary_model_artifacts[project] = folder
+                logger.warning(
+                    "AutoBuild worktree %s has no git folder for the coding "
+                    "model's own working files (conversation summaries and "
+                    "large tool output); they go to the private temporary "
+                    "folder %s instead.",
+                    worktree,
+                    folder,
+                )
+        folder = ensure_owner_only_directory(folder, "model artifacts folder")
+    else:
+        folder = _private_artifacts_folder(
+            Path(scratch) / _MODEL_ARTIFACTS_SUBDIR, "model artifacts folder"
+        ).resolve()
+    if folder.is_relative_to(project) and not folder.is_relative_to(project / ".git"):
+        raise ValueError(f"AutoBuild model artifacts folder is inside the project: {folder}")
+    return folder
 
 
 # 12 October 2026: the project's declared ``launch:`` names for the shell.
@@ -1052,12 +1215,16 @@ def build_autobuild_backend(
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
     Returns a :class:`CompositeBackend` whose ``default`` is the configured
-    :class:`LocalShellBackend` and whose ``artifacts_root`` is the worktree.
-    The composite carries no routes — every operation falls through to the
-    underlying ``LocalShellBackend``. The only reason for the wrapper is to
-    expose ``artifacts_root`` to deepagents' summarisation middleware so the
-    SDK's hard-coded ``/conversation_history`` offload prefix is re-rooted
-    under the worktree rather than at host root (TASK-HMIG-002R-SUMM-ROOT,
+    :class:`LocalShellBackend` and whose ``artifacts_root`` is the private
+    folder from :func:`model_artifacts_root`, outside the project. The
+    composite's only routes send ``<artifacts_root>/conversation_history/``
+    and ``<artifacts_root>/large_tool_results/`` to that folder (none for a
+    read-only backend); every other operation falls through to the
+    underlying ``LocalShellBackend``. The reason for the wrapper is to expose
+    ``artifacts_root`` to deepagents' summarisation middleware so the SDK's
+    hard-coded ``/conversation_history`` offload prefix is re-rooted at a
+    real, writable folder rather than at host root
+    (TASK-HMIG-002R-SUMM-ROOT; moved out of the worktree on 14 October 2026,
     see module docstring).
 
     The underlying ``LocalShellBackend`` is configured per the AC-002
@@ -1215,10 +1382,7 @@ def build_autobuild_backend(
     # TASK-FIX-WTESCAPE01 — confine write/edit/delete to the allowed roots. This
     # restores the file-tool containment NOVMODE removed, without touching
     # the literal-absolute-path semantics for in-worktree paths (Coach JSON
-    # writes still work). Compute artifacts_root from ``local_shell.cwd``
-    # BEFORE wrapping so the summarisation re-rooting is unaffected by any
-    # wrapper.
-    artifacts_root = str(local_shell.cwd)
+    # writes still work).
     default_backend: Any = PathConfinedBackend(
         local_shell,
         _allowed_write_roots(worktree, extra_write_roots),
@@ -1240,12 +1404,26 @@ def build_autobuild_backend(
     if read_only:
         default_backend = ReadOnlyBackend(default_backend)
 
-    # TASK-HMIG-002R-SUMM-ROOT — wrap so SummarizationMiddleware's offload
-    # prefix becomes ``<worktree>/conversation_history`` instead of literal
-    # ``/conversation_history`` at host root. ``cwd`` (not ``root_dir``) is
-    # the post-resolution absolute path so ``str()`` is stable.
+    # TASK-HMIG-002R-SUMM-ROOT, moved out of the worktree on 14 October 2026:
+    # the middleware's offload prefixes become
+    # ``<private folder>/conversation_history`` and ``.../large_tool_results``
+    # (see :func:`model_artifacts_root`), never the worktree and never host
+    # root. The write fence refuses anything outside the worktree, so each
+    # prefix is routed to its own folder; every other path still falls
+    # through to the default backend. A read-only backend gets no routes: it
+    # refuses those writes as before.
+    artifacts_root = model_artifacts_root(worktree)
+    routes: dict[str, Any] = {}
+    if not read_only:
+        for name in MODEL_ARTIFACT_NAMES:
+            folder = _private_artifacts_folder(
+                artifacts_root / name, "model artifacts folder"
+            )
+            routes[f"{artifacts_root}/{name}/"] = FilesystemBackend(
+                root_dir=folder, virtual_mode=True
+            )
     return CompositeBackend(
         default=default_backend,
-        routes={},
-        artifacts_root=artifacts_root,
+        routes=routes,
+        artifacts_root=str(artifacts_root),
     )
