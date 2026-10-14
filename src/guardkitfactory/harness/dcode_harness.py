@@ -674,7 +674,8 @@ def _private_artifacts_root(backend: Any, cwd: Path) -> Path:
     go to the folder ``build_autobuild_backend`` chose
     (``backend_config.model_artifacts_root``), never into the worktree,
     where a checkpoint commit would take them into the build's branch. A
-    missing, symlinked, unresolvable or in-project folder is refused.
+    missing, symlinked, unresolvable or in-project folder is refused, as is
+    one that is another user's or cannot be made owner-only (mode 0700).
     """
     raw = getattr(backend, "artifacts_root", None)
     if not isinstance(raw, (str, Path)) or not str(raw).strip():
@@ -691,7 +692,17 @@ def _private_artifacts_root(backend: Any, cwd: Path) -> Path:
     project = cwd.resolve()
     if resolved.is_relative_to(project) and not resolved.is_relative_to(project / ".git"):
         _refuse(f"artifact directory is inside the worktree: {root}")
+    _owner_only(resolved)
     return resolved
+
+
+def _owner_only(directory: Path) -> None:
+    from guardkitfactory.harness.backend_config import ensure_owner_only_directory
+
+    try:
+        ensure_owner_only_directory(directory, "artifact directory")
+    except ValueError as exc:
+        _refuse(str(exc))
 
 
 def _artifact_backend(backend: Any, cwd: Path, artifacts: Path) -> Any:
@@ -718,9 +729,10 @@ def _artifact_backend(backend: Any, cwd: Path, artifacts: Path) -> Any:
         target = artifacts / name
         if target.is_symlink():
             _refuse(f"artifact directory must not be a symlink: {target}")
-        target.mkdir(exist_ok=True)
+        target.mkdir(mode=0o700, exist_ok=True)
         if target.resolve(strict=True) != target or not target.is_dir():
             _refuse(f"invalid artifact directory: {target}")
+        _owner_only(target)
         _tree(target)
         routes[f"/{name}/"] = FilesystemBackend(root_dir=target, virtual_mode=True)
     return ArtifactRoutes(default=backend, routes=routes)

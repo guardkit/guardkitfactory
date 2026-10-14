@@ -761,6 +761,8 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
     backend = _backend(repo)
     private = Path(backend.artifacts_root)
     assert private == (repo / ".git" / "guardkit-scratch" / "model-artifacts").resolve()
+    # Opened up after the backend was built: dcode closes it again.
+    (private / "conversation_history").chmod(0o755)
     harness = LangGraphHarness(
         model,
         backend=backend,
@@ -797,6 +799,7 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
         # Nothing of the model's own lands in the worktree, where a
         # checkpoint commit would take it.
         assert not (repo / name).exists()
+        assert ((private / name).stat().st_mode & 0o777) == 0o700
     status = subprocess.run(
         ["git", "status", "--porcelain", "--untracked-files=all"],
         cwd=repo, check=True, capture_output=True, text=True,

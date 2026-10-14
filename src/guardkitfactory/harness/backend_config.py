@@ -154,10 +154,12 @@ applies to the built-in tools (parent review §14.7), and a custom
 
 from __future__ import annotations
 
+import atexit
 import dataclasses
 import logging
 import os
 import re
+import shutil
 import stat
 import tempfile
 import threading
@@ -879,16 +881,28 @@ def _ensure_worktree_temp_directory(worktree: Path) -> Path:
 
 
 def _ensure_private_directory(directory: Path, label: str) -> Path:
-    """Create ``directory`` (mode 0700) or reuse it; refuse anything else."""
+    """Create ``directory`` (mode 0700) or reuse it; refuse anything else.
+
+    Two backends built at once for one new worktree may both find it missing;
+    the one that loses the ``mkdir`` race reuses the folder the other made
+    (14 October 2026), still subject to the checks below.
+    """
     try:
         status = directory.lstat()
     except FileNotFoundError:
         try:
             directory.mkdir(mode=0o700)
-            status = directory.lstat()
+        except FileExistsError:
+            pass
         except OSError as exc:
             raise ValueError(
                 f"AutoBuild {label} could not be created at {directory}"
+            ) from exc
+        try:
+            status = directory.lstat()
+        except OSError as exc:
+            raise ValueError(
+                f"AutoBuild {label} could not be inspected at {directory}"
             ) from exc
     except OSError as exc:
         raise ValueError(
@@ -902,6 +916,49 @@ def _ensure_private_directory(directory: Path, label: str) -> Path:
     return directory
 
 
+def ensure_owner_only_directory(directory: Path, label: str) -> Path:
+    """Make an existing ``directory`` readable by its owner alone, or refuse.
+
+    14 October 2026: for the folders holding the coding model's transcripts.
+    The folder is opened without following a symlink, must belong to this
+    process's user, and is set to mode 0700 if it is not already. Anything
+    else (a symlink, not a directory, another owner, a failed change) raises
+    ``ValueError``.
+    """
+    try:
+        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError as exc:
+        raise ValueError(
+            f"AutoBuild {label} is not a real folder that can be opened: {directory}"
+        ) from exc
+    try:
+        status = os.fstat(descriptor)
+        if status.st_uid != os.geteuid():
+            raise ValueError(
+                f"AutoBuild {label} belongs to another user: {directory}"
+            )
+        if stat.S_IMODE(status.st_mode) != 0o700:
+            os.fchmod(descriptor, 0o700)
+            if stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o700:
+                raise ValueError(
+                    f"AutoBuild {label} could not be made private: {directory}"
+                )
+    except OSError as exc:
+        raise ValueError(
+            f"AutoBuild {label} could not be made private: {directory}"
+        ) from exc
+    finally:
+        os.close(descriptor)
+    return directory
+
+
+def _private_artifacts_folder(directory: Path, label: str) -> Path:
+    """Create or reuse ``directory``, then make it owner-only."""
+    return ensure_owner_only_directory(
+        _ensure_private_directory(directory, label), label
+    )
+
+
 # 14 October 2026: the coding model's own working files. deepagents writes
 # them under ``<artifacts_root>/<name>/``.
 MODEL_ARTIFACT_NAMES = ("conversation_history", "large_tool_results")
@@ -911,6 +968,15 @@ _MODEL_ARTIFACTS_SUBDIR = "model-artifacts"
 # every backend for it (and the paths quoted to the model) stays the same.
 _temporary_model_artifacts: dict[Path, Path] = {}
 _temporary_model_artifacts_lock = threading.Lock()
+
+
+def _remove_temporary_model_artifacts() -> None:
+    """At process exit, remove the temporary folders (best effort)."""
+    with _temporary_model_artifacts_lock:
+        folders = list(_temporary_model_artifacts.values())
+        _temporary_model_artifacts.clear()
+    for folder in folders:
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def model_artifacts_root(worktree: Path) -> Path:
@@ -927,13 +993,19 @@ def model_artifacts_root(worktree: Path) -> Path:
     (``guardkit.orchestrator.paths.prepare_builder_scratch_dir``), which sits
     in the worktree's own git directory: git never stages it, ``git worktree
     remove`` deletes it with the worktree, and every backend built for one
-    worktree gets the same folder. A worktree that is not a git checkout has
-    no such folder; a private temporary folder is used instead, with a
-    warning, the same one for that worktree for the rest of the process.
+    worktree gets the same folder.
 
-    The folder is created private (mode 0700) and returned resolved. A
-    symlink or non-directory there, or a folder inside the project, refuses
-    construction with ``ValueError``.
+    When GuardKit has no safe scratch folder for the worktree (it is not a
+    git checkout, or ``guardkit-scratch`` is a symlink, not a folder, inside
+    the project or cannot be made), ``prepare_builder_scratch_dir`` returns
+    ``None`` and a private temporary folder is used instead, with a warning:
+    the same one for that worktree for the rest of the process, removed when
+    the process exits.
+
+    Every time, the folder is made owner-only (mode 0700, owned by this
+    user) and returned resolved. ``model-artifacts`` itself being a symlink,
+    not a folder, another user's or impossible to make private, or a folder
+    inside the project, refuses construction with ``ValueError``.
     """
     try:
         from guardkit.orchestrator.paths import prepare_builder_scratch_dir
@@ -950,6 +1022,8 @@ def model_artifacts_root(worktree: Path) -> Path:
         with _temporary_model_artifacts_lock:
             folder = _temporary_model_artifacts.get(project)
             if folder is None or folder.is_symlink() or not folder.is_dir():
+                if not _temporary_model_artifacts:
+                    atexit.register(_remove_temporary_model_artifacts)
                 folder = Path(
                     tempfile.mkdtemp(prefix="guardkit-model-artifacts-")
                 ).resolve()
@@ -962,8 +1036,9 @@ def model_artifacts_root(worktree: Path) -> Path:
                     worktree,
                     folder,
                 )
+        folder = ensure_owner_only_directory(folder, "model artifacts folder")
     else:
-        folder = _ensure_private_directory(
+        folder = _private_artifacts_folder(
             Path(scratch) / _MODEL_ARTIFACTS_SUBDIR, "model artifacts folder"
         ).resolve()
     if folder.is_relative_to(project) and not folder.is_relative_to(project / ".git"):
@@ -1341,7 +1416,7 @@ def build_autobuild_backend(
     routes: dict[str, Any] = {}
     if not read_only:
         for name in MODEL_ARTIFACT_NAMES:
-            folder = _ensure_private_directory(
+            folder = _private_artifacts_folder(
                 artifacts_root / name, "model artifacts folder"
             )
             routes[f"{artifacts_root}/{name}/"] = FilesystemBackend(

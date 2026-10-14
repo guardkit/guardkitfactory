@@ -416,6 +416,88 @@ def test_read_only_backend_gets_no_artifact_routes(tmp_path: Path) -> None:
     assert not (worktree / "conversation_history").exists()
 
 
+def test_existing_open_artifact_folders_are_made_owner_only(tmp_path: Path) -> None:
+    """Folders left at 0755 (an older run, a hand-made folder) become 0700.
+
+    And the offload and the read-back still work afterwards.
+    """
+    worktree = _git_checkout(tmp_path / "wt")
+    private = worktree / ".git" / "guardkit-scratch" / "model-artifacts"
+    for folder in (
+        private,
+        private / "conversation_history",
+        private / "large_tool_results",
+    ):
+        folder.mkdir(parents=True, exist_ok=True)
+        folder.chmod(0o755)
+
+    backend = build_autobuild_backend(worktree)
+
+    for folder in (
+        private,
+        private / "conversation_history",
+        private / "large_tool_results",
+    ):
+        assert (folder.stat().st_mode & 0o777) == 0o700, folder
+    target = f"{backend.artifacts_root}/conversation_history/session_abc.md"
+    assert backend.write(target, "# offloaded\n").error is None
+    read = backend.read(target)
+    assert read.error is None and "offloaded" in read.file_data["content"]
+    # And again on the next use: a folder opened up between runs is closed.
+    private.chmod(0o755)
+    build_autobuild_backend(worktree)
+    assert (private.stat().st_mode & 0o777) == 0o700
+
+
+def test_an_artifact_folder_owned_by_another_user_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = _git_checkout(tmp_path / "wt")
+    private = worktree / ".git" / "guardkit-scratch" / "model-artifacts"
+    private.mkdir(parents=True)
+    real_uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
+    with pytest.raises(ValueError, match="another user"):
+        build_autobuild_backend(worktree)
+
+
+def test_concurrent_backends_for_one_new_worktree_share_one_folder(
+    tmp_path: Path,
+) -> None:
+    """Eight builds at once for a fresh worktree all succeed, same folder.
+
+    Before the fix the losers of the ``mkdir`` race failed construction (or,
+    in GuardKit's scratch folder, fell back to a temporary folder).
+    """
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    for round_number in range(10):
+        worktree = _git_checkout(tmp_path / f"wt{round_number}")
+        start = threading.Barrier(8)
+
+        def build() -> str:
+            start.wait()
+            return build_autobuild_backend(worktree).artifacts_root
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            roots = list(pool.map(lambda _: build(), range(8)))
+        expected = (
+            worktree / ".git" / "guardkit-scratch" / "model-artifacts"
+        ).resolve()
+        assert set(roots) == {str(expected)}, roots
+
+
+def test_temporary_artifact_folders_are_removed_at_exit(tmp_path: Path) -> None:
+    from guardkitfactory.harness import backend_config
+
+    backend = build_autobuild_backend(tmp_path)
+    root = Path(backend.artifacts_root)
+    assert root.is_dir()
+    backend_config._remove_temporary_model_artifacts()
+    assert not root.exists()
+
+
 def test_summarization_offload_does_not_attempt_host_root_write(
     tmp_path: Path,
 ) -> None:
