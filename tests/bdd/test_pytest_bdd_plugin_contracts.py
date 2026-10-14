@@ -31,6 +31,14 @@ def plugin() -> PytestBDDPlugin:
     return PytestBDDPlugin()
 
 
+@pytest.fixture(autouse=True)
+def _tmp_path_is_a_checkout(tmp_path: Path) -> None:
+    """13 October 2026: ``run()`` builds its command's environment with
+    GuardKit's project-command helper, whose private ``HOME`` lives in the
+    work folder's git directory, so the stand-in worktree has one."""
+    (tmp_path / ".git").mkdir(exist_ok=True)
+
+
 @pytest.fixture()
 def junit_writer(tmp_path: Path):
     """Helper that writes a JUnit XML file with the given counters."""
@@ -156,7 +164,7 @@ class TestC3ParallelDisjointMarkers:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-C3-A", tmp_path, timeout_seconds=5)
             plugin.run([], "TASK-C3-B", tmp_path, timeout_seconds=5)
 
@@ -200,7 +208,7 @@ class TestC4IdentityBoundedResolution:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run(
                 [
                     Scenario(
@@ -245,7 +253,7 @@ class TestC5TimeoutStructured:
         def _timeout(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=2)
 
-        with patch("subprocess.run", side_effect=_timeout):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_timeout):
             result = plugin.run(
                 [], "TASK-C5", tmp_path, timeout_seconds=2,
             )
@@ -261,7 +269,7 @@ class TestC5TimeoutStructured:
         def _timeout(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd=cmd, timeout=1)
 
-        with patch("subprocess.run", side_effect=_timeout):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_timeout):
             # Must not raise — this is the contract.
             plugin.run([], "TASK-C5", tmp_path, timeout_seconds=1)
 
@@ -419,7 +427,7 @@ class TestRunSetsEnvAndPath:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-X1", tmp_path, timeout_seconds=5)
 
         expected = tmp_path / ".guardkit" / "autobuild" / "TASK-X1" / "bdd_TASK-X1.xml"
@@ -432,7 +440,7 @@ class TestRunPropagatesEnvVar:
     """run() MUST pass GUARDKIT_BDD_TASK_ID through to the pytest subprocess.
 
     Tests the env-var contract at the run() level by capturing the
-    ``env=`` kwarg on a mocked ``subprocess.run`` invocation.
+    ``env=`` kwarg on a mocked ``run_project_command`` invocation.
     """
 
     def test_run_sets_guardkit_bdd_task_id_to_active_task(
@@ -446,7 +454,7 @@ class TestRunPropagatesEnvVar:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-ENV-001", tmp_path, timeout_seconds=5)
 
         assert len(captured) == 1
@@ -457,10 +465,12 @@ class TestRunPropagatesEnvVar:
         )
 
     def test_run_preserves_existing_environ_entries(
-        self, plugin, tmp_path: Path
+        self, plugin, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """The env var injection MUST not strip the rest of os.environ — the
-        subprocess needs PATH, HOME, etc. to run pytest at all."""
+        """The subprocess still gets PATH and HOME to run pytest at all, but
+        since 13 October 2026 never the rest of this process's environment:
+        it is built from nothing, so the factory's credentials stay out."""
+        monkeypatch.setenv("OPENAI_API_KEY", "factory-credential")
         captured: list[dict] = []
 
         def _capture(cmd, **kwargs):
@@ -469,14 +479,15 @@ class TestRunPropagatesEnvVar:
                 args=cmd, returncode=5, stdout="", stderr=""
             )
 
-        with patch("subprocess.run", side_effect=_capture):
+        with patch("guardkitfactory.bdd.plugins.pytest_bdd_plugin.run_project_command", side_effect=_capture):
             plugin.run([], "TASK-ENV-002", tmp_path, timeout_seconds=5)
 
         # PATH is the canonical "must be there" entry
         assert captured[0].get("PATH"), (
-            "run() must merge GUARDKIT_BDD_TASK_ID onto os.environ, not "
-            "replace it — subprocess needs PATH to locate python"
+            "subprocess needs PATH to locate python"
         )
+        assert captured[0].get("HOME")
+        assert "OPENAI_API_KEY" not in captured[0]
 
 
 # End-to-end C3/C4 exercises live in

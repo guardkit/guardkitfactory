@@ -23,6 +23,13 @@ from urllib.parse import urlsplit
 from guardkitfactory.harness.player_config import PlayerConfig
 
 logger = logging.getLogger(__name__)
+
+# Read directly from os (not through getattr) so the launch guard sees os used
+# only through its attributes; 0 where the platform has no such flag.
+try:
+    _O_CLOEXEC = os.O_CLOEXEC
+except AttributeError:  # pragma: no cover - not on every platform
+    _O_CLOEXEC = 0
 _AGENT = "guardkit-player"
 _INSTALL = "install guardkitfactory with Python >=3.12,<4; no fallback engine was started"
 
@@ -201,7 +208,7 @@ class _Budget:
 def _hash_regular_file(path: Path, entry: dict[str, Any], budget: _Budget) -> None:
     """Hash a file without following a link or blocking on a swapped-in FIFO."""
 
-    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0)
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC
     descriptor = os.open(path, flags)
     try:
         status = os.fstat(descriptor)

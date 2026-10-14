@@ -35,6 +35,14 @@ def plugin() -> PytestBDDPlugin:
     return PytestBDDPlugin()
 
 
+@pytest.fixture(autouse=True)
+def _tmp_path_is_a_checkout(tmp_path: Path) -> None:
+    """13 October 2026: ``run()`` builds its command's environment with
+    GuardKit's project-command helper, whose private ``HOME`` lives in the
+    work folder's git directory, so the stand-in worktree has one."""
+    (tmp_path / ".git").mkdir(exist_ok=True)
+
+
 # ---------------------------------------------------------------------------
 # C3 — parallel disjoint scenarios (end-to-end)
 # ---------------------------------------------------------------------------

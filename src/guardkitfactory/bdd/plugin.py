@@ -16,7 +16,49 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Mapping, Optional
+
+# GuardKit is required at run time (``harness/langgraph_harness.py`` imports
+# it at module level too); never a fallback to this process's environment.
+from guardkit.orchestrator.launch_declaration import (
+    load_launch_declaration,
+    main_checkout_root,
+)
+from guardkit.orchestrator.project_command_env import project_command_environment
+
+
+def run_project_command(args: Any, **kwargs: Any) -> Any:
+    """GuardKit's ``process_group.run_project_command`` (13 October 2026).
+
+    The same arguments, results and exceptions as ``subprocess.run``, but the
+    command runs in a process group of its own, so a timeout ends everything
+    it started (a pytest worker, a server), not only its first process.
+    Imported when called: GuardKit imports this package while it loads.
+    """
+    from guardkit.orchestrator import process_group
+
+    return process_group.run_project_command(args, **kwargs)
+
+
+def project_command_env(
+    worktree: Path, additions: Optional[Mapping[str, str]] = None
+) -> dict[str, str]:
+    """The environment a plugin's project command runs with (13 October 2026).
+
+    Built from nothing by GuardKit's ``project_command_env``
+    (design ``factory-project-commands-without-factory-credentials``): the
+    project's interpreter, its ``npx`` copy or its ``global.json``-chosen
+    ``dotnet`` never see the factory's credentials. The ``launch:`` block is
+    read from the main checkout the worktree was cut from. Raises GuardKit's
+    ``LaunchEnvironmentError`` (an ``OSError``) when the environment cannot
+    be built. It is one ``return`` of the helper's call, so the launch guard
+    can see that is all it ever returns.
+    """
+    return project_command_environment(
+        Path(worktree),
+        load_launch_declaration(main_checkout_root(Path(worktree))),
+        additions=dict(additions or {}),
+    )
 
 
 @dataclass(frozen=True)

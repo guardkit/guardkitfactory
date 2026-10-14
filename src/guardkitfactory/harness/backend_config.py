@@ -888,8 +888,11 @@ _LAUNCH_KEYS = frozenset({"settings", "scratch"})
 # Scratch entries live here, under the scratch folder.
 _LAUNCH_SCRATCH_SUBDIR = "toolchain"
 # The name rules, mirrored from Forge's ``launch_environment``
-# (``declared_setting_refusal``) and GuardKit's ``launch_declaration``. This
-# package imports neither, so they are copied; keep the three in step.
+# (``declared_setting_refusal``) and GuardKit's ``launch_declaration``; keep
+# the three in step. (Corrected 13 October 2026: this package does need
+# GuardKit at run time — ``harness/langgraph_harness.py`` imports it, and
+# :func:`build_autobuild_backend` passes the shell's environment through
+# GuardKit's ``finish_project_environment``. It never imports Forge.)
 _LAUNCH_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _LAUNCH_MAX_NAME_LENGTH = 128
 _LAUNCH_RESERVED_PREFIXES = ("FORGE_", "GUARDKIT_", "FLEET_MEMORY_", "OPENAI_", "ANTHROPIC_")
@@ -1002,6 +1005,37 @@ def _apply_launch_environment(
     )
     for name in scratch:
         env[name] = str(_ensure_private_directory(base / name, "launch scratch folder"))
+
+
+def _finish_shell_environment(
+    env: dict[str, str], scratch_names: Sequence[str]
+) -> dict[str, str]:
+    """GuardKit's last steps for a project command's environment.
+
+    13 October 2026 (design ``factory-project-commands-without-factory-
+    credentials``, section 1b): the shell keeps its own base (``PATH``,
+    ``HOME`` at the worktree, ``TMPDIR``, the Python flags, the declared
+    settings and scratch folders), then GuardKit's
+    ``finish_project_environment`` checks every proxy setting for a user
+    name or password (a declared ``HTTPS_PROXY`` or ``https_proxy`` that
+    carries one refuses construction, naming the setting and never its value)
+    and applies the run-owner marker last, from this process alone, so a
+    server the builder starts in a new session is still found when the build
+    is cancelled.
+
+    If GuardKit cannot be imported, construction is refused rather than
+    falling back.
+    """
+    try:
+        from guardkit.orchestrator.project_command_env import (
+            finish_project_environment,
+        )
+    except ImportError as exc:  # pragma: no cover - GuardKit is a run-time need
+        raise RuntimeError(
+            "The AutoBuild shell needs GuardKit's project-command environment "
+            f"and GuardKit cannot be imported ({exc}); the shell is not built."
+        ) from exc
+    return finish_project_environment(env, scratch_names=tuple(scratch_names))
 
 
 def build_autobuild_backend(
@@ -1167,6 +1201,7 @@ def build_autobuild_backend(
         _apply_launch_environment(
             env, launch_settings, launch_scratch, launch_base
         )
+    env = _finish_shell_environment(env, launch_scratch)
 
     local_shell = LocalShellBackend(
         root_dir=worktree,

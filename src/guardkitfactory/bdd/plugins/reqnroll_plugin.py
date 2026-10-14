@@ -14,6 +14,8 @@ from typing import Optional
 
 from guardkitfactory.bdd.loader import register
 from guardkitfactory.bdd.plugin import (
+    project_command_env,
+    run_project_command,
     BDDPlugin,
     BDDRunResult,
     ContractTestResult,
@@ -40,13 +42,19 @@ class ReqnrollPlugin(BDDPlugin):
             return None
         # Check for dotnet CLI availability
         try:
-            subprocess.run(
+            # ``dotnet`` reads the project's ``global.json``, so it gets the
+            # project-command environment, never the factory's, and runs in
+            # the project it is asked about.
+            env = project_command_env(project_root)
+            run_project_command(
                 ["dotnet", "--version"],
                 check=True,
                 capture_output=True,
                 timeout=10,
+                cwd=str(project_root),
+                env=env,
             )
-        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError):
             return None
         return cls()
 
