@@ -223,8 +223,10 @@ class TestBuildBackendWiring:
         backend = build_autobuild_backend(tmp_path, max_tool_result_chars=4096)
         assert isinstance(backend, CompositeBackend)
         assert isinstance(backend.default, TruncatingBackend)
-        # artifacts_root must still re-root summarisation under the worktree
-        assert str(tmp_path) in str(backend.artifacts_root)
+        # artifacts_root must still re-root summarisation at the private
+        # folder outside the worktree (14 October 2026)
+        assert backend.artifacts_root != "/"
+        assert str(tmp_path) not in str(backend.artifacts_root)
 
     def test_wrapped_default_still_passes_composite_execute_gate(
         self, tmp_path: Path

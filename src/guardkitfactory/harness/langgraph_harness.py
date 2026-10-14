@@ -785,8 +785,9 @@ class LangGraphHarness(HarnessAdapter):
                 "prove where commands run"
             )
 
+        # ``artifacts_root`` is not compared: since 14 October 2026 it is a
+        # private folder outside the worktree (dcode_harness checks it).
         raw_roots = [
-            ("artifacts_root", getattr(self.backend, "artifacts_root", None)),
             ("backend cwd", backend_cwd),
             ("default backend cwd", default_cwd),
         ]

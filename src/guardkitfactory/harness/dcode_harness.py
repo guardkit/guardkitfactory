@@ -1,7 +1,8 @@
 """Required dcode Player construction; invocation remains owned by the factory.
 
 Only this module imports dcode, after validating its launch-time profile. Artifact
-aliases are filesystem-tool paths, not shell paths. The supplied factory backend
+aliases are filesystem-tool paths, not shell paths; they lead to the factory
+backend's private folder outside the worktree. The supplied factory backend
 continues to own ordinary file access and command execution.
 """
 
@@ -666,7 +667,34 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     }
 
 
-def _artifact_backend(backend: Any, cwd: Path) -> Any:
+def _private_artifacts_root(backend: Any, cwd: Path) -> Path:
+    """The factory backend's private folder for model artifacts, checked.
+
+    14 October 2026. dcode's conversation summaries and large tool results
+    go to the folder ``build_autobuild_backend`` chose
+    (``backend_config.model_artifacts_root``), never into the worktree,
+    where a checkpoint commit would take them into the build's branch. A
+    missing, symlinked, unresolvable or in-project folder is refused.
+    """
+    raw = getattr(backend, "artifacts_root", None)
+    if not isinstance(raw, (str, Path)) or not str(raw).strip():
+        _refuse("the backend names no private folder for model artifacts")
+    root = Path(raw)
+    if root.is_symlink():
+        _refuse(f"artifact directory must not be a symlink: {root}")
+    try:
+        resolved = root.resolve(strict=True)
+    except (OSError, RuntimeError):
+        _refuse(f"invalid artifact directory: {root}")
+    if resolved != root or not resolved.is_dir():
+        _refuse(f"invalid artifact directory: {root}")
+    project = cwd.resolve()
+    if resolved.is_relative_to(project) and not resolved.is_relative_to(project / ".git"):
+        _refuse(f"artifact directory is inside the worktree: {root}")
+    return resolved
+
+
+def _artifact_backend(backend: Any, cwd: Path, artifacts: Path) -> Any:
     from deepagents.backends.composite import CompositeBackend
     from deepagents.backends.filesystem import FilesystemBackend
     from deepagents.backends.protocol import SandboxBackendProtocol
@@ -687,7 +715,7 @@ def _artifact_backend(backend: Any, cwd: Path) -> Any:
 
     routes = {}
     for name in ("conversation_history", "large_tool_results"):
-        target = cwd / name
+        target = artifacts / name
         if target.is_symlink():
             _refuse(f"artifact directory must not be a symlink: {target}")
         target.mkdir(exist_ok=True)
@@ -738,7 +766,8 @@ def create_dcode_player(
     object.__setattr__(model, MODEL_RETRIES_ATTR, 0)
     context = ProjectContext(user_cwd=cwd, project_root=cwd)
     before = _inventory(config, context)
-    adapted = _artifact_backend(backend, cwd)
+    artifacts = _private_artifacts_root(backend, cwd)
+    adapted = _artifact_backend(backend, cwd, artifacts)
     required = required_skill_reads(config)
     skill_gate = SelectedSkillReadMiddleware(cwd=config.cwd, required=required)
     registry = ExtensionRegistry()
@@ -792,7 +821,8 @@ def create_dcode_player(
             "unavailable": search_unavailable,
         },
         "artifacts": {
-            f"/{name}/": str(cwd / name) for name in ("conversation_history", "large_tool_results")
+            f"/{name}/": str(artifacts / name)
+            for name in ("conversation_history", "large_tool_results")
         },
     }
     # Diagnostics stay on the graph; the factory retains its shared invoke and

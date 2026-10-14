@@ -28,6 +28,8 @@ is the library's own contract.
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -41,6 +43,13 @@ from deepagents.backends.local_shell import LocalShellBackend
 
 from guardkitfactory import build_autobuild_backend, build_autobuild_permissions
 from guardkitfactory.harness.backend_config import PathConfinedBackend
+
+def _git_checkout(path: Path) -> Path:
+    """A plain git checkout (no network, no commit), like a build's worktree."""
+    path.mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(path)], check=True)
+    return path
+
 
 # ---------------------------------------------------------------------------
 # Local rule evaluator — see module docstring for why this is hand-rolled.
@@ -76,10 +85,11 @@ def test_build_autobuild_backend_returns_composite_wrapping_localshellbackend(
     """TASK-HMIG-002R-SUMM-ROOT (2026-06-04): return shape is CompositeBackend.
 
     The composite wrapper carries an ``artifacts_root`` that deepagents'
-    summarisation middleware reads to compute its offload prefix. Empty
-    routes means the wrapper is a transparent pass-through for every other
-    operation — the underlying ``LocalShellBackend`` still owns the on-disk
-    behaviour. See ``backend_config.py`` module docstring for the chain.
+    summarisation middleware reads to compute its offload prefix. Its only
+    routes are the two model-artifact folders (14 October 2026); it is a
+    transparent pass-through for every other operation — the underlying
+    ``LocalShellBackend`` still owns the on-disk behaviour. See
+    ``backend_config.py`` module docstring for the chain.
     """
     backend = build_autobuild_backend(tmp_path)
     assert isinstance(backend, CompositeBackend)
@@ -88,23 +98,30 @@ def test_build_autobuild_backend_returns_composite_wrapping_localshellbackend(
     # level down and every non-write attribute delegates through.
     assert isinstance(backend.default, PathConfinedBackend)
     assert isinstance(backend.default._inner, LocalShellBackend)
-    assert backend.routes == {}
+    assert set(backend.routes) == {
+        f"{backend.artifacts_root}/conversation_history/",
+        f"{backend.artifacts_root}/large_tool_results/",
+    }
 
 
-def test_build_autobuild_backend_artifacts_root_is_worktree(
+def test_build_autobuild_backend_artifacts_root_is_outside_the_worktree(
     tmp_path: Path,
 ) -> None:
-    """TASK-HMIG-002R-SUMM-ROOT: artifacts_root points at the worktree.
+    """TASK-HMIG-002R-SUMM-ROOT, moved out of the worktree 14 October 2026.
 
-    Without this, deepagents' summarisation middleware falls back to ``"/"``
-    and computes ``/conversation_history`` as the offload prefix — which
-    under NOVMODE's ``virtual_mode=False`` resolves to host root (read-only)
-    and crashes the offload, leaving conversation history un-summarised
-    until the model context overflows. See ``autobuild-FEAT-AOF-run-2.md``
-    lines 342-350.
+    Without an ``artifacts_root``, deepagents' summarisation middleware falls
+    back to ``"/"`` and computes ``/conversation_history`` as the offload
+    prefix — which under NOVMODE's ``virtual_mode=False`` resolves to host
+    root (read-only) and crashes the offload. With the worktree as the
+    root, GuardKit's checkpoint commit took the transcripts into the build's
+    branch. The root is now a real, private folder outside the project.
     """
-    backend = build_autobuild_backend(tmp_path)
-    assert backend.artifacts_root == str(tmp_path.resolve())
+    worktree = _git_checkout(tmp_path / "wt")
+    backend = build_autobuild_backend(worktree)
+    root = Path(backend.artifacts_root)
+    assert root == (worktree / ".git" / "guardkit-scratch" / "model-artifacts").resolve()
+    assert root.is_dir() and not root.is_symlink()
+    assert (root.stat().st_mode & 0o777) == 0o700
 
 
 def test_build_autobuild_backend_uses_worktree_as_root(tmp_path: Path) -> None:
@@ -295,33 +312,108 @@ def test_build_autobuild_backend_omits_pythonpath_when_no_venv(
 # ---------------------------------------------------------------------------
 
 
-def test_summarization_offload_path_lands_inside_worktree(tmp_path: Path) -> None:
-    """The conversation-history offload write must succeed under the worktree.
+def test_summarization_offload_path_lands_outside_the_worktree(tmp_path: Path) -> None:
+    """The model's offload writes succeed, and land outside the worktree.
 
-    Reproduces the path the SDK summarisation middleware would compute:
-    ``f"{artifacts_root.rstrip('/')}/conversation_history/<thread>.md"``.
-    Under the SUMM-ROOT wrapper, that resolves to a worktree-rooted file
-    the orchestrator process can write. Before the fix, ``artifacts_root``
-    defaulted to ``"/"`` and the write target was ``/conversation_history/...``
-    (host root) — write-fails on every standard macOS / Linux deployment.
+    Reproduces the paths the SDK middleware computes:
+    ``f"{artifacts_root.rstrip('/')}/conversation_history/<thread>.md"`` and
+    ``.../large_tool_results/<id>``. Before SUMM-ROOT, ``artifacts_root``
+    defaulted to ``"/"`` and the write went to host root; until 14 October
+    2026 it went into the worktree, and a checkpoint commit took it into a
+    public project's branch. Each write must succeed (the write fence lets
+    it through), land in the private folder, and leave the worktree clean.
     """
+    worktree = _git_checkout(tmp_path / "wt")
+    backend = build_autobuild_backend(worktree)
+    root = backend.artifacts_root.rstrip("/")
+    private = worktree.resolve() / ".git" / "guardkit-scratch" / "model-artifacts"
+
+    for target, content, expected in (
+        (f"{root}/conversation_history/session_abc.md", "# offloaded turn 1\n",
+         private / "conversation_history" / "session_abc.md"),
+        (f"{root}/large_tool_results/call_1", "LARGE\n",
+         private / "large_tool_results" / "call_1"),
+    ):
+        result = backend.write(target, content)
+        assert result.error is None, f"offload write rejected: {result.error!r}"
+        assert expected.read_text() == content
+        # The model reads the offloaded file back by the same path.
+        read = backend.read(target)
+        assert read.error is None, read.error
+        assert content.strip() in read.file_data["content"]
+    # The middleware appends to the transcript with ``edit``.
+    edited = backend.edit(
+        f"{root}/conversation_history/session_abc.md",
+        "# offloaded turn 1\n",
+        "# offloaded turn 1\n# turn 2\n",
+    )
+    assert edited.error is None, edited.error
+
+    for name in ("conversation_history", "large_tool_results"):
+        assert not (worktree / name).exists()
+    status = subprocess.run(
+        ["git", "status", "--porcelain", "--untracked-files=all"],
+        cwd=worktree, check=True, capture_output=True, text=True,
+    ).stdout
+    assert "conversation_history" not in status
+    assert "large_tool_results" not in status
+
+
+def test_linked_worktree_artifacts_live_in_its_own_git_directory(
+    tmp_path: Path,
+) -> None:
+    """A linked worktree (how GuardKit builds) uses ``.git/worktrees/<name>``."""
+    main = _git_checkout(tmp_path / "main")
+    subprocess.run(
+        ["git", "commit", "-q", "--allow-empty", "-m", "base"],
+        cwd=main, check=True,
+        env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"},
+    )
+    linked = tmp_path / "linked"
+    subprocess.run(
+        ["git", "worktree", "add", "-q", "-b", "feature", str(linked)],
+        cwd=main, check=True,
+    )
+    backend = build_autobuild_backend(linked)
+    root = Path(backend.artifacts_root)
+    assert root == (
+        main / ".git" / "worktrees" / "linked" / "guardkit-scratch" / "model-artifacts"
+    ).resolve()
+    assert not root.is_relative_to(linked.resolve())
+
+
+def test_a_non_git_worktree_gets_a_private_temporary_folder(tmp_path: Path) -> None:
+    """No git directory: still never inside the worktree, and still writable."""
     backend = build_autobuild_backend(tmp_path)
+    root = Path(backend.artifacts_root)
+    assert not root.is_relative_to(tmp_path.resolve())
+    assert (root.stat().st_mode & 0o777) == 0o700
+    result = backend.write(f"{root}/conversation_history/s.md", "x\n")
+    assert result.error is None, result.error
+    assert not (tmp_path / "conversation_history").exists()
 
-    # Compute the path exactly the way deepagents does (summarization.py
-    # line 296). Resolving artifacts_root with rstrip mirrors the SDK.
-    prefix = f"{backend.artifacts_root.rstrip('/')}/conversation_history"
-    offload_target = f"{prefix}/session_abc.md"
 
-    result = backend.write(offload_target, "# offloaded turn 1\n")
-    assert result.error is None, (
-        f"offload write rejected — SUMM-ROOT regression? error={result.error!r} "
-        f"target={offload_target!r}"
-    )
+def test_a_symlinked_model_artifacts_folder_is_refused(tmp_path: Path) -> None:
+    worktree = _git_checkout(tmp_path / "wt")
+    scratch = worktree / ".git" / "guardkit-scratch"
+    scratch.mkdir()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (scratch / "model-artifacts").symlink_to(elsewhere, target_is_directory=True)
+    with pytest.raises(ValueError, match="symlink"):
+        build_autobuild_backend(worktree)
 
-    expected = tmp_path.resolve() / "conversation_history" / "session_abc.md"
-    assert expected.is_file(), (
-        f"offload file did not materialise inside the worktree (expected {expected})"
-    )
+
+def test_read_only_backend_gets_no_artifact_routes(tmp_path: Path) -> None:
+    """A read-only backend refuses the offload writes, as before."""
+    worktree = _git_checkout(tmp_path / "wt")
+    backend = build_autobuild_backend(worktree, read_only=True)
+    assert backend.routes == {}
+    root = backend.artifacts_root.rstrip("/")
+    result = backend.write(f"{root}/conversation_history/s.md", "x\n")
+    assert result.error is not None
+    assert not (worktree / "conversation_history").exists()
 
 
 def test_summarization_offload_does_not_attempt_host_root_write(
@@ -342,8 +434,8 @@ def test_summarization_offload_does_not_attempt_host_root_write(
         "the LocalShellBackend in a CompositeBackend with artifacts_root set "
         "to the worktree."
     )
-    assert prefix.startswith(str(tmp_path.resolve())), (
-        f"offload prefix {prefix!r} is not under the worktree {tmp_path.resolve()!r}"
+    assert not prefix.startswith(str(tmp_path.resolve())), (
+        f"offload prefix {prefix!r} is inside the worktree {tmp_path.resolve()!r}"
     )
 
 
