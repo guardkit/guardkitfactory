@@ -320,13 +320,100 @@ def test_the_lock_sets_exactly_the_clean_shape_read_only(profile: Path) -> None:
     }
 
 
-def test_a_profile_without_dcodes_folders_is_left_writable(profile: Path) -> None:
+def test_an_incomplete_skeleton_is_left_writable(
+    profile: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Only the complete skeleton is locked; nothing missing is created."""
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
+    steps = [
+        lambda: None,
+        lambda: (profile / "guardkit-player").mkdir(),
+        lambda: (profile / "guardkit-player" / "skills").mkdir(),
+    ]
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
+        for step in steps:
+            step()
+            _lock_profile(profile, _identity(profile))
+            assert all(_writable(path) for path in [profile, *profile.rglob("*")])
+    assert not (profile / "guardkit-player" / "AGENTS.md").exists()
+    warnings = [r.getMessage() for r in caplog.records if "left writable" in r.getMessage()]
+    assert len(warnings) == 3 and "guardkit-player/AGENTS.md" in warnings[-1]
+    # AGENTS.md alone, without skills: still not locked.
+    (profile / "guardkit-player" / "skills").rmdir()
+    (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
     _lock_profile(profile, _identity(profile))
-    (profile / "guardkit-player").mkdir()
-    _lock_profile(profile, _identity(profile))
-    assert all(_writable(profile / name) for name in ("", "guardkit-player"))
+    assert _writable(profile) and _writable(profile / "guardkit-player")
+
+
+def _plain_config(repo: Path, profile: Path) -> Any:
+    """A task with memory and skills both off."""
+
+    return build_player_config(cwd=repo, dcode_home=profile, lock_profile=True)
+
+
+def test_first_task_without_memory_or_skills_then_one_with_them(
+    tmp_path: Path, profile: Path
+) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _turn_plain(plain, profile)
+    # dcode made its folders but no AGENTS.md: not locked.
+    assert not (profile / "guardkit-player" / "AGENTS.md").exists()
+    assert all(_writable(path) for path in [profile, *profile.rglob("*")])
+
+    repo = _scaffold(tmp_path)
+    _turn(repo, _config(repo, profile, lock=True), [])
+    modes = _modes(profile)
+    assert "guardkit-player/AGENTS.md" in modes
+    assert all(not mode & 0o222 for mode in modes.values()), modes
+    # Both kinds of task still launch on the locked profile.
+    _turn_plain(plain, profile)
+    _turn(repo, _config(repo, profile, lock=True), [])
+
+
+def _turn_plain(repo: Path, profile: Path) -> None:
+    exchange = Exchange([])
+    model, sync, async_ = _model(exchange)
+    try:
+        harness = LangGraphHarness(
+            model, backend=_backend(repo), player_config=_plain_config(repo, profile)
+        )
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_concurrent_first_use_mixing_tasks_with_and_without_memory(
+    tmp_path: Path, profile: Path
+) -> None:
+    assert not any(profile.iterdir()) and _writable(profile)
+    plain = [tmp_path / f"plain-{index}" for index in range(2)]
+    for repo in plain:
+        repo.mkdir()
+    full = [_scaffold(tmp_path, f"full-{index}") for index in range(2)]
+
+    def run(job: tuple[str, Path]) -> bool:
+        kind, repo = job
+        if kind == "plain":
+            _turn_plain(repo, profile)
+        else:
+            _turn(repo, _config(repo, profile, lock=True), [])
+        return True
+
+    jobs = [("plain", plain[0]), ("full", full[0]), ("plain", plain[1]), ("full", full[1])]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(run, jobs)) == [True] * 4
+    modes = _modes(profile)
+    assert set(modes) == {
+        ".",
+        "guardkit-player",
+        "guardkit-player/skills",
+        "guardkit-player/AGENTS.md",
+    }
+    assert all(not mode & 0o222 for mode in modes.values()), modes
+    _turn_plain(plain[0], profile)
 
 
 def test_concurrent_first_use_of_a_fresh_profile_all_launch_and_lock_once(

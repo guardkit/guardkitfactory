@@ -511,19 +511,27 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
     The clean shape is fixed, so no tree is walked. The root is opened once
     without following a link and must be this user's directory with the
     ``identity`` (device, inode) seen around the launch check. Every other
-    entry (``guardkit-player``, its ``skills`` folder and the optional empty
+    entry (``guardkit-player``, its ``skills`` folder and its empty
     ``AGENTS.md``) is opened by name relative to its parent's descriptor,
     without following a link, and loses its write bits through that
     descriptor (dcode's 0775/0664 become 0555/0444, the owner-only root 0500).
     Anything else in the root or in ``guardkit-player``, a nonempty or
     non-regular ``AGENTS.md``, or a nonempty ``skills`` refuses the launch.
-    A profile without dcode's two folders is left writable, as today, because
-    dcode would need to create them on a later launch.
+    Only the complete skeleton is locked: when any part is missing the
+    profile is left writable, as today, with a WARNING, because a later launch
+    would need to create it. Nothing missing is created here.
     """
 
     def refuse(reason: str) -> NoReturn:
         _refuse_launch(
             f"run profile was not locked: {reason}", profile, profile_inventory(profile)
+        )
+
+    def incomplete(missing: str) -> None:
+        logger.warning(
+            "dcode Player run profile left writable: dcode has not made %s yet; profile=%s",
+            missing,
+            profile,
         )
 
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | _O_CLOEXEC
@@ -558,37 +566,29 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
         if names - {_AGENT}:
             refuse(f"unexpected entries {sorted(names - {_AGENT})}")
         if _AGENT not in names:
-            logger.warning(
-                "dcode Player run profile left writable: dcode made no %s folder; profile=%s",
-                _AGENT,
-                profile,
-            )
+            incomplete(_AGENT)
             return
         agent = open_at(_AGENT, root, directory_flags)
         agent_names = set(os.listdir(agent))
         if agent_names - {_SKILLS, _MEMORY}:
             refuse(f"unexpected entries {sorted(agent_names - {_SKILLS, _MEMORY})}")
-        if _SKILLS not in agent_names:
-            logger.warning(
-                "dcode Player run profile left writable: dcode made no %s/%s folder; profile=%s",
-                _AGENT,
-                _SKILLS,
-                profile,
-            )
+        # Only the complete skeleton is locked. dcode makes AGENTS.md only for
+        # a task with memory or skills on, so a profile first used by a task
+        # with both off stays writable until a later task completes it.
+        missing = sorted({_SKILLS, _MEMORY} - agent_names)
+        if missing:
+            incomplete(", ".join(f"{_AGENT}/{name}" for name in missing))
             return
         skills = open_at(_SKILLS, agent, directory_flags)
         if os.listdir(skills):
             refuse(f"{_AGENT}/{_SKILLS} is not empty")
-        memory = None
-        if _MEMORY in agent_names:
-            file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC
-            memory = open_at(_MEMORY, agent, file_flags)
-            memory_status = os.fstat(memory)
-            if not stat.S_ISREG(memory_status.st_mode) or memory_status.st_size != 0:
-                refuse(f"{_AGENT}/{_MEMORY} is not an empty regular file")
+        file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC
+        memory = open_at(_MEMORY, agent, file_flags)
+        memory_status = os.fstat(memory)
+        if not stat.S_ISREG(memory_status.st_mode) or memory_status.st_size != 0:
+            refuse(f"{_AGENT}/{_MEMORY} is not an empty regular file")
         for descriptor in (memory, skills, agent, root):
-            if descriptor is not None:
-                read_only(descriptor)
+            read_only(descriptor)
     except OSError as exc:
         refuse(f"{type(exc).__name__} while locking")
     finally:
