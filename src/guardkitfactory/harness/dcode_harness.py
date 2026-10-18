@@ -496,6 +496,73 @@ def _validate_launch(config: PlayerConfig) -> Path:
     return profile
 
 
+def _lock_profile(profile: Path) -> None:
+    """Make a clean, owner-selected run profile read-only before the model runs.
+
+    18 October 2026 (build FEAT-05EE, and FEAT-B463 on 11 October): the owner
+    reuses one profile for every Player turn in its process, and a stray file
+    a model's command wrote there refused every later turn. Read-only, such a
+    write fails inside the command instead. Called only after the launch check
+    passed, so the profile is exactly the clean shape dcode made; every
+    directory and clean file loses its write bits (dcode's 0775/0664 become
+    0555/0444). Links are never followed, and any
+    link or other entry found here refuses the launch: the check has already
+    refused them, so one now means the profile changed underneath it.
+    """
+
+    def changed(name: str) -> NoReturn:
+        _refuse_launch(
+            f"run profile changed after its launch check ({name}); it was not locked",
+            profile,
+            profile_inventory(profile),
+        )
+
+    def set_mode(path: Path, name: str, *, directory: bool) -> None:
+        # Opened without following a link and checked by its descriptor, so
+        # the mode is set on exactly the entry that was inspected.
+        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC
+        if directory:
+            flags |= os.O_DIRECTORY
+        descriptor = os.open(path, flags)
+        try:
+            mode = os.fstat(descriptor).st_mode
+            if not (stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)):
+                changed(name)
+            # Write bits only are cleared: 0775 becomes 0555, 0664 becomes
+            # 0444, and the owner-only root (0700) becomes 0500, never wider.
+            os.fchmod(descriptor, stat.S_IMODE(mode) & ~0o222)
+        finally:
+            os.close(descriptor)
+
+    def lock(directory: Path, relative: str) -> None:
+        for child in sorted(directory.iterdir()):
+            name = f"{relative}{child.name}"
+            mode = child.lstat().st_mode
+            if stat.S_ISDIR(mode):
+                lock(child, f"{name}/")
+                set_mode(child, name, directory=True)
+            elif stat.S_ISREG(mode) and name in _CLEAN_PROFILE:
+                set_mode(child, name, directory=False)
+            else:
+                changed(name)
+
+    try:
+        lock(profile, "")
+        set_mode(profile, ".", directory=True)
+    except OSError as exc:
+        _refuse_launch(
+            f"run profile could not be locked ({type(exc).__name__})",
+            profile,
+            profile_inventory(profile),
+        )
+    if _tree(profile) not in ({}, _CLEAN_PROFILE):
+        _refuse_launch(
+            "run profile changed while it was locked",
+            profile,
+            profile_inventory(profile),
+        )
+
+
 def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
     # The model and OPENAI_BASE_URL are fixed for the process, so a mismatch
     # would be refused on every turn: these refusals are typed launch refusals.
@@ -832,6 +899,8 @@ def create_dcode_player(
     _validate_launch(config)
     if before != after:
         _refuse("discovery sources changed during graph construction")
+    if config.lock_profile:
+        _lock_profile(profile)
     tools = sorted(graph.nodes["tools"].bound.tools_by_name)
     evidence = {
         "discovery": after,

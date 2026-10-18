@@ -1,0 +1,250 @@
+"""The owner's run profile is locked read-only once a launch passes.
+
+18 October 2026 (build FEAT-05EE, and FEAT-B463 on 11 October): GuardKit reuses
+one dcode run profile for every Player turn in its process. A model's command
+wrote ``full.log`` into it after a clean turn, and the launch check refused
+every later turn. With ``lock_profile`` (set only by the profile's owner) the
+factory makes the clean profile read-only right after the launch check passes,
+so such a write fails inside the command and the next turn launches.
+
+Real offline dcode graphs with fake provider HTTP, like ``test_dcode_harness``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import importlib.util
+import os
+import stat
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Any
+
+import pytest
+from guardkit.orchestrator.harness import ResultMessageEvent
+
+from guardkitfactory.harness import PlayerConfigError, PlayerLaunchRefused
+from guardkitfactory.harness.langgraph_harness import LangGraphHarness
+from guardkitfactory.harness.player_config import build_player_config
+
+from .test_dcode_harness import Exchange, isolate  # noqa: F401 - autouse fixture
+from .test_player_skills_graph import _backend, _close_clients, _collect, _model, _scaffold
+
+pytestmark = pytest.mark.skipif(
+    sys.version_info < (3, 12) or importlib.util.find_spec("deepagents_code") is None,
+    reason="dcode graph acceptance requires Python 3.12+ and the required dependency",
+)
+
+
+@pytest.fixture
+def profile() -> Any:
+    """The process-wide profile, left writable and empty for the next test."""
+
+    root = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
+    assert not any(root.iterdir()) or _writable(root)
+    yield root
+    for directory, _dirs, _files in os.walk(root):
+        os.chmod(directory, 0o700)
+    for path in sorted(root.rglob("*"), reverse=True):
+        if path.is_symlink() or path.is_file():
+            path.unlink()
+        else:
+            path.rmdir()
+
+
+def _writable(path: Path) -> bool:
+    return bool(path.lstat().st_mode & 0o222)
+
+
+def _modes(root: Path) -> dict[str, int]:
+    return {
+        str(path.relative_to(root)): stat.S_IMODE(path.lstat().st_mode)
+        for path in [root, *root.rglob("*")]
+    }
+
+
+def _config(repo: Path, profile: Path, *, lock: bool) -> Any:
+    extra = {"lock_profile": True} if lock else {}
+    return build_player_config(
+        cwd=repo,
+        dcode_home=profile,
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+        declared_commands=[("test", "./qa/run-suite.sh --exact")],
+        **extra,
+    )
+
+
+def _skill_reads(repo: Path) -> list[tuple[str, dict[str, object]]]:
+    root = (repo / "skills").resolve()
+    return [
+        ("read_file", {"file_path": str(root / "planning/SKILL.md"), "limit": 1000}),
+        ("read_file", {"file_path": str(root / "code-review/SKILL.md"), "limit": 1000}),
+    ]
+
+
+def _turn(repo: Path, config: Any, calls: list[tuple[str, dict[str, object]]]) -> Exchange:
+    """One Player invocation; returns its exchange (each request's body)."""
+
+    exchange = Exchange([*_skill_reads(repo), *calls])
+    model, sync, async_ = _model(exchange)
+    try:
+        harness = LangGraphHarness(model, backend=_backend(repo), player_config=config)
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        return exchange
+    finally:
+        _close_clients(sync, async_)
+
+
+def _tool_outputs(exchange: Exchange) -> list[str]:
+    return [
+        str(message.get("content"))
+        for message in exchange.bodies[-1]["messages"]
+        if message.get("role") == "tool"
+    ]
+
+
+def test_turn_one_makes_the_skeleton_then_later_turns_launch_and_a_stray_write_fails(
+    tmp_path: Path, profile: Path
+) -> None:
+    repo = _scaffold(tmp_path)
+    config = _config(repo, profile, lock=True)
+    assert config.lock_profile is True
+
+    # Turn 1: the profile is writable and empty; dcode makes its skeleton,
+    # the launch check passes, then the profile is locked.
+    _turn(repo, config, [("execute", {"command": "echo turn one"})])
+    modes = _modes(profile)
+    assert set(modes) == {
+        ".",
+        "guardkit-player",
+        "guardkit-player/skills",
+        "guardkit-player/AGENTS.md",
+    }
+    assert all(not mode & 0o222 for mode in modes.values()), modes
+    assert modes["."] == 0o500  # mkdtemp's owner-only root is never widened
+    assert modes["guardkit-player/AGENTS.md"] & 0o444
+
+    # Turn 2: the live failure. The write fails inside the model's command.
+    stray = profile / "full.log"
+    second = _turn(
+        repo,
+        config,
+        [("execute", {"command": f"scripts_check_output > {stray}; echo exit=$?"})],
+    )
+    assert not stray.exists()
+    assert any("exit=" in output and "exit=0" not in output for output in _tool_outputs(second))
+
+    # Turns 3 and 4 launch on the locked profile and do ordinary work.
+    for index in (3, 4):
+        _turn(
+            repo,
+            config,
+            [("write_file", {"file_path": str(repo / f"made_{index}.py"), "content": "x = 1\n"})],
+        )
+        assert (repo / f"made_{index}.py").read_text() == "x = 1\n"
+    assert _modes(profile) == modes
+
+
+def test_a_profile_without_lock_profile_is_never_locked_and_keeps_todays_refusal(
+    tmp_path: Path, profile: Path
+) -> None:
+    """A supplied profile, or a new factory driven by an old GuardKit."""
+
+    repo = _scaffold(tmp_path)
+    config = _config(repo, profile, lock=False)
+    assert config.lock_profile is False
+    stray = profile / "full.log"
+    _turn(repo, config, [("execute", {"command": f"printf 'out' > {stray}"})])
+
+    assert stray.read_text() == "out"
+    assert all(_writable(profile / name) for name in ("", "guardkit-player"))
+    with pytest.raises(PlayerLaunchRefused, match="unexpected configuration or nonempty memory"):
+        _turn(repo, config, [])
+
+
+@pytest.mark.parametrize("lock", [True, False])
+def test_parallel_launches_in_threads_all_succeed_locked_or_not(
+    tmp_path: Path, profile: Path, lock: bool
+) -> None:
+    first = _scaffold(tmp_path, "first")
+    _turn(first, _config(first, profile, lock=lock), [])
+    assert _writable(profile) is not lock
+    repos = [_scaffold(tmp_path, f"task-{index}") for index in range(4)]
+
+    def run(repo: Path) -> bool:
+        _turn(
+            repo,
+            _config(repo, profile, lock=lock),
+            [("write_file", {"file_path": str(repo / "done.py"), "content": "ok = 1\n"})],
+        )
+        return (repo / "done.py").exists()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(run, repos)) == [True] * 4
+    assert _writable(profile) is not lock
+
+
+@pytest.mark.parametrize("extra", ["file", "nested_file", "nonempty_memory", "link"])
+def test_a_locked_profile_with_any_extra_content_is_still_refused(
+    tmp_path: Path, profile: Path, extra: str
+) -> None:
+    """The lock never hides content: only the exact clean shape is accepted."""
+
+    repo = _scaffold(tmp_path)
+    _turn(repo, _config(repo, profile, lock=True), [])
+    agent = profile / "guardkit-player"
+    target = {
+        "file": profile / "extra.txt",
+        "nested_file": agent / "skills" / "extra.md",
+        "nonempty_memory": agent / "AGENTS.md",
+        "link": agent / "linked",
+    }[extra]
+    # Something other than the factory unlocks one folder and writes there.
+    parent = target.parent
+    parent.chmod(0o700)
+    if extra == "link":
+        target.symlink_to(repo)
+    elif extra == "nonempty_memory":
+        target.chmod(0o600)
+        target.write_text("remembered")
+        target.chmod(0o400)
+    else:
+        target.write_text("extra")
+    parent.chmod(0o500)
+    assert not _writable(profile)
+
+    with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
+        _config(repo, profile, lock=True)
+
+
+def test_the_lock_refuses_a_link_it_finds_and_never_follows_it(
+    tmp_path: Path, profile: Path
+) -> None:
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "keep.txt").write_text("not the profile's")
+    (profile / "guardkit-player").mkdir()
+    (profile / "guardkit-player" / "linked").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(PlayerLaunchRefused, match="changed after its launch check"):
+        _lock_profile(profile)
+    assert _writable(outside) and _writable(outside / "keep.txt")
+
+
+def test_non_writable_profile_without_the_owner_setting_is_refused_as_today(
+    tmp_path: Path, profile: Path
+) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    profile.chmod(0o500)
+    with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
+        build_player_config(cwd=repo, dcode_home=profile)
+    assert build_player_config(cwd=repo, dcode_home=profile, lock_profile=True).lock_profile
+    with pytest.raises(PlayerConfigError, match="lock_profile must be a boolean"):
+        build_player_config(cwd=repo, dcode_home=profile, lock_profile="yes")  # type: ignore[arg-type]

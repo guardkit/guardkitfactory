@@ -32,6 +32,10 @@ class PlayerConfig:
     cwd: Path
     dcode_home: Path
     required_documents: tuple[Path, ...] = ()
+    # Set by the profile's owner (GuardKit, for the profile it made itself):
+    # after a launch passes its check the profile is made read-only, so a
+    # stray write into it fails instead of refusing every later turn.
+    lock_profile: bool = False
 
 
 _MAX_REQUIRED_DOCUMENTS = 32
@@ -204,7 +208,9 @@ def _canonical_commands(values: Sequence[tuple[str, str]]) -> tuple[tuple[str, s
     return tuple(commands)
 
 
-def _canonical_dcode_home(value: str | Path, *, cwd: Path) -> Path:
+def _canonical_dcode_home(
+    value: str | Path, *, cwd: Path, lock_profile: bool = False
+) -> Path:
     selected = Path(value)
     if not selected.is_absolute():
         raise PlayerConfigError("dcode_home must be an absolute path")
@@ -213,8 +219,23 @@ def _canonical_dcode_home(value: str | Path, *, cwd: Path) -> Path:
         raise PlayerConfigError("dcode_home must be outside the task worktree")
     mode = resolved.stat().st_mode
     if not mode & _WRITE_BITS or not os.access(resolved, os.W_OK):
-        raise PlayerConfigError(f"dcode_home is not writable: {resolved}")
+        # A profile its owner had locked after a passing launch is accepted
+        # read-only, but only while it is exactly the clean shape.
+        if not (lock_profile and _is_clean_locked_profile(resolved)):
+            raise PlayerConfigError(f"dcode_home is not writable: {resolved}")
     return resolved
+
+
+def _is_clean_locked_profile(profile: Path) -> bool:
+    # Lazy import: dcode_harness imports this module.
+    from guardkitfactory.harness.dcode_harness import _CLEAN_PROFILE, _tree
+    from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
+
+    try:
+        files = _tree(profile)
+    except (LangGraphHarnessError, OSError):
+        return False
+    return files in ({}, _CLEAN_PROFILE)
 
 
 def build_player_config(
@@ -227,8 +248,16 @@ def build_player_config(
     declared_commands: Sequence[tuple[str, str]] = (),
     protected_paths: Iterable[str | Path] = (),
     required_documents: Iterable[str | Path] = (),
+    lock_profile: bool = False,
 ) -> PlayerConfig:
-    """Validate the project-supplied inputs for one normal Player."""
+    """Validate the project-supplied inputs for one normal Player.
+
+    ``lock_profile`` is for the owner of ``dcode_home`` only (GuardKit, for the
+    profile it made itself); a profile supplied from outside never sets it.
+    """
+
+    if not isinstance(lock_profile, bool):
+        raise PlayerConfigError("lock_profile must be a boolean")
 
     actual_cwd = _canonical_directory(Path(cwd), label="Player cwd")
     return PlayerConfig(
@@ -244,10 +273,13 @@ def build_player_config(
         declared_commands=_canonical_commands(declared_commands),
         protected_paths=_canonical_protected_paths(protected_paths, cwd=actual_cwd),
         cwd=actual_cwd,
-        dcode_home=_canonical_dcode_home(dcode_home, cwd=actual_cwd),
+        dcode_home=_canonical_dcode_home(
+            dcode_home, cwd=actual_cwd, lock_profile=lock_profile
+        ),
         required_documents=_canonical_required_documents(
             required_documents, cwd=actual_cwd
         ),
+        lock_profile=lock_profile,
     )
 
 
@@ -265,6 +297,7 @@ def revalidate_player_config(config: PlayerConfig, *, cwd: Path) -> PlayerConfig
         declared_commands=config.declared_commands,
         protected_paths=config.protected_paths,
         required_documents=config.required_documents,
+        lock_profile=config.lock_profile,
     )
     if rebuilt != config:
         raise PlayerConfigError("Player configuration changed before invocation")
