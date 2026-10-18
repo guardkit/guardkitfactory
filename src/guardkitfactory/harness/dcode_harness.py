@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, NoReturn
 from urllib.parse import urlsplit
@@ -517,9 +518,12 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
     descriptor (dcode's 0775/0664 become 0555/0444, the owner-only root 0500).
     Anything else in the root or in ``guardkit-player``, a nonempty or
     non-regular ``AGENTS.md``, or a nonempty ``skills`` refuses the launch.
-    Only the complete skeleton is locked: when any part is missing the
-    profile is left writable, as today, with a WARNING, because a later launch
-    would need to create it. Nothing missing is created here.
+    Only the complete skeleton is locked. dcode makes ``guardkit-player`` at
+    its first launch; without it the profile is left writable, as today, with
+    a WARNING. A missing ``skills`` folder or empty ``AGENTS.md`` is made here
+    through ``guardkit-player``'s descriptor (never by path), so a later task
+    with memory or skills on still finds them; if that fails the profile is
+    left writable with a WARNING.
     """
 
     def refuse(reason: str) -> NoReturn:
@@ -527,12 +531,6 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
             f"run profile was not locked: {reason}", profile, profile_inventory(profile)
         )
 
-    def incomplete(missing: str) -> None:
-        logger.warning(
-            "dcode Player run profile left writable: dcode has not made %s yet; profile=%s",
-            missing,
-            profile,
-        )
 
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | _O_CLOEXEC
     opened: list[int] = []
@@ -566,19 +564,41 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
         if names - {_AGENT}:
             refuse(f"unexpected entries {sorted(names - {_AGENT})}")
         if _AGENT not in names:
-            incomplete(_AGENT)
+            logger.warning(
+                "dcode Player run profile left writable: dcode has not made %s yet; profile=%s",
+                _AGENT,
+                profile,
+            )
             return
         agent = open_at(_AGENT, root, directory_flags)
         agent_names = set(os.listdir(agent))
         if agent_names - {_SKILLS, _MEMORY}:
             refuse(f"unexpected entries {sorted(agent_names - {_SKILLS, _MEMORY})}")
         # Only the complete skeleton is locked. dcode makes AGENTS.md only for
-        # a task with memory or skills on, so a profile first used by a task
-        # with both off stays writable until a later task completes it.
-        missing = sorted({_SKILLS, _MEMORY} - agent_names)
-        if missing:
-            incomplete(", ".join(f"{_AGENT}/{name}" for name in missing))
+        # a task with memory or skills on (the live FEAT-05EE project has
+        # neither), so the missing clean entries are made here, through
+        # guardkit-player's descriptor, before locking: then a later task with
+        # memory or skills on finds them. Another launch making one at the
+        # same moment (EEXIST) counts as present; the reopen below checks it.
+        try:
+            if _SKILLS not in agent_names:
+                with suppress(FileExistsError):
+                    os.mkdir(_SKILLS, 0o755, dir_fd=agent)
+            if _MEMORY not in agent_names:
+                create = os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | _O_CLOEXEC
+                with suppress(FileExistsError):
+                    os.close(os.open(_MEMORY, create, 0o644, dir_fd=agent))
+        except OSError as exc:
+            logger.warning(
+                "dcode Player run profile left writable: could not make its clean "
+                "entries (%s); profile=%s",
+                type(exc).__name__,
+                profile,
+            )
             return
+        agent_names = set(os.listdir(agent))
+        if agent_names != {_SKILLS, _MEMORY}:
+            refuse(f"unexpected entries {sorted(agent_names)}")
         skills = open_at(_SKILLS, agent, directory_flags)
         if os.listdir(skills):
             refuse(f"{_AGENT}/{_SKILLS} is not empty")

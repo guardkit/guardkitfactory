@@ -320,60 +320,133 @@ def test_the_lock_sets_exactly_the_clean_shape_read_only(profile: Path) -> None:
     }
 
 
-def test_an_incomplete_skeleton_is_left_writable(
+def _locked_clean(profile: Path) -> bool:
+    modes = _modes(profile)
+    return set(modes) == {
+        ".",
+        "guardkit-player",
+        "guardkit-player/skills",
+        "guardkit-player/AGENTS.md",
+    } and all(not mode & 0o222 for mode in modes.values())
+
+
+def test_without_dcodes_agent_folder_nothing_is_made_or_locked(
     profile: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Only the complete skeleton is locked; nothing missing is created."""
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
-    steps = [
-        lambda: None,
-        lambda: (profile / "guardkit-player").mkdir(),
-        lambda: (profile / "guardkit-player" / "skills").mkdir(),
-    ]
     with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
-        for step in steps:
-            step()
-            _lock_profile(profile, _identity(profile))
-            assert all(_writable(path) for path in [profile, *profile.rglob("*")])
-    assert not (profile / "guardkit-player" / "AGENTS.md").exists()
-    warnings = [r.getMessage() for r in caplog.records if "left writable" in r.getMessage()]
-    assert len(warnings) == 3 and "guardkit-player/AGENTS.md" in warnings[-1]
-    # AGENTS.md alone, without skills: still not locked.
-    (profile / "guardkit-player" / "skills").rmdir()
-    (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
+        _lock_profile(profile, _identity(profile))
+    assert not any(profile.iterdir()) and _writable(profile)
+    assert any("has not made guardkit-player" in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.parametrize("present", [(), ("skills",), ("AGENTS.md",)])
+def test_missing_clean_entries_are_made_through_the_folder_and_locked(
+    profile: Path, present: tuple[str, ...]
+) -> None:
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    agent = profile / "guardkit-player"
+    agent.mkdir()
+    if "skills" in present:
+        (agent / "skills").mkdir()
+    if "AGENTS.md" in present:
+        (agent / "AGENTS.md").write_bytes(b"")
+
     _lock_profile(profile, _identity(profile))
-    assert _writable(profile) and _writable(profile / "guardkit-player")
+
+    assert _locked_clean(profile)
+    assert (agent / "AGENTS.md").read_bytes() == b""
+
+
+def test_launches_racing_to_make_the_clean_entries_all_lock_cleanly(profile: Path) -> None:
+    import threading
+
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    (profile / "guardkit-player").mkdir()
+    start = threading.Barrier(8)
+    seen = _identity(profile)
+
+    def lock(_index: int) -> None:
+        start.wait(10)
+        _lock_profile(profile, seen)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        list(pool.map(lock, range(8)))
+    assert _locked_clean(profile)
+
+
+def test_creating_through_the_folder_cannot_be_redirected(
+    tmp_path: Path, profile: Path
+) -> None:
+    """guardkit-player swapped for a link before the create: refused, outside unchanged."""
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    outside = tmp_path / "outside-agent"
+    outside.mkdir()
+    before = _modes(outside)
+    (profile / "guardkit-player").symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(PlayerLaunchRefused, match="without following a link"):
+        _lock_profile(profile, _identity(profile))
+    assert _modes(outside) == before and not any(outside.iterdir())
+    assert _writable(profile)
 
 
 def _plain_config(repo: Path, profile: Path) -> Any:
-    """A task with memory and skills both off."""
+    """A task with memory and skills both off (the live FEAT-05EE project)."""
 
     return build_player_config(cwd=repo, dcode_home=profile, lock_profile=True)
 
 
-def test_first_task_without_memory_or_skills_then_one_with_them(
+def test_memory_off_first_task_is_locked_then_one_with_memory_launches(
     tmp_path: Path, profile: Path
 ) -> None:
     plain = tmp_path / "plain"
     plain.mkdir()
     _turn_plain(plain, profile)
-    # dcode made its folders but no AGENTS.md: not locked.
-    assert not (profile / "guardkit-player" / "AGENTS.md").exists()
-    assert all(_writable(path) for path in [profile, *profile.rglob("*")])
+    # dcode made only its folders; the lock made the empty AGENTS.md and locked.
+    assert _locked_clean(profile)
 
     repo = _scaffold(tmp_path)
     _turn(repo, _config(repo, profile, lock=True), [])
-    modes = _modes(profile)
-    assert "guardkit-player/AGENTS.md" in modes
-    assert all(not mode & 0o222 for mode in modes.values()), modes
-    # Both kinds of task still launch on the locked profile.
+    _turn_plain(plain, profile)
+    assert _locked_clean(profile)
+
+
+def test_memory_on_first_task_then_one_with_memory_off(tmp_path: Path, profile: Path) -> None:
+    repo = _scaffold(tmp_path)
+    _turn(repo, _config(repo, profile, lock=True), [])
+    assert _locked_clean(profile)
+    plain = tmp_path / "plain"
+    plain.mkdir()
     _turn_plain(plain, profile)
     _turn(repo, _config(repo, profile, lock=True), [])
+    assert _locked_clean(profile)
 
 
-def _turn_plain(repo: Path, profile: Path) -> None:
-    exchange = Exchange([])
+def test_feat_05ee_stray_write_in_the_memory_off_shape_fails_and_the_next_turn_launches(
+    tmp_path: Path, profile: Path
+) -> None:
+    plain = tmp_path / "plain"
+    plain.mkdir()
+    _turn_plain(plain, profile)
+    assert _locked_clean(profile)
+    stray = profile / "full.log"
+    exchange = _turn_plain(
+        plain, profile, [("execute", {"command": f"printf 'check output' > {stray}; echo exit=$?"})]
+    )
+    assert not stray.exists()
+    assert any("exit=" in out and "exit=0" not in out for out in _tool_outputs(exchange))
+    _turn_plain(plain, profile)
+
+
+def _turn_plain(
+    repo: Path, profile: Path, calls: list[tuple[str, dict[str, object]]] | None = None
+) -> Exchange:
+    exchange = Exchange(calls or [])
     model, sync, async_ = _model(exchange)
     try:
         harness = LangGraphHarness(
@@ -381,6 +454,7 @@ def _turn_plain(repo: Path, profile: Path) -> None:
         )
         events = asyncio.run(_collect(harness, repo))
         assert any(isinstance(event, ResultMessageEvent) for event in events)
+        return exchange
     finally:
         _close_clients(sync, async_)
 
