@@ -11,7 +11,6 @@ compose with this class but live elsewhere.
 from __future__ import annotations
 
 from guardkitfactory.harness.backend_config import build_autobuild_backend
-from guardkitfactory.harness.dcode_harness import reset_run_profile
 from guardkitfactory.harness.langgraph_harness import (
     LangGraphHarness,
     LangGraphHarnessError,
@@ -38,6 +37,5 @@ __all__ = [
     "build_autobuild_backend",
     "build_player_config",
     "build_autobuild_permissions",
-    "reset_run_profile",
     "resolve_autobuild_model",
 ]
