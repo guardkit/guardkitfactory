@@ -47,7 +47,7 @@ import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import suppress
+from contextlib import aclosing, nullcontext, suppress
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -1098,7 +1098,35 @@ class LangGraphHarness(HarnessAdapter):
         out of scope per AC-006). TASK-HMIG-006 will refine the event
         stream to mirror the SDK taxonomy more faithfully — until then,
         downstream consumers only need to dispatch on the terminal event.
+
+        A Player invocation marks its run profile as in use from before its
+        launch check until its finalisation, so the profile's owner never
+        resets the profile under it (18 October 2026, build FEAT-05EE).
         """
+        turn = self._invoke_turn(
+            prompt, role, tools, cwd, timeout_seconds=timeout_seconds
+        )
+        if role == "player" and self.player_config is not None:
+            from guardkitfactory.harness.dcode_harness import player_profile_in_use
+
+            in_use = player_profile_in_use(self.player_config.dcode_home)
+        else:
+            in_use = nullcontext()
+        with in_use:
+            async with aclosing(turn) as stream:
+                async for event in stream:
+                    yield event
+
+    async def _invoke_turn(
+        self,
+        prompt: str,
+        role: str,
+        tools: list,
+        cwd: Path,
+        *,
+        timeout_seconds: int,
+    ) -> AsyncIterator[HarnessEvent]:
+        """The body of :meth:`invoke`, which owns its clients and profile use."""
         required_skill_documents: tuple[dict[str, Any], ...] = ()
         if role == "player" and self.player_config is not None:
             self.last_player_evidence = None

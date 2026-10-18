@@ -1316,6 +1316,60 @@ def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
         _close_clients(sync_two, async_two)
 
 
+def test_owner_reset_lets_the_next_turn_launch_but_never_during_an_invocation(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """FEAT-05EE: turn 2 left ``full.log`` in the reused profile; turn 3 was refused.
+
+    The profile's owner resets it between invocations. While an invocation
+    runs (observed from inside its model call) the reset does nothing, so a
+    running Player never has its profile changed under it.
+    """
+    from guardkitfactory.harness import reset_run_profile
+
+    repo = tmp_path / "task"
+    repo.mkdir()
+    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
+    stray = profile / "full.log"
+    during: list[Any] = []
+
+    class ResetDuringCall(Exchange):
+        def __call__(self, request: httpx.Request) -> httpx.Response:
+            if len(self.requests) == 1:
+                # The shell command has run: the stray file is there now.
+                during.append((stray.exists(), reset_run_profile(profile)))
+            return super().__call__(request)
+
+    selected = build_player_config(cwd=repo, dcode_home=str(profile))
+    first = ResetDuringCall([("execute", {"command": f"printf 'check output' > {stray}"})])
+    model, sync, async_ = _model(first)
+    second = Exchange([])
+    model_two, sync_two, async_two = _model(second)
+    try:
+        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert during == [(True, None)]
+        assert stray.exists()
+
+        with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
+            removed = reset_run_profile(profile)
+        assert removed is not None and [entry["path"] for entry in removed] == ["full.log"]
+        assert any("reset before launch" in r.getMessage() for r in caplog.records)
+
+        harness_two = LangGraphHarness(
+            model_two, backend=_backend(repo), player_config=selected
+        )
+        events_two = asyncio.run(_collect(harness_two, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events_two)
+        assert second.requests
+    finally:
+        if stray.exists():
+            stray.unlink()
+        _close_clients(sync, async_)
+        _close_clients(sync_two, async_two)
+
+
 @pytest.mark.parametrize(
     "setting", ["offline", "tracing", "home_mismatch", "already_imported", "endpoint_mismatch"]
 )
