@@ -3,7 +3,8 @@
 18 October 2026 (build FEAT-05EE, and FEAT-B463 on 11 October): GuardKit reuses
 one dcode run profile for every Player turn in its process. A model's command
 wrote ``full.log`` into it after a clean turn, and the launch check refused
-every later turn. With ``lock_profile`` (set only by the profile's owner) the
+every later turn. With ``lock_profile_identity`` (set only by the profile's
+owner, to the directory's device and inode recorded when it made it) the
 factory makes the clean profile read-only right after the launch check passes,
 so such a write fails inside the command and the next turn launches.
 
@@ -65,7 +66,7 @@ def _modes(root: Path) -> dict[str, int]:
 
 
 def _config(repo: Path, profile: Path, *, lock: bool) -> Any:
-    extra = {"lock_profile": True} if lock else {}
+    extra = {"lock_profile_identity": _identity(profile)} if lock else {}
     return build_player_config(
         cwd=repo,
         dcode_home=profile,
@@ -112,7 +113,7 @@ def test_turn_one_makes_the_skeleton_then_later_turns_launch_and_a_stray_write_f
 ) -> None:
     repo = _scaffold(tmp_path)
     config = _config(repo, profile, lock=True)
-    assert config.lock_profile is True
+    assert config.lock_profile_identity == _identity(profile)
 
     # Turn 1: the profile is writable and empty; dcode makes its skeleton,
     # the launch check passes, then the profile is locked.
@@ -156,7 +157,7 @@ def test_a_profile_without_lock_profile_is_never_locked_and_keeps_todays_refusal
 
     repo = _scaffold(tmp_path)
     config = _config(repo, profile, lock=False)
-    assert config.lock_profile is False
+    assert config.lock_profile_identity is None
     stray = profile / "full.log"
     _turn(repo, config, [("execute", {"command": f"printf 'out' > {stray}"})])
 
@@ -240,22 +241,23 @@ def _skeleton(profile: Path) -> None:
     (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
 
 
-def test_a_root_replaced_by_a_link_is_refused_and_nothing_outside_changes(
-    tmp_path: Path, profile: Path
+def test_a_root_that_is_not_the_owners_directory_is_not_locked_and_not_changed(
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
     outside, before = _outside_tree(tmp_path)
-    seen = _identity(profile)
+    recorded = _identity(profile)
     link = tmp_path / "profile-link"
     link.symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(PlayerLaunchRefused, match="without following a link"):
-        _lock_profile(link, seen)
-    # The validated directory itself, swapped for another directory: refused too.
-    with pytest.raises(PlayerLaunchRefused, match="not the directory the launch check saw"):
-        _lock_profile(outside, seen)
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
+        _lock_profile(link, recorded)  # a link: not opened
+        _lock_profile(outside, recorded)  # another directory: not the recorded one
     assert _modes(outside) == before
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("without following a link" in m for m in messages)
+    assert any("not the directory its owner made" in m for m in messages)
 
 
 def test_an_agent_folder_replaced_by_a_link_is_refused_and_nothing_outside_changes(
@@ -398,7 +400,9 @@ def test_creating_through_the_folder_cannot_be_redirected(
 def _plain_config(repo: Path, profile: Path) -> Any:
     """A task with memory and skills both off (the live FEAT-05EE project)."""
 
-    return build_player_config(cwd=repo, dcode_home=profile, lock_profile=True)
+    return build_player_config(
+        cwd=repo, dcode_home=profile, lock_profile_identity=_identity(profile)
+    )
 
 
 def test_memory_off_first_task_is_locked_then_one_with_memory_launches(
@@ -528,6 +532,17 @@ def test_non_writable_profile_without_the_owner_setting_is_refused_as_today(
     profile.chmod(0o500)
     with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
         build_player_config(cwd=repo, dcode_home=profile)
-    assert build_player_config(cwd=repo, dcode_home=profile, lock_profile=True).lock_profile
-    with pytest.raises(PlayerConfigError, match="lock_profile must be a boolean"):
-        build_player_config(cwd=repo, dcode_home=profile, lock_profile="yes")  # type: ignore[arg-type]
+    with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
+        build_player_config(cwd=repo, dcode_home=profile, lock_profile_identity=(1, 2))
+    recorded = _identity(profile)
+    assert (
+        build_player_config(
+            cwd=repo, dcode_home=profile, lock_profile_identity=recorded
+        ).lock_profile_identity
+        == recorded
+    )
+    for bad in (True, (1,), (1, "2"), (True, 1), [1, 2]):
+        with pytest.raises(PlayerConfigError, match="lock_profile_identity must be"):
+            build_player_config(
+                cwd=repo, dcode_home=profile, lock_profile_identity=bad  # type: ignore[arg-type]
+            )

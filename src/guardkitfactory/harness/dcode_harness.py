@@ -511,7 +511,9 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
 
     The clean shape is fixed, so no tree is walked. The root is opened once
     without following a link and must be this user's directory with the
-    ``identity`` (device, inode) seen around the launch check. Every other
+    ``identity`` (device, inode) its owner recorded when it made the profile;
+    otherwise nothing is made or changed, a WARNING is logged and the launch
+    goes on as today. Every other
     entry (``guardkit-player``, its ``skills`` folder and its empty
     ``AGENTS.md``) is opened by name relative to its parent's descriptor,
     without following a link, and loses its write bits through that
@@ -531,16 +533,16 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
             f"run profile was not locked: {reason}", profile, profile_inventory(profile)
         )
 
+    def not_owned(reason: str) -> None:
+        logger.warning("dcode Player run profile not locked: %s; profile=%s", reason, profile)
+
 
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | _O_CLOEXEC
     opened: list[int] = []
 
-    def open_at(name: str, parent: int | None, flags: int) -> int:
+    def open_at(name: str, parent: int, flags: int) -> int:
         try:
-            if parent is None:
-                descriptor = os.open(profile, flags)
-            else:
-                descriptor = os.open(name, flags, dir_fd=parent)
+            descriptor = os.open(name, flags, dir_fd=parent)
         except OSError as exc:
             refuse(
                 f"{name} could not be opened without following a link "
@@ -554,12 +556,22 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
         os.fchmod(descriptor, mode & ~0o222)
 
     try:
-        root = open_at(".", None, directory_flags)
+        # The root must be, by its own descriptor, the directory the owner
+        # recorded when it made the profile. Otherwise it is not the owner's
+        # to lock: nothing is made or changed, and the launch goes on as today.
+        try:
+            root = os.open(profile, directory_flags)
+        except OSError as exc:
+            not_owned(f"it could not be opened without following a link ({type(exc).__name__})")
+            return
+        opened.append(root)
         status = os.fstat(root)
         if not stat.S_ISDIR(status.st_mode) or status.st_uid != os.geteuid():
-            refuse("the profile is not a directory owned by this user")
+            not_owned("it is not a directory owned by this user")
+            return
         if (status.st_dev, status.st_ino) != identity:
-            refuse("the profile is not the directory the launch check saw")
+            not_owned("it is not the directory its owner made")
+            return
         names = set(os.listdir(root))
         if names - {_AGENT}:
             refuse(f"unexpected entries {sorted(names - {_AGENT})}")
@@ -949,14 +961,11 @@ def create_dcode_player(
         environ=dcode_environment,
     )
     after = _inventory(config, context)
-    seen = os.lstat(profile)
     _validate_launch(config)
     if before != after:
         _refuse("discovery sources changed during graph construction")
-    if config.lock_profile:
-        if not stat.S_ISDIR(seen.st_mode):
-            _refuse_launch("run profile is not a directory; it was not locked", profile, [])
-        _lock_profile(profile, (seen.st_dev, seen.st_ino))
+    if config.lock_profile_identity is not None:
+        _lock_profile(profile, config.lock_profile_identity)
     tools = sorted(graph.nodes["tools"].bound.tools_by_name)
     evidence = {
         "discovery": after,

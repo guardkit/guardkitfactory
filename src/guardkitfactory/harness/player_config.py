@@ -32,10 +32,11 @@ class PlayerConfig:
     cwd: Path
     dcode_home: Path
     required_documents: tuple[Path, ...] = ()
-    # Set by the profile's owner (GuardKit, for the profile it made itself):
-    # after a launch passes its check the profile is made read-only, so a
-    # stray write into it fails instead of refusing every later turn.
-    lock_profile: bool = False
+    # Set by the profile's owner (GuardKit, for the profile it made itself) to
+    # the (st_dev, st_ino) it recorded when it made it: after a launch passes
+    # its check that same directory is made read-only, so a stray write into
+    # it fails instead of refusing every later turn.
+    lock_profile_identity: tuple[int, int] | None = None
 
 
 _MAX_REQUIRED_DOCUMENTS = 32
@@ -209,7 +210,7 @@ def _canonical_commands(values: Sequence[tuple[str, str]]) -> tuple[tuple[str, s
 
 
 def _canonical_dcode_home(
-    value: str | Path, *, cwd: Path, lock_profile: bool = False
+    value: str | Path, *, cwd: Path, lock_profile_identity: tuple[int, int] | None = None
 ) -> Path:
     selected = Path(value)
     if not selected.is_absolute():
@@ -220,10 +221,20 @@ def _canonical_dcode_home(
     mode = resolved.stat().st_mode
     if not mode & _WRITE_BITS or not os.access(resolved, os.W_OK):
         # A profile its owner had locked after a passing launch is accepted
-        # read-only, but only while it is exactly the clean shape.
-        if not (lock_profile and _is_clean_locked_profile(resolved)):
+        # read-only, but only while it is the owner's directory (the recorded
+        # identity) and exactly the clean shape.
+        owned = lock_profile_identity is not None and _identity(resolved) == lock_profile_identity
+        if not (owned and _is_clean_locked_profile(resolved)):
             raise PlayerConfigError(f"dcode_home is not writable: {resolved}")
     return resolved
+
+
+def _identity(path: Path) -> tuple[int, int] | None:
+    try:
+        status = os.lstat(path)
+    except OSError:
+        return None
+    return (status.st_dev, status.st_ino) if stat.S_ISDIR(status.st_mode) else None
 
 
 def _is_clean_locked_profile(profile: Path) -> bool:
@@ -248,16 +259,27 @@ def build_player_config(
     declared_commands: Sequence[tuple[str, str]] = (),
     protected_paths: Iterable[str | Path] = (),
     required_documents: Iterable[str | Path] = (),
-    lock_profile: bool = False,
+    lock_profile_identity: tuple[int, int] | None = None,
 ) -> PlayerConfig:
     """Validate the project-supplied inputs for one normal Player.
 
-    ``lock_profile`` is for the owner of ``dcode_home`` only (GuardKit, for the
-    profile it made itself); a profile supplied from outside never sets it.
+    ``lock_profile_identity`` is for the owner of ``dcode_home`` only (GuardKit,
+    for the profile it made itself): the (st_dev, st_ino) it recorded when it
+    made the profile. A profile supplied from outside never sets it.
     """
 
-    if not isinstance(lock_profile, bool):
-        raise PlayerConfigError("lock_profile must be a boolean")
+    if lock_profile_identity is not None:
+        if (
+            not isinstance(lock_profile_identity, tuple)
+            or len(lock_profile_identity) != 2
+            or not all(
+                isinstance(part, int) and not isinstance(part, bool)
+                for part in lock_profile_identity
+            )
+        ):
+            raise PlayerConfigError(
+                "lock_profile_identity must be a (st_dev, st_ino) pair of integers"
+            )
 
     actual_cwd = _canonical_directory(Path(cwd), label="Player cwd")
     return PlayerConfig(
@@ -274,12 +296,12 @@ def build_player_config(
         protected_paths=_canonical_protected_paths(protected_paths, cwd=actual_cwd),
         cwd=actual_cwd,
         dcode_home=_canonical_dcode_home(
-            dcode_home, cwd=actual_cwd, lock_profile=lock_profile
+            dcode_home, cwd=actual_cwd, lock_profile_identity=lock_profile_identity
         ),
         required_documents=_canonical_required_documents(
             required_documents, cwd=actual_cwd
         ),
-        lock_profile=lock_profile,
+        lock_profile_identity=lock_profile_identity,
     )
 
 
@@ -297,7 +319,7 @@ def revalidate_player_config(config: PlayerConfig, *, cwd: Path) -> PlayerConfig
         declared_commands=config.declared_commands,
         protected_paths=config.protected_paths,
         required_documents=config.required_documents,
-        lock_profile=config.lock_profile,
+        lock_profile_identity=config.lock_profile_identity,
     )
     if rebuilt != config:
         raise PlayerConfigError("Player configuration changed before invocation")
