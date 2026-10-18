@@ -546,12 +546,22 @@ def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
 
 
 class _DiscoveryWarnings(logging.Handler):
+    """Collect the skill loader's warnings for one discovery call.
+
+    The loader's logger is shared by the whole process, and parallel tasks
+    run Player launches in threads, so only warnings from the thread that
+    installed this handler are this discovery's (18 October 2026: another
+    task's missing skill folders refused a launch running beside it).
+    """
+
     def __init__(self) -> None:
         super().__init__(level=logging.WARNING)
         self.messages: list[str] = []
+        self._thread = threading.get_ident()
 
     def emit(self, record: logging.LogRecord) -> None:
-        self.messages.append(record.getMessage())
+        if record.thread == self._thread:
+            self.messages.append(record.getMessage())
 
 
 def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:

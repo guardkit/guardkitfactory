@@ -2219,3 +2219,23 @@ def test_refusal_is_raised_promptly_when_its_diagnostic_read_blocks(
         release.set()
         link.unlink()
         blocked.unlink()
+
+
+def test_discovery_warnings_ignore_other_threads() -> None:
+    """A parallel task's skill-loader warning never refuses another launch."""
+    import logging
+    import threading
+
+    from guardkitfactory.harness.dcode_harness import _DiscoveryWarnings
+
+    shared = logging.getLogger("deepagents.middleware.skills")
+    handler = _DiscoveryWarnings()
+    shared.addHandler(handler)
+    try:
+        other = threading.Thread(target=shared.warning, args=("other task's skills missing",))
+        other.start()
+        other.join()
+        shared.warning("this discovery's warning")
+    finally:
+        shared.removeHandler(handler)
+    assert handler.messages == ["this discovery's warning"]
