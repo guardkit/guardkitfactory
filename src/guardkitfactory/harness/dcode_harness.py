@@ -496,71 +496,104 @@ def _validate_launch(config: PlayerConfig) -> Path:
     return profile
 
 
-def _lock_profile(profile: Path) -> None:
+_SKILLS = "skills"
+_MEMORY = "AGENTS.md"
+
+
+def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
     """Make a clean, owner-selected run profile read-only before the model runs.
 
     18 October 2026 (build FEAT-05EE, and FEAT-B463 on 11 October): the owner
     reuses one profile for every Player turn in its process, and a stray file
     a model's command wrote there refused every later turn. Read-only, such a
-    write fails inside the command instead. Called only after the launch check
-    passed, so the profile is exactly the clean shape dcode made; every
-    directory and clean file loses its write bits (dcode's 0775/0664 become
-    0555/0444). Links are never followed, and any
-    link or other entry found here refuses the launch: the check has already
-    refused them, so one now means the profile changed underneath it.
+    write fails inside the command instead.
+
+    The clean shape is fixed, so no tree is walked. The root is opened once
+    without following a link and must be this user's directory with the
+    ``identity`` (device, inode) seen around the launch check. Every other
+    entry (``guardkit-player``, its ``skills`` folder and the optional empty
+    ``AGENTS.md``) is opened by name relative to its parent's descriptor,
+    without following a link, and loses its write bits through that
+    descriptor (dcode's 0775/0664 become 0555/0444, the owner-only root 0500).
+    Anything else in the root or in ``guardkit-player``, a nonempty or
+    non-regular ``AGENTS.md``, or a nonempty ``skills`` refuses the launch.
+    A profile without dcode's two folders is left writable, as today, because
+    dcode would need to create them on a later launch.
     """
 
-    def changed(name: str) -> NoReturn:
+    def refuse(reason: str) -> NoReturn:
         _refuse_launch(
-            f"run profile changed after its launch check ({name}); it was not locked",
-            profile,
-            profile_inventory(profile),
+            f"run profile was not locked: {reason}", profile, profile_inventory(profile)
         )
 
-    def set_mode(path: Path, name: str, *, directory: bool) -> None:
-        # Opened without following a link and checked by its descriptor, so
-        # the mode is set on exactly the entry that was inspected.
-        flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC
-        if directory:
-            flags |= os.O_DIRECTORY
-        descriptor = os.open(path, flags)
-        try:
-            mode = os.fstat(descriptor).st_mode
-            if not (stat.S_ISDIR(mode) if directory else stat.S_ISREG(mode)):
-                changed(name)
-            # Write bits only are cleared: 0775 becomes 0555, 0664 becomes
-            # 0444, and the owner-only root (0700) becomes 0500, never wider.
-            os.fchmod(descriptor, stat.S_IMODE(mode) & ~0o222)
-        finally:
-            os.close(descriptor)
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | _O_CLOEXEC
+    opened: list[int] = []
 
-    def lock(directory: Path, relative: str) -> None:
-        for child in sorted(directory.iterdir()):
-            name = f"{relative}{child.name}"
-            mode = child.lstat().st_mode
-            if stat.S_ISDIR(mode):
-                lock(child, f"{name}/")
-                set_mode(child, name, directory=True)
-            elif stat.S_ISREG(mode) and name in _CLEAN_PROFILE:
-                set_mode(child, name, directory=False)
+    def open_at(name: str, parent: int | None, flags: int) -> int:
+        try:
+            if parent is None:
+                descriptor = os.open(profile, flags)
             else:
-                changed(name)
+                descriptor = os.open(name, flags, dir_fd=parent)
+        except OSError as exc:
+            refuse(
+                f"{name} could not be opened without following a link "
+                f"({type(exc).__name__})"
+            )
+        opened.append(descriptor)
+        return descriptor
+
+    def read_only(descriptor: int) -> None:
+        mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+        os.fchmod(descriptor, mode & ~0o222)
 
     try:
-        lock(profile, "")
-        set_mode(profile, ".", directory=True)
+        root = open_at(".", None, directory_flags)
+        status = os.fstat(root)
+        if not stat.S_ISDIR(status.st_mode) or status.st_uid != os.geteuid():
+            refuse("the profile is not a directory owned by this user")
+        if (status.st_dev, status.st_ino) != identity:
+            refuse("the profile is not the directory the launch check saw")
+        names = set(os.listdir(root))
+        if names - {_AGENT}:
+            refuse(f"unexpected entries {sorted(names - {_AGENT})}")
+        if _AGENT not in names:
+            logger.warning(
+                "dcode Player run profile left writable: dcode made no %s folder; profile=%s",
+                _AGENT,
+                profile,
+            )
+            return
+        agent = open_at(_AGENT, root, directory_flags)
+        agent_names = set(os.listdir(agent))
+        if agent_names - {_SKILLS, _MEMORY}:
+            refuse(f"unexpected entries {sorted(agent_names - {_SKILLS, _MEMORY})}")
+        if _SKILLS not in agent_names:
+            logger.warning(
+                "dcode Player run profile left writable: dcode made no %s/%s folder; profile=%s",
+                _AGENT,
+                _SKILLS,
+                profile,
+            )
+            return
+        skills = open_at(_SKILLS, agent, directory_flags)
+        if os.listdir(skills):
+            refuse(f"{_AGENT}/{_SKILLS} is not empty")
+        memory = None
+        if _MEMORY in agent_names:
+            file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | _O_CLOEXEC
+            memory = open_at(_MEMORY, agent, file_flags)
+            memory_status = os.fstat(memory)
+            if not stat.S_ISREG(memory_status.st_mode) or memory_status.st_size != 0:
+                refuse(f"{_AGENT}/{_MEMORY} is not an empty regular file")
+        for descriptor in (memory, skills, agent, root):
+            if descriptor is not None:
+                read_only(descriptor)
     except OSError as exc:
-        _refuse_launch(
-            f"run profile could not be locked ({type(exc).__name__})",
-            profile,
-            profile_inventory(profile),
-        )
-    if _tree(profile) not in ({}, _CLEAN_PROFILE):
-        _refuse_launch(
-            "run profile changed while it was locked",
-            profile,
-            profile_inventory(profile),
-        )
+        refuse(f"{type(exc).__name__} while locking")
+    finally:
+        for descriptor in opened:
+            os.close(descriptor)
 
 
 def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
@@ -896,11 +929,14 @@ def create_dcode_player(
         environ=dcode_environment,
     )
     after = _inventory(config, context)
+    seen = os.lstat(profile)
     _validate_launch(config)
     if before != after:
         _refuse("discovery sources changed during graph construction")
     if config.lock_profile:
-        _lock_profile(profile)
+        if not stat.S_ISDIR(seen.st_mode):
+            _refuse_launch("run profile is not a directory; it was not locked", profile, [])
+        _lock_profile(profile, (seen.st_dev, seen.st_ino))
     tools = sorted(graph.nodes["tools"].bound.tools_by_name)
     evidence = {
         "discovery": after,

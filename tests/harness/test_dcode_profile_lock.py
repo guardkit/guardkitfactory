@@ -221,20 +221,142 @@ def test_a_locked_profile_with_any_extra_content_is_still_refused(
         _config(repo, profile, lock=True)
 
 
-def test_the_lock_refuses_a_link_it_finds_and_never_follows_it(
+def _identity(path: Path) -> tuple[int, int]:
+    status = path.lstat()
+    return (status.st_dev, status.st_ino)
+
+
+def _outside_tree(tmp_path: Path) -> tuple[Path, dict[str, int]]:
+    """A writable directory outside the profile, shaped like a profile."""
+
+    outside = tmp_path / "outside"
+    (outside / "guardkit-player" / "skills").mkdir(parents=True)
+    (outside / "guardkit-player" / "AGENTS.md").write_bytes(b"")
+    return outside, _modes(outside)
+
+
+def _skeleton(profile: Path) -> None:
+    (profile / "guardkit-player" / "skills").mkdir(parents=True)
+    (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
+
+
+def test_a_root_replaced_by_a_link_is_refused_and_nothing_outside_changes(
     tmp_path: Path, profile: Path
 ) -> None:
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (outside / "keep.txt").write_text("not the profile's")
-    (profile / "guardkit-player").mkdir()
-    (profile / "guardkit-player" / "linked").symlink_to(outside, target_is_directory=True)
+    outside, before = _outside_tree(tmp_path)
+    seen = _identity(profile)
+    link = tmp_path / "profile-link"
+    link.symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(PlayerLaunchRefused, match="changed after its launch check"):
-        _lock_profile(profile)
-    assert _writable(outside) and _writable(outside / "keep.txt")
+    with pytest.raises(PlayerLaunchRefused, match="without following a link"):
+        _lock_profile(link, seen)
+    # The validated directory itself, swapped for another directory: refused too.
+    with pytest.raises(PlayerLaunchRefused, match="not the directory the launch check saw"):
+        _lock_profile(outside, seen)
+    assert _modes(outside) == before
+
+
+def test_an_agent_folder_replaced_by_a_link_is_refused_and_nothing_outside_changes(
+    tmp_path: Path, profile: Path
+) -> None:
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    outside, before = _outside_tree(tmp_path)
+    (profile / "guardkit-player").symlink_to(outside / "guardkit-player", target_is_directory=True)
+    root_before = _modes(profile)["."]
+
+    with pytest.raises(PlayerLaunchRefused, match="without following a link"):
+        _lock_profile(profile, _identity(profile))
+    assert _modes(outside) == before
+    assert _modes(profile)["."] == root_before
+
+
+@pytest.mark.parametrize(
+    "extra",
+    ["root_file", "agent_file", "skills_file", "nonempty_memory", "memory_link", "skills_link"],
+)
+def test_the_lock_refuses_anything_beyond_the_clean_shape(
+    tmp_path: Path, profile: Path, extra: str
+) -> None:
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    outside, before = _outside_tree(tmp_path)
+    _skeleton(profile)
+    agent = profile / "guardkit-player"
+    if extra == "root_file":
+        (profile / "full.log").write_text("x")
+    elif extra == "agent_file":
+        (agent / "notes.json").write_text("{}")
+    elif extra == "skills_file":
+        (agent / "skills" / "SKILL.md").write_text("x")
+    elif extra == "nonempty_memory":
+        (agent / "AGENTS.md").write_text("remembered")
+    elif extra == "memory_link":
+        (agent / "AGENTS.md").unlink()
+        (agent / "AGENTS.md").symlink_to(outside / "guardkit-player" / "AGENTS.md")
+    else:
+        (agent / "skills").rmdir()
+        (agent / "skills").symlink_to(outside / "guardkit-player" / "skills")
+
+    with pytest.raises(PlayerLaunchRefused, match="was not locked"):
+        _lock_profile(profile, _identity(profile))
+    assert _modes(outside) == before
+    assert _writable(profile)
+
+
+def test_the_lock_sets_exactly_the_clean_shape_read_only(profile: Path) -> None:
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    _skeleton(profile)
+    _lock_profile(profile, _identity(profile))
+    _lock_profile(profile, _identity(profile))  # a later launch: unchanged
+    assert _modes(profile) == {
+        ".": 0o500,
+        "guardkit-player": 0o555,
+        "guardkit-player/skills": 0o555,
+        "guardkit-player/AGENTS.md": 0o444,
+    }
+
+
+def test_a_profile_without_dcodes_folders_is_left_writable(profile: Path) -> None:
+    from guardkitfactory.harness.dcode_harness import _lock_profile
+
+    _lock_profile(profile, _identity(profile))
+    (profile / "guardkit-player").mkdir()
+    _lock_profile(profile, _identity(profile))
+    assert all(_writable(profile / name) for name in ("", "guardkit-player"))
+
+
+def test_concurrent_first_use_of_a_fresh_profile_all_launch_and_lock_once(
+    tmp_path: Path, profile: Path
+) -> None:
+    """N tasks start together on the empty, writable profile."""
+
+    assert not any(profile.iterdir()) and _writable(profile)
+    repos = [_scaffold(tmp_path, f"first-{index}") for index in range(4)]
+
+    def run(repo: Path) -> bool:
+        _turn(
+            repo,
+            _config(repo, profile, lock=True),
+            [("write_file", {"file_path": str(repo / "done.py"), "content": "ok = 1\n"})],
+        )
+        return (repo / "done.py").exists()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        assert list(pool.map(run, repos)) == [True] * 4
+    modes = _modes(profile)
+    assert set(modes) == {
+        ".",
+        "guardkit-player",
+        "guardkit-player/skills",
+        "guardkit-player/AGENTS.md",
+    }
+    assert all(not mode & 0o222 for mode in modes.values()), modes
+    # And a later turn still launches on it.
+    _turn(repos[0], _config(repos[0], profile, lock=True), [])
 
 
 def test_non_writable_profile_without_the_owner_setting_is_refused_as_today(
