@@ -875,6 +875,11 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
 def _ensure_private_directory(directory: Path, label: str) -> Path:
     """Create ``directory`` (mode 0700) or reuse it; refuse anything else.
 
+    An existing folder must belong to this process's user and is set to mode
+    0700 if it is not already (19 October 2026, through
+    :func:`ensure_owner_only_directory`); a symlink, a non-folder or another
+    user's folder is refused with ``ValueError``.
+
     Two backends built at once for one new worktree may both find it missing;
     the one that loses the ``mkdir`` race reuses the folder the other made
     (14 October 2026), still subject to the checks below.
@@ -905,7 +910,9 @@ def _ensure_private_directory(directory: Path, label: str) -> Path:
         raise ValueError(f"AutoBuild {label} must not be a symlink: {directory}")
     if not stat.S_ISDIR(status.st_mode):
         raise ValueError(f"AutoBuild {label} must be a directory: {directory}")
-    return directory
+    # 19 October 2026: an existing folder is not taken as it is. It must be
+    # this user's, and it is made owner-only, as a new one would be.
+    return ensure_owner_only_directory(directory, label)
 
 
 def ensure_owner_only_directory(directory: Path, label: str) -> Path:
@@ -1184,11 +1191,14 @@ def _shell_toolchain_folder(
     The scratch folder is GuardKit's builder scratch folder
     (``guardkit.orchestrator.paths.prepare_builder_scratch_dir``), inside the
     worktree's own git directory: git never stages it and ``git worktree
-    remove`` deletes it with the worktree. These are the very folders
-    GuardKit's own project commands use for the same names
-    (``guardkit.orchestrator.project_command_env``), beside the project's
-    declared ``launch.scratch`` folders, so the builder, the checker and the
-    project commands of one worktree share them.
+    remove`` deletes it with the worktree. ``name`` is never one of the
+    folders GuardKit's own project commands use (``toolchain/HOME`` and
+    ``toolchain/TMPDIR``, ``guardkit.orchestrator.project_command_env``):
+    those commands run the checks the build is judged by, and a file the
+    builder's shell leaves in its home folder (a ``.pth`` file under
+    ``~/.local``, a ``~/.npmrc``, a ``~/.gitconfig``) must not change what
+    they run while ``git status`` stays empty. ``name`` has a hyphen, so no
+    declared ``launch.scratch`` name can be the same folder.
 
     An existing real folder is reused as it is; a missing one is made with
     mode 0700. A symlink (broken or not) or a non-folder refuses construction
@@ -1212,7 +1222,7 @@ def _shell_toolchain_folder(
     scratch = prepare_builder_scratch_dir(worktree)
     if scratch is None:
         folder = _temporary_private_folder(
-            f"shell-{name.lower()}", project, f"the shell's {description}"
+            name.lower(), project, f"the shell's {description}"
         )
     else:
         base = _ensure_private_directory(Path(scratch) / _LAUNCH_SCRATCH_SUBDIR, label)
@@ -1231,13 +1241,15 @@ def shell_home(worktree: Path) -> Path:
     them into the project: one ``npm install`` by the builder put 2,058 files
     of ``.npm/_cacache`` into the build's worktree. The same holds for pip's,
     Cargo's, Go's and any other tool's default caches, which all follow
-    ``HOME``. So ``HOME`` is now ``<scratch>/toolchain/HOME``
-    (:func:`_shell_toolchain_folder`). No tool is named and no project
+    ``HOME``. So ``HOME`` is now ``<scratch>/toolchain/SHELL-HOME``
+    (:func:`_shell_toolchain_folder`), shared by the builder's and the
+    checker's shells and kept apart from the project commands' ``HOME`` (so
+    the two do not share caches; accepted). No tool is named and no project
     declaration is needed; a declared ``launch.scratch`` name still points
     its own tool elsewhere.
     """
     return _shell_toolchain_folder(
-        worktree, "HOME", "shell home folder", "home folder (tool caches)"
+        worktree, "SHELL-HOME", "shell home folder", "home folder (tool caches)"
     )
 
 
@@ -1247,10 +1259,12 @@ def shell_tmpdir(worktree: Path) -> Path:
     19 October 2026. ``TMPDIR`` was ``<worktree>/.tmp``, so every temporary
     file a tool made (Node's compile cache among them) landed in the project,
     kept out of commits only by GuardKit's ``.tmp/`` filters. It is now
-    ``<scratch>/toolchain/TMPDIR`` (:func:`_shell_toolchain_folder`), as for
-    GuardKit's project commands. Errors name ``TMPDIR``.
+    ``<scratch>/toolchain/SHELL-TMPDIR`` (:func:`_shell_toolchain_folder`),
+    apart from the project commands' ``TMPDIR``. Errors name ``TMPDIR``.
     """
-    return _shell_toolchain_folder(worktree, "TMPDIR", "TMPDIR", "temporary folder")
+    return _shell_toolchain_folder(
+        worktree, "SHELL-TMPDIR", "TMPDIR", "temporary folder"
+    )
 
 
 def _finish_shell_environment(

@@ -13,15 +13,15 @@ worktree laid out like the factory's (``<host>/.guardkit/worktrees/FEAT-X``),
 for a project with no ``launch:`` block, and show:
 
 * the builder's and the checker's shells get ``HOME`` in GuardKit's builder
-  scratch folder, the same folder GuardKit's own project commands use, outside
-  the project;
+  scratch folder, outside the project, and apart from the folder GuardKit's
+  own project commands use, so nothing the builder leaves there changes the
+  checks the build is judged by;
 * a tool writing its caches under ``$HOME`` (npm, pip, Cargo, Go and so on)
   leaves nothing in the worktree, and GuardKit's git detection finds nothing;
 * a project's ``launch.scratch`` declaration still works and wins for the
   names it lists;
-* ``TMPDIR`` (which was ``<worktree>/.tmp``) is likewise the project
-  commands' private folder, and a temporary file leaves nothing in the
-  worktree.
+* ``TMPDIR`` (which was ``<worktree>/.tmp``) is likewise a private folder
+  of the shells' own, and a temporary file leaves nothing in the worktree.
 
 No tool or language is named in the code under test: every cache here follows
 ``HOME`` by the tool's own default.
@@ -134,7 +134,7 @@ def test_builder_and_checker_shells_have_home_outside_the_worktree(
     tmp_path: Path,
 ) -> None:
     worktree = _factory_worktree(tmp_path)
-    expected = (_scratch(worktree) / "toolchain" / "HOME").resolve()
+    expected = (_scratch(worktree) / "toolchain" / "SHELL-HOME").resolve()
 
     for backend in (_builder_shell(worktree), _checker_shell(worktree)):
         result = backend.execute('printf "%s" "$HOME"')
@@ -146,19 +146,75 @@ def test_builder_and_checker_shells_have_home_outside_the_worktree(
         assert not home.is_relative_to(worktree.resolve())
 
 
-def test_the_shell_shares_home_with_guardkits_project_commands(
+def test_the_shell_does_not_share_home_or_tmpdir_with_project_commands(
     tmp_path: Path,
 ) -> None:
+    """The checks GuardKit runs never see what the builder's shell left.
+
+    The coach's finding (19 October 2026): with one shared HOME, a ``.pth``
+    file the builder put under ``~/.local`` was loaded by the project
+    commands the build is judged by, while ``git status`` stayed empty.
+    """
     from guardkit.orchestrator.project_command_env import (
         project_command_environment,
     )
 
     worktree = _factory_worktree(tmp_path)
-    backend = _builder_shell(worktree)
+    builder = _builder_shell(worktree)
+    commands = project_command_environment(worktree, None)
+    assert builder.default._env["HOME"] != commands["HOME"]
+    assert builder.default._env["TMPDIR"] != commands["TMPDIR"]
+
+    planted = builder.execute(
+        'set -e; echo builder > "$HOME/left-by-builder"; '
+        'echo builder > "$TMPDIR/left-by-builder"; '
+        'echo "[user]" > "$HOME/.gitconfig"; echo "x=y" > "$HOME/.npmrc"'
+    )
+    assert planted.exit_code == 0, planted.output
+
+    seen = subprocess.run(
+        ["sh", "-c", 'ls -A "$HOME"; echo ---; ls -A "$TMPDIR"'],
+        cwd=worktree, env=commands, capture_output=True, text=True, check=True,
+    ).stdout
+    assert "left-by-builder" not in seen
+    assert ".gitconfig" not in seen and ".npmrc" not in seen
+    assert _git(worktree, "status", "--porcelain", "--untracked-files=all") == ""
+
+
+@pytest.mark.skipif(
+    not Path("/usr/bin/python3").exists(), reason="no /usr/bin/python3 here"
+)
+def test_a_pth_file_the_builder_plants_is_not_loaded_by_project_commands(
+    tmp_path: Path,
+) -> None:
+    """The coach's own reproduction, with a control showing the file works."""
+    from guardkit.orchestrator.project_command_env import (
+        project_command_environment,
+    )
+
+    python = "/usr/bin/python3"
+    worktree = _factory_worktree(tmp_path)
+    builder = _builder_shell(worktree)
+    planted = builder.execute(
+        f'set -e; site=$({python} -c "import site; print(site.getusersitepackages())"); '
+        'mkdir -p "$site"; '
+        "echo 'import os; os.environ[\"PLANTED_BY_BUILDER\"] = \"1\"' "
+        '> "$site/planted.pth"'
+    )
+    assert planted.exit_code == 0, planted.output
+    probe = [python, "-c", "import os; print(os.environ.get('PLANTED_BY_BUILDER', 'absent'))"]
 
     commands = project_command_environment(worktree, None)
-    assert backend.default._env["HOME"] == commands["HOME"]
-    assert backend.default._env["TMPDIR"] == commands["TMPDIR"]
+    seen = subprocess.run(
+        probe, cwd=worktree, env=commands, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert seen == "absent"
+    # Control: given the builder's HOME, the same command does load it.
+    control = dict(commands, HOME=builder.default._env["HOME"])
+    loaded = subprocess.run(
+        probe, cwd=worktree, env=control, capture_output=True, text=True, check=True
+    ).stdout.strip()
+    assert loaded == "1"
 
 
 def test_a_simulated_install_leaves_nothing_in_the_worktree(tmp_path: Path) -> None:
@@ -215,7 +271,7 @@ def test_a_launch_scratch_declaration_still_works_and_wins(tmp_path: Path) -> No
 
     env = backend.default._env
     assert env["TOOL_CACHE"] == str((scratch / "toolchain" / "TOOL_CACHE").resolve())
-    assert env["HOME"] == str((scratch / "toolchain" / "HOME").resolve())
+    assert env["HOME"] == str((scratch / "toolchain" / "SHELL-HOME").resolve())
     # A tool that honours its declared setting over its HOME default writes
     # where the project said.
     result = backend.execute(
@@ -249,7 +305,7 @@ def test_a_launch_scratch_declaration_read_from_the_project_still_applies(
     assert env["npm_config_cache"] == str(
         (scratch / "toolchain" / "npm_config_cache").resolve()
     )
-    assert env["HOME"] == str((scratch / "toolchain" / "HOME").resolve())
+    assert env["HOME"] == str((scratch / "toolchain" / "SHELL-HOME").resolve())
 
 
 def test_a_worktree_without_git_gets_a_private_temporary_home(tmp_path: Path) -> None:
@@ -272,7 +328,7 @@ def test_a_symlinked_home_folder_is_refused(tmp_path: Path) -> None:
     toolchain.mkdir(mode=0o700)
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
-    os.symlink(elsewhere, toolchain / "HOME")
+    os.symlink(elsewhere, toolchain / "SHELL-HOME")
 
     with pytest.raises(ValueError, match="symlink"):
         shell_home(worktree)
@@ -284,7 +340,7 @@ def test_builder_and_checker_shells_have_tmpdir_outside_the_worktree(
     tmp_path: Path,
 ) -> None:
     worktree = _factory_worktree(tmp_path)
-    expected = (_scratch(worktree) / "toolchain" / "TMPDIR").resolve()
+    expected = (_scratch(worktree) / "toolchain" / "SHELL-TMPDIR").resolve()
 
     for backend in (_builder_shell(worktree), _checker_shell(worktree)):
         result = backend.execute('printf "%s" "$TMPDIR"')
@@ -336,3 +392,34 @@ def test_a_worktree_without_git_gets_a_private_temporary_tmpdir(
     assert list(worktree.iterdir()) == []
     backend_config._remove_temporary_model_artifacts()
     assert not tmpdir.exists()
+
+
+def test_an_existing_open_shell_folder_is_made_owner_only(tmp_path: Path) -> None:
+    """19 October 2026: a pre-made 0777 folder is tightened, not taken as is."""
+    worktree = _factory_worktree(tmp_path)
+    toolchain = _scratch(worktree) / "toolchain"
+    toolchain.mkdir(mode=0o700)
+    for name in ("SHELL-HOME", "SHELL-TMPDIR", "TOOL_CACHE"):
+        (toolchain / name).mkdir()
+        (toolchain / name).chmod(0o777)
+    toolchain.chmod(0o777)
+
+    backend = _builder_shell(worktree, {"settings": [], "scratch": ["TOOL_CACHE"]})
+
+    assert Path(backend.default._env["HOME"]) == (toolchain / "SHELL-HOME").resolve()
+    names = ("SHELL-HOME", "SHELL-TMPDIR", "TOOL_CACHE")
+    for folder in (toolchain, *(toolchain / name for name in names)):
+        assert (folder.stat().st_mode & 0o777) == 0o700, folder
+
+
+def test_a_shell_folder_owned_by_another_user_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    worktree = _factory_worktree(tmp_path)
+    toolchain = _scratch(worktree) / "toolchain"
+    (toolchain / "SHELL-HOME").mkdir(parents=True)
+    real_uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
+
+    with pytest.raises(ValueError, match="another user"):
+        shell_home(worktree)

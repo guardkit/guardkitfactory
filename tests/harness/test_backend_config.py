@@ -214,7 +214,7 @@ def test_execute_python_imports_do_not_write_bytecode_or_inherit_ambient_env(
 
 def _toolchain_tmpdir(worktree: Path) -> Path:
     """Where the shell's TMPDIR lives for a plain git checkout (19 October 2026)."""
-    return worktree / ".git" / "guardkit-scratch" / "toolchain" / "TMPDIR"
+    return worktree / ".git" / "guardkit-scratch" / "toolchain" / "SHELL-TMPDIR"
 
 
 def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
@@ -237,7 +237,7 @@ def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
     assert created.parent == temp_directory.resolve()
 
 
-def test_build_autobuild_backend_preserves_existing_tmpdir(
+def test_build_autobuild_backend_reuses_existing_tmpdir_made_owner_only(
     tmp_path: Path,
 ) -> None:
     worktree = _git_checkout(tmp_path / "wt")
@@ -246,13 +246,13 @@ def test_build_autobuild_backend_preserves_existing_tmpdir(
     temp_directory.chmod(0o751)
     marker = temp_directory / "keep.txt"
     marker.write_text("keep\n")
-    original_mode = temp_directory.stat().st_mode
 
     backend = build_autobuild_backend(worktree)
 
     assert backend.default._env["TMPDIR"] == str(temp_directory.resolve())
     assert marker.read_text() == "keep\n"
-    assert temp_directory.stat().st_mode == original_mode
+    # 19 October 2026: reused, but made owner-only.
+    assert (temp_directory.stat().st_mode & 0o777) == 0o700
 
 
 def test_build_autobuild_backend_refuses_tmpdir_file(tmp_path: Path) -> None:
