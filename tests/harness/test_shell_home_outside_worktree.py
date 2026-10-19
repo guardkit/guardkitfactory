@@ -1,4 +1,6 @@
-"""The shell's HOME is never inside the build's worktree (19 October 2026).
+"""The shell's HOME and TMPDIR are never inside the build's worktree.
+
+19 October 2026.
 
 Build FEAT-B874 (ts-api-test): the builder ran ``npm install`` in its shell,
 whose ``HOME`` was the worktree, and npm wrote 2,058 files of
@@ -16,7 +18,10 @@ for a project with no ``launch:`` block, and show:
 * a tool writing its caches under ``$HOME`` (npm, pip, Cargo, Go and so on)
   leaves nothing in the worktree, and GuardKit's git detection finds nothing;
 * a project's ``launch.scratch`` declaration still works and wins for the
-  names it lists.
+  names it lists;
+* ``TMPDIR`` (which was ``<worktree>/.tmp``) is likewise the project
+  commands' private folder, and a temporary file leaves nothing in the
+  worktree.
 
 No tool or language is named in the code under test: every cache here follows
 ``HOME`` by the tool's own default.
@@ -34,7 +39,7 @@ import pytest
 
 from guardkitfactory import build_autobuild_backend
 from guardkitfactory.harness import backend_config
-from guardkitfactory.harness.backend_config import shell_home
+from guardkitfactory.harness.backend_config import shell_home, shell_tmpdir
 
 _GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -151,9 +156,9 @@ def test_the_shell_shares_home_with_guardkits_project_commands(
     worktree = _factory_worktree(tmp_path)
     backend = _builder_shell(worktree)
 
-    assert backend.default._env["HOME"] == project_command_environment(
-        worktree, None
-    )["HOME"]
+    commands = project_command_environment(worktree, None)
+    assert backend.default._env["HOME"] == commands["HOME"]
+    assert backend.default._env["TMPDIR"] == commands["TMPDIR"]
 
 
 def test_a_simulated_install_leaves_nothing_in_the_worktree(tmp_path: Path) -> None:
@@ -273,3 +278,61 @@ def test_a_symlinked_home_folder_is_refused(tmp_path: Path) -> None:
         shell_home(worktree)
     with pytest.raises(ValueError, match="symlink"):
         build_autobuild_backend(worktree)
+
+
+def test_builder_and_checker_shells_have_tmpdir_outside_the_worktree(
+    tmp_path: Path,
+) -> None:
+    worktree = _factory_worktree(tmp_path)
+    expected = (_scratch(worktree) / "toolchain" / "TMPDIR").resolve()
+
+    for backend in (_builder_shell(worktree), _checker_shell(worktree)):
+        result = backend.execute('printf "%s" "$TMPDIR"')
+        assert result.exit_code == 0, result.output
+        tmpdir = Path(result.output.strip())
+        assert tmpdir == expected == shell_tmpdir(worktree)
+        assert tmpdir.is_dir()
+        assert (tmpdir.stat().st_mode & 0o777) == 0o700
+        assert not tmpdir.is_relative_to(worktree.resolve())
+    assert not (worktree / ".tmp").exists()
+
+
+def test_a_write_to_tmpdir_leaves_nothing_in_the_worktree(tmp_path: Path) -> None:
+    worktree = _factory_worktree(tmp_path)
+
+    for backend in (_builder_shell(worktree), _checker_shell(worktree)):
+        result = backend.execute(
+            'set -e; mkdir -p "$TMPDIR/node-compile-cache/v22"; '
+            'echo x > "$TMPDIR/node-compile-cache/v22/entry"; '
+            'made=$(mktemp); echo y > "$made"; '
+            'made_dir=$(mktemp -d); echo z > "$made_dir/f"; echo "$made"'
+        )
+        assert result.exit_code == 0, result.output
+        made = Path(result.output.strip().splitlines()[-1])
+        assert made.parent == shell_tmpdir(worktree)
+
+    tmpdir = shell_tmpdir(worktree)
+    assert (tmpdir / "node-compile-cache" / "v22" / "entry").is_file()
+    assert not (worktree / ".tmp").exists()
+    status = _git(worktree, "status", "--porcelain", "--untracked-files=all", "--ignored")
+    assert status == ""
+    assert _detected_changes(worktree) == {"modified": [], "created": []}
+
+
+def test_a_worktree_without_git_gets_a_private_temporary_tmpdir(
+    tmp_path: Path,
+) -> None:
+    worktree = tmp_path / "plain"
+    worktree.mkdir()
+
+    first = build_autobuild_backend(worktree).default._env
+    second = build_autobuild_backend(worktree).default._env
+
+    tmpdir = Path(first["TMPDIR"])
+    assert tmpdir == Path(second["TMPDIR"])
+    assert tmpdir.is_dir()
+    assert tmpdir != Path(first["HOME"])
+    assert not tmpdir.is_relative_to(worktree.resolve())
+    assert list(worktree.iterdir()) == []
+    backend_config._remove_temporary_model_artifacts()
+    assert not tmpdir.exists()

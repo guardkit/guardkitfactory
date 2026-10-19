@@ -184,6 +184,7 @@ __all__ = [
     "build_autobuild_backend",
     "model_artifacts_root",
     "shell_home",
+    "shell_tmpdir",
     "PathConfinedBackend",
     "TruncatingBackend",
 ]
@@ -871,16 +872,6 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
     return None
 
 
-def _ensure_worktree_temp_directory(worktree: Path) -> Path:
-    """Create the private TMPDIR promised to backend shell commands.
-
-    Existing real directories are reused byte-for-byte. A symlink is never
-    accepted, including a broken one, because that would redirect temporary
-    files outside the worktree despite the environment claiming otherwise.
-    """
-    return _ensure_private_directory(worktree / ".tmp", "TMPDIR")
-
-
 def _ensure_private_directory(directory: Path, label: str) -> Path:
     """Create ``directory`` (mode 0700) or reuse it; refuse anything else.
 
@@ -1185,38 +1176,34 @@ def _apply_launch_environment(
         env[name] = str(_ensure_private_directory(base / name, "launch scratch folder"))
 
 
-def shell_home(worktree: Path) -> Path:
-    """Return the private ``HOME`` for every shell built for ``worktree``.
+def _shell_toolchain_folder(
+    worktree: Path, name: str, label: str, description: str
+) -> Path:
+    """Return the shell's private ``<scratch>/toolchain/<name>`` folder.
 
-    19 October 2026 (build FEAT-B874). The shell's ``HOME`` was the worktree,
-    so every tool that keeps a cache or settings under the home folder wrote
-    them into the project: one ``npm install`` by the builder put 2,058 files
-    of ``.npm/_cacache`` into the build's worktree. The same holds for pip's,
-    Cargo's, Go's and any other tool's default caches, which all follow
-    ``HOME``. So ``HOME`` is now ``<scratch>/toolchain/HOME`` in GuardKit's
-    builder scratch folder (``guardkit.orchestrator.paths.
-    prepare_builder_scratch_dir``, inside the worktree's own git directory):
-    the very folder GuardKit's own project commands already use as their
-    private ``HOME`` (``guardkit.orchestrator.project_command_env``), beside
-    the project's declared ``launch.scratch`` folders. Git never stages it,
-    ``git worktree remove`` deletes it with the worktree, and the builder,
-    checker and project commands of one worktree share one set of caches. No
-    tool is named and no project declaration is needed; a declared
-    ``launch.scratch`` name still points its own tool elsewhere.
+    The scratch folder is GuardKit's builder scratch folder
+    (``guardkit.orchestrator.paths.prepare_builder_scratch_dir``), inside the
+    worktree's own git directory: git never stages it and ``git worktree
+    remove`` deletes it with the worktree. These are the very folders
+    GuardKit's own project commands use for the same names
+    (``guardkit.orchestrator.project_command_env``), beside the project's
+    declared ``launch.scratch`` folders, so the builder, the checker and the
+    project commands of one worktree share them.
 
-    When GuardKit has no scratch folder for the worktree (it is not a git
-    checkout), a private temporary folder is used instead, with a warning,
-    the same one for that worktree for the rest of the process and removed
-    when the process exits. A folder inside the project (other than under its
-    own ``.git``), a symlink or a non-folder refuses construction with
-    ``ValueError``. Returned resolved.
+    An existing real folder is reused as it is; a missing one is made with
+    mode 0700. A symlink (broken or not) or a non-folder refuses construction
+    with ``ValueError``, as does a folder inside the project (other than under
+    its own ``.git``). When GuardKit has no scratch folder for the worktree
+    (it is not a git checkout), a private temporary folder is used instead,
+    with a warning, the same one for that worktree for the rest of the process
+    and removed when the process exits. Returned resolved.
     """
     try:
         from guardkit.orchestrator.paths import prepare_builder_scratch_dir
     except ImportError as exc:  # pragma: no cover - GuardKit is a run-time need
         raise RuntimeError(
             "The AutoBuild shell needs GuardKit's builder scratch folder for "
-            f"its home folder and GuardKit cannot be imported ({exc}); the "
+            f"its {description} and GuardKit cannot be imported ({exc}); the "
             "shell is not built."
         ) from exc
 
@@ -1225,17 +1212,45 @@ def shell_home(worktree: Path) -> Path:
     scratch = prepare_builder_scratch_dir(worktree)
     if scratch is None:
         folder = _temporary_private_folder(
-            "shell-home", project, "the shell's home folder (tool caches)"
+            f"shell-{name.lower()}", project, f"the shell's {description}"
         )
     else:
-        base = _ensure_private_directory(
-            Path(scratch) / _LAUNCH_SCRATCH_SUBDIR, "shell home folder"
-        )
-        folder = _ensure_private_directory(base / "HOME", "shell home folder")
+        base = _ensure_private_directory(Path(scratch) / _LAUNCH_SCRATCH_SUBDIR, label)
+        folder = _ensure_private_directory(base / name, label)
     folder = folder.resolve()
     if folder.is_relative_to(project) and not folder.is_relative_to(project / ".git"):
-        raise ValueError(f"AutoBuild shell home folder is inside the project: {folder}")
+        raise ValueError(f"AutoBuild {label} is inside the project: {folder}")
     return folder
+
+
+def shell_home(worktree: Path) -> Path:
+    """Return the private ``HOME`` for every shell built for ``worktree``.
+
+    19 October 2026 (build FEAT-B874). The shell's ``HOME`` was the worktree,
+    so every tool that keeps a cache or settings under the home folder wrote
+    them into the project: one ``npm install`` by the builder put 2,058 files
+    of ``.npm/_cacache`` into the build's worktree. The same holds for pip's,
+    Cargo's, Go's and any other tool's default caches, which all follow
+    ``HOME``. So ``HOME`` is now ``<scratch>/toolchain/HOME``
+    (:func:`_shell_toolchain_folder`). No tool is named and no project
+    declaration is needed; a declared ``launch.scratch`` name still points
+    its own tool elsewhere.
+    """
+    return _shell_toolchain_folder(
+        worktree, "HOME", "shell home folder", "home folder (tool caches)"
+    )
+
+
+def shell_tmpdir(worktree: Path) -> Path:
+    """Return the private ``TMPDIR`` for every shell built for ``worktree``.
+
+    19 October 2026. ``TMPDIR`` was ``<worktree>/.tmp``, so every temporary
+    file a tool made (Node's compile cache among them) landed in the project,
+    kept out of commits only by GuardKit's ``.tmp/`` filters. It is now
+    ``<scratch>/toolchain/TMPDIR`` (:func:`_shell_toolchain_folder`), as for
+    GuardKit's project commands. Errors name ``TMPDIR``.
+    """
+    return _shell_toolchain_folder(worktree, "TMPDIR", "TMPDIR", "temporary folder")
 
 
 def _finish_shell_environment(
@@ -1245,8 +1260,8 @@ def _finish_shell_environment(
 
     13 October 2026 (design ``factory-project-commands-without-factory-
     credentials``, section 1b): the shell keeps its own base (``PATH``,
-    ``HOME`` in the scratch folder (:func:`shell_home`), ``TMPDIR``, the
-    Python flags, the declared
+    ``HOME`` and ``TMPDIR`` in the scratch folder (:func:`shell_home`,
+    :func:`shell_tmpdir`), the Python flags, the declared
     settings and scratch folders), then GuardKit's
     ``finish_project_environment`` checks every proxy setting for a user
     name or password (a declared ``HTTPS_PROXY`` or ``https_proxy`` that
@@ -1302,10 +1317,11 @@ def build_autobuild_backend(
     * ``root_dir=worktree`` — the agent's filesystem root
     * ``virtual_mode=False`` — absolute paths resolve literally (was
       ``True``; flipped after AC-001D run 5 — see module docstring)
-    * ``env`` — minimal explicit environment (``PATH``, ``HOME`` in the
-      private folder from :func:`shell_home`, outside the project,
-      ``TMPDIR``, Python no-bytecode/no-user-site flags, and ``PYTHONPATH``
-      if a ``.venv`` is detected)
+    * ``env`` — minimal explicit environment (``PATH``; ``HOME`` and
+      ``TMPDIR`` in the private folders from :func:`shell_home` and
+      :func:`shell_tmpdir`, outside the project; Python
+      no-bytecode/no-user-site flags; and ``PYTHONPATH`` if a ``.venv`` is
+      detected)
     * ``inherit_env=False`` — no leakage from the operator's shell
     * ``timeout=600`` — 10-minute ``execute`` ceiling
     * ``max_output_bytes=1_000_000`` — 1 MB cap on ``execute`` output
@@ -1323,9 +1339,11 @@ def build_autobuild_backend(
 
     Args:
         worktree: Filesystem path to the worktree the agent should operate
-            inside. It must exist before construction. The backend creates a
-            private ``.tmp`` directory, or refuses a symlink, non-directory
-            or creation failure before exposing shell execution.
+            inside. It must exist before construction. The shell's private
+            ``HOME`` and ``TMPDIR`` are made outside it (:func:`shell_home`,
+            :func:`shell_tmpdir`); a symlink, non-directory or creation
+            failure there refuses construction before exposing shell
+            execution.
         max_tool_result_chars: TASK-PERF-COACHSYNTH. When set, each
             ``read``/``grep``/``execute`` result is capped at this many chars
             (with a visible truncation marker) via :class:`TruncatingBackend`,
@@ -1357,7 +1375,7 @@ def build_autobuild_backend(
             when set there; each scratch name is set to
             ``<scratch_root>/toolchain/<NAME>``, created private on demand.
             Declared scratch names with no usable ``scratch_root`` fail
-            construction (no fallback into the worktree or its ``.tmp``).
+            construction (no fallback into the worktree).
             ``None`` keeps the environment exactly as before.
         launch_scratch_root: The folder declared scratch names resolve under
             when this shell has no ``scratch_root`` of its own (guardkit passes
@@ -1384,7 +1402,10 @@ def build_autobuild_backend(
     if launch_scratch and scratch_root is None and launch_scratch_root is None:
         # Refused before anything is created in the worktree.
         raise ValueError(_no_launch_scratch_folder(launch_scratch))
-    temp_directory = _ensure_worktree_temp_directory(worktree)
+    if not worktree.is_dir():
+        raise ValueError(f"AutoBuild worktree is not an existing folder: {worktree}")
+    # Outside the project, so no temporary file lands in it (19 October 2026).
+    temp_directory = shell_tmpdir(worktree)
     project = worktree.resolve()
 
     def inside_project(path: Path) -> bool:
