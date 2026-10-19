@@ -42,7 +42,7 @@ from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 
 from guardkitfactory import build_autobuild_backend, build_autobuild_permissions
-from guardkitfactory.harness.backend_config import PathConfinedBackend
+from guardkitfactory.harness.backend_config import PathConfinedBackend, shell_home
 
 def _git_checkout(path: Path) -> Path:
     """A plain git checkout (no network, no commit), like a build's worktree."""
@@ -161,7 +161,10 @@ def test_build_autobuild_backend_configures_max_output_bytes_to_1mb(
 def test_build_autobuild_backend_env_contains_minimum_keys(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
     assert backend.default._env["PATH"] == "/usr/bin:/bin"
-    assert backend.default._env["HOME"] == str(tmp_path)
+    # 19 October 2026: HOME is private and outside the project.
+    home = Path(backend.default._env["HOME"])
+    assert home.is_dir()
+    assert not home.is_relative_to(tmp_path.resolve())
     assert backend.default._env["TMPDIR"] == str(tmp_path / ".tmp")
     assert backend.default._env["PYTHONDONTWRITEBYTECODE"] == "1"
     assert backend.default._env["PYTHONNOUSERSITE"] == "1"
@@ -1440,10 +1443,12 @@ class TestDeclaredPathProtection:
 class TestLaunchEnvironment:
     """12 October 2026: the project's ``launch:`` names reach the shell.
 
-    The shell does not inherit this process's environment and its ``HOME`` is
-    the worktree, so a tool cache would land in the project. The project
-    declares settings to carry over and scratch folders for its caches; the
-    backend applies exactly what is declared and knows no tool.
+    The shell does not inherit this process's environment. Its ``HOME`` was
+    the worktree until 19 October 2026 (it is now private, outside the
+    project), so a tool cache landed in the project unless the project
+    declared a scratch folder for it. The project declares settings to carry
+    over and scratch folders for its caches; the backend applies exactly what
+    is declared and knows no tool.
     """
 
     def _scratch(self, tmp_path: Path) -> Path:
@@ -1464,7 +1469,7 @@ class TestLaunchEnvironment:
         # Exactly the environment the shell had before launch declarations.
         assert plain.default._env == {
             "PATH": "/usr/bin:/bin",
-            "HOME": str(worktree),
+            "HOME": str(shell_home(worktree)),
             "TMPDIR": str(worktree / ".tmp"),
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONNOUSERSITE": "1",
@@ -1489,7 +1494,9 @@ class TestLaunchEnvironment:
             assert env[name] == str(folder)
             assert folder.is_dir()
             assert (folder.stat().st_mode & 0o777) == 0o700
-        assert env["HOME"] == str(worktree)
+        # HOME stays the shell's own private folder, outside the project.
+        assert env["HOME"] == str(shell_home(worktree))
+        assert not Path(env["HOME"]).is_relative_to(worktree.resolve())
 
     def test_settings_pass_through_only_when_set(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

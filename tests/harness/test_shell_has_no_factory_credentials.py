@@ -110,8 +110,9 @@ def test_the_shell_has_no_factory_credentials(factory, role: str) -> None:
     assert Path(seen["STANDIN_CACHE"]).name == "STANDIN_CACHE"
     assert Path(seen["STANDIN_CACHE"]).is_dir()
     assert seen.get("GUARDKIT_RUN_OWNER") == "build-x"
-    # The builder's shell keeps HOME at the worktree (coordinator decision 3).
-    assert seen["HOME"] == str(factory.worktree)
+    # 19 October 2026 (build FEAT-B874): HOME is the private folder GuardKit's
+    # project commands also use, in the scratch folder, never the worktree.
+    assert seen["HOME"] == str((factory.scratch / "toolchain" / "HOME").resolve())
 
 
 @pytest.mark.parametrize("name", ["HTTPS_PROXY", "https_proxy"])
