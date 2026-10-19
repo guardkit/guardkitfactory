@@ -794,6 +794,33 @@ _SUMMARY_NOTICE_LOGGER = "deepagents_code.goal_state_notice"
 _SUMMARY_DISCARD = "Discarding malformed `_summarization_event` (cutoff_index=%s, "
 _SUMMARY_LINE_INTERVAL = 60.0
 _SUMMARY_FILTER_LOCK = threading.Lock()
+# The only upstream caller where the record is the false alarm: it sees the
+# request after the summariser has shortened it. The same record from
+# `GoalToolsMiddleware._notice_update` (before_model) reads the full saved
+# history, so there a cutoff past the end means the summary really is dropped.
+_SUMMARY_FALSE_ALARM_CALLER = "GoalToolsMiddleware._request_with_goal_notice"
+_SUMMARY_CALLER_DEPTH = 12
+
+
+def _from_model_request() -> bool:
+    """Whether the record being filtered was logged from the shortened request.
+
+    Walks at most a dozen frames (filter, logging internals, the upstream log
+    helper, its caller) and never raises; anything unexpected means "no", so
+    the record keeps its upstream wording.
+    """
+    try:
+        frame = sys._getframe(1)
+        for _ in range(_SUMMARY_CALLER_DEPTH):
+            if frame is None:
+                return False
+            code = frame.f_code
+            if getattr(code, "co_qualname", code.co_name) == _SUMMARY_FALSE_ALARM_CALLER:
+                return True
+            frame = frame.f_back
+    except Exception:  # noqa: BLE001 - a log filter must never break logging
+        return False
+    return False
 
 
 class _SummaryFalseAlarm(logging.Filter):
@@ -808,15 +835,24 @@ class _SummaryFalseAlarm(logging.Filter):
     misled an investigation and repeated 842 times in one build.
 
     Only that exact record with a whole-number cutoff above the message count
-    (the false-alarm shape) is reworded, at INFO; one line is kept per minute
-    per process, with the count of those not shown, so a genuinely broken
-    checkpoint, which prints the same text, still leaves a trace. Every other
-    record from the logger, including a non-numeric or negative cutoff, passes
-    unchanged.
+    (the false-alarm shape), logged from the request path
+    (`_request_with_goal_notice`), is reworded, at INFO; one line is kept per
+    minute per process, with the count of those not shown, so a genuinely
+    broken checkpoint seen there still leaves a trace. The same record from
+    `_notice_update` (before_model), where the summary really is dropped, and
+    every other record from the logger, including a non-numeric or negative
+    cutoff, pass unchanged as upstream wrote them and do not count against the
+    minute.
     """
 
-    def __init__(self, version: str | None = None, clock: Any = time.monotonic) -> None:
+    def __init__(
+        self,
+        version: str | None = None,
+        clock: Any = time.monotonic,
+        caller: Any = _from_model_request,
+    ) -> None:
         super().__init__()
+        self._caller = caller
         self._version = version  # looked up on first use, so installing stays cheap
         self._clock = clock
         self._lock = threading.Lock()
@@ -843,7 +879,7 @@ class _SummaryFalseAlarm(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         numbers = self._numbers(record)
-        if numbers is None:
+        if numbers is None or not self._caller():
             return True
         with self._lock:
             now = self._clock()
