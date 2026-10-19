@@ -12,6 +12,7 @@ import hashlib
 import importlib.util
 import logging
 import os
+import shlex
 import stat
 import sys
 import threading
@@ -81,6 +82,56 @@ def _tree(path: Path) -> dict[str, str]:
 
     walk(root)
     return result
+
+
+def _home_skill_folders() -> list[Path]:
+    """The two skill folders dcode reads from the launching user's home.
+
+    dcode works these out from the GuardKit process's own $HOME when it is
+    imported (`~/.agents/skills`, and `~/.claude/skills` when it exists); the
+    fresh DEEPAGENTS_HOME profile does not hide them.
+    """
+    from deepagents_code._paths import get_user_agent_skills_dir, get_user_claude_skills_dir
+
+    return [p for p in (get_user_agent_skills_dir(), get_user_claude_skills_dir()) if p is not None]
+
+
+def _is_home_skill_folder(path: Path, home_folders: list[Path]) -> bool:
+    canonical = path.resolve()
+    return any(path == folder or canonical == folder.resolve() for folder in home_folders)
+
+
+def _home_folder_has_content(path: Path) -> bool:
+    """True when the ordinary inventory would refuse this folder.
+
+    That is any file at all, or anything the inventory cannot read (such as a
+    symlink inside it). An absent folder, or one holding only empty folders,
+    is allowed, exactly as before.
+    """
+    from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
+
+    try:
+        return bool(_tree(path))
+    except LangGraphHarnessError:
+        return True
+
+
+def _home_skills_message(folders: list[Path]) -> str:
+    """Plain words for the refusal of skills found in the user's home folder."""
+    one = len(folders) == 1
+    found = " and ".join(str(folder) for folder in folders)
+    moves = "; ".join(
+        f"mv {shlex.quote(str(folder))} {shlex.quote(str(folder) + '.off')}" for folder in folders
+    )
+    return (
+        f"will not start, because there are skills in your home folder: {found}. "
+        "The Player uses only the skills this project declares, so skills from your "
+        "home folder would change what it does. "
+        f"To run, move or rename {'that folder' if one else 'those folders'} for the "
+        f"length of the run and put {'it' if one else 'them'} back afterwards, "
+        f"for example: {moves}. "
+        "(Your home folder here is $HOME of the process running GuardKit.)"
+    )
 
 
 def _required_entry(canonical: Path, *, config: PlayerConfig, kind: str) -> dict[str, Any]:
@@ -729,11 +780,22 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     sources = []
     seen_paths: set[Path] = set()
     seen_names: set[str] = set()
+    home_folders = _home_skill_folders()
     for raw, label in get_skill_sources(assistant_id=_AGENT, project_context=context):
         path = Path(raw)
-        files = _tree(path)
         canonical = path.resolve()
         allowed = canonical == builtins or (bool(config.skills) and canonical == selected)
+        # Skills in the user's own home folder are refused like any other
+        # unexpected source, but with words that say why and what to do.
+        if (
+            not allowed
+            and _is_home_skill_folder(path, home_folders)
+            and _home_folder_has_content(path)
+        ):
+            _refuse(
+                _home_skills_message([f for f in home_folders if _home_folder_has_content(f)])
+            )
+        files = _tree(path)
         if files and not allowed:
             _refuse(f"unexpected skill discovery source: {path}")
         if files and canonical in seen_paths:
