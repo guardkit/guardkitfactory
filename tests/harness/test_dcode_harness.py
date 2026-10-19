@@ -1478,8 +1478,10 @@ def test_home_skills_folder_is_refused_in_plain_words(
         _inventory_bare_repo(tmp_path)
 
     message = str(refused.value)
-    assert message.startswith("dcode Player: will not start, because there are skills")
-    assert f"in your home folder: {skills}." in message
+    assert message.startswith(
+        f"dcode Player: will not start, because the skills folder in your home folder "
+        f"is not empty: {skills}."
+    )
     assert "uses only the skills this project declares" in message
     assert "move or rename that folder" in message
     assert f"mv {skills} {skills}.off" in message
@@ -1499,7 +1501,8 @@ def test_home_skills_refusal_names_both_home_folders(
         _inventory_bare_repo(tmp_path)
 
     message = str(refused.value)
-    assert f"in your home folder: {agents} and {claude}." in message
+    found = f"the skills folders in your home folder are not empty: {agents} and {claude}."
+    assert found in message
     assert "move or rename those folders" in message
     assert f"mv {agents} {agents}.off; mv {claude} {claude}.off" in message
 
@@ -1517,10 +1520,82 @@ def test_home_skills_folder_with_a_link_inside_gets_the_plain_words(
     (skills / "example").symlink_to(elsewhere / "example", target_is_directory=True)
 
     with pytest.raises(
-        LangGraphHarnessError, match="there are skills in your home folder"
+        LangGraphHarnessError, match="the skills folder in your home folder is not empty"
     ) as refused:
         _inventory_bare_repo(tmp_path)
     assert "symlink inside discovery source" not in str(refused.value)
+
+
+def test_a_broken_claude_skills_link_does_not_hide_the_plain_words(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Skills in ~/.agents/skills beside a broken ~/.claude/skills link (say a
+    dotfiles link whose target moved): the message names the folder with skills."""
+    home = tmp_path / "home"
+    _fake_launch_home(monkeypatch, home)
+    agents = home / ".agents" / "skills"
+    _write_skill(agents)
+    (home / ".claude").mkdir()
+    (home / ".claude" / "skills").symlink_to(tmp_path / "moved-away", target_is_directory=True)
+
+    with pytest.raises(LangGraphHarnessError) as refused:
+        _inventory_bare_repo(tmp_path)
+
+    message = str(refused.value)
+    assert message.startswith(
+        f"dcode Player: will not start, because the skills folder in your home folder "
+        f"is not empty: {agents}."
+    )
+    assert ".claude" not in message
+
+
+def test_a_broken_agents_skills_link_is_still_refused_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The mirror case. dcode always lists ~/.agents/skills first, and a broken
+    link there stopped start-up with a file error before this change too; that
+    is unchanged (still refused), and the listing adds nothing to it."""
+    home = tmp_path / "home"
+    _fake_launch_home(monkeypatch, home)
+    _write_skill(home / ".claude" / "skills")
+    (home / ".agents").mkdir()
+    (home / ".agents" / "skills").symlink_to(tmp_path / "moved-away", target_is_directory=True)
+
+    with pytest.raises(FileNotFoundError):
+        _inventory_bare_repo(tmp_path)
+
+
+def test_a_looping_claude_skills_link_is_ignored_as_before(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """dcode skips a ~/.claude/skills link that loops; checking for home folders
+    must not turn that into an error for the project's own folders."""
+    home = tmp_path / "home"
+    _fake_launch_home(monkeypatch, home)
+    (home / ".claude").mkdir()
+    (home / ".claude" / "skills").symlink_to(home / ".claude" / "loop")
+    (home / ".claude" / "loop").symlink_to(home / ".claude" / "skills")
+
+    inventory = _inventory_bare_repo(tmp_path)
+
+    home_claude = str(home / ".claude")
+    assert not any(entry["path"].startswith(home_claude) for entry in inventory["skills"])
+
+
+def test_the_suggested_new_name_is_one_that_does_not_exist_yet(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`mv folder folder.off` would move the folder inside an existing folder.off."""
+    home = tmp_path / "home"
+    _fake_launch_home(monkeypatch, home)
+    skills = home / ".claude" / "skills"
+    _write_skill(skills)
+    (home / ".claude" / "skills.off").mkdir()
+
+    with pytest.raises(LangGraphHarnessError) as refused:
+        _inventory_bare_repo(tmp_path)
+
+    assert f"for example: mv {skills} {skills}.off-2. " in str(refused.value)
 
 
 def test_renamed_or_empty_home_skills_folders_are_not_refused(
