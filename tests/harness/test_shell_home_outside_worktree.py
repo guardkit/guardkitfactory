@@ -511,3 +511,45 @@ def test_an_unknown_shell_role_is_refused_before_anything_is_made(
         build_autobuild_backend(worktree, shell_role="reviewer")
     assert not toolchain.exists()
     assert sorted(p.name for p in worktree.iterdir()) == [".git", "README.md"]
+
+
+# ---------------------------------------------------------------------------
+# 19 October 2026 (review R2): the no-git fallback folders are checked on
+# every reuse, like the git-backed ones.
+
+
+@pytest.mark.parametrize("role", [None, "builder", "checker", "specialist"])
+def test_a_reused_fallback_folder_opened_up_is_made_owner_only_again(
+    tmp_path: Path, role: str | None
+) -> None:
+    worktree = tmp_path / "plain"
+    worktree.mkdir()
+    first = build_autobuild_backend(worktree, shell_role=role).default._env
+    for name in ("HOME", "TMPDIR"):
+        Path(first[name]).chmod(0o777)
+
+    again = build_autobuild_backend(worktree, shell_role=role).default._env
+
+    for name in ("HOME", "TMPDIR"):
+        assert again[name] == first[name]
+        assert (Path(again[name]).stat().st_mode & 0o777) == 0o700, name
+    backend_config._remove_temporary_model_artifacts()
+
+
+@pytest.mark.parametrize("name", ["HOME", "TMPDIR"])
+def test_a_reused_fallback_folder_of_another_owner_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+) -> None:
+    worktree = tmp_path / "plain"
+    worktree.mkdir()
+    build_autobuild_backend(worktree, shell_role="builder")
+    real_uid = os.geteuid()
+    monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
+
+    finder = shell_home if name == "HOME" else shell_tmpdir
+    with pytest.raises(ValueError, match="another user"):
+        finder(worktree, "builder")
+    with pytest.raises(ValueError, match="another user"):
+        build_autobuild_backend(worktree, shell_role="builder")
+    monkeypatch.undo()
+    backend_config._remove_temporary_model_artifacts()

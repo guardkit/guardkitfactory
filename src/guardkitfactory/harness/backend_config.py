@@ -1222,8 +1222,14 @@ def _shell_toolchain_folder(
     project = worktree.resolve()
     scratch = prepare_builder_scratch_dir(worktree)
     if scratch is None:
-        folder = _temporary_private_folder(
-            name.lower(), project, f"the shell's {description}"
+        # Reused for the rest of the process, so checked like any existing
+        # folder every time (review R2, 19 October 2026): this user's, made
+        # 0700 again if it was opened up, another user's refused.
+        folder = ensure_owner_only_directory(
+            _temporary_private_folder(
+                name.lower(), project, f"the shell's {description}"
+            ),
+            label,
         )
     else:
         base = _ensure_private_directory(Path(scratch) / _LAUNCH_SCRATCH_SUBDIR, label)
