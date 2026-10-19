@@ -1598,6 +1598,22 @@ def test_the_suggested_new_name_is_one_that_does_not_exist_yet(
     assert f"for example: mv {skills} {skills}.off-2. " in str(refused.value)
 
 
+def test_a_broken_link_named_like_the_suggestion_is_not_suggested(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A dangling folder.off link still occupies the name, so mv onto it would fail."""
+    home = tmp_path / "home"
+    _fake_launch_home(monkeypatch, home)
+    skills = home / ".claude" / "skills"
+    _write_skill(skills)
+    (home / ".claude" / "skills.off").symlink_to(tmp_path / "gone")
+
+    with pytest.raises(LangGraphHarnessError) as refused:
+        _inventory_bare_repo(tmp_path)
+
+    assert f"for example: mv {skills} {skills}.off-2. " in str(refused.value)
+
+
 def test_renamed_or_empty_home_skills_folders_are_not_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
