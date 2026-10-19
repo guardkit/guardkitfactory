@@ -5,8 +5,9 @@ factory-credentials-2026-10-13.md``, section 1b and the
 guardkitfactory tests.
 
 * The builder's and the checker's shells (``build_autobuild_backend``) keep
-  their own base (``PATH``, ``HOME`` at the worktree, ``TMPDIR``, the Python
-  flags, the declared settings and scratch folders) and then pass it through
+  their own base (``PATH``, ``HOME`` and ``TMPDIR`` in the scratch folder
+  since 19 October 2026, the Python flags, the declared settings and scratch
+  folders) and then pass it through
   GuardKit's ``finish_project_environment``: a declared proxy that carries a
   user name or password refuses construction, and the run-owner marker reaches
   the shell from this process alone.
@@ -110,8 +111,12 @@ def test_the_shell_has_no_factory_credentials(factory, role: str) -> None:
     assert Path(seen["STANDIN_CACHE"]).name == "STANDIN_CACHE"
     assert Path(seen["STANDIN_CACHE"]).is_dir()
     assert seen.get("GUARDKIT_RUN_OWNER") == "build-x"
-    # The builder's shell keeps HOME at the worktree (coordinator decision 3).
-    assert seen["HOME"] == str(factory.worktree)
+    # 19 October 2026 (build FEAT-B874): HOME and TMPDIR are the shells' own
+    # private folders in the scratch folder: never the worktree, and never
+    # the project commands' HOME and TMPDIR.
+    toolchain = (factory.scratch / "toolchain").resolve()
+    assert seen["HOME"] == str(toolchain / "SHELL-HOME")
+    assert seen["TMPDIR"] == str(toolchain / "SHELL-TMPDIR")
 
 
 @pytest.mark.parametrize("name", ["HTTPS_PROXY", "https_proxy"])

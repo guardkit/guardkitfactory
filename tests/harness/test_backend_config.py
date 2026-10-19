@@ -42,7 +42,11 @@ from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.local_shell import LocalShellBackend
 
 from guardkitfactory import build_autobuild_backend, build_autobuild_permissions
-from guardkitfactory.harness.backend_config import PathConfinedBackend
+from guardkitfactory.harness.backend_config import (
+    PathConfinedBackend,
+    shell_home,
+    shell_tmpdir,
+)
 
 def _git_checkout(path: Path) -> Path:
     """A plain git checkout (no network, no commit), like a build's worktree."""
@@ -161,8 +165,16 @@ def test_build_autobuild_backend_configures_max_output_bytes_to_1mb(
 def test_build_autobuild_backend_env_contains_minimum_keys(tmp_path: Path) -> None:
     backend = build_autobuild_backend(tmp_path)
     assert backend.default._env["PATH"] == "/usr/bin:/bin"
-    assert backend.default._env["HOME"] == str(tmp_path)
-    assert backend.default._env["TMPDIR"] == str(tmp_path / ".tmp")
+    # 19 October 2026: HOME is private and outside the project.
+    home = Path(backend.default._env["HOME"])
+    assert home.is_dir()
+    assert not home.is_relative_to(tmp_path.resolve())
+    # 19 October 2026: so is TMPDIR.
+    tmpdir = Path(backend.default._env["TMPDIR"])
+    assert tmpdir.is_dir()
+    assert not tmpdir.is_relative_to(tmp_path.resolve())
+    assert tmpdir != home
+    assert not (tmp_path / ".tmp").exists()
     assert backend.default._env["PYTHONDONTWRITEBYTECODE"] == "1"
     assert backend.default._env["PYTHONNOUSERSITE"] == "1"
 
@@ -200,57 +212,70 @@ def test_execute_python_imports_do_not_write_bytecode_or_inherit_ambient_env(
     assert not (worktree / "__pycache__").exists()
 
 
+def _toolchain_tmpdir(worktree: Path) -> Path:
+    """Where the shell's TMPDIR lives for a plain git checkout (19 October 2026)."""
+    return worktree / ".git" / "guardkit-scratch" / "toolchain" / "SHELL-TMPDIR"
+
+
 def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
     tmp_path: Path,
 ) -> None:
-    temp_directory = tmp_path / ".tmp"
+    worktree = _git_checkout(tmp_path / "wt")
+    temp_directory = _toolchain_tmpdir(worktree)
     assert not temp_directory.exists()
 
-    backend = build_autobuild_backend(tmp_path)
+    backend = build_autobuild_backend(worktree)
 
+    assert backend.default._env["TMPDIR"] == str(temp_directory.resolve())
     assert temp_directory.is_dir()
     assert temp_directory.stat().st_mode & 0o077 == 0
+    assert not (worktree / ".tmp").exists()
     result = backend.execute("mktemp -d")
     assert result.exit_code == 0
     created = Path(result.output.strip())
     assert created.is_dir()
-    assert created.parent == temp_directory
+    assert created.parent == temp_directory.resolve()
 
 
-def test_build_autobuild_backend_preserves_existing_tmpdir(
+def test_build_autobuild_backend_reuses_existing_tmpdir_made_owner_only(
     tmp_path: Path,
 ) -> None:
-    temp_directory = tmp_path / ".tmp"
-    temp_directory.mkdir(mode=0o751)
+    worktree = _git_checkout(tmp_path / "wt")
+    temp_directory = _toolchain_tmpdir(worktree)
+    temp_directory.mkdir(parents=True, mode=0o751)
     temp_directory.chmod(0o751)
     marker = temp_directory / "keep.txt"
     marker.write_text("keep\n")
-    original_mode = temp_directory.stat().st_mode
 
-    backend = build_autobuild_backend(tmp_path)
+    backend = build_autobuild_backend(worktree)
 
-    assert backend.default._env["TMPDIR"] == str(temp_directory)
+    assert backend.default._env["TMPDIR"] == str(temp_directory.resolve())
     assert marker.read_text() == "keep\n"
-    assert temp_directory.stat().st_mode == original_mode
+    # 19 October 2026: reused, but made owner-only.
+    assert (temp_directory.stat().st_mode & 0o777) == 0o700
 
 
 def test_build_autobuild_backend_refuses_tmpdir_file(tmp_path: Path) -> None:
-    (tmp_path / ".tmp").write_text("not a directory\n")
+    worktree = _git_checkout(tmp_path / "wt")
+    temp_directory = _toolchain_tmpdir(worktree)
+    temp_directory.parent.mkdir(parents=True)
+    temp_directory.write_text("not a directory\n")
 
     with pytest.raises(ValueError, match="TMPDIR must be a directory"):
-        build_autobuild_backend(tmp_path)
+        build_autobuild_backend(worktree)
 
 
 @pytest.mark.parametrize("broken", [False, True], ids=["existing-target", "broken"])
 def test_build_autobuild_backend_refuses_tmpdir_symlink(
     tmp_path: Path, broken: bool
 ) -> None:
-    worktree = tmp_path / "worktree"
-    worktree.mkdir()
+    worktree = _git_checkout(tmp_path / "worktree")
     target = tmp_path / "redirected"
     if not broken:
         target.mkdir()
-    (worktree / ".tmp").symlink_to(target, target_is_directory=True)
+    temp_directory = _toolchain_tmpdir(worktree)
+    temp_directory.parent.mkdir(parents=True)
+    temp_directory.symlink_to(target, target_is_directory=True)
 
     with pytest.raises(ValueError, match="TMPDIR must not be a symlink"):
         build_autobuild_backend(worktree)
@@ -259,7 +284,8 @@ def test_build_autobuild_backend_refuses_tmpdir_symlink(
 def test_build_autobuild_backend_refuses_tmpdir_creation_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    temp_directory = tmp_path / ".tmp"
+    worktree = _git_checkout(tmp_path / "wt")
+    temp_directory = _toolchain_tmpdir(worktree)
     original_mkdir = Path.mkdir
 
     def fail_tmpdir(path: Path, *args, **kwargs):
@@ -269,11 +295,11 @@ def test_build_autobuild_backend_refuses_tmpdir_creation_failure(
 
     monkeypatch.setattr(Path, "mkdir", fail_tmpdir)
     with pytest.raises(ValueError, match="TMPDIR could not be created"):
-        build_autobuild_backend(tmp_path)
+        build_autobuild_backend(worktree)
 
 
 def test_build_autobuild_backend_refuses_missing_worktree(tmp_path: Path) -> None:
-    with pytest.raises(ValueError, match="TMPDIR could not be created"):
+    with pytest.raises(ValueError, match="worktree is not an existing folder"):
         build_autobuild_backend(tmp_path / "missing-worktree")
 
 
@@ -1440,10 +1466,12 @@ class TestDeclaredPathProtection:
 class TestLaunchEnvironment:
     """12 October 2026: the project's ``launch:`` names reach the shell.
 
-    The shell does not inherit this process's environment and its ``HOME`` is
-    the worktree, so a tool cache would land in the project. The project
-    declares settings to carry over and scratch folders for its caches; the
-    backend applies exactly what is declared and knows no tool.
+    The shell does not inherit this process's environment. Its ``HOME`` was
+    the worktree until 19 October 2026 (it is now private, outside the
+    project), so a tool cache landed in the project unless the project
+    declared a scratch folder for it. The project declares settings to carry
+    over and scratch folders for its caches; the backend applies exactly what
+    is declared and knows no tool.
     """
 
     def _scratch(self, tmp_path: Path) -> Path:
@@ -1464,8 +1492,8 @@ class TestLaunchEnvironment:
         # Exactly the environment the shell had before launch declarations.
         assert plain.default._env == {
             "PATH": "/usr/bin:/bin",
-            "HOME": str(worktree),
-            "TMPDIR": str(worktree / ".tmp"),
+            "HOME": str(shell_home(worktree)),
+            "TMPDIR": str(shell_tmpdir(worktree)),
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONNOUSERSITE": "1",
         }
@@ -1489,7 +1517,9 @@ class TestLaunchEnvironment:
             assert env[name] == str(folder)
             assert folder.is_dir()
             assert (folder.stat().st_mode & 0o777) == 0o700
-        assert env["HOME"] == str(worktree)
+        # HOME stays the shell's own private folder, outside the project.
+        assert env["HOME"] == str(shell_home(worktree))
+        assert not Path(env["HOME"]).is_relative_to(worktree.resolve())
 
     def test_settings_pass_through_only_when_set(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1660,7 +1690,8 @@ class TestLaunchEnvironment:
         ``go env`` and ``npm cache verify`` report the scratch folders, and
         the worktree gains no files. ``XDG_CONFIG_HOME`` (Go's telemetry
         folder) and ``NODE_COMPILE_CACHE`` are declared because without them
-        go and node write under the worktree ``HOME`` and ``TMPDIR``.
+        go and node wrote under the worktree ``HOME`` and ``TMPDIR`` (both
+        are private folders outside the project since 19 October 2026).
         """
         import shutil
 
@@ -1774,7 +1805,8 @@ def test_read_only_backend_refuses_uploads_and_writes_nothing(
     worktree.mkdir()
     (worktree / "app.py").write_text("ANSWER = 42\n")
     backend = build_autobuild_backend(worktree, read_only=True)
-    # Snapshot after construction: the builder makes the private .tmp folder.
+    # Snapshot after construction (nothing is made in the worktree since
+    # 19 October 2026, but the comparison is what matters).
     before = sorted(p.relative_to(worktree) for p in worktree.rglob("*"))
     target = worktree / "uploaded.bin"
     outside = tmp_path / "outside.bin"
