@@ -790,6 +790,141 @@ class _DiscoveryWarnings(logging.Handler):
             self.messages.append(record.getMessage())
 
 
+_SUMMARY_NOTICE_LOGGER = "deepagents_code.goal_state_notice"
+_SUMMARY_DISCARD = "Discarding malformed `_summarization_event` (cutoff_index=%s, "
+_SUMMARY_LINE_INTERVAL = 60.0
+_SUMMARY_FILTER_LOCK = threading.Lock()
+# The only upstream caller where the record is the false alarm: it sees the
+# request after the summariser has shortened it. The same record from
+# `GoalToolsMiddleware._notice_update` (before_model) reads the full saved
+# history, so there a cutoff past the end means the summary really is dropped.
+_SUMMARY_FALSE_ALARM_CALLER = "GoalToolsMiddleware._request_with_goal_notice"
+_SUMMARY_CALLER_DEPTH = 12
+
+
+def _from_model_request() -> bool:
+    """Whether the record being filtered was logged from the shortened request.
+
+    Walks at most a dozen frames (filter, logging internals, the upstream log
+    helper, its caller) and never raises; anything unexpected means "no", so
+    the record keeps its upstream wording.
+    """
+    try:
+        frame = sys._getframe(1)
+        for _ in range(_SUMMARY_CALLER_DEPTH):
+            if frame is None:
+                return False
+            code = frame.f_code
+            if getattr(code, "co_qualname", code.co_name) == _SUMMARY_FALSE_ALARM_CALLER:
+                return True
+            frame = frame.f_back
+    except Exception:  # noqa: BLE001 - a log filter must never break logging
+        return False
+    return False
+
+
+class _SummaryFalseAlarm(logging.Filter):
+    """Reword dcode's false "summary dropped" warning, at most once a minute.
+
+    In the pinned deepagents-code (0.1.69 on deepagents 0.7.14) the goal-state
+    middleware sits inside the summariser, so after every summary it compares
+    the full-history cutoff with the already-shortened request, calls a valid
+    cutoff out of range and warns that the full history is re-sent. It is not:
+    the model receives the summary plus recent messages (pinned in
+    tests/harness/test_dcode_summary_window.py). On 19 October 2026 the line
+    misled an investigation and repeated 842 times in one build.
+
+    Only that exact record with a whole-number cutoff above the message count
+    (the false-alarm shape), logged from the request path
+    (`_request_with_goal_notice`), is reworded, at INFO; one line is kept per
+    minute per process, with the count of those not shown, so a genuinely
+    broken checkpoint seen there still leaves a trace. The same record from
+    `_notice_update` (before_model), where the summary really is dropped, and
+    every other record from the logger, including a non-numeric or negative
+    cutoff, pass unchanged as upstream wrote them and do not count against the
+    minute.
+    """
+
+    def __init__(
+        self,
+        version: str | None = None,
+        clock: Any = time.monotonic,
+        caller: Any = _from_model_request,
+    ) -> None:
+        super().__init__()
+        self._caller = caller
+        self._version = version  # looked up on first use, so installing stays cheap
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._last: float | None = None
+        self._hidden = 0
+
+    @staticmethod
+    def _numbers(record: logging.LogRecord) -> tuple[int, int] | None:
+        if not isinstance(record.msg, str) or not record.msg.startswith(_SUMMARY_DISCARD):
+            return None
+        args = record.args
+        if not isinstance(args, tuple) or len(args) != 2:
+            return None
+        detail, count = args
+        if not isinstance(detail, str) or type(count) is not int:
+            return None
+        try:
+            cutoff = int(detail)
+        except ValueError:
+            return None
+        if str(cutoff) != detail or cutoff <= count:
+            return None
+        return cutoff, count
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        numbers = self._numbers(record)
+        if numbers is None or not self._caller():
+            return True
+        with self._lock:
+            now = self._clock()
+            if self._last is not None and now - self._last < _SUMMARY_LINE_INTERVAL:
+                self._hidden += 1
+                return False
+            self._last = now
+            hidden, self._hidden = self._hidden, 0
+            if self._version is None:
+                self._version = _installed_dcode_version()
+        cutoff, count = numbers
+        record.msg = (
+            "Known false alarm from deepagents-code %s, not a dropped summary: its "
+            "goal-state check saw an already-shortened request (cutoff_index=%d, "
+            'messages=%d) and logged "Discarding malformed `_summarization_event`". '
+            "The model still received the summary and the recent messages; nothing "
+            "was re-sent. Shown at most once a minute; %d more since the last line."
+        )
+        record.args = (self._version, cutoff, count, hidden)
+        record.levelno = logging.INFO
+        record.levelname = logging.getLevelName(logging.INFO)
+        return True
+
+
+def _installed_dcode_version() -> str:
+    try:
+        from importlib.metadata import version
+
+        return version("deepagents-code")
+    except Exception:  # noqa: BLE001 - wording only; never break logging
+        return "(version unknown)"
+
+
+def install_summary_warning_filter() -> logging.Filter:
+    """Install the reworded summary warning once per process; return the filter."""
+    target = logging.getLogger(_SUMMARY_NOTICE_LOGGER)
+    with _SUMMARY_FILTER_LOCK:
+        for existing in target.filters:
+            if isinstance(existing, _SummaryFalseAlarm):
+                return existing
+        added = _SummaryFalseAlarm()
+        target.addFilter(added)
+        return added
+
+
 def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     from deepagents_code._paths import (
         get_built_in_skills_dir,
@@ -1021,6 +1156,7 @@ def create_dcode_player(
     # every generation setting without changing the caller's model instance.
     model = model.model_copy()
     object.__setattr__(model, MODEL_RETRIES_ATTR, 0)
+    install_summary_warning_filter()
     context = ProjectContext(user_cwd=cwd, project_root=cwd)
     before = _inventory(config, context)
     artifacts = _private_artifacts_root(backend, cwd)
