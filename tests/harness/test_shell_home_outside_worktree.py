@@ -423,3 +423,91 @@ def test_a_shell_folder_owned_by_another_user_is_refused(
 
     with pytest.raises(ValueError, match="another user"):
         shell_home(worktree)
+
+
+# ---------------------------------------------------------------------------
+# 19 October 2026: one HOME and TMPDIR per role, so the builder's shell
+# cannot change what the checker's shell runs.
+
+
+def _role_shell(worktree: Path, role: str, *, builder: bool = False):
+    return build_autobuild_backend(
+        worktree,
+        scratch_root=_scratch(worktree) if builder else None,
+        shell_role=role,
+    )
+
+
+def test_each_role_gets_its_own_home_and_tmpdir(tmp_path: Path) -> None:
+    worktree = _factory_worktree(tmp_path)
+    toolchain = (_scratch(worktree) / "toolchain").resolve()
+
+    seen = {}
+    for role in ("builder", "checker", "specialist"):
+        env = _role_shell(worktree, role, builder=role == "builder").default._env
+        assert env["HOME"] == str(toolchain / f"{role}-SHELL-HOME")
+        assert env["TMPDIR"] == str(toolchain / f"{role}-SHELL-TMPDIR")
+        for name in ("HOME", "TMPDIR"):
+            folder = Path(env[name])
+            assert folder.is_dir()
+            assert (folder.stat().st_mode & 0o777) == 0o700
+            assert not folder.is_relative_to(worktree.resolve())
+        seen[role] = (env["HOME"], env["TMPDIR"])
+    homes = {home for home, _ in seen.values()}
+    tmpdirs = {tmpdir for _, tmpdir in seen.values()}
+    assert len(homes) == len(tmpdirs) == 3
+    assert not (worktree / ".tmp").exists()
+
+
+def test_what_the_builder_leaves_is_not_seen_by_the_checker(tmp_path: Path) -> None:
+    worktree = _factory_worktree(tmp_path)
+    (worktree / "test_sample.py").write_text(
+        "import unittest\n\n\n"
+        "class Sample(unittest.TestCase):\n"
+        "    def test_adds(self):\n"
+        "        self.assertEqual(1 + 1, 2)\n",
+        encoding="utf-8",
+    )
+    _git(worktree, "add", "test_sample.py")
+    _git(worktree, "commit", "-q", "-m", "a test")
+    builder = _role_shell(worktree, "builder", builder=True)
+    checker = _role_shell(worktree, "checker")
+
+    planted = builder.execute(
+        'set -e; echo builder > "$HOME/left-by-builder"; '
+        'echo builder > "$TMPDIR/left-by-builder"; '
+        'printf "[user]\\n\\tname = planted-by-builder\\n" > "$HOME/.gitconfig"; '
+        'echo "registry=https://example.invalid/" > "$HOME/.npmrc"; '
+        "git config --get user.name"
+    )
+    assert planted.exit_code == 0, planted.output
+    # Control: the builder's own shell does read what it planted.
+    assert "planted-by-builder" in planted.output
+
+    looked = checker.execute(
+        'ls -A "$HOME"; echo ---; ls -A "$TMPDIR"; echo ---; '
+        'git config --get user.name || echo no-user-name'
+    )
+    assert looked.exit_code == 0, looked.output
+    assert "left-by-builder" not in looked.output
+    assert ".gitconfig" not in looked.output and ".npmrc" not in looked.output
+    assert "planted-by-builder" not in looked.output
+    assert "no-user-name" in looked.output
+
+    # And the checker's shell still runs the project's tests normally.
+    tests = checker.execute("python3 -m unittest -v test_sample")
+    assert tests.exit_code == 0, tests.output
+    assert "OK" in tests.output and "test_adds" in tests.output
+    assert _detected_changes(worktree) == {"modified": [], "created": []}
+
+
+def test_an_unknown_shell_role_is_refused_before_anything_is_made(
+    tmp_path: Path,
+) -> None:
+    worktree = _factory_worktree(tmp_path)
+    toolchain = _scratch(worktree) / "toolchain"
+
+    with pytest.raises(ValueError, match="shell role"):
+        build_autobuild_backend(worktree, shell_role="reviewer")
+    assert not toolchain.exists()
+    assert sorted(p.name for p in worktree.iterdir()) == [".git", "README.md"]

@@ -183,6 +183,7 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "build_autobuild_backend",
     "model_artifacts_root",
+    "SHELL_ROLES",
     "shell_home",
     "shell_tmpdir",
     "PathConfinedBackend",
@@ -1233,37 +1234,59 @@ def _shell_toolchain_folder(
     return folder
 
 
-def shell_home(worktree: Path) -> Path:
-    """Return the private ``HOME`` for every shell built for ``worktree``.
+#: The roles a shell can be built for (19 October 2026). Each has its own
+#: ``HOME`` and ``TMPDIR``, so nothing the builder's shell leaves in its home
+#: folder (a ``~/.npmrc``, a ``~/.gitconfig``, a ``.pth`` file) changes what
+#: the checker's shell runs. ``None`` (a caller that names no role) keeps the
+#: shared ``SHELL-HOME`` and ``SHELL-TMPDIR``.
+SHELL_ROLES = ("builder", "checker", "specialist")
+
+
+def _shell_folder_name(kind: str, role: str | None) -> str:
+    if role is None:
+        return kind
+    if role not in SHELL_ROLES:
+        raise ValueError(
+            f"AutoBuild shell role {role!r} is not one of {', '.join(SHELL_ROLES)}"
+        )
+    return f"{role}-{kind}"
+
+
+def shell_home(worktree: Path, role: str | None = None) -> Path:
+    """Return the private ``HOME`` for a shell built for ``worktree``.
 
     19 October 2026 (build FEAT-B874). The shell's ``HOME`` was the worktree,
     so every tool that keeps a cache or settings under the home folder wrote
     them into the project: one ``npm install`` by the builder put 2,058 files
     of ``.npm/_cacache`` into the build's worktree. The same holds for pip's,
     Cargo's, Go's and any other tool's default caches, which all follow
-    ``HOME``. So ``HOME`` is now ``<scratch>/toolchain/SHELL-HOME``
-    (:func:`_shell_toolchain_folder`), shared by the builder's and the
-    checker's shells and kept apart from the project commands' ``HOME`` (so
-    the two do not share caches; accepted). No tool is named and no project
-    declaration is needed; a declared ``launch.scratch`` name still points
-    its own tool elsewhere.
+    ``HOME``. So ``HOME`` is now ``<scratch>/toolchain/<role>-SHELL-HOME``
+    (:func:`_shell_toolchain_folder`; ``SHELL-HOME`` when no role is named):
+    one per role (:data:`SHELL_ROLES`), and apart from the project commands'
+    ``HOME``, so none of them shares caches (accepted). No tool is named and
+    no project declaration is needed; a declared ``launch.scratch`` name
+    still points its own tool elsewhere.
     """
     return _shell_toolchain_folder(
-        worktree, "SHELL-HOME", "shell home folder", "home folder (tool caches)"
+        worktree,
+        _shell_folder_name("SHELL-HOME", role),
+        "shell home folder",
+        "home folder (tool caches)",
     )
 
 
-def shell_tmpdir(worktree: Path) -> Path:
-    """Return the private ``TMPDIR`` for every shell built for ``worktree``.
+def shell_tmpdir(worktree: Path, role: str | None = None) -> Path:
+    """Return the private ``TMPDIR`` for a shell built for ``worktree``.
 
     19 October 2026. ``TMPDIR`` was ``<worktree>/.tmp``, so every temporary
     file a tool made (Node's compile cache among them) landed in the project,
     kept out of commits only by GuardKit's ``.tmp/`` filters. It is now
-    ``<scratch>/toolchain/SHELL-TMPDIR`` (:func:`_shell_toolchain_folder`),
-    apart from the project commands' ``TMPDIR``. Errors name ``TMPDIR``.
+    ``<scratch>/toolchain/<role>-SHELL-TMPDIR`` (``SHELL-TMPDIR`` when no
+    role is named), one per role and apart from the project commands'
+    ``TMPDIR``. Errors name ``TMPDIR``.
     """
     return _shell_toolchain_folder(
-        worktree, "SHELL-TMPDIR", "TMPDIR", "temporary folder"
+        worktree, _shell_folder_name("SHELL-TMPDIR", role), "TMPDIR", "temporary folder"
     )
 
 
@@ -1309,6 +1332,7 @@ def build_autobuild_backend(
     launch_environment: Mapping[str, Sequence[str]] | None = None,
     launch_scratch_root: Path | str | None = None,
     read_only: bool = False,
+    shell_role: str | None = None,
 ) -> CompositeBackend:
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
@@ -1404,6 +1428,14 @@ def build_autobuild_backend(
             False). The caller asks for this when the agent's tool request is
             read-only; it backs up the harness's own tool allowlist. False
             (the default) keeps the backend exactly as before.
+        shell_role: 19 October 2026. Which agent the shell is for: one of
+            :data:`SHELL_ROLES` (GuardKit's selector passes ``"builder"`` for
+            the Player, ``"checker"`` for the Coach and its test run, and
+            ``"specialist"`` otherwise). Each role gets its own private
+            ``HOME`` and ``TMPDIR`` (:func:`shell_home`,
+            :func:`shell_tmpdir`), so the builder's shell cannot change what
+            the checker's shell runs. ``None`` keeps the shared folders. Any
+            other value refuses construction.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -1419,7 +1451,7 @@ def build_autobuild_backend(
     if not worktree.is_dir():
         raise ValueError(f"AutoBuild worktree is not an existing folder: {worktree}")
     # Outside the project, so no temporary file lands in it (19 October 2026).
-    temp_directory = shell_tmpdir(worktree)
+    temp_directory = shell_tmpdir(worktree, shell_role)
     project = worktree.resolve()
 
     def inside_project(path: Path) -> bool:
@@ -1462,7 +1494,7 @@ def build_autobuild_backend(
     env: dict[str, str] = {
         "PATH": _AUTOBUILD_PATH,
         # Outside the project, so no tool's cache lands in it (19 October 2026).
-        "HOME": str(shell_home(worktree)),
+        "HOME": str(shell_home(worktree, shell_role)),
         "TMPDIR": str(temp_directory),
         "PYTHONDONTWRITEBYTECODE": "1",
         "PYTHONNOUSERSITE": "1",
