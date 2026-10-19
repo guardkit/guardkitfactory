@@ -80,8 +80,25 @@ def _rendered(body: dict[str, Any]) -> str:
     return "\n".join(str(message.get("content", "")) for message in body["messages"])
 
 
-def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture):
+def _run(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    *,
+    reworded: bool = False,
+):
     import deepagents.graph as sdk_graph
+
+    from guardkitfactory.harness import dcode_harness
+
+    # The Player launch rewords this upstream warning (see
+    # test_dcode_summary_warning.py). By default the tests here observe the raw
+    # upstream record, so the strict expected failure below still notices an
+    # upstream fix; ``reworded`` runs the launch's own filter, freshly installed.
+    notice_logger = logging.getLogger("deepagents_code.goal_state_notice")
+    monkeypatch.setattr(notice_logger, "filters", [])
+    if not reworded:
+        monkeypatch.setattr(dcode_harness, "install_summary_warning_filter", lambda: None)
 
     stacks: list[list[str]] = []
     real_create_agent = sdk_graph.create_agent
@@ -120,7 +137,9 @@ def _run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCapt
         player_config=config(repo),
         recursion_limit=200,
     )
-    caplog.set_level(logging.WARNING, logger="deepagents_code.goal_state_notice")
+    caplog.set_level(
+        logging.INFO if reworded else logging.WARNING, logger="deepagents_code.goal_state_notice"
+    )
     try:
         asyncio.run(_collect(harness, repo))
     finally:
@@ -195,3 +214,21 @@ def test_no_summary_event_is_discarded(
 ) -> None:
     _, _, discards, _ = _run(tmp_path, monkeypatch, caplog)
     assert discards == []
+
+
+def test_player_launch_logs_one_plain_line_instead_of_the_false_alarm(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    exchange, _, _, seen = _run(tmp_path, monkeypatch, caplog, reworded=True)
+    assert exchange.summaries == 1
+    lines = [r for r in caplog.records if r.name == "deepagents_code.goal_state_notice"]
+    # Every post-summary request still trips the upstream check (above), but
+    # the log carries one plain INFO line, not one alarming line per request.
+    assert len(lines) == 1
+    (line,) = lines
+    message = line.getMessage()
+    assert line.levelno == logging.INFO
+    assert "re-sends the full history" not in message
+    window, cutoff = seen[exchange.compact_index + 1]
+    assert f"(cutoff_index={cutoff}, messages={window})" in message
+    assert "nothing was re-sent" in message
