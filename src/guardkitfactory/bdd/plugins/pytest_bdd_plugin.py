@@ -34,7 +34,25 @@ from guardkitfactory.bdd.plugin import (
     Scenario,
     StackProfile,
 )
-from guardkitfactory.regular_file import read_regular_text, skipped_entries_summary
+from guardkitfactory.regular_file import (
+    open_regular,
+    read_regular_text,
+    skipped_entries_summary,
+)
+
+
+def _errored_report(junit_path: Path, message: str) -> BDDRunResult:
+    """The structured result for a JUnit report that could not be used."""
+    return BDDRunResult(
+        scenarios_attempted=0,
+        scenarios_passed=0,
+        scenarios_failed=0,
+        scenarios_skipped=0,
+        scenarios_errored=1,
+        duration_seconds=0.0,
+        raw_report_path=junit_path,
+        errors=[message],
+    )
 
 
 def _sanitise_task_id(task_id: str) -> str:
@@ -288,19 +306,25 @@ class PytestBDDPlugin(BDDPlugin):
                 ],
             )
 
+        # The report sits in the worktree, so it is opened only if it is a
+        # regular file: a named pipe left at that path would otherwise block
+        # here forever, after the timed pytest run has already returned.
         try:
-            tree = ET.parse(junit_path)
-        except ET.ParseError as exc:
-            return BDDRunResult(
-                scenarios_attempted=0,
-                scenarios_passed=0,
-                scenarios_failed=0,
-                scenarios_skipped=0,
-                scenarios_errored=1,
-                duration_seconds=0.0,
-                raw_report_path=junit_path,
-                errors=[f"junit parse error: {exc}"],
+            handle = open_regular(junit_path)
+        except OSError as exc:
+            return _errored_report(junit_path, f"junit could not be read: {exc}")
+        if handle is None:
+            return _errored_report(
+                junit_path,
+                f"junit report is not a regular file, so it was not read: {junit_path}",
             )
+        try:
+            with handle:
+                tree = ET.parse(handle)
+        except ET.ParseError as exc:
+            return _errored_report(junit_path, f"junit parse error: {exc}")
+        except OSError as exc:
+            return _errored_report(junit_path, f"junit could not be read: {exc}")
 
         root = tree.getroot()
         # JUnit may be rooted at <testsuites> wrapping <testsuite>, or

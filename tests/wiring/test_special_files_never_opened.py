@@ -96,10 +96,27 @@ _RUN_BDD_READS = textwrap.dedent(
 )
 
 
+# A pytest-bdd run whose "pytest" (GUARDKIT_BDD_VENV_PYTHON=/bin/true) exits
+# at once without writing a report, so the plugin reads whatever is already
+# at the report path: the case where a named pipe was left there.
+_RUN_BDD_REPORT = textwrap.dedent(
+    """
+    import dataclasses, json, logging, sys
+    from pathlib import Path
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    from guardkitfactory.bdd.plugins.pytest_bdd_plugin import PytestBDDPlugin
+
+    result = PytestBDDPlugin().run([], "TASK-PIPE-1", Path(sys.argv[1]), timeout_seconds=30)
+    print(json.dumps(dataclasses.asdict(result), default=str))
+    """
+)
+
+
 def _run_child(code: str, *args: str) -> tuple[object, str]:
     """Run ``code`` in a child process; fail if it does not finish."""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
+    env["GUARDKIT_BDD_VENV_PYTHON"] = "/bin/true"
     try:
         proc = subprocess.run(
             [sys.executable, "-c", code, *args],
@@ -291,6 +308,50 @@ def test_bdd_plugin_reads_skip_pipes(tmp_path: Path) -> None:
     assert result == {"pytest_bdd_preflight": False, "cucumber_discovered": False}
     assert "pytest-bdd preflight skipped 1 entry that is not a regular file" in log
     assert "package.json: it is a named pipe, not a regular file" in log
+
+
+_REPORT = ".guardkit/autobuild/TASK-PIPE-1/bdd_TASK-PIPE-1.xml"
+
+
+def _git_worktree(tmp_path: Path) -> Path:
+    """A git checkout: project commands get their private HOME and TMPDIR
+    inside its git folder, and will not run without one."""
+    worktree = tmp_path / "wt"
+    subprocess.run(["git", "init", "-q", str(worktree)], check=True)
+    return worktree
+
+
+@pytest.mark.skipif(not os.access("/bin/true", os.X_OK), reason="needs /bin/true")
+def test_bdd_report_that_is_a_pipe_gives_an_errored_result(tmp_path: Path) -> None:
+    worktree = _git_worktree(tmp_path)
+    (worktree / _REPORT).parent.mkdir(parents=True)
+    os.mkfifo(worktree / _REPORT)
+    result, _ = _run_child(_RUN_BDD_REPORT, str(worktree))
+    assert result["scenarios_errored"] == 1
+    assert result["scenarios_attempted"] == 0
+    assert result["errors"] == [
+        f"junit report is not a regular file, so it was not read: {worktree / _REPORT}"
+    ]
+
+
+@pytest.mark.skipif(not os.access("/bin/true", os.X_OK), reason="needs /bin/true")
+def test_bdd_report_that_is_regular_xml_is_read_as_before(tmp_path: Path) -> None:
+    worktree = _git_worktree(tmp_path)
+    _write(
+        worktree,
+        _REPORT,
+        '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite tests="5" '
+        'failures="1" errors="1" skipped="1" time="2.5"/></testsuites>',
+    )
+    result, _ = _run_child(_RUN_BDD_REPORT, str(worktree))
+    assert {k: result[k] for k in (
+        "scenarios_attempted", "scenarios_passed", "scenarios_failed",
+        "scenarios_skipped", "scenarios_errored", "duration_seconds", "errors",
+    )} == {
+        "scenarios_attempted": 5, "scenarios_passed": 2, "scenarios_failed": 1,
+        "scenarios_skipped": 1, "scenarios_errored": 1, "duration_seconds": 2.5,
+        "errors": [],
+    }
 
 
 # --- the helper itself -------------------------------------------------------
