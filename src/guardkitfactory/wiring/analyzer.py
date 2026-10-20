@@ -56,6 +56,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from guardkitfactory.regular_file import read_regular_bytes, read_regular_text
 from guardkitfactory.wiring.dialect import (
     WiringDialect,
     _find_language,
@@ -723,11 +724,10 @@ def _collect_source_files(worktree: Path, dialect: WiringDialect) -> list[str]:
 
 
 def _read_bytes(path: Path) -> bytes | None:
-    try:
-        with open(path, "rb") as f:
-            return f.read()
-    except OSError:
-        return None
+    """The file's bytes, or ``None`` when it cannot be read or is not a
+    regular file. A named pipe, socket or device is skipped with a log note
+    and never opened for reading, so it cannot hang the Coach turn."""
+    return read_regular_bytes(path)
 
 
 # ---------------------------------------------------------------------------
@@ -904,9 +904,11 @@ def _manifest_text(worktree: Path, dialect: WiringDialect) -> str:
             paths = [p] if p.is_file() else []
         for path in paths:
             try:
-                chunks.append(path.read_text(errors="replace"))
+                text = read_regular_text(path, errors="replace")
             except OSError:
                 continue
+            if text is not None:
+                chunks.append(text)
     return "\n".join(chunks)
 
 
@@ -929,10 +931,11 @@ def _build_text_corpus(
             if _is_test_file(rel_path, dialect):
                 continue
             try:
-                with open(full_path, errors="replace") as f:
-                    corpus.append((rel_path, f.read()))
+                text = read_regular_text(full_path, errors="replace")
             except OSError:
                 continue
+            if text is not None:
+                corpus.append((rel_path, text))
     return corpus
 
 

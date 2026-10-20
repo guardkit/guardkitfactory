@@ -34,6 +34,7 @@ from guardkitfactory.bdd.plugin import (
     Scenario,
     StackProfile,
 )
+from guardkitfactory.regular_file import read_regular_text
 
 
 def _sanitise_task_id(task_id: str) -> str:
@@ -168,7 +169,7 @@ class PytestBDDPlugin(BDDPlugin):
         conftest_files = list(features_root.rglob("conftest.py"))
         try:
             referenced = any(
-                self.BDD_TASK_ID_ENV in p.read_text(encoding="utf-8")
+                self.BDD_TASK_ID_ENV in (read_regular_text(p, encoding="utf-8") or "")
                 for p in conftest_files
             )
         except OSError:

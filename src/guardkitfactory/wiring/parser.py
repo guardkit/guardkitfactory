@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from guardkitfactory.regular_file import open_regular
+
 if TYPE_CHECKING:
     from tree_sitter import Language, Parser, Tree
 
@@ -99,10 +101,16 @@ def parse_file(path: str, language_name: str) -> Tree | None:
     """Parse a source file into a tree-sitter ``Tree``.
 
     Returns ``None`` if the file cannot be read or parsed.
+
+    Only a regular file is read: a named pipe, socket or device is skipped
+    with a log note and never opened for reading, so it cannot block.
     """
     try:
-        with open(path, "rb") as f:
-            source = f.read()
+        handle = open_regular(path)
+        if handle is None:
+            return None
+        with handle:
+            source = handle.read()
     except OSError as exc:
         logger.warning("Cannot read file '%s': %s", path, exc)
         return None

@@ -22,6 +22,7 @@ from guardkitfactory.bdd.plugin import (
     Scenario,
     StackProfile,
 )
+from guardkitfactory.regular_file import read_regular_text
 
 
 @register
@@ -41,8 +42,10 @@ class CucumberJSPlugin(BDDPlugin):
         if not package_json.exists():
             return None
         try:
-            with open(package_json) as f:
-                pkg = json.load(f)
+            text = read_regular_text(package_json)
+            if text is None:
+                return None
+            pkg = json.loads(text)
         except (json.JSONDecodeError, OSError):
             return None
         deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
