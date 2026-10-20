@@ -291,7 +291,7 @@ ALLOWED: Dict[Tuple[str, str], str] = {
         "passes its caller's arguments to GuardKit's run_project_command; "
         "every call to it is checked"
     ),
-    ("harness/shell_commands.py", "execute"): (
+    ("harness/shell_commands.py", "_run"): (
         "the agent's shell (DeepAgents' LocalShellBackend.execute, kept apart "
         "so a command leaves nothing running), with the backend's own env, "
         "which build_autobuild_backend makes with finish_project_environment "

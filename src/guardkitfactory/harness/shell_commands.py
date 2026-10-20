@@ -28,6 +28,17 @@ words, naming the command and how many processes, and the command's own
 output says so too, so the agent knows that a server or watcher must be
 started and used within one command.
 
+A factory launch runs no command until the real clean-up has passed an
+END-TO-END SELF-TEST in this process (:func:`_self_test`, cached on success):
+a tiny command leaves a process in a session of its own, is stopped exactly as
+any command is, and the process must be gone. That proves the ``/proc``
+listing and record reads, ``waitid`` and the pidfd calls together. Any of
+those failing later, mid-run, ends that command with a plain error (the group
+by its pinned number, the rest through pidfds) instead of falling back to a
+reduced or silently empty clean-up. A person's own run keeps the reduced
+clean-up, with a warning. (Codex review, 20 October 2026; the same rule as
+GuardKit's runner.)
+
 Two rules keep the stop safe (Codex review, 19 October 2026), the same as
 GuardKit's runner for project commands (``guardkit.orchestrator.process_group``):
 
@@ -46,8 +57,9 @@ GuardKit's runner for project commands (``guardkit.orchestrator.process_group``)
 Finding the session's processes reads ``/proc`` (Linux, where the factory's
 sandboxes run). Elsewhere only the command's own process group is signalled,
 and nothing is counted. Where the shell's exit cannot be read without
-collecting it (``os.waitid`` is missing: macOS before Python 3.13), the command
-is waited for as upstream does, and only a timeout stops its process group.
+collecting it (``os.waitid`` missing, as on macOS before Python 3.13, or
+refused by a filter), the command is waited for as upstream does, and only a
+timeout stops its process group. No wait for the shell is ever unbounded.
 
 Nothing here names a language, tool or test runner.
 """
@@ -57,9 +69,15 @@ from __future__ import annotations
 import errno
 import logging
 import os
+import select
 import selectors
+import shlex
+import shutil
 import signal
 import subprocess
+import sys
+import tempfile
+import threading
 import time
 import uuid
 from dataclasses import dataclass
@@ -130,7 +148,16 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
     """``(state, group, session, start time)`` for ``pid``, or ``None`` if gone."""
     try:
         data = (_PROC / str(pid) / "stat").read_bytes()
-    except OSError:
+    except (FileNotFoundError, ProcessLookupError):
+        return None  # gone, or never there
+    except OSError as exc:
+        # A record that cannot be read is not an absent process: on a factory
+        # launch the command cannot be watched safely.
+        if is_factory_launch():
+            raise _cleanup_failure(
+                f"a process record in /proc could not be read ({exc.strerror or exc})",
+                before_launch=False,
+            ) from exc
         return None
     # The program name (field 2) may hold spaces and brackets; the fields
     # after the last ")" start at field 3.
@@ -142,11 +169,69 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
 
 
 def _carries_marker(pid: int, marker: bytes) -> bool:
+    """Whether ``pid``'s environment holds ``marker``.
+
+    A process that has gone does not. A process refused by design (see
+    :func:`_could_be_this_commands`) is not this command's. Any other
+    failure to read it is not an absent marker: on a factory launch the
+    command cannot be watched safely.
+    """
     try:
         environ = (_PROC / str(pid) / "environ").read_bytes()
-    except OSError:  # gone, or another user's process
+    except (FileNotFoundError, ProcessLookupError):
+        return False
+    except OSError as exc:
+        if isinstance(exc, PermissionError) and not _could_be_this_commands(pid):
+            return False
+        if is_factory_launch():
+            raise _cleanup_failure(
+                f"a process's environment in /proc could not be read "
+                f"({exc.strerror or exc})",
+                before_launch=False,
+            ) from exc
         return False
     return marker in b"\0" + environ
+
+
+def _status_fields(pid: int) -> dict[str, str]:
+    try:
+        text = (_PROC / str(pid) / "status").read_text(encoding="ascii", errors="replace")
+    except OSError:
+        return {}
+    fields = {}
+    for line in text.splitlines():
+        name, _, value = line.partition(":")
+        fields[name] = value.strip()
+    return fields
+
+
+def _could_be_this_commands(pid: int) -> bool:
+    """Whether a process whose environment cannot be read may still be one
+    of this command's, so that the refusal is a failure, not a boundary.
+
+    Not this command's: one whose ``/proc`` records belong to another user
+    (another user's, or one that is not dumpable, such as ``sshd`` or
+    ``ssh-agent``); one in a deeper pid namespace (a container's); one
+    holding capabilities this process lacks. Those are refused by design.
+    A process the command starts has none of these, and the self-test
+    proved its environment can be read.
+    """
+    try:
+        if (_PROC / str(pid) / "environ").stat().st_uid != os.geteuid():
+            return False
+    except OSError:
+        return False
+    theirs, ours = _status_fields(pid), _status_fields(os.getpid())
+    if not theirs or not ours:
+        return True  # not knowing counts as possibly ours
+    if len(theirs.get("NSpid", "").split()) != len(ours.get("NSpid", "").split()):
+        return False
+    try:
+        their_caps = int(theirs.get("CapPrm", "0"), 16)
+        our_caps = int(ours.get("CapPrm", "0"), 16)
+    except ValueError:
+        return True
+    return their_caps & ~our_caps == 0
 
 
 #: Set when the factory launched this GuardKit (GuardKit's
@@ -173,31 +258,109 @@ def is_factory_launch() -> bool:
     return bool(guardkits())
 
 
+#: The system call numbers of pidfd_open and pidfd_send_signal: the same on
+#: every Linux architecture (they come from the unified syscall table).
+_SYS_PIDFD_OPEN = 434
+_SYS_PIDFD_SEND_SIGNAL = 424
+_LIBC: list[Any] = []
+
+
+def _raw_syscall(number: int, *args: Any) -> int:
+    """``syscall(2)`` through ctypes, for a Python built without the pidfd
+    wrappers (some standalone builds, such as uv-managed ones). Raises
+    ``OSError`` with the call's own error."""
+    import ctypes
+
+    if not _LIBC:
+        libc = ctypes.CDLL(None, use_errno=True)
+        libc.syscall.restype = ctypes.c_long
+        _LIBC.append(libc)
+    result = _LIBC[0].syscall(ctypes.c_long(number), *args)
+    if result < 0:
+        code = ctypes.get_errno()
+        raise OSError(code, os.strerror(code))
+    return int(result)
+
+
+def _has_wrapper(module: str) -> bool:
+    try:
+        if module == "os":
+            os.pidfd_open  # noqa: B018 - the attribute's presence is the question
+        else:
+            signal.pidfd_send_signal  # noqa: B018
+    except AttributeError:
+        return False
+    return True
+
+
+def pidfd_open(pid: int) -> int:
+    """``os.pidfd_open``, or the system call itself where this Python build
+    lacks the wrapper (Linux only)."""
+    if _has_wrapper("os"):
+        return os.pidfd_open(pid)
+    if sys.platform != "linux":
+        raise OSError(errno.ENOSYS, "pidfd_open is a Linux system call")
+    return _raw_syscall(_SYS_PIDFD_OPEN, _c_int(pid), _c_int(0))
+
+
+def pidfd_send_signal(handle: int, sig: int) -> None:
+    """``signal.pidfd_send_signal``, or the system call itself where this
+    Python build lacks the wrapper (Linux only)."""
+    if _has_wrapper("signal"):
+        signal.pidfd_send_signal(handle, sig)
+        return
+    if sys.platform != "linux":
+        raise OSError(errno.ENOSYS, "pidfd_send_signal is a Linux system call")
+    _raw_syscall(
+        _SYS_PIDFD_SEND_SIGNAL, _c_int(handle), _c_int(int(sig)), None, _c_int(0)
+    )
+
+
+def _c_int(value: int) -> Any:
+    import ctypes
+
+    return ctypes.c_int(value)
+
+
+def _refused(call: str, wrapper: bool, exc: OSError) -> str:
+    """The plain clause naming why ``call`` cannot be used here."""
+    reason = exc.strerror or str(exc)
+    if wrapper:
+        return f"{call} is refused here by the kernel or a security filter ({reason})"
+    if sys.platform != "linux":
+        return f"this Python build lacks {call}, and this system is not Linux"
+    return (
+        f"this Python build lacks {call}, and the system call itself is "
+        f"refused by the kernel or a security filter ({reason})"
+    )
+
+
 def _missing_capability() -> str | None:
-    """What this system lacks to stop everything a command leaves, in plain
-    words, or ``None`` when nothing is missing.
+    """Why this system cannot stop everything a command leaves, as a plain
+    clause, or ``None`` when nothing is missing.
 
     Stopping a process that left the command's process group needs ``/proc``
     (to find it), ``os.waitid`` (to keep the shell uncollected meanwhile) and a
     pidfd that can be opened and signalled through (to signal that one
-    process and no other). Both are tried on this process itself.
+    process and no other). Both are tried on this process itself, through
+    the Python wrappers or, where this Python build lacks them, the system
+    calls themselves.
     """
     if not (_PROC / "self" / "stat").exists():
-        return "/proc (to find a command's processes)"
-    if not _can_wait_without_collecting():
-        return "os.waitid (Python 3.13 or later on macOS)"
+        return "/proc is missing (it is needed to find a command's processes)"
+    waitid_problem = _waitid_problem()
+    if waitid_problem is not None:
+        return waitid_problem
     try:
-        handle = os.pidfd_open(os.getpid())
-    except AttributeError:
-        return "pidfd support in this Python"
+        handle = pidfd_open(os.getpid())
     except OSError as exc:
-        return f"pidfd_open (refused here: {exc.strerror or exc})"
+        return _refused("pidfd_open", _has_wrapper("os"), exc)
     try:
         # Signal 0 checks that signalling through a pidfd is allowed too (a
         # filter may allow opening one and refuse sending).
-        signal.pidfd_send_signal(handle, 0)
+        pidfd_send_signal(handle, 0)
     except OSError as exc:
-        return f"pidfd_send_signal (refused here: {exc.strerror or exc})"
+        return _refused("pidfd_send_signal", _has_wrapper("signal"), exc)
     finally:
         os.close(handle)
     return None
@@ -214,25 +377,275 @@ def cleanup_capability_missing() -> str | None:
 
 
 class CleanupUnavailableError(OSError):
-    """A factory build's shell cannot stop everything its commands leave."""
+    """This system cannot stop everything a shell command leaves (``errno``
+    ENOSYS and the plain sentence as ``strerror``, so a caller reporting
+    ``strerror`` says why). ``reason`` is the clause alone."""
+
+    reason: str = ""
+
+
+_ADVICE = (
+    "Run the factory where /proc can be read and waitid, pidfd_open and "
+    "pidfd_send_signal are allowed (Linux 5.3 or later)."
+)
+
+
+def _cleanup_failure(reason: str, *, before_launch: bool) -> CleanupUnavailableError:
+    if before_launch:
+        text = (
+            f"The factory does not run commands here: {reason}, so what a command "
+            f"leaves running could not all be stopped safely. {_ADVICE}"
+        )
+    else:
+        text = (
+            f"A shell command was ended because {reason}, so what it left running "
+            f"could not all be stopped safely. {_ADVICE}"
+        )
+    error = CleanupUnavailableError(errno.ENOSYS, text)
+    error.reason = reason
+    return error
+
+
+#: The self-test's success, once per process (a later failure mid-run ends
+#: that command, so a stale success is safe).
+_SELF_TEST_PASSED: list[bool] = []
+_SELF_TEST_LOCK = threading.Lock()
+_IN_SELF_TEST = threading.local()
+
+#: The self-test's command (argument 1: a private folder). It starts one
+#: process that moves into a session of its own (carrying the command's
+#: marker, as every process of a command does), lets go of the output and
+#: writes its pid; the command then waits for the self-test's "go", prints
+#: that pid and the marker, and returns, leaving the process running.
+_SELF_TEST_CODE = (
+    "import os, sys, time\n"
+    "folder = sys.argv[1]\n"
+    "pid = os.fork()\n"
+    "if pid == 0:\n"
+    "    os.setsid()\n"
+    "    null = os.open(os.devnull, os.O_RDWR)\n"
+    "    for fd in (0, 1, 2):\n"
+    "        os.dup2(null, fd)\n"
+    "    with open(os.path.join(folder, 'child.tmp'), 'w') as fh:\n"
+    "        fh.write(str(os.getpid()))\n"
+    "    os.rename(os.path.join(folder, 'child.tmp'), os.path.join(folder, 'child'))\n"
+    "    time.sleep(30)\n"
+    "    os._exit(0)\n"
+    "deadline = time.monotonic() + 20\n"
+    "while not os.path.exists(os.path.join(folder, 'go')) and time.monotonic() < deadline:\n"
+    "    time.sleep(0.01)\n"
+    f"print(pid, os.environ.get({COMMAND_MARKER_NAME!r}, ''), flush=True)\n"
+)
+_SELF_TEST_WAIT_SECONDS = 20.0
+
+
+def _self_test_child_check(
+    pid: int, handle: int, since: int | None
+) -> tuple[str | None, bytes]:
+    """Check, through the pinned pidfd ``handle``, that ``pid`` is the
+    self-test's own process: alive, the leader of a session of its own,
+    started after the self-test, with a readable environment carrying a
+    command marker. Returns ``(problem, marker entry)``."""
+    try:
+        pidfd_send_signal(handle, 0)  # still the pinned process, still alive
+    except OSError as exc:
+        if exc.errno == errno.ESRCH:
+            return "the clean-up self-test's process ended before it could be checked", b""
+        return _refused("pidfd_send_signal", _has_wrapper("signal"), exc), b""
+    stat = _stat(pid)
+    if stat is None or stat[0] in ("Z", "X"):
+        return "the clean-up self-test's process ended before it could be checked", b""
+    _state, _group, session, started = stat
+    if session != pid or (since is not None and started < since):
+        return "the clean-up self-test's process is not the one it started", b""
+    try:
+        environ = (_PROC / str(pid) / "environ").read_bytes()
+    except OSError as exc:
+        return (
+            "the clean-up self-test's process environment could not be read "
+            f"({exc.strerror or exc})"
+        ), b""
+    prefix = f"{COMMAND_MARKER_NAME}=".encode()
+    for item in environ.split(b"\0"):
+        if item.startswith(prefix) and len(item) > len(prefix):
+            return None, b"\0" + item + b"\0"
+    return "the clean-up self-test's process does not carry the command's marker", b""
+
+
+def _has_ended(handle: int, seconds: float) -> bool:
+    """Whether the pinned process has ended, waiting at most ``seconds``
+    (a pidfd becomes readable when its process exits)."""
+    poller = select.poll()
+    poller.register(handle, select.POLLIN)
+    return bool(poller.poll(int(seconds * 1000)))
+
+
+def _end_self_test_leftovers(pids: set[int], entry: bytes, since: int | None) -> None:
+    """Kill what the self-test left, through pidfds, each checked again after
+    pinning (alive, started after the self-test, carrying its marker), so a
+    number handed on in between is never signalled."""
+    for pid in pids:
+        try:
+            handle = pidfd_open(pid)
+        except OSError:
+            continue
+        try:
+            stat = _stat(pid)
+            if (
+                stat is not None
+                and stat[0] not in ("Z", "X")
+                and (since is None or stat[3] >= since)
+                and _carries_marker(pid, entry)
+            ):
+                pidfd_send_signal(handle, signal.SIGKILL)
+        except OSError:
+            pass
+        finally:
+            os.close(handle)
+
+
+def _self_test_command(folder: str, outcome: dict[str, Any]) -> None:
+    """The self-test's command, run like any shell command (in its own
+    thread, so the self-test can pin the process it leaves meanwhile)."""
+    _IN_SELF_TEST.active = True
+    try:
+        shell = CommandSessionShellBackend(
+            root_dir="/", virtual_mode=False, env={"PATH": os.defpath}, timeout=60
+        )
+        command = (
+            f"{shlex.quote(sys.executable)} -I -c {shlex.quote(_SELF_TEST_CODE)} "
+            f"{shlex.quote(folder)}"
+        )
+        outcome["response"], outcome["failure"] = shell._run(command, 60, None)
+    except BaseException as exc:  # noqa: BLE001 - reported by the self-test
+        outcome["failure"] = exc
+
+
+def _self_test() -> str | None:
+    """Run the real clean-up end to end once; ``None`` when it worked, else
+    the plain reason.
+
+    A tiny command, run through the real shell like any command, leaves a
+    process in a session of its own. While the command waits, that process
+    is pinned (a pidfd) and checked to be the one it started, carrying the
+    command's marker; then the command returns and the real stop runs.
+    Afterwards the pinned process must have ended (its pidfd readable), and
+    nothing carrying the marker may be left in ``/proc``. That proves, on
+    this system, the ``/proc`` listing and record reads, ``waitid`` and the
+    pidfd calls the clean-up needs, without relying on the marker scan to
+    see its own process.
+    """
+    folder = tempfile.mkdtemp(prefix="guardkitfactory-cleanup-self-test-")
+    outcome: dict[str, Any] = {}
+    since = _now_ticks()
+    if since is not None:
+        since -= 1
+    worker = threading.Thread(
+        target=_self_test_command, args=(folder, outcome), name="clean-up self-test",
+        daemon=True,
+    )
+    handle: int | None = None
+    entry = b""
+    problem: str | None = None
+    try:
+        worker.start()
+        child_file = Path(folder) / "child"
+        deadline = time.monotonic() + _SELF_TEST_WAIT_SECONDS
+        while not child_file.exists() and worker.is_alive() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        if not child_file.exists():
+            (Path(folder) / "go").write_text("go", encoding="ascii")
+            worker.join(_SELF_TEST_WAIT_SECONDS + 60)
+            failure = outcome.get("failure")
+            if isinstance(failure, CleanupUnavailableError):
+                return failure.reason or str(failure)
+            return "the clean-up self-test's process did not start"
+        pid = int(child_file.read_text(encoding="ascii"))
+        try:
+            handle = pidfd_open(pid)
+        except OSError as exc:
+            problem = _refused("pidfd_open", _has_wrapper("os"), exc)
+        else:
+            try:
+                problem, entry = _self_test_child_check(pid, handle, since)
+            except CleanupUnavailableError as exc:
+                problem = exc.reason or str(exc)
+        (Path(folder) / "go").write_text("go", encoding="ascii")
+        worker.join(_SELF_TEST_WAIT_SECONDS + 60)
+        if worker.is_alive():
+            return problem or "the clean-up self-test's command did not finish"
+        if problem is not None:
+            return problem
+        failure = outcome.get("failure")
+        if isinstance(failure, CleanupUnavailableError):
+            return failure.reason or str(failure)
+        if failure is not None:
+            return f"the clean-up self-test failed ({type(failure).__name__}: {failure})"
+        response = outcome["response"]
+        words = response.output.split("\n", 1)[0].split()
+        printed = f"\0{COMMAND_MARKER_NAME}={words[1]}\0".encode() if len(words) == 2 else b""
+        if response.exit_code != 0 or handle is None or entry != printed:
+            return (
+                "the clean-up self-test's command did not run as expected "
+                f"(exit {response.exit_code})"
+            )
+        # Independent of the marker scan: the pinned process itself.
+        if not _has_ended(handle, _GRACE_SECONDS):
+            try:
+                pidfd_send_signal(handle, signal.SIGKILL)
+            except OSError:
+                pass
+            return "the clean-up self-test's left-behind process was still running after the stop"
+        # And nothing else carrying the marker.
+        left: set[int] = set()
+        try:
+            for path in _PROC.iterdir():
+                if not path.name.isdigit():
+                    continue
+                stat = _stat(int(path.name))
+                if (
+                    stat is not None
+                    and stat[0] not in ("Z", "X")
+                    # Only what started after the self-test can be its own.
+                    and (since is None or stat[3] >= since)
+                    and _carries_marker(int(path.name), entry)
+                ):
+                    left.add(int(path.name))
+        except CleanupUnavailableError as exc:
+            return exc.reason or str(exc)
+        except OSError as exc:
+            return f"/proc could not be listed ({exc.strerror or exc})"
+        if left:
+            _end_self_test_leftovers(left, entry, since)
+            return "the clean-up self-test left a process running after the stop"
+        return None
+    finally:
+        if handle is not None:
+            os.close(handle)
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def refusal_for_factory_launch() -> str | None:
     """The plain sentence refusing a factory launch's commands, or ``None``.
 
-    A factory build must leave nothing running (19 October 2026), so where
-    a command's leftovers cannot all be stopped safely its commands are not
-    run. On a person's own run the reduced clean-up goes on, with a warning.
+    A factory build must leave nothing running (19 and 20 October 2026). On
+    a factory launch the real clean-up must have passed its end-to-end
+    self-test in this process (run once, cached on success only); any
+    failure later, mid-run, ends that command. A person's own run keeps the
+    reduced clean-up, with a warning.
     """
-    missing = cleanup_capability_missing()
-    if missing is None or not is_factory_launch():
+    if getattr(_IN_SELF_TEST, "active", False) or not is_factory_launch():
         return None
-    return (
-        "The factory does not run commands here: this system lacks "
-        f"{missing}, so what a command leaves running could not all be "
-        "stopped safely. Run the factory on a current Linux kernel "
-        "(5.3 or later) where pidfd_open is allowed."
-    )
+    if _SELF_TEST_PASSED:
+        return None
+    with _SELF_TEST_LOCK:
+        if _SELF_TEST_PASSED:
+            return None
+        reason = _self_test()
+        if reason is None:
+            _SELF_TEST_PASSED.append(True)
+            return None
+    return _cleanup_failure(reason, before_launch=True).strerror
 
 
 _WARNED: list[bool] = []
@@ -243,19 +656,61 @@ def _warn_reduced_cleanup_once(missing: str) -> None:
         return
     _WARNED.append(True)
     logger.warning(
-        "This system lacks %s, so a process a shell command moves out of its "
-        "process group may be left running after the command.",
+        "Here %s, so a process a shell command moves out of its process "
+        "group may be left running after the command.",
         missing,
     )
 
 
-def _can_wait_without_collecting() -> bool:
-    """Whether ``os.waitid`` exists. macOS has it only from Python 3.13."""
+def _waitid_problem() -> str | None:
+    """Why the shell's exit cannot be read without collecting it, as a plain
+    clause, or ``None`` when it can.
+
+    ``os.waitid`` must exist (macOS has it only from Python 3.13) and the
+    call must work: it is tried on this process itself, which is never its
+    own child, so a working call answers "no such child" (ECHILD) and a
+    refusal by the kernel or a filter answers otherwise. Nothing is
+    collected.
+    """
     try:
         os.waitid  # noqa: B018 - the attribute's presence is the question
     except AttributeError:
-        return False
-    return True
+        return "os.waitid is missing (macOS has it from Python 3.13)"
+    try:
+        os.waitid(os.P_PID, os.getpid(), os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+        return None
+    except OSError as exc:
+        return _refused("waitid", True, exc)
+    return None
+
+
+def _can_wait_without_collecting() -> bool:
+    """Whether the shell's exit can be read without collecting it."""
+    return _waitid_problem() is None
+
+
+def _collect(process: subprocess.Popen[Any]) -> None:
+    """Collect the ended shell, never waiting without bound: after
+    ``_KILL_WAIT_SECONDS`` its group is sent SIGKILL (by the number the
+    uncollected shell pins) and given ``_DRAIN_SECONDS`` more; then it is
+    left, said plainly."""
+    try:
+        process.wait(timeout=_KILL_WAIT_SECONDS)
+        return
+    except subprocess.TimeoutExpired:
+        pass
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except OSError:
+        pass
+    try:
+        process.wait(timeout=_DRAIN_SECONDS)
+    except subprocess.TimeoutExpired:
+        logger.warning(
+            "A shell command's shell (%s) could not be collected; it is left as it is.",
+            process.pid,
+        )
 
 
 _RUNNING = "running"  # the shell has not exited
@@ -276,6 +731,11 @@ def _shell_state(process: subprocess.Popen[Any]) -> str:
         )
     except ChildProcessError:
         return _COLLECTED
+    except OSError as exc:
+        # waitid refused (a filter): the shell's state cannot be read, so the
+        # command cannot be watched safely. Never read as "running", which
+        # could wait for ever.
+        raise _cleanup_failure(_refused("waitid", True, exc), before_launch=False) from exc
     return _RUNNING if info is None else _EXITED
 
 
@@ -312,7 +772,19 @@ class _Command:
         session or process group, and those carrying its marker."""
         try:
             names = [entry.name for entry in _PROC.iterdir()]
-        except OSError:
+        except OSError as exc:
+            # A listing that cannot be made is not an empty one: on a factory
+            # launch it ends the command; on a person's own run it is said.
+            if is_factory_launch():
+                raise _cleanup_failure(
+                    f"/proc could not be listed ({exc.strerror or exc})",
+                    before_launch=False,
+                ) from exc
+            logger.warning(
+                "/proc could not be listed (%s), so what a shell command left "
+                "running cannot be found or stopped.",
+                exc.strerror or exc,
+            )
             return set()
         return {
             int(name)
@@ -341,22 +813,25 @@ class _Command:
         refused: set[int] = set()
         for pid in pids:
             try:
-                handle = os.pidfd_open(pid)
-            except AttributeError:  # pragma: no cover - no pidfds in this Python
-                refused.add(pid)
-                continue
+                handle = pidfd_open(pid)
             except OSError as exc:
                 if exc.errno != errno.ESRCH:  # ESRCH: it has gone
+                    _refusal_mid_run(_refused("pidfd_open", _has_wrapper("os"), exc), exc)
                     refused.add(pid)
                 continue
             try:
                 stat = self.owns(pid)
                 if stat is not None and stat[1] != self.leader:
-                    signal.pidfd_send_signal(handle, sig)
+                    pidfd_send_signal(handle, sig)
             except OSError as exc:
                 # Only ESRCH means it ended after it was pinned; anything else
                 # (a refusal) means it was not signalled.
                 if exc.errno != errno.ESRCH:
+                    if isinstance(exc, CleanupUnavailableError):
+                        raise
+                    _refusal_mid_run(
+                        _refused("pidfd_send_signal", _has_wrapper("signal"), exc), exc
+                    )
                     refused.add(pid)
             finally:
                 os.close(handle)
@@ -369,6 +844,13 @@ class _Command:
             if stat is not None and stat[1] != self.leader:
                 found.add(pid)
         return found
+
+
+def _refusal_mid_run(reason: str, cause: OSError) -> None:
+    """On a factory launch a refused pidfd call ends the command; on a
+    person's own run the process is reported as not stopped."""
+    if is_factory_launch():
+        raise _cleanup_failure(reason, before_launch=False) from cause
 
 
 @dataclass(frozen=True)
@@ -480,8 +962,8 @@ class _Output:
                 self.selector.register(stream, selectors.EVENT_READ)
         self.pidfd: int | None
         try:  # wakes the wait when the shell exits
-            self.pidfd = os.pidfd_open(process.pid)
-        except (AttributeError, OSError):
+            self.pidfd = pidfd_open(process.pid)
+        except OSError:
             self.pidfd = None
         if self.pidfd is not None:
             self.selector.register(self.pidfd, selectors.EVENT_READ)
@@ -622,10 +1104,34 @@ class CommandSessionShellBackend(LocalShellBackend):
         refusal = refusal_for_factory_launch()
         if refusal is not None:
             return ExecuteResponse(output=f"Error: {refusal}", exit_code=1, truncated=False)
-        missing = cleanup_capability_missing()
-        if missing is not None:
-            _warn_reduced_cleanup_once(missing)
+        if not is_factory_launch():
+            missing = cleanup_capability_missing()
+            if missing is not None:
+                _warn_reduced_cleanup_once(missing)
+        response, _failure = self._run(command, effective_timeout, timeout)
+        return response
 
+    def _run(
+        self, command: str, effective_timeout: int, timeout: int | None
+    ) -> tuple[ExecuteResponse, Exception | None]:
+        """Run ``command`` and stop what it leaves; return the answer and the
+        failure, if any, that ended it (the self-test reads the failure)."""
+        # A person's own run only: a factory launch never takes the reduced
+        # path (its self-test proved waitid; a refusal later ends the command).
+        if is_factory_launch():
+            # Fresh before every command, even after a cached self-test
+            # success: one cheap call on this process itself. A refusal
+            # refuses the command before it starts.
+            waitid_problem = _waitid_problem()
+            if waitid_problem is not None:
+                refusal = _cleanup_failure(waitid_problem, before_launch=True)
+                return (
+                    ExecuteResponse(
+                        output=f"Error: {refusal.strerror}", exit_code=1, truncated=False
+                    ),
+                    refusal,
+                )
+        reduced = not is_factory_launch() and not _can_wait_without_collecting()
         marker = uuid.uuid4().hex
         env = dict(self._env)
         env[COMMAND_MARKER_NAME] = marker
@@ -647,12 +1153,16 @@ class CommandSessionShellBackend(LocalShellBackend):
                 start_new_session=True,
             )
         except Exception as e:  # noqa: BLE001 - upstream's contract: never raise
-            return _error(e)
-        if not _can_wait_without_collecting():
-            return self._finish_without_waitid(process, command, timeout, effective_timeout)
+            return _error(e), None
+        if reduced:
+            return (
+                self._finish_without_waitid(process, command, timeout, effective_timeout),
+                None,
+            )
         output: _Output | None = None
         result = Stopped()
         timed_out = False
+        failure: Exception | None = None
         try:
             output = _Output(process)
             timed_out = output.wait(effective_timeout)
@@ -660,15 +1170,18 @@ class CommandSessionShellBackend(LocalShellBackend):
                 process, marker, since=since, include_shell=timed_out
             )
             output.drain(_DRAIN_SECONDS)
+        except Exception as e:  # noqa: BLE001 - e.g. waitid refused while watching
+            _end_everything(process, marker, since)
+            failure = e
         except BaseException:
-            stop_command_processes(process, marker, since=since, include_shell=True)
+            _end_everything(process, marker, since)
             raise
         finally:
             if output is not None:
                 output.close()
-            if process.returncode is None and _shell_state(process) == _RUNNING:
-                process.kill()  # not reached while the stop works; never left behind
-            process.wait()
+            _collect(process)
+        if failure is not None:
+            return _error(failure), failure  # upstream's contract: never raise
 
         note = self._report_stopped(command, result, timed_out)
         if timed_out:
@@ -682,15 +1195,15 @@ class CommandSessionShellBackend(LocalShellBackend):
                     f"Error: Command timed out after {effective_timeout} seconds. "
                     "For long-running commands, re-run using the timeout parameter."
                 )
-            return ExecuteResponse(output=msg + note, exit_code=124, truncated=False)
+            return ExecuteResponse(output=msg + note, exit_code=124, truncated=False), None
         try:
             stdout, stderr = output.text()
         except Exception as e:  # noqa: BLE001 - upstream returns this, e.g. bad UTF-8
             response = _error(e)
             response.output += note
-            return response
+            return response, None
 
-        return self._response(stdout, stderr, process.returncode, note)
+        return self._response(stdout, stderr, process.returncode, note), None
 
     def _finish_without_waitid(
         self,
@@ -719,7 +1232,7 @@ class CommandSessionShellBackend(LocalShellBackend):
                 process.communicate(timeout=_DRAIN_SECONDS)
             except (subprocess.TimeoutExpired, ValueError):
                 process.kill()
-            process.wait()
+            _collect(process)
             note = self._report_stopped(command, Stopped(stopped=None), True)
             if timeout is not None:
                 msg = (
@@ -735,7 +1248,7 @@ class CommandSessionShellBackend(LocalShellBackend):
         except Exception as e:  # noqa: BLE001 - upstream's contract, e.g. bad UTF-8
             if process.returncode is None:
                 process.kill()
-                process.wait()
+                _collect(process)
             return _error(e)
         return self._response(stdout, stderr, process.returncode, "")
 
@@ -794,6 +1307,36 @@ class CommandSessionShellBackend(LocalShellBackend):
             f"\n\nNote: this command finished but {done} "
             "Start and use a server or watcher within one command."
         )
+
+
+def _end_everything(process: subprocess.Popen[Any], marker: str, since: int | None) -> None:
+    """End the command and all it started after a failure while watching it.
+
+    First the normal stop. Where even that fails (for example waitid is
+    refused), the shell is still uncollected (nothing here collects it before
+    this), so its number is still the group's and the session's: the group
+    is sent SIGKILL by that number, and each process of the command outside
+    the group is sent SIGKILL through a pidfd, checked after pinning, without
+    waitid. A few looks, bounded; failures here are swallowed (the caller
+    reports the original one)."""
+    try:
+        stop_command_processes(process, marker, since=since, include_shell=True)
+        return
+    except Exception:  # noqa: BLE001
+        pass
+    command = _Command(process.pid, marker, since)
+    command.signal_group(signal.SIGKILL)
+    deadline = time.monotonic() + _GRACE_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            outside = command.outside_group(command.processes())
+            if not outside:
+                return
+            if command.signal_outside(outside, signal.SIGKILL):
+                return  # refused: nothing more can be done safely
+        except Exception:  # noqa: BLE001
+            return
+        time.sleep(_LOOK_SECONDS)
 
 
 def _error(e: Exception) -> ExecuteResponse:

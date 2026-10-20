@@ -156,6 +156,7 @@ from __future__ import annotations
 
 import atexit
 import dataclasses
+import errno
 import logging
 import os
 import re
@@ -1534,7 +1535,7 @@ def build_autobuild_backend(
     # everything its commands leave; refused before anything runs.
     refusal = refusal_for_factory_launch()
     if refusal is not None and not read_only:
-        raise CleanupUnavailableError(refusal)
+        raise CleanupUnavailableError(errno.ENOSYS, refusal)
 
     # 19 October 2026: DeepAgents' backend, except that a command leaves no
     # processes running behind it (``shell_commands``).
