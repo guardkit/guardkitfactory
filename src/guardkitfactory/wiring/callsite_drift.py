@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from guardkitfactory.regular_file import summarise_skipped_entries
 from guardkitfactory.wiring.analyzer import (
     _collect_source_files,
     _is_test_file,
@@ -680,6 +681,7 @@ def _bind_check(
 # ---------------------------------------------------------------------------
 
 
+@summarise_skipped_entries("Call-site drift check")
 def analyze_callsite_drift(
     authored_files: list[str],
     worktree_path: str | Path,

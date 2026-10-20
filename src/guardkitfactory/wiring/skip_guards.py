@@ -16,6 +16,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from guardkitfactory.regular_file import summarise_skipped_entries
 from guardkitfactory.wiring.analyzer import (
     _collect_source_files,
     _is_test_file,
@@ -36,6 +37,7 @@ def _string_content(node: Any, source: bytes) -> str:
     return _node_text(node, source).strip("\"'")
 
 
+@summarise_skipped_entries("Skip guard scan")
 def extract_skip_guard_modules(worktree_path: str | Path) -> dict[str, list[str]]:
     """Return ``{module_name: [test_file, ...]}`` for skip-guarded modules.
 

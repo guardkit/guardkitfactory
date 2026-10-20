@@ -56,7 +56,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from guardkitfactory.regular_file import read_regular_bytes, read_regular_text
+from guardkitfactory.regular_file import (
+    read_regular_bytes,
+    read_regular_text,
+    summarise_skipped_entries,
+)
 from guardkitfactory.wiring.dialect import (
     WiringDialect,
     _find_language,
@@ -526,6 +530,7 @@ def _scan_stub_body_for_dialect(
     return out
 
 
+@summarise_skipped_entries("Stub scan")
 def analyze_stub_scan(
     authored_files: list[str],
     worktree_path: str | Path,
@@ -1408,6 +1413,7 @@ def _analyze_dialect(
 # ---------------------------------------------------------------------------
 
 
+@summarise_skipped_entries("Wiring analysis")
 def analyze_wiring(
     authored_files: list[str],
     worktree_path: str | Path,

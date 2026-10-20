@@ -31,6 +31,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from guardkitfactory.regular_file import summarise_skipped_entries
 from guardkitfactory.wiring.analyzer import (
     _collect_source_files,
     _is_test_file,
@@ -48,6 +49,7 @@ logger = logging.getLogger(__name__)
 _ANALYZED_TASK_TYPES = {"FEATURE", "REFACTOR", "INTEGRATION"}
 
 
+@summarise_skipped_entries("Permissive double check")
 def analyze_permissive_double(
     authored_files: list[str],
     worktree_path: str | Path,

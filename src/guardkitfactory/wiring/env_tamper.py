@@ -30,6 +30,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from guardkitfactory.regular_file import summarise_skipped_entries
 from guardkitfactory.wiring.analyzer import (
     _is_test_file,
     _matches_glob,
@@ -47,6 +48,7 @@ _ANALYZED_TASK_TYPES = {"FEATURE", "REFACTOR", "INTEGRATION"}
 _CALL_METHODS = {"setdefault", "update"}
 
 
+@summarise_skipped_entries("Environment tampering check")
 def analyze_env_tamper(
     authored_files: list[str],
     worktree_path: str | Path,

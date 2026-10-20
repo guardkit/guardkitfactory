@@ -12,6 +12,7 @@ whole test run.
 from __future__ import annotations
 
 import json
+import locale
 import os
 import socket
 import stat
@@ -61,22 +62,47 @@ _RUN_CHECKERS = textwrap.dedent(
 )
 
 
-def _run_checkers(
-    worktree: Path, authored: list[str], parse: list[str] = ()
-) -> tuple[dict, str]:
-    """Run the checkers in a child process; fail if it does not finish."""
+# Runs only the wiring analysis, as GuardKit's Coach does once per turn.
+_RUN_WIRING_ONLY = textwrap.dedent(
+    """
+    import json, logging, sys
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    from guardkitfactory.wiring import analyze_wiring
+
+    out = analyze_wiring(json.loads(sys.argv[2]), sys.argv[1], "feature")
+    print(json.dumps(out, sort_keys=True, default=str))
+    """
+)
+
+# The two BDD plugin reads: the pytest-bdd preflight (conftest.py files) and
+# cucumber-js discovery (package.json).
+_RUN_BDD_READS = textwrap.dedent(
+    """
+    import json, logging, sys
+    from pathlib import Path
+    logging.basicConfig(level=logging.INFO, stream=sys.stderr)
+    from guardkitfactory.bdd.plugin import StackProfile
+    from guardkitfactory.bdd.plugins.cucumber_js_plugin import CucumberJSPlugin
+    from guardkitfactory.bdd.plugins.pytest_bdd_plugin import PytestBDDPlugin
+
+    worktree = Path(sys.argv[1])
+    stack = StackProfile("typescript", "cucumber", "npm", worktree)
+    out = {
+        "pytest_bdd_preflight": PytestBDDPlugin().preflight("TASK-PIPE-1", worktree),
+        "cucumber_discovered": CucumberJSPlugin.discover(stack, worktree) is not None,
+    }
+    print(json.dumps(out, sort_keys=True))
+    """
+)
+
+
+def _run_child(code: str, *args: str) -> tuple[object, str]:
+    """Run ``code`` in a child process; fail if it does not finish."""
     env = dict(os.environ)
     env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
     try:
         proc = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                _RUN_CHECKERS,
-                str(worktree),
-                json.dumps(authored),
-                json.dumps(list(parse)),
-            ],
+            [sys.executable, "-c", code, *args],
             capture_output=True,
             text=True,
             timeout=_TIME_LIMIT_SECONDS,
@@ -91,13 +117,26 @@ def _run_checkers(
     return json.loads(proc.stdout.strip().splitlines()[-1]), proc.stderr
 
 
+def _run_checkers(
+    worktree: Path, authored: list[str], parse: list[str] = ()
+) -> tuple[dict, str]:
+    """Run every checker in a child process; fail if it does not finish."""
+    return _run_child(
+        _RUN_CHECKERS, str(worktree), json.dumps(authored), json.dumps(list(parse))
+    )
+
+
+def _info_lines(log: str) -> list[str]:
+    return [line for line in log.splitlines() if line.startswith("INFO:guardkitfactory")]
+
+
 def _write(worktree: Path, rel: str, content: str) -> None:
     path = worktree / rel
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content)
 
 
-_AUTHORED = ["app/service.py", "app/main.py", "app/pipe.py"]
+_AUTHORED = ["app/service.py", "app/main.py", "app/pipe.py", "src/Widget.cs"]
 
 
 def _regular_project(worktree: Path) -> None:
@@ -116,6 +155,13 @@ def _regular_project(worktree: Path) -> None:
         "used_helper()\nstub_helper()\n",
     )
     _write(worktree, "app/__init__.py", "")
+    # A C# file too, so the C# manifest search (the pattern *.csproj) runs.
+    _write(
+        worktree,
+        "src/Widget.cs",
+        "namespace Shop\n{\n    public class WidgetBuilder\n    {\n"
+        "        public int Build() { return 1; }\n    }\n}\n",
+    )
 
 
 def _unwired_symbols(result: dict) -> set[str]:
@@ -130,8 +176,15 @@ def test_named_pipes_do_not_hang_and_regular_files_are_analysed_as_before(
     _regular_project(plain)
     _regular_project(with_pipes)
     # Pipes where every checker looks: an authored source file, a file only
-    # the text search reads, the project manifest, and a test helper.
-    for rel in ("app/pipe.py", "docs/notes.md", "pyproject.toml", "tests/conftest.py"):
+    # the text search reads, a manifest by name and one found by pattern
+    # (*.csproj), and a test helper.
+    for rel in (
+        "app/pipe.py",
+        "docs/notes.md",
+        "pyproject.toml",
+        "Shop.csproj",
+        "tests/conftest.py",
+    ):
         (with_pipes / rel).parent.mkdir(parents=True, exist_ok=True)
         os.mkfifo(with_pipes / rel)
 
@@ -139,14 +192,22 @@ def test_named_pipes_do_not_hang_and_regular_files_are_analysed_as_before(
     after, log = _run_checkers(with_pipes, _AUTHORED, parse=["app/pipe.py"])
 
     # The regular files were really analysed ...
-    assert _unwired_symbols(before) == {"orphan_helper"}
+    assert "orphan_helper" in _unwired_symbols(before)
+    assert set(before["wiring"]["languages"]) >= {"python", "c_sharp"}, before["wiring"]
     assert before["stub_scan"]["findings"], before["stub_scan"]
     # ... and the pipes change nothing.
     before.pop("parse_file")
     after_parse = after.pop("parse_file")
     assert after == before
     assert after_parse == {"app/pipe.py": False}
-    assert "Skipped" in log and "it is a named pipe, not a regular file" in log
+    # One line per checker call. The wiring analysis does not read test
+    # files, so the pipe at tests/conftest.py is the skip-guard scan's.
+    assert "Wiring analysis skipped 4 entries that are not regular files" in log
+    assert "; and 1 more." in log
+    assert "Skip guard scan skipped 1 entry that is not a regular file" in log
+    assert "tests/conftest.py (named pipe)" in log
+    # parse_file is a single read outside a checker call: its own note.
+    assert "it is a named pipe, not a regular file" in log
 
 
 def test_socket_and_device_are_skipped(tmp_path: Path) -> None:
@@ -167,10 +228,37 @@ def test_socket_and_device_are_skipped(tmp_path: Path) -> None:
         )
     finally:
         server.close()
-    assert _unwired_symbols(result) == {"orphan_helper"}
+    assert "orphan_helper" in _unwired_symbols(result)
     assert result["parse_file"] == {"app/s.py": False, "app/device.py": False}
+    assert "app/s.py (socket)" in log
+    assert "app/device.py (character device)" in log
     assert "it is a socket, not a regular file" in log
     assert "it is a character device, not a regular file" in log
+
+
+def test_many_skipped_entries_give_one_log_line_per_call(tmp_path: Path) -> None:
+    """Thousands of sockets must not flood the run log: one INFO line for
+    the whole wiring analysis, with the count and a few examples."""
+    worktree = tmp_path / "wt"
+    _regular_project(worktree)
+    folder = worktree / "s"
+    folder.mkdir()
+    if len(os.fsencode(folder / "s0000.py")) > 100:
+        pytest.skip("temporary folder path too long for a socket")
+    count = 1000
+    for n in range(count):
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            server.bind(str(folder / f"s{n:04d}.py"))  # the file stays after close
+    result, log = _run_child(
+        _RUN_WIRING_ONLY, str(worktree), json.dumps(["app/service.py", "app/main.py"])
+    )
+    assert "orphan_helper" in {
+        f["symbol"] for f in result["findings"] if f["pattern"] == "UNWIRED_PATH"
+    }
+    lines = _info_lines(log)
+    assert len(lines) == 1, lines[:5]
+    assert f"Wiring analysis skipped {count} entries that are not regular files" in lines[0]
+    assert f"; and {count - 3} more." in lines[0]
 
 
 def test_link_to_a_regular_file_is_still_followed_and_read(tmp_path: Path) -> None:
@@ -186,6 +274,23 @@ def test_link_to_a_regular_file_is_still_followed_and_read(tmp_path: Path) -> No
     os.symlink("../node_modules/real.txt", worktree / "docs" / "mention.md")
     result, _ = _run_checkers(worktree, ["app/service.py", "app/main.py"])
     assert _unwired_symbols(result) == set()
+
+
+# --- the two BDD plugin reads ----------------------------------------------
+
+
+def test_bdd_plugin_reads_skip_pipes(tmp_path: Path) -> None:
+    worktree = tmp_path / "wt"
+    _write(worktree, "features/shop/test_shop__TASK_PIPE_1.py", "# glue\n")
+    # Neither conftest.py names the task variable, so the preflight has to
+    # read both: the regular one, and the pipe, which it must skip.
+    _write(worktree, "features/conftest.py", "import os\n")
+    os.mkfifo(worktree / "features" / "shop" / "conftest.py")
+    os.mkfifo(worktree / "package.json")
+    result, log = _run_child(_RUN_BDD_READS, str(worktree))
+    assert result == {"pytest_bdd_preflight": False, "cucumber_discovered": False}
+    assert "pytest-bdd preflight skipped 1 entry that is not a regular file" in log
+    assert "package.json: it is a named pipe, not a regular file" in log
 
 
 # --- the helper itself -------------------------------------------------------
@@ -204,6 +309,22 @@ def test_helper_reads_regular_files_and_links_to_them(tmp_path: Path) -> None:
     assert read_regular_bytes(tmp_path / "missing") is None
     with pytest.raises(OSError):
         open_regular(tmp_path / "missing")
+
+
+def test_helper_decodes_like_open_for_text_that_is_not_utf8(tmp_path: Path) -> None:
+    """Bytes that are not UTF-8 decode exactly as open() decodes them, with
+    the same error handling, so dropping ``errors`` or changing the default
+    encoding is caught."""
+    latin = tmp_path / "latin.txt"
+    latin.write_bytes(b"caf\xe9 au lait\r\n")
+    with open(latin, errors="replace") as handle:
+        expected = handle.read()
+    assert read_regular_text(latin, errors="replace") == expected
+    assert read_regular_text(latin, encoding="utf-8", errors="replace") == "caf\ufffd au lait\n"
+    if locale.getpreferredencoding(False).lower().replace("-", "") == "utf8":
+        assert expected == "caf\ufffd au lait\n"
+        with pytest.raises(UnicodeDecodeError):
+            read_regular_text(latin)
 
 
 def test_helper_rechecks_the_type_once_open(tmp_path: Path, monkeypatch, caplog) -> None:
