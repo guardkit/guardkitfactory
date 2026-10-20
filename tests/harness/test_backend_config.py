@@ -1496,6 +1496,8 @@ class TestLaunchEnvironment:
             "TMPDIR": str(shell_tmpdir(worktree)),
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONNOUSERSITE": "1",
+            # 19 October 2026: tools run once instead of waiting or watching.
+            "CI": "true",
         }
         assert not (scratch / "toolchain").exists()
 

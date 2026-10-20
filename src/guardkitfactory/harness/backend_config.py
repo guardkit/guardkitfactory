@@ -169,13 +169,18 @@ from typing import Any
 
 from deepagents.backends.composite import CompositeBackend
 from deepagents.backends.filesystem import FilesystemBackend
-from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import (
     DeleteResult,
     EditResult,
     FileUploadResponse,
     SandboxBackendProtocol,
     WriteResult,
+)
+
+from guardkitfactory.harness.shell_commands import (
+    CleanupUnavailableError,
+    CommandSessionShellBackend,
+    refusal_for_factory_launch,
 )
 
 logger = logging.getLogger(__name__)
@@ -1343,7 +1348,8 @@ def build_autobuild_backend(
     """Construct the AutoBuild backend for a given worktree (AC-001/002).
 
     Returns a :class:`CompositeBackend` whose ``default`` is the configured
-    :class:`LocalShellBackend` and whose ``artifacts_root`` is the private
+    :class:`LocalShellBackend` (a ``CommandSessionShellBackend``) and
+    whose ``artifacts_root`` is the private
     folder from :func:`model_artifacts_root`, outside the project. The
     composite's only routes send ``<artifacts_root>/conversation_history/``
     and ``<artifacts_root>/large_tool_results/`` to that folder (none for a
@@ -1364,8 +1370,13 @@ def build_autobuild_backend(
     * ``env`` — minimal explicit environment (``PATH``; ``HOME`` and
       ``TMPDIR`` in the private folders from :func:`shell_home` and
       :func:`shell_tmpdir`, outside the project; Python
-      no-bytecode/no-user-site flags; and ``PYTHONPATH`` if a ``.venv`` is
-      detected)
+      no-bytecode/no-user-site flags; ``PYTHONPATH`` if a ``.venv`` is
+      detected; and ``CI=true`` unless the project declares ``CI`` in its
+      ``launch.settings`` and it is set where the factory runs)
+    * commands run by
+      :class:`~guardkitfactory.harness.shell_commands.CommandSessionShellBackend`:
+      DeepAgents' ``LocalShellBackend``, except that every process a command
+      leaves running is stopped when it returns or times out
     * ``inherit_env=False`` — no leakage from the operator's shell
     * ``timeout=600`` — 10-minute ``execute`` ceiling
     * ``max_output_bytes=1_000_000`` — 1 MB cap on ``execute`` output
@@ -1512,9 +1523,22 @@ def build_autobuild_backend(
         _apply_launch_environment(
             env, launch_settings, launch_scratch, launch_base
         )
+    # 19 October 2026 (a factory build): the common "no one is at the
+    # keyboard" signal, so tools that would otherwise wait for a person or
+    # keep watching for changes run once and finish. Set after the declared
+    # settings, so a project that declares ``CI`` keeps its own value.
+    env.setdefault("CI", "true")
     env = _finish_shell_environment(env, launch_scratch)
 
-    local_shell = LocalShellBackend(
+    # 19 October 2026: a factory build's shell must be able to stop
+    # everything its commands leave; refused before anything runs.
+    refusal = refusal_for_factory_launch()
+    if refusal is not None and not read_only:
+        raise CleanupUnavailableError(refusal)
+
+    # 19 October 2026: DeepAgents' backend, except that a command leaves no
+    # processes running behind it (``shell_commands``).
+    local_shell = CommandSessionShellBackend(
         root_dir=worktree,
         virtual_mode=False,  # TASK-HMIG-002R-NOVMODE — see module docstring
         env=env,

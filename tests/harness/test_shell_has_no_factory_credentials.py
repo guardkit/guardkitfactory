@@ -291,6 +291,12 @@ ALLOWED: Dict[Tuple[str, str], str] = {
         "passes its caller's arguments to GuardKit's run_project_command; "
         "every call to it is checked"
     ),
+    ("harness/shell_commands.py", "execute"): (
+        "the agent's shell (DeepAgents' LocalShellBackend.execute, kept apart "
+        "so a command leaves nothing running), with the backend's own env, "
+        "which build_autobuild_backend makes with finish_project_environment "
+        "(test_the_shell_has_no_factory_credentials runs env through it)"
+    ),
     ("code_search.py", "toolkit"): (
         "the factory's own pinned search programs' --version, with a fixed "
         "six-name environment (_git_environment)"
