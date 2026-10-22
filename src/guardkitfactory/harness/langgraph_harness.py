@@ -377,8 +377,10 @@ _SYNTHESIS_REASONING_BUDGET_ENV = "GUARDKIT_COACH_SYNTHESIS_REASONING_BUDGET"
 _SYNTHESIS_DISABLE_THINKING_ENV = "GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING"
 
 # TASK-PERF-COACHSYNTH: hard ceiling on the DeepAgents/LangGraph super-step
-# count for a single ``invoke``. ``None`` (the default) preserves LangGraph's
-# own default (25) — unchanged behaviour for the Player and synthesis paths.
+# count for a single ``invoke``. ``None`` (the default) leaves the graph's own
+# limit in place (LangGraph's default is 10007 in langgraph 1.2.11, and the
+# DeepAgents graph binds 9,999; not 25) — unchanged behaviour for the Player
+# and synthesis paths.
 # The Coach B-full Phase-A *gather* sets a SMALL value (see
 # ``AgentInvoker._invoke_coach_gather``): the gather is the load-bearing F20
 # surface — its tool-using agentic loop appends tool-result tokens every
@@ -754,7 +756,8 @@ class LangGraphHarness(HarnessAdapter):
         self.last_player_evidence: dict[str, Any] | None = None
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
-        # preserves LangGraph's default (25). The Coach gather passes a small
+        # leaves the graph's own limit (10007 by LangGraph's default in
+        # langgraph 1.2.11; 9,999 bound by DeepAgents). The Coach gather passes a small
         # value to bound its tool-using loop; see module-level constant.
         self.recursion_limit = recursion_limit
         # TASK-FIX-CTOUT01: handle to the in-flight ``agent.ainvoke``
@@ -1056,7 +1059,8 @@ class LangGraphHarness(HarnessAdapter):
         knobs:
 
         * ``recursion_limit`` — the per-invoke super-step ceiling (LangGraph
-          default 25 when ``None``).
+          default 10007 in langgraph 1.2.11 when ``None``; the DeepAgents
+          graph binds 9,999).
         * ``callbacks`` — a single :class:`_ModelActivityCallbackHandler`
           wrapping ``self.on_model_activity`` so the orchestrator's
           no-model-activity watchdog sees real LLM/tool progress through this
@@ -1213,8 +1217,9 @@ class LangGraphHarness(HarnessAdapter):
         # because ``_cancel_monitor`` does not own the consumer task.
         # TASK-PERF-COACHSYNTH: forward the per-invoke super-step ceiling
         # ONLY when one is set. A ``None`` limit calls ``ainvoke`` with the
-        # historical single-arg shape so LangGraph applies its own default
-        # (25) — unchanged Player/synthesis behaviour. A small limit (Coach
+        # historical single-arg shape so the graph's own limit applies
+        # (LangGraph's default is 10007 in langgraph 1.2.11; the DeepAgents
+        # graph binds 9,999) — unchanged Player/synthesis behaviour. A small limit (Coach
         # gather) caps the tool-using loop; exceeding it raises
         # ``GraphRecursionError`` which the wrap-and-reraise below turns into
         # ``LangGraphHarnessError`` → orchestrator degrades to B-min (AC-2).

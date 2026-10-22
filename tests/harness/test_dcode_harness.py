@@ -404,6 +404,105 @@ def test_command_before_reads_is_answered_then_runs_after_reads(
     assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
 
 
+@pytest.mark.parametrize("early", [1, 2, 3, 4])
+def test_three_early_commands_are_answered_and_a_fourth_ends_the_turn(
+    tmp_path: Path, early: int
+) -> None:
+    repo = _scaffold(tmp_path)
+    marker = repo / "early.txt"
+    exchange = Exchange(
+        [
+            *[("execute", {"command": "touch early.txt"})] * early,
+            *selected_skill_calls(repo),
+            ("execute", {"command": "touch early.txt"}),
+        ],
+        final_text="read the documents and ran the command",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        if early <= 3:
+            events = asyncio.run(_collect(harness, repo))
+            assert any(isinstance(event, ResultMessageEvent) for event in events)
+            for index in range(early):
+                [refused] = tool_results(exchange, f"call-{index}")
+                assert _REFUSAL in refused
+            assert marker.exists()
+            assert harness.last_player_evidence is not None
+        else:
+            with pytest.raises(LangGraphHarnessError, match="early call 4 in this turn"):
+                asyncio.run(_collect(harness, repo))
+            assert len(exchange.bodies) == 4
+            assert not marker.exists()
+            assert harness.last_player_evidence is None
+    finally:
+        _close_clients(sync, async_)
+
+
+def early_transcript(
+    selected: Any, early_result: ToolMessage
+) -> list[Any]:
+    """An early command, then complete reads of every required document."""
+
+    from guardkitfactory.harness.dcode_harness import required_skill_reads
+
+    messages: list[Any] = [
+        AIMessage(
+            content="",
+            tool_calls=[
+                {"name": "execute", "args": {"command": "pwd"}, "id": "early", "type": "tool_call"}
+            ],
+        ),
+        early_result,
+    ]
+    for index, item in enumerate(required_skill_reads(selected)):
+        call_id = f"read-{index}"
+        messages.extend(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "read_file",
+                            "args": {"file_path": item["path"], "limit": 1000},
+                            "id": call_id,
+                            "type": "tool_call",
+                        }
+                    ],
+                ),
+                ToolMessage(content=rendered_body(item), tool_call_id=call_id),
+            ]
+        )
+    return messages
+
+
+def test_transcript_audit_accepts_a_refused_early_command(tmp_path: Path) -> None:
+    from guardkitfactory.harness.dcode_harness import (
+        required_skill_reads,
+        validate_skill_reads,
+    )
+
+    repo = _scaffold(tmp_path)
+    selected = config(repo)
+    gate, _ = build_gate(selected)
+    refused = gate.refuse_early_call({"name": "execute", "id": "early"})
+    assert refused is not None and refused.status == "error"
+    telemetry = validate_skill_reads(
+        {"messages": early_transcript(selected, refused)},
+        config=selected,
+        required=required_skill_reads(selected),
+    )
+    assert telemetry["status"] == "passed"
+
+    ran = ToolMessage(content=str(repo), tool_call_id="early")
+    with pytest.raises(LangGraphHarnessError, match="must be read successfully before"):
+        validate_skill_reads(
+            {"messages": early_transcript(selected, ran)},
+            config=selected,
+            required=required_skill_reads(selected),
+        )
+
+
 def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
     calls = [
@@ -2087,6 +2186,53 @@ def test_wrapped_early_call_gets_an_error_result_not_an_exception(
     result = call("after")
     assert result.content == "ran" and ran == ["after"]
     assert gate.evidence()["status"] == "passed"
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_fourth_early_call_in_a_turn_raises(tmp_path: Path, mode: str) -> None:
+    from guardkitfactory.harness.skill_read_middleware import (
+        MAX_EARLY_REFUSALS,
+        SelectedSkillReadError,
+    )
+
+    repo = _scaffold(tmp_path)
+    declare_document(repo)
+    gate, _ = build_gate(config_with_documents(repo))
+    ran: list[str] = []
+
+    def handler(request: Any) -> ToolMessage:
+        ran.append(request.tool_call["id"])
+        return ToolMessage(content="ran", tool_call_id=request.tool_call["id"])
+
+    async def ahandler(request: Any) -> ToolMessage:
+        return handler(request)
+
+    def call(call_id: str) -> Any:
+        request = SimpleNamespace(
+            tool_call={"name": "execute", "args": {}, "id": call_id}
+        )
+        if mode == "sync":
+            return gate.wrap_tool_call(request, handler)
+        return asyncio.run(gate.awrap_tool_call(request, ahandler))
+
+    assert MAX_EARLY_REFUSALS == 3
+    for index in range(MAX_EARLY_REFUSALS):
+        result = call(f"early-{index}")
+        assert result.status == "error" and result.tool_call_id == f"early-{index}"
+    # Calls that are always allowed do not count and still run.
+    assert call_discovery(gate, mode, handler, ahandler).content == "ran"
+    with pytest.raises(SelectedSkillReadError, match="must be read successfully before"):
+        call("early-3")
+    assert ran == ["discovery"]
+
+
+def call_discovery(gate: Any, mode: str, handler: Any, ahandler: Any) -> Any:
+    request = SimpleNamespace(
+        tool_call={"name": "ls", "args": {"path": "."}, "id": "discovery"}
+    )
+    if mode == "sync":
+        return gate.wrap_tool_call(request, handler)
+    return asyncio.run(gate.awrap_tool_call(request, ahandler))
 
 
 @pytest.mark.parametrize("tool", ["execute", "write_file", "edit_file", "task"])

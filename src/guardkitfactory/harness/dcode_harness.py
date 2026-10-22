@@ -245,14 +245,28 @@ def validate_skill_reads(
     from guardkitfactory.harness.skill_read_middleware import (
         SelectedSkillReadError,
         SelectedSkillReadMiddleware,
+        refusal_prefix,
     )
 
     gate = SelectedSkillReadMiddleware(cwd=config.cwd, required=required)
     pending: dict[str, Mapping[str, Any]] = {}
+    # A guarded call made before the reads passes the audit only when its
+    # result is the gate's error answer, i.e. it did not run.
+    early: dict[str, tuple[str, str]] = {}
     try:
         for message in result.get("messages", []) or []:
             if isinstance(message, ToolMessage):
-                call = pending.pop(str(message.tool_call_id or ""), None)
+                call_id = str(message.tool_call_id or "")
+                if call_id in early:
+                    name, refusal = early.pop(call_id)
+                    if not (
+                        str(getattr(message, "status", "") or "") == "error"
+                        and isinstance(message.content, str)
+                        and message.content.startswith(refusal_prefix(name))
+                    ):
+                        raise SelectedSkillReadError(refusal)
+                    continue
+                call = pending.pop(call_id, None)
                 if call is not None:
                     gate.record_completed_read(call, message)
                 continue
@@ -260,10 +274,18 @@ def validate_skill_reads(
                 if not isinstance(call, Mapping):
                     continue
                 name = str(call.get("name", "") or "")
-                gate.check_before(name)
                 call_id = str(call.get("id", "") or "")
+                try:
+                    gate.check_before(name)
+                except SelectedSkillReadError as exc:
+                    if not call_id:
+                        raise
+                    early[call_id] = (name, str(exc))
+                    continue
                 if name == "read_file" and call_id:
                     pending[call_id] = call
+        if early:
+            raise SelectedSkillReadError(next(iter(early.values()))[1])
         telemetry = gate.evidence()
     except SelectedSkillReadError as exc:
         _refuse(str(exc))

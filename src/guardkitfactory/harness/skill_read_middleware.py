@@ -26,6 +26,20 @@ logger = logging.getLogger(__name__)
 # The code search tools only read, like grep and glob (12 October 2026).
 _SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos", *_CODE_SEARCH_TOOLS}
 
+# Early guarded calls answered with an error result in one turn. The next one
+# ends the turn, so a model that never reads fails fast instead of using up
+# the turn's time.
+MAX_EARLY_REFUSALS = 3
+
+
+def refusal_prefix(tool_name: str) -> str:
+    """The opening words of the error result for a call made too early."""
+
+    return (
+        f"{tool_name!r} was not run. Read these required documents in full "
+        "before running commands: "
+    )
+
 
 class SelectedSkillReadError(RuntimeError):
     """Raised when a Player attempts work before required documents are read."""
@@ -88,6 +102,7 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
                 "rendered": f"@@ lines 1-{line_count} of {line_count} @@\n{body}",
             }
         self._observed: dict[Path, dict[str, str]] = {}
+        self._refusals = 0
         self._lock = threading.RLock()
 
     def _missing(self) -> list[Path]:
@@ -118,23 +133,36 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
         The call is not run. The model reads the error, reads the documents
         and retries in the same turn, instead of the whole turn ending. The
         end-of-turn ``evidence()`` check still fails a turn that never reads
-        them.
+        them. After ``MAX_EARLY_REFUSALS`` such answers in one turn, the
+        next early call raises ``SelectedSkillReadError`` and ends the turn.
         """
 
         name = str(tool_call.get("name", "") or "")
-        missing = self._missing_before(name)
-        if not missing:
-            return None
+        with self._lock:
+            missing = self._missing_before(name)
+            if not missing:
+                return None
+            self._refusals += 1
+            refusals = self._refusals
+        if refusals > MAX_EARLY_REFUSALS:
+            raise SelectedSkillReadError(
+                "selected skill bodies and project-declared documents "
+                "must be read successfully before "
+                f"{name!r}; missing: {[str(path) for path in missing]} "
+                f"(early call {refusals} in this turn; the first "
+                f"{MAX_EARLY_REFUSALS} were answered with an error result)"
+            )
         logger.info(
-            "required documents unread; refused tool %r (%d unread)",
+            "required documents unread; refused tool %r (%d unread, refusal %d of %d)",
             name,
             len(missing),
+            refusals,
+            MAX_EARLY_REFUSALS,
         )
         return ToolMessage(
             content=(
-                f"{name!r} was not run. Read these required documents in full "
-                "before running commands: "
-                f"{', '.join(str(path) for path in missing)}. Then retry."
+                refusal_prefix(name)
+                + f"{', '.join(str(path) for path in missing)}. Then retry."
             ),
             tool_call_id=str(tool_call.get("id", "") or ""),
             name=name,
