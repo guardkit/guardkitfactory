@@ -40,7 +40,10 @@ class PlayerConfig:
 
 
 _MAX_REQUIRED_DOCUMENTS = 32
-_MAX_REQUIRED_DOCUMENT_BYTES = 65_536
+# One binding document may be as large as the whole project-documents budget
+# that GuardKit's Coach and Forge's planning writers accept (128 KiB), so a
+# document those accept is never refused here.
+_MAX_REQUIRED_DOCUMENT_BYTES = 131_072
 
 _READ_BITS = stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH
 _WRITE_BITS = stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH

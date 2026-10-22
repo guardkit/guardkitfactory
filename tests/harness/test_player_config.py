@@ -199,14 +199,14 @@ def test_declared_document_refusals_name_the_path(tmp_path: Path) -> None:
     outside.mkdir()
     (outside / "conventions.md").write_text("outside the worktree\n")
     (root / "references" / "outside-link.md").symlink_to(outside / "conventions.md")
-    (root / "references" / "oversized.md").write_bytes(b"x" * 65_537)
+    (root / "references" / "oversized.md").write_bytes(b"x" * 131_073)
     (root / "references" / "binary.md").write_bytes(b"# title\n\xff\xfe")
 
     cases: list[tuple[list[str], str]] = [
         (["references/missing.md"], "does not exist"),
         (["../outside/conventions.md"], "outside the task worktree"),
         (["references/outside-link.md"], "outside the task worktree"),
-        (["references/oversized.md"], "65536 are accepted"),
+        (["references/oversized.md"], "131072 are accepted"),
         (["references/binary.md"], "not valid UTF-8"),
         (
             [
