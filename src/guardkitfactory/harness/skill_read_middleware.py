@@ -8,6 +8,7 @@ gate and nothing here parses Markdown links.
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import threading
 from collections.abc import Awaitable, Callable, Mapping
@@ -19,6 +20,8 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from guardkitfactory.harness.code_search_tools import TOOL_NAMES as _CODE_SEARCH_TOOLS
+
+logger = logging.getLogger(__name__)
 
 # The code search tools only read, like grep and glob (12 October 2026).
 _SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos", *_CODE_SEARCH_TOOLS}
@@ -52,7 +55,7 @@ def _sdk_text_body(raw: bytes, path: Path) -> str:
 
 
 class SelectedSkillReadMiddleware(AgentMiddleware):
-    """Block coding tools until every required full-body read finishes."""
+    """Answer coding tools with an error until every required read finishes."""
 
     name = "guardkitfactory-selected-skill-reads"
 
@@ -90,19 +93,53 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
     def _missing(self) -> list[Path]:
         return sorted(set(self._expected) - set(self._observed))
 
+    def _missing_before(self, tool_name: str) -> list[Path]:
+        """Return the unread documents that stop ``tool_name`` running now."""
+
+        if tool_name in _SAFE_BEFORE_SKILL_READS:
+            return []
+        with self._lock:
+            return self._missing()
+
     def check_before(self, tool_name: str) -> None:
         """Refuse a guarded handler while any selected read is incomplete."""
 
-        if tool_name in _SAFE_BEFORE_SKILL_READS:
-            return
-        with self._lock:
-            missing = self._missing()
+        missing = self._missing_before(tool_name)
         if missing:
             raise SelectedSkillReadError(
                 "selected skill bodies and project-declared documents "
                 "must be read successfully before "
                 f"{tool_name!r}; missing: {[str(path) for path in missing]}"
             )
+
+    def refuse_early_call(self, tool_call: Mapping[str, Any]) -> ToolMessage | None:
+        """Answer a guarded call made too early with an error tool result.
+
+        The call is not run. The model reads the error, reads the documents
+        and retries in the same turn, instead of the whole turn ending. The
+        end-of-turn ``evidence()`` check still fails a turn that never reads
+        them.
+        """
+
+        name = str(tool_call.get("name", "") or "")
+        missing = self._missing_before(name)
+        if not missing:
+            return None
+        logger.info(
+            "required documents unread; refused tool %r (%d unread)",
+            name,
+            len(missing),
+        )
+        return ToolMessage(
+            content=(
+                f"{name!r} was not run. Read these required documents in full "
+                "before running commands: "
+                f"{', '.join(str(path) for path in missing)}. Then retry."
+            ),
+            tool_call_id=str(tool_call.get("id", "") or ""),
+            name=name,
+            status="error",
+        )
 
     def _selected_path(self, args: Mapping[str, Any]) -> Path | None:
         raw_path = args.get("file_path", args.get("path"))
@@ -204,7 +241,9 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command[Any]:
         """Guard and observe synchronous tool execution."""
 
-        self.check_before(request.tool_call["name"])
+        refusal = self.refuse_early_call(request.tool_call)
+        if refusal is not None:
+            return refusal
         result = handler(request)
         self.record_completed_read(request.tool_call, result)
         return result
@@ -218,7 +257,9 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
     ) -> ToolMessage | Command[Any]:
         """Guard and observe asynchronous tool execution."""
 
-        self.check_before(request.tool_call["name"])
+        refusal = self.refuse_early_call(request.tool_call)
+        if refusal is not None:
+            return refusal
         result = await handler(request)
         self.record_completed_read(request.tool_call, result)
         return result

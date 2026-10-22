@@ -306,7 +306,7 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize(
-    "kind", ["missing", "wrong_root", "outside_alias", "partial", "late"]
+    "kind", ["missing", "wrong_root", "outside_alias", "partial"]
 )
 def test_selected_skill_reads_fail_closed(tmp_path: Path, kind: str) -> None:
     repo = _scaffold(tmp_path)
@@ -334,7 +334,7 @@ def test_selected_skill_reads_fail_closed(tmp_path: Path, kind: str) -> None:
             ),
         ]
         match = "were not read successfully"
-    elif kind == "partial":
+    else:
         calls = [
             (
                 "read_file",
@@ -346,13 +346,6 @@ def test_selected_skill_reads_fail_closed(tmp_path: Path, kind: str) -> None:
             ),
         ]
         match = "were not read successfully"
-    else:
-        calls = [
-            ("execute", {"command": "pwd"}),
-            ("read_file", {"file_path": str(repo / "skills/planning/SKILL.md")}),
-            ("read_file", {"file_path": str(repo / "skills/code-review/SKILL.md")}),
-        ]
-        match = "must be read successfully before"
     exchange = Exchange(calls)
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
@@ -362,6 +355,53 @@ def test_selected_skill_reads_fail_closed(tmp_path: Path, kind: str) -> None:
         assert harness.last_player_evidence is None
     finally:
         _close_clients(sync, async_)
+
+
+_REFUSAL = "Read these required documents in full before running commands: "
+
+
+def tool_results(exchange: Exchange, call_id: str) -> list[str]:
+    """The tool results the model was sent for one call id, in order."""
+
+    return [
+        str(message.get("content", ""))
+        for body in exchange.bodies
+        for message in body.get("messages", [])
+        if message.get("role") == "tool" and message.get("tool_call_id") == call_id
+    ][:1]
+
+
+def test_command_before_reads_is_answered_then_runs_after_reads(
+    tmp_path: Path,
+) -> None:
+    """An early command gets an error result; the turn goes on and recovers."""
+
+    repo = _scaffold(tmp_path)
+    marker = repo / "early.txt"
+    exchange = Exchange(
+        [
+            ("execute", {"command": "touch early.txt"}),
+            *selected_skill_calls(repo),
+            ("execute", {"command": "touch early.txt"}),
+        ],
+        final_text="read the documents and ran the command",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        events = asyncio.run(_collect(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    [refused] = tool_results(exchange, "call-0")
+    assert _REFUSAL in refused and refused.endswith(". Then retry.")
+    assert str((repo / "skills/planning/SKILL.md").resolve()) in refused
+    assert str((repo / "skills/code-review/SKILL.md").resolve()) in refused
+    [ran] = tool_results(exchange, "call-3")
+    assert _REFUSAL not in ran
+    assert marker.exists()
+    assert harness.last_player_evidence is not None
+    assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
 
 
 def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
@@ -441,9 +481,12 @@ def test_selected_skill_gate_blocks_real_write_before_handler(tmp_path: Path) ->
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
-        with pytest.raises(LangGraphHarnessError, match="before 'write_file'"):
+        with pytest.raises(LangGraphHarnessError, match="were not read successfully"):
             asyncio.run(_collect(harness, repo))
         assert not marker.exists()
+        assert harness.last_player_evidence is None
+        [refused] = tool_results(exchange, "call-0")
+        assert refused.startswith("'write_file' was not run. " + _REFUSAL)
     finally:
         _close_clients(sync, async_)
 
@@ -467,25 +510,36 @@ def test_selected_skill_gate_blocks_same_batch_write_while_reads_run(
             body = json.loads(request.content)
             self.bodies.append(body)
             self.requests.append({"offered": []})
-            calls = [
-                *selected_skill_calls(repo),
-                ("write_file", {"file_path": str(marker), "content": "MUTATED"}),
-            ]
-            message = {
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [
-                    {
-                        "id": f"batch-{index}",
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "arguments": json.dumps(arguments),
-                        },
-                    }
-                    for index, (name, arguments) in enumerate(calls)
-                ],
-            }
+            write = ("write_file", {"file_path": str(marker), "content": "MUTATED"})
+            turn = len(self.bodies) - 1
+            if turn == 0:
+                calls = [*selected_skill_calls(repo), write]
+                prefix = "batch"
+            elif turn == 1:
+                assert not marker.exists()
+                calls = [write]
+                prefix = "retry"
+            else:
+                calls = []
+            message: dict[str, Any] = (
+                {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [
+                        {
+                            "id": f"{prefix}-{index}",
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": json.dumps(arguments),
+                            },
+                        }
+                        for index, (name, arguments) in enumerate(calls)
+                    ],
+                }
+                if calls
+                else {"role": "assistant", "content": "retried after the reads"}
+            )
             return httpx.Response(
                 200,
                 json={
@@ -494,7 +548,11 @@ def test_selected_skill_gate_blocks_same_batch_write_while_reads_run(
                     "created": 1,
                     "model": body["model"],
                     "choices": [
-                        {"index": 0, "message": message, "finish_reason": "tool_calls"}
+                        {
+                            "index": 0,
+                            "message": message,
+                            "finish_reason": "tool_calls" if calls else "stop",
+                        }
                     ],
                     "usage": {
                         "prompt_tokens": 100,
@@ -508,11 +566,20 @@ def test_selected_skill_gate_blocks_same_batch_write_while_reads_run(
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=backend, player_config=config(repo))
     try:
-        with pytest.raises(LangGraphHarnessError, match="before 'write_file'"):
-            asyncio.run(_collect(harness, repo))
-        assert not marker.exists()
+        events = asyncio.run(_collect(harness, repo))
     finally:
         _close_clients(sync, async_)
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    [refused] = tool_results(exchange, "batch-2")
+    assert refused.startswith("'write_file' was not run. " + _REFUSAL)
+    for call_id in ("batch-0", "batch-1"):
+        [read] = tool_results(exchange, call_id)
+        assert _REFUSAL not in read
+    [retried] = tool_results(exchange, "retry-0")
+    assert _REFUSAL not in retried
+    assert marker.read_text() == "MUTATED"
+    assert harness.last_player_evidence is not None
+    assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
 
 
 def test_selected_skill_complete_read_normalizes_crlf(tmp_path: Path) -> None:
@@ -1968,12 +2035,58 @@ def test_unread_declared_document_blocks_a_real_write(tmp_path: Path) -> None:
         model, backend=_backend(repo), player_config=config_with_documents(repo)
     )
     try:
-        with pytest.raises(LangGraphHarnessError, match="before 'write_file'"):
+        with pytest.raises(LangGraphHarnessError, match="were not read successfully"):
             asyncio.run(_collect(harness, repo))
         assert not marker.exists()
         assert harness.last_player_evidence is None
+        [refused] = tool_results(exchange, "call-2")
+        assert _REFUSAL in refused and "project-conventions.md" in refused
+        assert "SKILL.md" not in refused
     finally:
         _close_clients(sync, async_)
+
+
+@pytest.mark.parametrize("tool", ["execute", "write_file", "edit_file", "task"])
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_wrapped_early_call_gets_an_error_result_not_an_exception(
+    tmp_path: Path, tool: str, mode: str
+) -> None:
+    repo = _scaffold(tmp_path)
+    document = declare_document(repo)
+    gate, required = build_gate(config_with_documents(repo))
+    for index, item in enumerate(required):
+        if item["kind"] == "skill":
+            record_read(gate, item, call_id=f"skill-{index}")
+    ran: list[str] = []
+
+    def handler(request: Any) -> ToolMessage:
+        ran.append(request.tool_call["id"])
+        return ToolMessage(content="ran", tool_call_id=request.tool_call["id"])
+
+    async def ahandler(request: Any) -> ToolMessage:
+        return handler(request)
+
+    def call(call_id: str) -> Any:
+        request = SimpleNamespace(tool_call={"name": tool, "args": {}, "id": call_id})
+        if mode == "sync":
+            return gate.wrap_tool_call(request, handler)
+        return asyncio.run(gate.awrap_tool_call(request, ahandler))
+
+    refused = call("early")
+    assert isinstance(refused, ToolMessage)
+    assert refused.status == "error"
+    assert refused.tool_call_id == "early" and refused.name == tool
+    assert refused.content == (
+        f"{tool!r} was not run. Read these required documents in full before "
+        f"running commands: {document.resolve()}. Then retry."
+    )
+    assert ran == []
+
+    declared = next(item for item in required if item["kind"] == "declared_document")
+    record_read(gate, declared, call_id="doc")
+    result = call("after")
+    assert result.content == "ran" and ran == ["after"]
+    assert gate.evidence()["status"] == "passed"
 
 
 @pytest.mark.parametrize("tool", ["execute", "write_file", "edit_file", "task"])
