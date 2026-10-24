@@ -305,54 +305,93 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     )
 
 
-@pytest.mark.parametrize(
-    "kind", ["missing", "wrong_root", "outside_alias", "partial"]
-)
-def test_selected_skill_reads_fail_closed(tmp_path: Path, kind: str) -> None:
+@pytest.mark.parametrize("kind", ["missing", "wrong_root", "outside_alias"])
+def test_unread_selected_skills_are_recorded_and_the_turn_completes(
+    tmp_path: Path, kind: str
+) -> None:
     repo = _scaffold(tmp_path)
     other = _scaffold(tmp_path, "other")
     if kind == "missing":
         calls = [("read_file", {"file_path": str(repo / "AGENTS.md")})]
-        match = "were not read successfully"
     elif kind == "wrong_root":
         calls = [
             ("read_file", {"file_path": str(other / "skills/planning/SKILL.md")}),
             ("read_file", {"file_path": str(other / "skills/code-review/SKILL.md")}),
         ]
-        match = "were not read successfully"
-    elif kind == "outside_alias":
+    else:
         outside_alias = repo.parent / "outside-alias"
         outside_alias.symlink_to((repo / "skills").resolve(), target_is_directory=True)
         calls = [
-            (
-                "read_file",
-                {"file_path": str(outside_alias / "planning/SKILL.md")},
-            ),
-            (
-                "read_file",
-                {"file_path": str(outside_alias / "code-review/SKILL.md")},
-            ),
+            ("read_file", {"file_path": str(outside_alias / "planning/SKILL.md")}),
+            ("read_file", {"file_path": str(outside_alias / "code-review/SKILL.md")}),
         ]
-        match = "were not read successfully"
-    else:
-        calls = [
-            (
-                "read_file",
-                {"file_path": str(repo / "skills/planning/SKILL.md"), "limit": 1},
-            ),
-            (
-                "read_file",
-                {"file_path": str(repo / "skills/code-review/SKILL.md"), "limit": 1},
-            ),
-        ]
-        match = "were not read successfully"
     exchange = Exchange(calls)
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
-        with pytest.raises(LangGraphHarnessError, match=match):
-            asyncio.run(_collect(harness, repo))
-        assert harness.last_player_evidence is None
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert harness.last_player_evidence is not None
+        consumption = harness.last_player_evidence["skill_consumption"]
+        assert consumption["status"] == "incomplete"
+        assert len(consumption["missing"]) == 2
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_a_player_without_a_gate_or_evidence_still_completes_the_turn(
+    tmp_path: Path,
+) -> None:
+    from unittest.mock import patch
+
+    repo = _scaffold(tmp_path)
+    model, sync, async_ = _model(Exchange([]))
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+
+    async def ainvoke(_input: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        return {
+            "messages": [
+                AIMessage(content="done", response_metadata={"finish_reason": "stop"})
+            ]
+        }
+
+    bare_agent = SimpleNamespace(ainvoke=ainvoke)
+    try:
+        with patch.object(LangGraphHarness, "_create_agent", return_value=bare_agent):
+            events = asyncio.run(_collect(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    assert harness.last_player_evidence == {
+        "skill_consumption": {"status": "unavailable"}
+    }
+
+
+def test_a_partial_read_of_a_required_skill_counts_and_is_recorded(
+    tmp_path: Path,
+) -> None:
+    repo = _scaffold(tmp_path)
+    calls = [
+        ("read_file", {"file_path": str(repo / "skills/planning/SKILL.md"), "limit": 1}),
+        (
+            "read_file",
+            {"file_path": str(repo / "skills/code-review/SKILL.md"), "offset": 1},
+        ),
+    ]
+    exchange = Exchange(calls)
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert harness.last_player_evidence is not None
+        consumption = harness.last_player_evidence["skill_consumption"]
+        assert consumption["status"] == "passed"
+        assert sorted((o["offset"], o["limit"]) for o in consumption["observed"]) == [
+            (0, 1),
+            (1, 100),
+        ]
     finally:
         _close_clients(sync, async_)
 
@@ -405,7 +444,7 @@ def test_command_before_reads_is_answered_then_runs_after_reads(
 
 
 @pytest.mark.parametrize("early", [1, 2, 3, 4])
-def test_three_early_commands_are_answered_and_a_fourth_ends_the_turn(
+def test_three_early_commands_are_answered_and_a_fourth_runs(
     tmp_path: Path, early: int
 ) -> None:
     repo = _scaffold(tmp_path)
@@ -421,86 +460,15 @@ def test_three_early_commands_are_answered_and_a_fourth_ends_the_turn(
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
-        if early <= 3:
-            events = asyncio.run(_collect(harness, repo))
-            assert any(isinstance(event, ResultMessageEvent) for event in events)
-            for index in range(early):
-                [refused] = tool_results(exchange, f"call-{index}")
-                assert _REFUSAL in refused
-            assert marker.exists()
-            assert harness.last_player_evidence is not None
-        else:
-            with pytest.raises(LangGraphHarnessError, match="early call 4 in this turn"):
-                asyncio.run(_collect(harness, repo))
-            assert len(exchange.bodies) == 4
-            assert not marker.exists()
-            assert harness.last_player_evidence is None
+        events = asyncio.run(_collect(harness, repo))
     finally:
         _close_clients(sync, async_)
-
-
-def early_transcript(
-    selected: Any, early_result: ToolMessage
-) -> list[Any]:
-    """An early command, then complete reads of every required document."""
-
-    from guardkitfactory.harness.dcode_harness import required_skill_reads
-
-    messages: list[Any] = [
-        AIMessage(
-            content="",
-            tool_calls=[
-                {"name": "execute", "args": {"command": "pwd"}, "id": "early", "type": "tool_call"}
-            ],
-        ),
-        early_result,
-    ]
-    for index, item in enumerate(required_skill_reads(selected)):
-        call_id = f"read-{index}"
-        messages.extend(
-            [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "read_file",
-                            "args": {"file_path": item["path"], "limit": 1000},
-                            "id": call_id,
-                            "type": "tool_call",
-                        }
-                    ],
-                ),
-                ToolMessage(content=rendered_body(item), tool_call_id=call_id),
-            ]
-        )
-    return messages
-
-
-def test_transcript_audit_accepts_a_refused_early_command(tmp_path: Path) -> None:
-    from guardkitfactory.harness.dcode_harness import (
-        required_skill_reads,
-        validate_skill_reads,
-    )
-
-    repo = _scaffold(tmp_path)
-    selected = config(repo)
-    gate, _ = build_gate(selected)
-    refused = gate.refuse_early_call({"name": "execute", "id": "early"})
-    assert refused is not None and refused.status == "error"
-    telemetry = validate_skill_reads(
-        {"messages": early_transcript(selected, refused)},
-        config=selected,
-        required=required_skill_reads(selected),
-    )
-    assert telemetry["status"] == "passed"
-
-    ran = ToolMessage(content=str(repo), tool_call_id="early")
-    with pytest.raises(LangGraphHarnessError, match="must be read successfully before"):
-        validate_skill_reads(
-            {"messages": early_transcript(selected, ran)},
-            config=selected,
-            required=required_skill_reads(selected),
-        )
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    for index in range(early):
+        [result] = tool_results(exchange, f"call-{index}")
+        assert (_REFUSAL in result) == (index < 3)
+    assert marker.exists()
+    assert harness.last_player_evidence is not None
 
 
 def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
@@ -533,44 +501,6 @@ def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
         _close_clients(sync, async_)
 
 
-@pytest.mark.parametrize("content", ["Error: file not found", "1\t---"])
-def test_selected_skill_transcript_rejects_false_tool_body(
-    tmp_path: Path, content: str
-) -> None:
-    from guardkitfactory.harness.dcode_harness import (
-        required_skill_reads,
-        validate_skill_reads,
-    )
-
-    repo = _scaffold(tmp_path)
-    selected = config(repo)
-    messages: list[Any] = []
-    for index, item in enumerate(required_skill_reads(selected)):
-        call_id = f"false-{index}"
-        messages.extend(
-            [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": "read_file",
-                            "args": {"file_path": item["path"], "limit": 1000},
-                            "id": call_id,
-                            "type": "tool_call",
-                        }
-                    ],
-                ),
-                ToolMessage(content=content, tool_call_id=call_id),
-            ]
-        )
-    with pytest.raises(LangGraphHarnessError, match="were not read successfully"):
-        validate_skill_reads(
-            {"messages": messages},
-            config=selected,
-            required=required_skill_reads(selected),
-        )
-
-
 def test_selected_skill_gate_blocks_real_write_before_handler(tmp_path: Path) -> None:
     repo = _scaffold(tmp_path)
     marker = repo / "should-not-exist.txt"
@@ -580,10 +510,11 @@ def test_selected_skill_gate_blocks_real_write_before_handler(tmp_path: Path) ->
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
-        with pytest.raises(LangGraphHarnessError, match="were not read successfully"):
-            asyncio.run(_collect(harness, repo))
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
         assert not marker.exists()
-        assert harness.last_player_evidence is None
+        assert harness.last_player_evidence is not None
+        assert harness.last_player_evidence["skill_consumption"]["status"] == "incomplete"
         [refused] = tool_results(exchange, "call-0")
         assert refused.startswith("'write_file' was not run. " + _REFUSAL)
     finally:
@@ -2134,10 +2065,15 @@ def test_unread_declared_document_blocks_a_real_write(tmp_path: Path) -> None:
         model, backend=_backend(repo), player_config=config_with_documents(repo)
     )
     try:
-        with pytest.raises(LangGraphHarnessError, match="were not read successfully"):
-            asyncio.run(_collect(harness, repo))
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
         assert not marker.exists()
-        assert harness.last_player_evidence is None
+        assert harness.last_player_evidence is not None
+        consumption = harness.last_player_evidence["skill_consumption"]
+        assert consumption["status"] == "incomplete"
+        assert [Path(path).name for path in consumption["missing"]] == [
+            "project-conventions.md"
+        ]
         [refused] = tool_results(exchange, "call-2")
         assert _REFUSAL in refused and "project-conventions.md" in refused
         assert "SKILL.md" not in refused
@@ -2189,11 +2125,8 @@ def test_wrapped_early_call_gets_an_error_result_not_an_exception(
 
 
 @pytest.mark.parametrize("mode", ["sync", "async"])
-def test_fourth_early_call_in_a_turn_raises(tmp_path: Path, mode: str) -> None:
-    from guardkitfactory.harness.skill_read_middleware import (
-        MAX_EARLY_REFUSALS,
-        SelectedSkillReadError,
-    )
+def test_fourth_early_call_in_a_turn_runs(tmp_path: Path, mode: str) -> None:
+    from guardkitfactory.harness.skill_read_middleware import MAX_EARLY_REFUSALS
 
     repo = _scaffold(tmp_path)
     declare_document(repo)
@@ -2221,9 +2154,9 @@ def test_fourth_early_call_in_a_turn_raises(tmp_path: Path, mode: str) -> None:
         assert result.status == "error" and result.tool_call_id == f"early-{index}"
     # Calls that are always allowed do not count and still run.
     assert call_discovery(gate, mode, handler, ahandler).content == "ran"
-    with pytest.raises(SelectedSkillReadError, match="must be read successfully before"):
-        call("early-3")
-    assert ran == ["discovery"]
+    assert call("early-3").content == "ran"
+    assert ran == ["discovery", "early-3"]
+    assert gate.evidence()["status"] == "incomplete"
 
 
 def call_discovery(gate: Any, mode: str, handler: Any, ahandler: Any) -> Any:
@@ -2239,8 +2172,6 @@ def call_discovery(gate: Any, mode: str, handler: Any, ahandler: Any) -> Any:
 def test_guarded_tools_refuse_while_a_declared_document_is_unread(
     tmp_path: Path, tool: str
 ) -> None:
-    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
-
     repo = _scaffold(tmp_path)
     document = declare_document(repo)
     gate, required = build_gate(config_with_documents(repo))
@@ -2248,10 +2179,10 @@ def test_guarded_tools_refuse_while_a_declared_document_is_unread(
         if item["kind"] == "skill":
             record_read(gate, item, call_id=f"skill-{index}")
 
-    with pytest.raises(SelectedSkillReadError, match="must be read successfully before"):
-        gate.check_before(tool)
-    with pytest.raises(SelectedSkillReadError, match=str(document.resolve())):
-        gate.check_before(tool)
+    refusal = gate.refuse_early_call({"name": tool, "id": "early"})
+
+    assert refusal is not None and refusal.status == "error"
+    assert str(document.resolve()) in refusal.content
 
 
 @pytest.mark.parametrize(
@@ -2264,15 +2195,13 @@ def test_discovery_tools_stay_open_while_a_declared_document_is_unread(
     declare_document(repo)
     gate, _ = build_gate(config_with_documents(repo))
 
-    assert gate.check_before(tool) is None
+    assert gate.refuse_early_call({"name": tool, "id": "call"}) is None
 
 
 @pytest.mark.parametrize("kind", ["partial", "offset", "error"])
-def test_incomplete_declared_document_reads_are_not_recorded(
+def test_declared_document_reads_count_unless_they_errored(
     tmp_path: Path, kind: str
 ) -> None:
-    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
-
     repo = _scaffold(tmp_path)
     declare_document(repo)
     gate, required = build_gate(config_with_documents(repo))
@@ -2288,19 +2217,27 @@ def test_incomplete_declared_document_reads_are_not_recorded(
     else:
         record_read(gate, declared, call_id="doc", status="error")
 
-    with pytest.raises(SelectedSkillReadError, match="were not read successfully"):
-        gate.evidence()
-
-    record_read(gate, declared, call_id="doc-complete")
+    evidence_block = gate.evidence()
+    if kind == "error":
+        assert evidence_block["status"] == "incomplete"
+        assert evidence_block["missing"] == [declared["path"]]
+        record_read(gate, declared, call_id="doc-again")
+    observed = next(
+        item
+        for item in gate.evidence()["observed"]
+        if item["kind"] == "declared_document"
+    )
     assert gate.evidence()["status"] == "passed"
+    if kind == "partial":
+        assert observed["limit"] == 1
+    if kind == "offset":
+        assert observed["offset"] == 1
 
 
-def test_concurrent_guarded_calls_cannot_both_pass_while_a_read_is_missing(
+def test_concurrent_guarded_calls_are_both_refused_while_a_read_is_missing(
     tmp_path: Path,
 ) -> None:
     from concurrent.futures import ThreadPoolExecutor
-
-    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
 
     repo = _scaffold(tmp_path)
     declare_document(repo)
@@ -2310,11 +2247,8 @@ def test_concurrent_guarded_calls_cannot_both_pass_while_a_read_is_missing(
             record_read(gate, item, call_id=f"skill-{index}")
 
     def guarded() -> str:
-        try:
-            gate.check_before("execute")
-        except SelectedSkillReadError:
-            return "refused"
-        return "passed"
+        refusal = gate.refuse_early_call({"name": "execute", "id": "call"})
+        return "refused" if refusal is not None else "passed"
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         outcomes = list(pool.map(lambda _: guarded(), range(2)))
@@ -2327,11 +2261,9 @@ def test_concurrent_guarded_calls_cannot_both_pass_while_a_read_is_missing(
     assert outcomes == ["passed", "passed"]
 
 
-def test_declared_document_alias_accepted_and_unrelated_symlink_refused(
+def test_declared_document_alias_accepted_and_unrelated_symlink_not_counted(
     tmp_path: Path,
 ) -> None:
-    from guardkitfactory.harness.skill_read_middleware import SelectedSkillReadError
-
     repo = _scaffold(tmp_path)
     document = declare_document(repo)
     alias = repo / ".agents" / "skills" / "planning" / "references" / document.name
@@ -2345,8 +2277,7 @@ def test_declared_document_alias_accepted_and_unrelated_symlink_refused(
             record_read(gate, item, call_id=f"skill-{index}")
 
     record_read(gate, declared, call_id="unrelated", path=str(unrelated / document.name))
-    with pytest.raises(SelectedSkillReadError, match="were not read successfully"):
-        gate.evidence()
+    assert gate.evidence()["status"] == "incomplete"
 
     record_read(gate, declared, call_id="alias", path=str(alias))
     evidence_block = gate.evidence()

@@ -569,8 +569,9 @@ class PathConfinedBackend:
             file_path,
         )
         return (
-            f"Error: refusing to {op} '{file_path}': the project declares "
-            "this path as protected evidence and the agent cannot change it."
+            f"Error: refusing to {op} '{file_path}'. This file is protected. "
+            "Do not retry or work around it. If the task needs it changed, "
+            "say so in your final report."
         )
 
     def _reject(self, op: str, file_path: str, resolved: Path) -> str:

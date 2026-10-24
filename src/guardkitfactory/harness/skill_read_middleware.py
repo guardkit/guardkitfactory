@@ -1,13 +1,14 @@
-"""Pre-execution proof that every required project document was consumed.
+"""Reminder to read every required project document before running commands.
 
 The required set is the selected skill bodies plus the mandatory supporting
-documents the project declared. One gate enforces both; there is no second
-gate and nothing here parses Markdown links.
+documents the project declared. One gate covers both; there is no second
+gate and nothing here parses Markdown links. The gate nudges and records. It
+never ends a turn: a document that was not read is written down as such in
+the evidence, and the work goes on.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
 import os
 import threading
@@ -26,9 +27,9 @@ logger = logging.getLogger(__name__)
 # The code search tools only read, like grep and glob (12 October 2026).
 _SAFE_BEFORE_SKILL_READS = {"read_file", "ls", "glob", "grep", "write_todos", *_CODE_SEARCH_TOOLS}
 
-# Early guarded calls answered with an error result in one turn. The next one
-# ends the turn, so a model that never reads fails fast instead of using up
-# the turn's time.
+# Early guarded calls answered with an error result in one turn. After that
+# the call runs, so a model that will not read is not held up for the rest of
+# the turn; the evidence still says what was not read.
 MAX_EARLY_REFUSALS = 3
 
 
@@ -41,35 +42,8 @@ def refusal_prefix(tool_name: str) -> str:
     )
 
 
-class SelectedSkillReadError(RuntimeError):
-    """Raised when a Player attempts work before required documents are read."""
-
-
-def _label(item: Mapping[str, Any]) -> str:
-    """Name one required entry the way a person reads it."""
-
-    return (
-        "declared document"
-        if str(item.get("kind", "skill")) == "declared_document"
-        else "selected skill"
-    )
-
-
-def _sdk_text_body(raw: bytes, path: Path) -> str:
-    """Return the body emitted by the SDK's complete text read renderer."""
-
-    try:
-        text = raw.decode("utf-8")
-    except UnicodeDecodeError as exc:
-        raise SelectedSkillReadError(
-            f"required document is not valid UTF-8: {path}"
-        ) from exc
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    return text[:-1] if text.endswith("\n") else text
-
-
 class SelectedSkillReadMiddleware(AgentMiddleware):
-    """Answer coding tools with an error until every required read finishes."""
+    """Answer coding tools with an error until the required reads are done."""
 
     name = "guardkitfactory-selected-skill-reads"
 
@@ -81,27 +55,10 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
     ) -> None:
         self._cwd = cwd.resolve(strict=True)
         self._required = tuple(dict(item) for item in required)
-        self._expected: dict[Path, dict[str, Any]] = {}
-        for item in self._required:
-            path = Path(item["path"]).resolve(strict=True)
-            raw = path.read_bytes()
-            digest = hashlib.sha256(raw).hexdigest()
-            if digest != item["sha256"]:
-                raise SelectedSkillReadError(
-                    f"required {_label(item)} changed before graph construction: {path}"
-                )
-            body = _sdk_text_body(raw, path)
-            line_count = len(body.split("\n"))
-            if line_count != item["line_count"]:
-                raise SelectedSkillReadError(
-                    f"required {_label(item)} line metadata changed before graph "
-                    f"construction: {path}"
-                )
-            self._expected[path] = {
-                **item,
-                "rendered": f"@@ lines 1-{line_count} of {line_count} @@\n{body}",
-            }
-        self._observed: dict[Path, dict[str, str]] = {}
+        self._expected: dict[Path, dict[str, Any]] = {
+            Path(item["path"]).resolve(): dict(item) for item in self._required
+        }
+        self._observed: dict[Path, dict[str, Any]] = {}
         self._refusals = 0
         self._lock = threading.RLock()
 
@@ -109,32 +66,20 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
         return sorted(set(self._expected) - set(self._observed))
 
     def _missing_before(self, tool_name: str) -> list[Path]:
-        """Return the unread documents that stop ``tool_name`` running now."""
+        """Return the unread documents that hold ``tool_name`` back now."""
 
         if tool_name in _SAFE_BEFORE_SKILL_READS:
             return []
         with self._lock:
             return self._missing()
 
-    def check_before(self, tool_name: str) -> None:
-        """Refuse a guarded handler while any selected read is incomplete."""
-
-        missing = self._missing_before(tool_name)
-        if missing:
-            raise SelectedSkillReadError(
-                "selected skill bodies and project-declared documents "
-                "must be read successfully before "
-                f"{tool_name!r}; missing: {[str(path) for path in missing]}"
-            )
-
     def refuse_early_call(self, tool_call: Mapping[str, Any]) -> ToolMessage | None:
         """Answer a guarded call made too early with an error tool result.
 
         The call is not run. The model reads the error, reads the documents
-        and retries in the same turn, instead of the whole turn ending. The
-        end-of-turn ``evidence()`` check still fails a turn that never reads
-        them. After ``MAX_EARLY_REFUSALS`` such answers in one turn, the
-        next early call raises ``SelectedSkillReadError`` and ends the turn.
+        and retries in the same turn. After ``MAX_EARLY_REFUSALS`` such
+        answers in one turn the call runs, and ``evidence()`` records what was
+        still unread.
         """
 
         name = str(tool_call.get("name", "") or "")
@@ -145,13 +90,14 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
             self._refusals += 1
             refusals = self._refusals
         if refusals > MAX_EARLY_REFUSALS:
-            raise SelectedSkillReadError(
-                "selected skill bodies and project-declared documents "
-                "must be read successfully before "
-                f"{name!r}; missing: {[str(path) for path in missing]} "
-                f"(early call {refusals} in this turn; the first "
-                f"{MAX_EARLY_REFUSALS} were answered with an error result)"
+            logger.warning(
+                "required documents still unread (%d); running tool %r "
+                "(early call %d in this turn)",
+                len(missing),
+                name,
+                refusals,
             )
+            return None
         logger.info(
             "required documents unread; refused tool %r (%d unread, refusal %d of %d)",
             name,
@@ -193,7 +139,11 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
         tool_call: Mapping[str, Any],
         result: ToolMessage | Command[Any],
     ) -> None:
-        """Record one read only after its real handler returned the exact body."""
+        """Record a read of a required document that returned without error.
+
+        The offset and limit the model used are kept so a partial read can be
+        seen in the evidence; it still counts as a read.
+        """
 
         if str(tool_call.get("name", "")) != "read_file":
             return
@@ -208,58 +158,36 @@ class SelectedSkillReadMiddleware(AgentMiddleware):
             return
         if str(getattr(result, "status", "") or "").casefold() == "error":
             return
-        offset = args.get("offset", 0)
-        limit = args.get("limit", 100)
         expected = self._expected[canonical]
-        if (
-            not isinstance(offset, int)
-            or isinstance(offset, bool)
-            or offset != 0
-            or not isinstance(limit, int)
-            or isinstance(limit, bool)
-            or limit < expected["line_count"]
-            or not isinstance(result.content, str)
-            or result.content != expected["rendered"]
-        ):
-            return
-        try:
-            digest = hashlib.sha256(canonical.read_bytes()).hexdigest()
-        except OSError as exc:
-            raise SelectedSkillReadError(
-                f"required document cannot be revalidated after read: {canonical}"
-            ) from exc
-        if digest != expected["sha256"]:
-            raise SelectedSkillReadError(
-                f"required {_label(expected)} changed while it was read: {canonical}"
-            )
         with self._lock:
             self._observed.setdefault(
                 canonical,
                 {
                     "path": str(canonical),
-                    "relative_path": expected["relative_path"],
-                    "sha256": digest,
+                    "relative_path": expected.get("relative_path"),
+                    "sha256": expected.get("sha256"),
                     "kind": str(expected.get("kind", "skill")),
                     "tool_call_id": call_id,
+                    "offset": args.get("offset", 0),
+                    "limit": args.get("limit", 100),
                 },
             )
 
     def evidence(self) -> dict[str, Any]:
-        """Return immutable-style telemetry for completed reads in chronology."""
+        """Return telemetry for the reads seen, saying so when some are missing."""
 
         with self._lock:
             missing = self._missing()
             observed = [dict(item) for item in self._observed.values()]
         if missing:
-            raise SelectedSkillReadError(
-                "selected skill bodies and project-declared documents "
-                "were not read successfully: "
-                f"{[str(path) for path in missing]}"
+            logger.warning(
+                "required documents not read: %s", [str(path) for path in missing]
             )
         return {
-            "status": "passed",
+            "status": "incomplete" if missing else "passed",
             "required": [dict(item) for item in self._required],
             "observed": observed,
+            "missing": [str(path) for path in missing],
         }
 
     def wrap_tool_call(

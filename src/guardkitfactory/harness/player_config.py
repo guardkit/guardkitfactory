@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import stat
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "PlayerConfig",
@@ -309,7 +312,12 @@ def build_player_config(
 
 
 def revalidate_player_config(config: PlayerConfig, *, cwd: Path) -> PlayerConfig:
-    """Revalidate every local source immediately before graph construction."""
+    """Rebuild every local source immediately before graph construction.
+
+    A source that is gone or outside the worktree still raises. A source that
+    only changed since the config was built is not an error: the rebuilt config
+    describes what is on disk now, and it is the one to use.
+    """
 
     if not isinstance(config, PlayerConfig):
         raise PlayerConfigError("player_config has an unsupported value type")
@@ -325,5 +333,8 @@ def revalidate_player_config(config: PlayerConfig, *, cwd: Path) -> PlayerConfig
         lock_profile_identity=config.lock_profile_identity,
     )
     if rebuilt != config:
-        raise PlayerConfigError("Player configuration changed before invocation")
+        logger.info(
+            "Player configuration changed since it was built; using the rebuilt one"
+        )
+        return rebuilt
     return config

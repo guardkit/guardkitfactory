@@ -1397,6 +1397,41 @@ class TestDeclaredPathProtection:
         assert delete.error is not None
         assert evidence.read_text() == '{"expected": "independent"}\n'
 
+    def test_refusal_says_not_to_retry_and_to_report_it_sync_and_async(
+        self, tmp_path: Path
+    ) -> None:
+        import asyncio
+
+        worktree = _make_worktree(tmp_path)
+        approved = worktree / "checks" / "approved.txt"
+        approved.parent.mkdir(parents=True)
+        approved.write_bytes(b"approved bytes\n")
+        backend = build_autobuild_backend(
+            worktree, protected_paths=["checks/approved.txt"]
+        )
+
+        async def refusals() -> list[str]:
+            return [
+                (await backend.awrite(str(approved), "other\n")).error,
+                (await backend.aedit(str(approved), "approved", "other")).error,
+                (await backend.adelete(str(approved))).error,
+            ]
+
+        errors = [
+            backend.write(str(approved), "other\n").error,
+            backend.edit(str(approved), "approved", "other").error,
+            backend.delete(str(approved)).error,
+            *asyncio.run(refusals()),
+        ]
+
+        expected = (
+            "This file is protected. Do not retry or work around it. If the "
+            "task needs it changed, say so in your final report."
+        )
+        assert len(errors) == 6
+        assert all(error is not None and expected in error for error in errors)
+        assert approved.read_bytes() == b"approved bytes\n"
+
     def test_declared_directory_protects_existing_and_new_descendants(
         self, tmp_path: Path
     ) -> None:

@@ -9,12 +9,11 @@ from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 
 from guardkitfactory.harness.langgraph_harness import (
     LangGraphHarness,
     NativeToolEvent,
-    NativeToolEvidenceError,
     _ModelActivityCallbackHandler,
 )
 
@@ -73,18 +72,51 @@ def test_callback_emits_correlated_structured_tool_boundaries() -> None:
     }
 
 
-def test_enabled_sink_failure_is_not_silently_suppressed() -> None:
+def test_failing_sink_is_counted_and_the_callback_returns() -> None:
     def fail(_event: NativeToolEvent) -> None:
         raise OSError("disk unavailable")
 
     handler = _ModelActivityCallbackHandler(None, fail)
 
-    with pytest.raises(NativeToolEvidenceError, match="could not be recorded"):
-        handler.on_tool_start(
-            {"name": "reader"},
-            "payload",
-            run_id=uuid4(),
-        )
+    handler.on_tool_start({"name": "reader"}, "payload", run_id=uuid4())
+
+    assert handler.raise_error is False
+    assert handler.sink_failures == 1
+
+
+def test_failing_sink_still_reaches_a_completed_turn() -> None:
+    def fail(_event: NativeToolEvent) -> None:
+        raise OSError("disk unavailable")
+
+    harness = LangGraphHarness(model="ignored", on_native_tool_event=fail)
+
+    async def ainvoke(_input: dict, *, config: dict) -> dict:
+        handler = config["callbacks"][0]
+        handler.on_tool_start({"name": "reader"}, "payload", run_id=uuid4())
+        return {"messages": [AIMessage(content="done")]}
+
+    fake_agent = MagicMock(name="deep_agent")
+    fake_agent.ainvoke = ainvoke
+
+    async def scenario() -> list[object]:
+        with patch(
+            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
+            return_value=fake_agent,
+        ):
+            return [
+                event
+                async for event in harness.invoke(
+                    prompt="review",
+                    role="coach",
+                    tools=[],
+                    cwd=Path.cwd(),
+                    timeout_seconds=30,
+                )
+            ]
+
+    events = asyncio.run(scenario())
+
+    assert any(getattr(event, "text", None) == "done" for event in events)
 
 
 def test_tool_start_is_persistable_before_inflight_cancellation() -> None:

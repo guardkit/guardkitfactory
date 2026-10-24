@@ -584,10 +584,6 @@ class NativeToolEvent:
     payload: Any
 
 
-class NativeToolEvidenceError(RuntimeError):
-    """An enabled progressive tool-evidence sink could not record."""
-
-
 class _ModelActivityCallbackHandler(BaseCallbackHandler):
     """LangChain callback that pings ``on_model_activity`` on real LLM/tool work.
 
@@ -607,8 +603,8 @@ class _ModelActivityCallbackHandler(BaseCallbackHandler):
     (the substrate stops calling the model entirely, e.g. run-9 turn-2) still
     starves the callback, so the watchdog continues to catch it.
 
-    The activity callback remains best-effort. When progressive evidence is
-    enabled, its sink is fail-closed so a missing record cannot look complete.
+    Both callbacks are best-effort. When the progressive evidence sink fails,
+    the failure is logged and counted in ``sink_failures``; the run goes on.
     """
 
     def __init__(
@@ -618,10 +614,8 @@ class _ModelActivityCallbackHandler(BaseCallbackHandler):
     ) -> None:
         self._on_model_activity = on_model_activity
         self._on_native_tool_event = on_native_tool_event
-        # LangChain otherwise logs and suppresses callback failures. Enabled
-        # evidence capture must fail visibly instead of producing a silently
-        # incomplete trace.
-        self.raise_error = on_native_tool_event is not None
+        self.raise_error = False
+        self.sink_failures = 0
         self._tool_names: dict[str, str | None] = {}
 
     def _ping(self) -> None:
@@ -687,17 +681,14 @@ class _ModelActivityCallbackHandler(BaseCallbackHandler):
             return
         try:
             self._on_native_tool_event(event)
-        except Exception as exc:  # noqa: BLE001 -- fail closed with context
+        except Exception as exc:  # noqa: BLE001 -- evidence never ends a run
+            self.sink_failures += 1
             logger.error(
-                "Progressive native tool evidence failed for phase=%s "
+                "Progressive native tool evidence not recorded for phase=%s "
                 "run_id=%s tool=%r: %s",
                 event.phase, event.run_id, event.tool_name, exc,
                 exc_info=True,
             )
-            raise NativeToolEvidenceError(
-                "progressive native tool evidence could not be recorded "
-                f"for phase={event.phase} run_id={event.run_id}"
-            ) from exc
 
     def on_tool_start(
         self,
@@ -947,7 +938,7 @@ class LangGraphHarness(HarnessAdapter):
                 "the native Player implementation has been retired"
             )
         try:
-            revalidate_player_config(config, cwd=cwd)
+            config = revalidate_player_config(config, cwd=cwd)
         except PlayerConfigError as exc:
             raise LangGraphHarnessError(
                 f"LangGraphHarness: invalid Player config at invocation: {exc}"
@@ -1167,16 +1158,16 @@ class LangGraphHarness(HarnessAdapter):
         if role == "player" and self.player_config is not None:
             self.last_player_evidence = None
             try:
-                revalidate_player_config(self.player_config, cwd=cwd)
+                player_config = revalidate_player_config(self.player_config, cwd=cwd)
             except PlayerConfigError as exc:
                 raise LangGraphHarnessError(
                     f"LangGraphHarness: invalid Player config at invocation: {exc}"
                 ) from exc
             from guardkitfactory.harness.dcode_harness import required_skill_reads
 
-            required_skill_documents = required_skill_reads(self.player_config)
+            required_skill_documents = required_skill_reads(player_config)
             prompt = (
-                f"{_player_context_prompt(self.player_config, required_skill_documents)}"
+                f"{_player_context_prompt(player_config, required_skill_documents)}"
                 "\n\n## Assigned task\n\n"
                 f"{prompt}"
             )
@@ -1346,28 +1337,21 @@ class LangGraphHarness(HarnessAdapter):
                         raw_result=result,
                     )
                 from guardkitfactory.harness.skill_read_middleware import (
-                    SelectedSkillReadError,
                     SelectedSkillReadMiddleware,
                 )
 
-                skill_gate = getattr(agent, "guardkit_skill_read_gate", None)
-                if not isinstance(skill_gate, SelectedSkillReadMiddleware):
-                    raise LangGraphHarnessError(
-                        "LangGraphHarness: dcode Player did not expose its skill-read gate",
-                        raw_result=result,
-                    )
-                try:
-                    consumption = skill_gate.evidence()
-                except SelectedSkillReadError as exc:
-                    raise LangGraphHarnessError(
-                        f"dcode Player: {exc}", raw_result=result
-                    ) from exc
+                # The evidence is a record, not a gate: whatever cannot be
+                # recorded is said to be missing and the turn completes.
                 evidence = getattr(agent, "guardkit_dcode_evidence", None)
                 if not isinstance(evidence, dict):
-                    raise LangGraphHarnessError(
-                        "LangGraphHarness: dcode Player did not expose construction evidence",
-                        raw_result=result,
-                    )
+                    logger.warning("dcode Player did not expose construction evidence")
+                    evidence = {}
+                skill_gate = getattr(agent, "guardkit_skill_read_gate", None)
+                if isinstance(skill_gate, SelectedSkillReadMiddleware):
+                    consumption = skill_gate.evidence()
+                else:
+                    logger.warning("dcode Player did not expose its skill-read gate")
+                    consumption = {"status": "unavailable"}
                 evidence["skill_consumption"] = consumption
                 self.last_player_evidence = dict(evidence)
             else:

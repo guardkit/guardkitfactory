@@ -154,6 +154,25 @@ def test_revalidation_refuses_changed_source_and_worktree(tmp_path: Path) -> Non
         revalidate_player_config(config, cwd=root)
 
 
+def test_revalidation_returns_the_rebuilt_config_when_a_source_moved(
+    tmp_path: Path,
+) -> None:
+    root, profile = _worktree(tmp_path)
+    docs = root / "docs"
+    (docs / "a.md").write_text("first\n")
+    (docs / "b.md").write_text("second\n")
+    config = build_player_config(
+        cwd=root, dcode_home=profile, required_documents=["docs/a.md"]
+    )
+    (docs / "a.md").unlink()
+    (docs / "a.md").symlink_to("b.md")
+
+    rebuilt = revalidate_player_config(config, cwd=root)
+
+    assert rebuilt != config
+    assert rebuilt.required_documents == ((docs / "b.md").resolve(),)
+
+
 def test_declared_documents_are_canonical_and_revalidated(tmp_path: Path) -> None:
     """The positive control: a declared document is accepted and revalidated."""
 
