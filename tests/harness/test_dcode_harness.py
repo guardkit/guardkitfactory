@@ -368,6 +368,78 @@ def test_a_player_without_a_gate_or_evidence_still_completes_the_turn(
     }
 
 
+def test_owner_approved_change_to_a_protected_file_survives_the_harness(
+    tmp_path: Path,
+) -> None:
+    """Replay of the E134 shape: an approved change to a declared-protected file.
+
+    The approved amendment is applied by the orchestrator before the Player
+    starts, outside the Player's tools. The Player can read the approved bytes
+    and write elsewhere, and every later write or edit of that file is refused
+    with the new wording, on the sync and the async paths.
+    """
+
+    from guardkitfactory.harness.backend_config import build_autobuild_backend
+
+    repo = _scaffold(tmp_path)
+    stack = repo / "docs" / "product" / "stack.md"
+    stack.parent.mkdir(parents=True)
+    stack.write_text("# Stack\n\n- dependency-a 1.0\n")
+    # The approved amendment, applied before the Player and not by its tools.
+    approved = "# Stack\n\n- dependency-a 2.0\n- dependency-b 1.4\n"
+    stack.write_text(approved)
+
+    selected = build_player_config(
+        cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+        protected_paths=["docs/product/stack.md"],
+    )
+    backend = build_autobuild_backend(repo, protected_paths=["docs/product/stack.md"])
+    notes = repo / "docs" / "product" / "notes.md"
+    exchange = Exchange(
+        [
+            *selected_skill_calls(repo),
+            ("read_file", {"file_path": str(stack), "limit": 100}),
+            ("write_file", {"file_path": str(notes), "content": "builder notes\n"}),
+            ("write_file", {"file_path": str(stack), "content": "# Stack\n"}),
+            (
+                "edit_file",
+                {
+                    "file_path": str(stack),
+                    "old_string": "dependency-a 2.0",
+                    "new_string": "dependency-a 1.0",
+                },
+            ),
+        ],
+        final_text="the stack document needs another change; it is protected",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=backend, player_config=selected)
+    try:
+        events = asyncio.run(_collect(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    [read] = tool_results(exchange, "call-2")
+    assert "dependency-b 1.4" in read
+    assert notes.read_text() == "builder notes\n"
+    protected = "This file is protected. Do not retry or work around it."
+    [refused_write] = tool_results(exchange, "call-4")
+    [refused_edit] = tool_results(exchange, "call-5")
+    assert protected in refused_write and protected in refused_edit
+    assert stack.read_text() == approved
+
+    assert protected in backend.write(str(stack), "x\n").error
+    assert protected in backend.edit(str(stack), "2.0", "1.0").error
+    assert protected in asyncio.run(backend.awrite(str(stack), "x\n")).error
+    assert protected in asyncio.run(backend.aedit(str(stack), "2.0", "1.0")).error
+    assert stack.read_text() == approved
+
+
 def test_a_partial_read_of_a_required_skill_counts_and_is_recorded(
     tmp_path: Path,
 ) -> None:
