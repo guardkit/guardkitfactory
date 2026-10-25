@@ -368,15 +368,17 @@ def test_a_player_without_a_gate_or_evidence_still_completes_the_turn(
     }
 
 
-def test_owner_approved_change_to_a_protected_file_survives_the_harness(
+def test_protected_file_is_readable_but_refused_for_writes_in_a_full_turn(
     tmp_path: Path,
 ) -> None:
-    """Replay of the E134 shape: an approved change to a declared-protected file.
+    """A full Player turn over a declared-protected file whose content was set up
+    beforehand.
 
-    The approved amendment is applied by the orchestrator before the Player
-    starts, outside the Player's tools. The Player can read the approved bytes
-    and write elsewhere, and every later write or edit of that file is refused
-    with the new wording, on the sync and the async paths.
+    The test writes the file's bytes itself; it does not run any approval or
+    amendment path (that belongs to Forge's tests). It shows that the Player
+    can read the file and write elsewhere, that its write and edit of the
+    protected file are refused with the new wording, and that the sync and
+    async backend paths refuse too, leaving the bytes unchanged.
     """
 
     from guardkitfactory.harness.backend_config import build_autobuild_backend
@@ -384,10 +386,8 @@ def test_owner_approved_change_to_a_protected_file_survives_the_harness(
     repo = _scaffold(tmp_path)
     stack = repo / "docs" / "product" / "stack.md"
     stack.parent.mkdir(parents=True)
-    stack.write_text("# Stack\n\n- dependency-a 1.0\n")
-    # The approved amendment, applied before the Player and not by its tools.
-    approved = "# Stack\n\n- dependency-a 2.0\n- dependency-b 1.4\n"
-    stack.write_text(approved)
+    original = "# Stack\n\n- dependency-a 2.0\n- dependency-b 1.4\n"
+    stack.write_text(original)
 
     selected = build_player_config(
         cwd=repo,
@@ -431,13 +431,13 @@ def test_owner_approved_change_to_a_protected_file_survives_the_harness(
     [refused_write] = tool_results(exchange, "call-4")
     [refused_edit] = tool_results(exchange, "call-5")
     assert protected in refused_write and protected in refused_edit
-    assert stack.read_text() == approved
+    assert stack.read_text() == original
 
     assert protected in backend.write(str(stack), "x\n").error
     assert protected in backend.edit(str(stack), "2.0", "1.0").error
     assert protected in asyncio.run(backend.awrite(str(stack), "x\n")).error
     assert protected in asyncio.run(backend.aedit(str(stack), "2.0", "1.0")).error
-    assert stack.read_text() == approved
+    assert stack.read_text() == original
 
 
 def test_a_partial_read_of_a_required_skill_counts_and_is_recorded(
