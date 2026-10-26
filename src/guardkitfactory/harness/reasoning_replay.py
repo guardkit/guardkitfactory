@@ -15,16 +15,16 @@ Only the Player uses this class. The coach and the other roles keep plain
 ``ChatOpenAI``: the coach's verdict parser falls back to reasoning text, so
 giving it reasoning would change its behaviour.
 
-The overrides wrap three private ``ChatOpenAI`` methods. Their names and
-parameters are checked when this module is imported, and the request/response
-behaviour is covered by tests that run the real library code, so a
-langchain-openai upgrade that changes either shape fails loudly instead of
-silently dropping the replay.
+The overrides wrap three private ``ChatOpenAI`` methods of the pinned
+langchain-openai version (``pyproject.toml``); tests run the real library
+code. A reply or request whose messages cannot be paired is sent without the
+earlier thinking, with a warning (26 October 2026, step 2): the replay is a
+speed-up, never a reason to fail a turn.
 """
 
 from __future__ import annotations
 
-import inspect
+import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -37,41 +37,7 @@ REASONING_KEY = "reasoning_content"
 # LiteLLM returns ``reasoning_content``; vLLM reached directly returns ``reasoning``.
 _RESPONSE_KEYS = ("reasoning_content", "reasoning")
 
-# The private parent methods this module wraps, with the parameters it relies on.
-_EXPECTED_PARENT_SHAPES: dict[str, tuple[str, ...]] = {
-    "_create_chat_result": ("self", "response", "generation_info"),
-    "_get_request_payload": ("self", "input_", "stop", "kwargs"),
-    "_convert_chunk_to_generation_chunk": (
-        "self",
-        "chunk",
-        "default_chunk_class",
-        "base_generation_info",
-    ),
-}
-
-
-class ReasoningReplayShapeError(RuntimeError):
-    """The installed langchain-openai no longer matches what the replay wraps."""
-
-
-def _check_parent_shapes() -> None:
-    for name, expected in _EXPECTED_PARENT_SHAPES.items():
-        method = getattr(ChatOpenAI, name, None)
-        if method is None or not callable(method):
-            raise ReasoningReplayShapeError(
-                f"langchain_openai ChatOpenAI.{name} is missing; the Player's "
-                "reasoning replay must be updated for this library version"
-            )
-        actual = tuple(inspect.signature(method).parameters)
-        if actual != expected:
-            raise ReasoningReplayShapeError(
-                f"langchain_openai ChatOpenAI.{name} parameters changed from "
-                f"{expected} to {actual}; the Player's reasoning replay must be "
-                "updated for this library version"
-            )
-
-
-_check_parent_shapes()
+logger = logging.getLogger(__name__)
 
 
 def _reasoning_text(source: Any) -> str | None:
@@ -112,10 +78,13 @@ class ReasoningReplayChatOpenAI(ChatOpenAI):  # type: ignore[override]
         result = super()._create_chat_result(response, generation_info)
         raw_messages = _response_messages(response)
         if len(raw_messages) != len(result.generations):
-            raise ReasoningReplayShapeError(
-                f"reply has {len(raw_messages)} choices but langchain-openai "
-                f"built {len(result.generations)} generations"
+            logger.warning(
+                "reply has %d choices but langchain-openai built %d generations; "
+                "its thinking is not kept",
+                len(raw_messages),
+                len(result.generations),
             )
+            return result
         for generation, raw in zip(result.generations, raw_messages, strict=True):
             text = _reasoning_text(raw)
             if text is not None and isinstance(generation.message, AIMessage):
@@ -137,10 +106,13 @@ class ReasoningReplayChatOpenAI(ChatOpenAI):  # type: ignore[override]
             return payload
         messages: Sequence[BaseMessage] = self._convert_input(input_).to_messages()
         if len(entries) != len(messages):
-            raise ReasoningReplayShapeError(
-                f"langchain-openai built {len(entries)} request messages from "
-                f"{len(messages)} input messages; cannot pair earlier thinking"
+            logger.warning(
+                "langchain-openai built %d request messages from %d input messages; "
+                "earlier thinking is not sent back",
+                len(entries),
+                len(messages),
             )
+            return payload
         for entry, message in zip(entries, messages, strict=True):
             if not isinstance(message, AIMessage) or entry.get("role") != "assistant":
                 continue

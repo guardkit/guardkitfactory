@@ -475,16 +475,19 @@ def test_existing_open_artifact_folders_are_made_owner_only(tmp_path: Path) -> N
     assert (private.stat().st_mode & 0o777) == 0o700
 
 
-def test_an_artifact_folder_owned_by_another_user_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_an_artifact_folder_owned_by_another_user_is_logged_and_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    # 26 October 2026 (step 2, census GKF-014): advice, not a refusal.
     worktree = _git_checkout(tmp_path / "wt")
     private = worktree / ".git" / "guardkit-scratch" / "model-artifacts"
     private.mkdir(parents=True)
     real_uid = os.geteuid()
     monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
-    with pytest.raises(ValueError, match="another user"):
-        build_autobuild_backend(worktree)
+    with caplog.at_level("WARNING"):
+        backend = build_autobuild_backend(worktree)
+    assert backend.artifacts_root == str(private.resolve())
+    assert "belongs to another user" in caplog.text
 
 
 def test_concurrent_backends_for_one_new_worktree_share_one_folder(
@@ -1432,9 +1435,12 @@ class TestDeclaredPathProtection:
         assert all(error is not None and expected in error for error in errors)
         assert approved.read_bytes() == b"approved bytes\n"
 
-    def test_declared_directory_protects_existing_and_new_descendants(
+    def test_declared_directory_protects_existing_descendants_only(
         self, tmp_path: Path
     ) -> None:
+        # 26 October 2026 (step 2, re-run feature 5): the plan needed a new
+        # design-decision file in a protected folder. A new file is created;
+        # the existing ones stay protected.
         worktree = _make_worktree(tmp_path)
         evidence_dir = worktree / "verification" / "oracles"
         evidence_dir.mkdir(parents=True)
@@ -1446,10 +1452,45 @@ class TestDeclaredPathProtection:
 
         new_file = evidence_dir / "new.snap"
         assert backend.write(str(existing), "weakened\n").error is not None
-        assert backend.write(str(new_file), "new\n").error is not None
+        assert backend.edit(str(existing), "independent", "weakened").error is not None
+        assert backend.write(str(new_file), "new\n").error is None
+        assert backend.edit(str(new_file), "new", "revised").error is None
         assert backend.delete(str(evidence_dir)).error is not None
         assert existing.read_text() == "independent\n"
+        assert new_file.read_text() == "revised\n"
+        assert backend.delete(str(new_file)).error is None
         assert not new_file.exists()
+
+    def test_a_new_file_in_a_protected_folder_is_written_sync_and_async(
+        self, tmp_path: Path
+    ) -> None:
+        import asyncio
+
+        worktree = _make_worktree(tmp_path)
+        decisions = worktree / "docs" / "design" / "decisions"
+        decisions.mkdir(parents=True)
+        existing = decisions / "DDR-001-existing.md"
+        existing.write_text("# DDR-001\n")
+        backend = build_autobuild_backend(
+            worktree, protected_paths=["docs/design/decisions"]
+        )
+        sync_file = decisions / "DDR-111-sync.md"
+        async_file = decisions / "DDR-112-async.md"
+
+        assert backend.write(str(sync_file), "# DDR-111\n").error is None
+        assert asyncio.run(backend.awrite(str(async_file), "# DDR-112\n")).error is None
+        assert asyncio.run(backend.aedit(str(async_file), "112", "112 revised")).error is None
+        refused = [
+            backend.write(str(existing), "x\n").error,
+            asyncio.run(backend.awrite(str(existing), "x\n")).error,
+            asyncio.run(backend.aedit(str(existing), "001", "999")).error,
+            asyncio.run(backend.adelete(str(existing))).error,
+        ]
+
+        assert sync_file.read_text() == "# DDR-111\n"
+        assert async_file.read_text() == "# DDR-112 revised\n"
+        assert all(error is not None and "This file is protected" in error for error in refused)
+        assert existing.read_text() == "# DDR-001\n"
 
     def test_symlinked_declared_directory_is_protected_by_alias_and_target(
         self, tmp_path: Path
@@ -1485,17 +1526,29 @@ class TestDeclaredPathProtection:
         assert result.error is None
         assert arbitrary.read_text() == "after\n"
 
-    def test_missing_or_escaping_declaration_fails_construction(
-        self, tmp_path: Path
+    def test_missing_or_escaping_declaration_is_skipped_with_a_note(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
+        import logging
+
         worktree = _make_worktree(tmp_path)
         outside = tmp_path / "outside"
         outside.mkdir()
+        kept = worktree / "checks" / "kept.txt"
+        kept.parent.mkdir(parents=True)
+        kept.write_text("kept\n")
 
-        with pytest.raises(ValueError, match="does not exist"):
-            build_autobuild_backend(worktree, protected_paths=["missing"])
-        with pytest.raises(ValueError, match="escapes the worktree"):
-            build_autobuild_backend(worktree, protected_paths=[outside])
+        with caplog.at_level(logging.INFO):
+            backend = build_autobuild_backend(
+                worktree, protected_paths=["missing", outside, "checks/kept.txt"]
+            )
+
+        assert "missing does not exist; it protects nothing" in caplog.text
+        assert "is outside the worktree; skipped" in caplog.text
+        # The path that exists is still protected; the missing one can be made.
+        assert backend.write(str(kept), "changed\n").error is not None
+        assert backend.write(str(worktree / "missing"), "made\n").error is None
+        assert (worktree / "missing").read_text() == "made\n"
 
 
 class TestLaunchEnvironment:
@@ -1586,55 +1639,66 @@ class TestLaunchEnvironment:
 
         assert backend.default._env["PYTHONNOUSERSITE"] == "1"
 
-    def test_declared_scratch_without_a_scratch_folder_fails(
-        self, tmp_path: Path
+    def test_declared_scratch_without_a_scratch_folder_is_not_set(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
+        # 26 October 2026 (step 2, census GKF-023): logged; the tool's cache
+        # follows the shell's private HOME, outside the project.
         worktree = _make_worktree(tmp_path)
 
-        with pytest.raises(ValueError, match="no scratch folder"):
-            build_autobuild_backend(
+        with caplog.at_level("WARNING"):
+            backend = build_autobuild_backend(
                 worktree, launch_environment={"scratch": ["TOOL_CACHE"]}
             )
+        assert "TOOL_CACHE" not in backend.default._env
+        assert "this shell has no scratch folder" in caplog.text
         assert list(worktree.iterdir()) == []
 
-    def test_declared_scratch_with_a_refused_scratch_folder_fails(
+    def test_declared_scratch_with_a_refused_scratch_folder_is_not_set(
         self, tmp_path: Path
     ) -> None:
         worktree = _make_worktree(tmp_path)
         inside = worktree / "src"
         inside.mkdir()
 
-        with pytest.raises(ValueError, match="inside the project"):
-            build_autobuild_backend(
-                worktree,
-                scratch_root=inside / "guardkit-scratch",
-                launch_environment={"scratch": ["TOOL_CACHE"]},
-            )
+        backend = build_autobuild_backend(
+            worktree,
+            scratch_root=inside / "guardkit-scratch",
+            launch_environment={"scratch": ["TOOL_CACHE"]},
+        )
+        assert "TOOL_CACHE" not in backend.default._env
         assert not (inside / "guardkit-scratch").exists()
 
-    def test_malformed_names_fail(self, tmp_path: Path) -> None:
+    def test_malformed_names_are_logged_and_left_out(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # 26 October 2026 (step 2, census GKF-017 to GKF-019).
         worktree = _make_worktree(tmp_path)
         scratch = self._scratch(tmp_path)
+        monkeypatch.setenv("GOOD_SETTING", "kept")
 
-        with pytest.raises(ValueError, match="is not a variable name"):
-            build_autobuild_backend(
-                worktree, launch_environment={"settings": ["1BAD"]}
-            )
-        with pytest.raises(ValueError, match="unknown keys"):
-            build_autobuild_backend(
-                worktree, launch_environment={"pass_through": ["X"]}
-            )
-        with pytest.raises(ValueError, match="set by the backend itself"):
-            build_autobuild_backend(
+        with caplog.at_level("WARNING"):
+            backend = build_autobuild_backend(
                 worktree,
                 scratch_root=scratch,
-                launch_environment={"scratch": ["PYTHONNOUSERSITE"]},
+                launch_environment={
+                    "settings": ["1BAD", "X" * 129, "GOOD_SETTING"],
+                    "pass_through": ["X"],
+                    "scratch": ["PYTHONNOUSERSITE"],
+                },
             )
+        env = backend.default._env
+        assert env["GOOD_SETTING"] == "kept"
+        assert "1BAD" not in env and "X" * 129 not in env
+        assert env["PYTHONNOUSERSITE"] == "1"
+        assert "is not a variable name" in caplog.text
+        assert "keys ignored" in caplog.text
+        assert "set by the backend itself" in caplog.text
 
     @pytest.mark.parametrize(
         "name",
         ["PATH", "SSH_AUTH_SOCK", "GUARDKIT_X", "forge_x", "OPENAI_API_BASE",
-         "REGISTRY_TOKEN", "db_password", "X" * 129],
+         "REGISTRY_TOKEN", "db_password"],
     )
     def test_reserved_and_credential_shaped_names_fail(
         self, tmp_path: Path, name: str
@@ -1650,26 +1714,31 @@ class TestLaunchEnvironment:
                     launch_environment={key: [name]},
                 )
 
-    def test_a_name_with_a_trailing_newline_fails(self, tmp_path: Path) -> None:
+    def test_a_name_with_a_trailing_newline_is_left_out(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)
 
-        with pytest.raises(ValueError, match="is not a variable name"):
-            build_autobuild_backend(
-                worktree, launch_environment={"settings": ["GOCACHE\n"]}
-            )
+        backend = build_autobuild_backend(
+            worktree, launch_environment={"settings": ["GOCACHE\n"]}
+        )
+        assert "GOCACHE\n" not in backend.default._env
 
     @pytest.mark.parametrize("raw", ["GOCACHE", {"GOCACHE": 1}, 3])
-    def test_names_that_are_not_a_list_fail(self, tmp_path: Path, raw) -> None:
+    def test_names_that_are_not_a_list_are_ignored(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, raw
+    ) -> None:
         worktree = _make_worktree(tmp_path)
         scratch = self._scratch(tmp_path)
 
         for key in ("settings", "scratch"):
-            with pytest.raises(ValueError, match="must be a list of names"):
-                build_autobuild_backend(
+            caplog.clear()
+            with caplog.at_level("WARNING"):
+                backend = build_autobuild_backend(
                     worktree,
                     scratch_root=scratch,
                     launch_environment={key: raw},
                 )
+            assert "GOCACHE" not in backend.default._env
+            assert "not a list of names; ignored" in caplog.text
 
     def test_launch_scratch_root_places_names_without_write_access(
         self, tmp_path: Path
@@ -1696,17 +1765,17 @@ class TestLaunchEnvironment:
         assert backend.execute('echo c > "$TOOL_CACHE/c"').exit_code == 0
         assert (folder / "c").read_text() == "c\n"
 
-    def test_launch_scratch_root_inside_the_project_fails(
+    def test_launch_scratch_root_inside_the_project_is_not_used(
         self, tmp_path: Path
     ) -> None:
         worktree = _make_worktree(tmp_path)
 
-        with pytest.raises(ValueError, match="inside the project"):
-            build_autobuild_backend(
-                worktree,
-                launch_environment={"scratch": ["TOOL_CACHE"]},
-                launch_scratch_root=worktree / "cache",
-            )
+        backend = build_autobuild_backend(
+            worktree,
+            launch_environment={"scratch": ["TOOL_CACHE"]},
+            launch_scratch_root=worktree / "cache",
+        )
+        assert "TOOL_CACHE" not in backend.default._env
         assert not (worktree / "cache").exists()
 
     def test_launch_scratch_root_alone_changes_nothing(self, tmp_path: Path) -> None:

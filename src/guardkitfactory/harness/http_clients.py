@@ -8,6 +8,7 @@ caller: the harness neither reconstructs them nor closes their transports.
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import re
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -24,10 +25,7 @@ FEATURE_ROUTING_ID_ENV = "GUARDKIT_FEATURE_ROUTING_ID"
 FEATURE_ROUTING_REQUIRED_ENV = "GUARDKIT_FEATURE_ROUTING_REQUIRED"
 FEATURE_ROUTING_HEADER = "x-feature-id"
 _FEATURE_ROUTING_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
-
-
-class FeatureRoutingError(ValueError):
-    """The per-child routing contract cannot produce a safe HTTP header."""
+logger = logging.getLogger(__name__)
 
 
 def resolve_feature_routing_headers(
@@ -35,19 +33,24 @@ def resolve_feature_routing_headers(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
-    """Copy headers and add the exact validated per-child routing value.
+    """Copy headers and add the per-child routing value when it is usable.
 
-    The source mappings are never mutated.  Header names are compared without
-    regard to case, and a caller-owned routing header may only be retained when
-    it is the single reserved header and exactly matches the environment.
+    The source mappings are never mutated. Header names are compared without
+    regard to case. Routing is bookkeeping (26 October 2026, step 2): a
+    required flag other than '0' or '1', a routing id that is not 1 to 256
+    ASCII letters, digits, '_' or '-', a missing id, and duplicate or
+    conflicting caller headers are logged, never a refusal. An unusable id
+    adds no header; the environment's usable id replaces any caller copy.
     """
     source: Mapping[str, str] = os.environ if environ is None else environ
     result = dict(headers or {})
 
     required_raw = source.get(FEATURE_ROUTING_REQUIRED_ENV)
     if required_raw not in (None, "0", "1"):
-        raise FeatureRoutingError(
-            f"{FEATURE_ROUTING_REQUIRED_ENV} must be exactly '0' or '1'"
+        logger.warning(
+            "%s is %r, not '0' or '1'; treated as not required",
+            FEATURE_ROUTING_REQUIRED_ENV,
+            required_raw,
         )
     required = required_raw == "1"
 
@@ -55,24 +58,31 @@ def resolve_feature_routing_headers(
     if routing_id is not None and (
         not isinstance(routing_id, str) or _FEATURE_ROUTING_ID_RE.fullmatch(routing_id) is None
     ):
-        raise FeatureRoutingError(
-            f"{FEATURE_ROUTING_ID_ENV} must match ASCII [A-Za-z0-9_-]{{1,256}}"
+        logger.warning(
+            "%s is not 1 to 256 ASCII letters, digits, '_' or '-'; no routing header is sent",
+            FEATURE_ROUTING_ID_ENV,
         )
+        routing_id = None
     if routing_id is None and required:
-        raise FeatureRoutingError(
-            f"{FEATURE_ROUTING_ID_ENV} is required when {FEATURE_ROUTING_REQUIRED_ENV}=1"
+        logger.warning(
+            "%s=1 but no usable %s; requests go without a routing header",
+            FEATURE_ROUTING_REQUIRED_ENV,
+            FEATURE_ROUTING_ID_ENV,
         )
 
     reserved = [name for name in result if name.lower() == FEATURE_ROUTING_HEADER]
-    if len(reserved) > 1:
-        raise FeatureRoutingError(f"duplicate {FEATURE_ROUTING_HEADER} headers are not allowed")
-    if reserved:
-        name = reserved[0]
-        if routing_id is None or result[name] != routing_id:
-            raise FeatureRoutingError(
-                f"caller-supplied {FEATURE_ROUTING_HEADER} conflicts with child routing"
-            )
-    elif routing_id is not None:
+    if len(reserved) > 1 or (
+        reserved and (routing_id is None or result[reserved[0]] != routing_id)
+    ):
+        logger.warning(
+            "caller-supplied %s header(s) %s differ from the child's routing; %s",
+            FEATURE_ROUTING_HEADER,
+            reserved,
+            "replaced" if routing_id is not None else "kept",
+        )
+    if routing_id is not None:
+        for name in reserved:
+            del result[name]
         result[FEATURE_ROUTING_HEADER] = routing_id
     return result
 

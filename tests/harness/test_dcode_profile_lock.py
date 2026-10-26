@@ -8,6 +8,10 @@ owner, to the directory's device and inode recorded when it made it) the
 factory makes the clean profile read-only right after the launch check passes,
 so such a write fails inside the command and the next turn launches.
 
+26 October 2026 (step 2, census GKF-035, GKF-036, GKF-077 and GKF-078): a
+profile holding more than the clean shape, one that cannot be locked, one that
+is not writable and a malformed lock identity are logged; the launch goes on.
+
 Real offline dcode graphs with fake provider HTTP, like ``test_dcode_harness``.
 """
 
@@ -25,7 +29,6 @@ from typing import Any
 import pytest
 from guardkit.orchestrator.harness import ResultMessageEvent
 
-from guardkitfactory.harness import PlayerConfigError, PlayerLaunchRefused
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness
 from guardkitfactory.harness.player_config import build_player_config
 
@@ -150,8 +153,8 @@ def test_turn_one_makes_the_skeleton_then_later_turns_launch_and_a_stray_write_f
     assert _modes(profile) == modes
 
 
-def test_a_profile_without_lock_profile_is_never_locked_and_keeps_todays_refusal(
-    tmp_path: Path, profile: Path
+def test_a_profile_without_lock_profile_is_never_locked_and_a_stray_file_is_advice(
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     """A supplied profile, or a new factory driven by an old GuardKit."""
 
@@ -163,8 +166,9 @@ def test_a_profile_without_lock_profile_is_never_locked_and_keeps_todays_refusal
 
     assert stray.read_text() == "out"
     assert all(_writable(profile / name) for name in ("", "guardkit-player"))
-    with pytest.raises(PlayerLaunchRefused, match="unexpected configuration or nonempty memory"):
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
         _turn(repo, config, [])
+    assert "full.log (file" in caplog.text
 
 
 @pytest.mark.parametrize("lock", [True, False])
@@ -190,10 +194,10 @@ def test_parallel_launches_in_threads_all_succeed_locked_or_not(
 
 
 @pytest.mark.parametrize("extra", ["file", "nested_file", "nonempty_memory", "link"])
-def test_a_locked_profile_with_any_extra_content_is_still_refused(
-    tmp_path: Path, profile: Path, extra: str
+def test_a_locked_profile_with_any_extra_content_is_named_and_the_turn_launches(
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture, extra: str
 ) -> None:
-    """The lock never hides content: only the exact clean shape is accepted."""
+    """The lock never hides content: anything beyond the clean shape is named."""
 
     repo = _scaffold(tmp_path)
     _turn(repo, _config(repo, profile, lock=True), [])
@@ -218,8 +222,9 @@ def test_a_locked_profile_with_any_extra_content_is_still_refused(
     parent.chmod(0o500)
     assert not _writable(profile)
 
-    with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
-        _config(repo, profile, lock=True)
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
+        _turn(repo, _config(repo, profile, lock=True), [])
+    assert str(target.relative_to(profile)) in caplog.text
 
 
 def _identity(path: Path) -> tuple[int, int]:
@@ -260,8 +265,8 @@ def test_a_root_that_is_not_the_owners_directory_is_not_locked_and_not_changed(
     assert any("not the directory its owner made" in m for m in messages)
 
 
-def test_an_agent_folder_replaced_by_a_link_is_refused_and_nothing_outside_changes(
-    tmp_path: Path, profile: Path
+def test_an_agent_folder_replaced_by_a_link_is_not_locked_and_nothing_outside_changes(
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
@@ -269,8 +274,9 @@ def test_an_agent_folder_replaced_by_a_link_is_refused_and_nothing_outside_chang
     (profile / "guardkit-player").symlink_to(outside / "guardkit-player", target_is_directory=True)
     root_before = _modes(profile)["."]
 
-    with pytest.raises(PlayerLaunchRefused, match="without following a link"):
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
         _lock_profile(profile, _identity(profile))
+    assert "without following a link" in caplog.text
     assert _modes(outside) == before
     assert _modes(profile)["."] == root_before
 
@@ -279,8 +285,8 @@ def test_an_agent_folder_replaced_by_a_link_is_refused_and_nothing_outside_chang
     "extra",
     ["root_file", "agent_file", "skills_file", "nonempty_memory", "memory_link", "skills_link"],
 )
-def test_the_lock_refuses_anything_beyond_the_clean_shape(
-    tmp_path: Path, profile: Path, extra: str
+def test_the_lock_leaves_anything_beyond_the_clean_shape_unlocked(
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture, extra: str
 ) -> None:
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
@@ -302,8 +308,9 @@ def test_the_lock_refuses_anything_beyond_the_clean_shape(
         (agent / "skills").rmdir()
         (agent / "skills").symlink_to(outside / "guardkit-player" / "skills")
 
-    with pytest.raises(PlayerLaunchRefused, match="was not locked"):
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
         _lock_profile(profile, _identity(profile))
+    assert "run profile not locked" in caplog.text
     assert _modes(outside) == before
     assert _writable(profile)
 
@@ -381,9 +388,9 @@ def test_launches_racing_to_make_the_clean_entries_all_lock_cleanly(profile: Pat
 
 
 def test_creating_through_the_folder_cannot_be_redirected(
-    tmp_path: Path, profile: Path
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """guardkit-player swapped for a link before the create: refused, outside unchanged."""
+    """guardkit-player swapped for a link before the create: not locked, outside unchanged."""
     from guardkitfactory.harness.dcode_harness import _lock_profile
 
     outside = tmp_path / "outside-agent"
@@ -391,8 +398,9 @@ def test_creating_through_the_folder_cannot_be_redirected(
     before = _modes(outside)
     (profile / "guardkit-player").symlink_to(outside, target_is_directory=True)
 
-    with pytest.raises(PlayerLaunchRefused, match="without following a link"):
+    with caplog.at_level("WARNING", logger="guardkitfactory.harness.dcode_harness"):
         _lock_profile(profile, _identity(profile))
+    assert "without following a link" in caplog.text
     assert _modes(outside) == before and not any(outside.iterdir())
     assert _writable(profile)
 
@@ -524,16 +532,15 @@ def test_concurrent_first_use_of_a_fresh_profile_all_launch_and_lock_once(
     _turn(repos[0], _config(repos[0], profile, lock=True), [])
 
 
-def test_non_writable_profile_without_the_owner_setting_is_refused_as_today(
-    tmp_path: Path, profile: Path
+def test_a_non_writable_profile_and_a_bad_lock_identity_are_advice(
+    tmp_path: Path, profile: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()
     profile.chmod(0o500)
-    with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
-        build_player_config(cwd=repo, dcode_home=profile)
-    with pytest.raises(PlayerConfigError, match="dcode_home is not writable"):
-        build_player_config(cwd=repo, dcode_home=profile, lock_profile_identity=(1, 2))
+    with caplog.at_level("INFO", logger="guardkitfactory.harness.player_config"):
+        assert build_player_config(cwd=repo, dcode_home=profile).dcode_home == profile
+    assert "is not writable" in caplog.text
     recorded = _identity(profile)
     assert (
         build_player_config(
@@ -542,7 +549,9 @@ def test_non_writable_profile_without_the_owner_setting_is_refused_as_today(
         == recorded
     )
     for bad in (True, (1,), (1, "2"), (True, 1), [1, 2]):
-        with pytest.raises(PlayerConfigError, match="lock_profile_identity must be"):
+        assert (
             build_player_config(
                 cwd=repo, dcode_home=profile, lock_profile_identity=bad  # type: ignore[arg-type]
-            )
+            ).lock_profile_identity
+            is None
+        )

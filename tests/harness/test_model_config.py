@@ -512,26 +512,25 @@ def test_player_streaming_keeps_thinking() -> None:
     assert message.additional_kwargs["reasoning_content"] == "think harder"
 
 
-def test_reasoning_replay_refuses_a_changed_parent_shape(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A langchain-openai upgrade that reshapes a wrapped method fails loudly."""
+def test_reasoning_replay_that_cannot_pair_is_advice(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """26 October 2026 (step 2, census GKF-128): a reply or request that cannot
+    be paired goes without the earlier thinking, with a warning."""
+    from langchain_core.messages import HumanMessage
+
     from guardkitfactory.harness import reasoning_replay
 
-    reasoning_replay._check_parent_shapes()  # the installed version matches
-
-    class Reshaped:
-        def _create_chat_result(self, response, generation_info=None, extra=None): ...
-
-        def _get_request_payload(self, input_, *, stop=None, **kwargs): ...
-
-        def _convert_chunk_to_generation_chunk(
-            self, chunk, default_chunk_class, base_generation_info
-        ): ...
-
-    monkeypatch.setattr(reasoning_replay, "ChatOpenAI", Reshaped)
-    with pytest.raises(reasoning_replay.ReasoningReplayShapeError, match="_create_chat_result"):
-        reasoning_replay._check_parent_shapes()
-
-    del Reshaped._get_request_payload
-    Reshaped._create_chat_result = lambda self, response, generation_info=None: None
-    with pytest.raises(reasoning_replay.ReasoningReplayShapeError, match="missing"):
-        reasoning_replay._check_parent_shapes()
+    server = _Server(_reply(content="done", reasoning={"reasoning_content": "think"}))
+    model, sync_client, async_client = _local_model(
+        reasoning_replay.ReasoningReplayChatOpenAI, server, temperature=0
+    )
+    monkeypatch.setattr(reasoning_replay, "_response_messages", lambda _response: [])
+    try:
+        with caplog.at_level("WARNING", logger=reasoning_replay.__name__):
+            reply = model.invoke([HumanMessage("say done")])
+    finally:
+        _close(sync_client, async_client)
+    assert reply.content == "done"
+    assert "reasoning_content" not in reply.additional_kwargs
+    assert "its thinking is not kept" in caplog.text

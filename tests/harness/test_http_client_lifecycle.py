@@ -30,7 +30,6 @@ from guardkitfactory.harness.http_clients import (
     FEATURE_ROUTING_HEADER,
     FEATURE_ROUTING_ID_ENV,
     FEATURE_ROUTING_REQUIRED_ENV,
-    FeatureRoutingError,
     create_chat_openai,
     resolve_feature_routing_headers,
     with_invocation_clients,
@@ -250,37 +249,41 @@ def test_external_construction_branch_transmits_feature_header(
 
 
 @pytest.mark.parametrize("synthesis", [False, True])
-def test_missing_required_feature_route_refuses_before_http(
-    server, owned, monkeypatch, tmp_path, synthesis,
+def test_missing_required_feature_route_is_advice_and_the_request_goes(
+    server, owned, monkeypatch, tmp_path, caplog, synthesis,
 ):
+    # 26 October 2026 (step 2, census GKF-055): routing is bookkeeping.
     monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     monkeypatch.delenv(FEATURE_ROUTING_ID_ENV, raising=False)
-    with pytest.raises((FeatureRoutingError, LangGraphHarnessError)):
-        asyncio.run(
-            collect(
-                LangGraphHarness("openai:coach"),
-                tmp_path,
-                synthesis=synthesis,
-            )
+    with caplog.at_level("WARNING", logger=http_clients.__name__):
+        events = asyncio.run(
+            collect(LangGraphHarness("openai:coach"), tmp_path, synthesis=synthesis)
         )
-    assert server.requests == []
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    assert len(server.requests) == 1
+    headers = {name.lower() for name in server.requests[0][3]}
+    assert FEATURE_ROUTING_HEADER not in headers
+    assert "no usable" in caplog.text
     assert all(client.is_closed for client in owned)
 
 
-@pytest.mark.parametrize("model", ["anthropic:coach", "openai:", "openai", object()])
-@pytest.mark.parametrize("synthesis", [False, True])
-def test_required_feature_route_refuses_unsupported_model_before_http(
-    server, monkeypatch, tmp_path, model, synthesis,
+@pytest.mark.parametrize("model", ["anthropic:coach", "openai:", "openai"])
+def test_routing_with_a_model_that_cannot_carry_the_header_is_advice(
+    monkeypatch, caplog, model,
 ):
+    # 26 October 2026 (step 2, census GKF-060): logged, not refused.
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-C")
     monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
-    with pytest.raises(LangGraphHarnessError, match="feature routing requires"):
-        asyncio.run(collect(LangGraphHarness(model), tmp_path, synthesis=synthesis))
-    assert server.requests == []
+    with caplog.at_level("WARNING", logger=harness_module.__name__):
+        try:
+            LangGraphHarness(model)._resolve_model_for_invoke("coach")
+        except LangGraphHarnessError:
+            pass  # "openai:" names no model to build (a separate, kept error)
+    assert "will not carry the routing header" in caplog.text
 
 
-def test_required_feature_route_refuses_caller_owned_prebuilt_model(
-    server, owned, monkeypatch, tmp_path,
+def test_routing_with_a_caller_owned_prebuilt_model_is_advice(
+    server, owned, monkeypatch, tmp_path, caplog,
 ):
     sync_client = httpx.Client(timeout=None)
     async_client = httpx.AsyncClient(timeout=None)
@@ -293,11 +296,10 @@ def test_required_feature_route_refuses_caller_owned_prebuilt_model(
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-D")
     monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     try:
-        for synthesis in (False, True):
-            with pytest.raises(LangGraphHarnessError, match="caller-owned prebuilt"):
-                asyncio.run(
-                    collect(LangGraphHarness(model), tmp_path, synthesis=synthesis)
-                )
+        with caplog.at_level("WARNING", logger=harness_module.__name__):
+            LangGraphHarness(model)._resolve_model_for_invoke("coach")
+            LangGraphHarness(model)._build_synthesis_model(grammar=None, role="coach")
+        assert caplog.text.count("will not carry the routing header") == 2
         assert not async_client.is_closed
         assert not sync_client.is_closed
         assert not owned
@@ -307,15 +309,13 @@ def test_required_feature_route_refuses_caller_owned_prebuilt_model(
         sync_client.close()
 
 
-def test_conflicting_caller_header_refuses_without_mutation(monkeypatch):
+def test_a_conflicting_caller_header_is_replaced_without_mutation(monkeypatch):
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-E")
     original = {"X-Trace": "trace", "X-Feature-ID": "other"}
-    with pytest.raises(FeatureRoutingError, match="conflicts"):
-        create_chat_openai(
-            model="workhorse",
-            use_responses_api=False,
-            default_headers=original,
-        )
+    assert resolve_feature_routing_headers(original) == {
+        "X-Trace": "trace",
+        FEATURE_ROUTING_HEADER: "feature_route-E",
+    }
     assert original == {"X-Trace": "trace", "X-Feature-ID": "other"}
 
 
@@ -323,9 +323,8 @@ def test_conflicting_caller_header_refuses_without_mutation(monkeypatch):
     "routing_id",
     ["", " padded", "dotted.id", "unicode-\N{SNOWMAN}", "a" * 257],
 )
-def test_invalid_feature_route_is_never_coerced(routing_id):
-    with pytest.raises(FeatureRoutingError):
-        resolve_feature_routing_headers(environ={FEATURE_ROUTING_ID_ENV: routing_id})
+def test_an_invalid_feature_route_is_never_coerced_or_sent(routing_id):
+    assert resolve_feature_routing_headers(environ={FEATURE_ROUTING_ID_ENV: routing_id}) == {}
 
 
 def test_feature_route_accepts_256_ascii_bytes_and_preserves_caller_headers():
@@ -342,11 +341,12 @@ def test_feature_route_accepts_256_ascii_bytes_and_preserves_caller_headers():
 
 
 @pytest.mark.parametrize("required", ["", "true", " 1", "2"])
-def test_required_feature_route_setting_is_exact(required):
-    with pytest.raises(FeatureRoutingError):
-        resolve_feature_routing_headers(
+def test_an_inexact_required_setting_is_treated_as_not_required(required, caplog):
+    with caplog.at_level("WARNING", logger=http_clients.__name__):
+        assert resolve_feature_routing_headers(
             environ={FEATURE_ROUTING_REQUIRED_ENV: required}
-        )
+        ) == {}
+    assert "treated as not required" in caplog.text
 
 
 def test_header_resolution_is_isolated_across_concurrent_child_contexts():

@@ -440,6 +440,71 @@ def test_protected_file_is_readable_but_refused_for_writes_in_a_full_turn(
     assert stack.read_text() == original
 
 
+def test_a_new_file_in_a_protected_folder_is_written_in_a_full_turn(
+    tmp_path: Path,
+) -> None:
+    """26 October 2026 (step 2; re-run feature 5, census GKF-109 and GKF-072).
+
+    The plan needed a new design-decision record in a protected folder. In a
+    full Player turn the new record is written and then edited, the existing
+    record in the same folder is still refused, and a declared protected path
+    that does not exist yet is skipped instead of refusing the Player. The
+    sync and async backend routes agree.
+    """
+
+    from guardkitfactory.harness.backend_config import build_autobuild_backend
+
+    repo = _scaffold(tmp_path)
+    decisions = repo / "docs" / "design" / "decisions"
+    decisions.mkdir(parents=True)
+    existing = decisions / "DDR-001-existing.md"
+    existing.write_text("# DDR-001\n\nDecided.\n")
+    declared = ["docs/design/decisions", "docs/design/not-yet"]
+
+    selected = build_player_config(
+        cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+        protected_paths=declared,
+    )
+    assert selected.protected_paths == (decisions.resolve(),)
+    backend = build_autobuild_backend(repo, protected_paths=declared)
+    record = decisions / "DDR-111-validation-errors.md"
+    exchange = Exchange(
+        [
+            *selected_skill_calls(repo),
+            ("write_file", {"file_path": str(record), "content": "# DDR-111\n\nDraft.\n"}),
+            (
+                "edit_file",
+                {"file_path": str(record), "old_string": "Draft.", "new_string": "Accepted."},
+            ),
+            ("write_file", {"file_path": str(existing), "content": "# replaced\n"}),
+        ],
+        final_text="the design-decision record is written",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=backend, player_config=selected)
+    try:
+        events = asyncio.run(_collect(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    assert record.read_text() == "# DDR-111\n\nAccepted.\n"
+    protected = "This file is protected. Do not retry or work around it."
+    [refused] = tool_results(exchange, "call-4")
+    assert protected in refused
+    assert existing.read_text() == "# DDR-001\n\nDecided.\n"
+
+    other = decisions / "DDR-112-async.md"
+    assert asyncio.run(backend.awrite(str(other), "# DDR-112\n")).error is None
+    assert protected in asyncio.run(backend.aedit(str(existing), "Decided", "x")).error
+    assert protected in backend.edit(str(existing), "Decided", "x").error
+    assert other.read_text() == "# DDR-112\n"
+
+
 def test_a_partial_read_of_a_required_skill_counts_and_is_recorded(
     tmp_path: Path,
 ) -> None:
@@ -698,24 +763,31 @@ def test_selected_skill_complete_read_normalizes_crlf(tmp_path: Path) -> None:
         _close_clients(sync, async_)
 
 
-def test_selected_skill_non_utf8_fails_before_model(tmp_path: Path) -> None:
+def test_selected_skill_non_utf8_is_advice_and_the_turn_runs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    # 26 October 2026 (step 2, census GKF-028).
     repo = _scaffold(tmp_path)
     (repo / "skills/planning/SKILL.md").resolve().write_bytes(b"---\nname: bad\n---\n\xff")
     exchange = Exchange([])
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
-        with pytest.raises(LangGraphHarnessError, match="not valid UTF-8"):
-            asyncio.run(_collect(harness, repo))
-        assert not exchange.requests
+        with caplog.at_level("WARNING"):
+            events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        assert exchange.requests
+        assert "not valid UTF-8" in caplog.text
     finally:
         _close_clients(sync, async_)
 
 
 @pytest.mark.parametrize("text,finish", [("", "stop"), ("", "length"), ("partial", "length")])
-def test_false_success_preserves_raw_and_emits_no_events(
-    tmp_path: Path, text: str, finish: str
+def test_an_empty_or_cut_off_final_answer_ends_the_turn_as_usual(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, text: str, finish: str
 ) -> None:
+    # 26 October 2026 (step 2, census GKF-123 and GKF-124): the edits are
+    # what matter; the answer's state is logged.
     repo = _scaffold(tmp_path)
     exchange = Exchange(
         [("read_file", {"file_path": str(repo / "AGENTS.md")})],
@@ -733,33 +805,42 @@ def test_false_success_preserves_raw_and_emits_no_events(
             received.append(event)
 
     try:
-        with pytest.raises(LangGraphHarnessError) as caught:
+        with caplog.at_level("WARNING"):
             asyncio.run(run())
-        assert caught.value.raw_result["messages"][-1].response_metadata["finish_reason"] == finish
-        assert not received and harness._ainvoke_task is None
+        [result] = [event for event in received if isinstance(event, ResultMessageEvent)]
+        assert result.stop_reason == finish
+        assert harness._ainvoke_task is None
+        assert ("empty terminal" if not text else "cut off") in caplog.text
     finally:
         _close_clients(sync, async_)
+
+
+_ADVICE_KINDS = (
+    "source_removed",
+    "extra_skill",
+    "duplicate",
+    "escape",
+    "extra_memory",
+    "custom_agent",
+    "changed",
+)
 
 
 @pytest.mark.parametrize(
     "kind",
     [
+        # Kept: the wrong folder, the local model, transcripts outside the project.
         "sibling",
         "opaque",
-        "source_removed",
         "endpoint",
         "unresolved",
         "artifact_link",
         "artifact_in_worktree",
-        "extra_skill",
-        "duplicate",
-        "escape",
-        "extra_memory",
-        "custom_agent",
-        "changed",
+        # Advice since 26 October 2026 (step 2): the Player starts.
+        *_ADVICE_KINDS,
     ],
 )
-def test_refusals_before_model_activity(tmp_path: Path, kind: str) -> None:
+def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) -> None:
     repo = _scaffold(tmp_path)
     selected = config(repo)
     exchange = Exchange([])
@@ -812,9 +893,19 @@ def test_refusals_before_model_activity(tmp_path: Path, kind: str) -> None:
                 )
                 return result
 
+            # The second inventory and its comparison are gone (census GKF-054).
             with patch("deepagents_code.agent.create_cli_agent", side_effect=changing):
-                with pytest.raises(LangGraphHarnessError, match="changed"):
-                    asyncio.run(_collect(harness, repo))
+                events = asyncio.run(_collect(harness, repo))
+            assert any(isinstance(event, ResultMessageEvent) for event in events)
+            assert exchange.requests
+            return
+        if kind in _ADVICE_KINDS:
+            events = asyncio.run(_collect(harness, repo))
+            assert any(isinstance(event, ResultMessageEvent) for event in events)
+            assert exchange.requests
+            if kind != "source_removed":
+                assert harness.last_player_evidence["discovery"]["warnings"]
+            return
         else:
             expected = {
                 "artifact_link": "symlink",
@@ -1332,27 +1423,37 @@ def test_profile_and_discovery_controls(tmp_path: Path, monkeypatch: pytest.Monk
             with pytest.raises(LangGraphHarnessError, match="already-imported"):
                 asyncio.run(_collect(harness, repo))
         assert PATHS.profile.root == selected.dcode_home
+        assert not exchange.requests
+        # Advice since 26 October 2026 (step 2, census GKF-042 and GKF-027).
         with patch(
             "deepagents_code.plugins.discover_plugins",
             return_value=SimpleNamespace(plugins=[], warnings=["unreadable plugin registry"]),
         ):
-            with pytest.raises(LangGraphHarnessError, match="warnings"):
-                asyncio.run(_collect(harness, repo))
+            asyncio.run(_collect(harness, repo))
+        assert any(
+            "unreadable plugin registry" in warning
+            for warning in harness.last_player_evidence["discovery"]["warnings"]
+        )
         skill = repo / "skills/planning/SKILL.md"
         original = skill.stat().st_mode
         skill.chmod(0)
         try:
-            with pytest.raises(LangGraphHarnessError, match="unreadable"):
-                asyncio.run(_collect(harness, repo))
+            asyncio.run(_collect(harness, repo))
         finally:
             skill.chmod(original)
-        assert not exchange.requests
+        assert any(
+            "unreadable discovery file left out" in warning
+            for warning in harness.last_player_evidence["discovery"]["warnings"]
+        )
     finally:
         _close_clients(sync, async_)
 
 
 @pytest.mark.parametrize("kind", ["malformed", "nested", "duplicate_name"])
-def test_skill_metadata_must_match_actual_discovery(tmp_path: Path, kind: str) -> None:
+def test_skill_metadata_that_does_not_match_discovery_is_advice(
+    tmp_path: Path, kind: str
+) -> None:
+    # 26 October 2026 (step 2, census GKF-046 and GKF-047).
     repo = _scaffold(tmp_path)
     if kind == "malformed":
         (repo / "skills/planning/SKILL.md").write_text("---\nname: planning\n---\n")
@@ -1368,9 +1469,10 @@ def test_skill_metadata_must_match_actual_discovery(tmp_path: Path, kind: str) -
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
     try:
-        with pytest.raises(LangGraphHarnessError, match="discovery|duplicate"):
-            asyncio.run(_collect(harness, repo))
-        assert not exchange.requests
+        events = asyncio.run(_collect(harness, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events)
+        warnings = harness.last_player_evidence["discovery"]["warnings"]
+        assert any(re.search("discovery|duplicate", warning) for warning in warnings)
     finally:
         _close_clients(sync, async_)
 
@@ -1395,18 +1497,17 @@ def test_dcode_without_selected_skills_or_instructions(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("kind", ["unexpected_file", "nonempty_memory", "link"])
-def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
+def test_profile_written_by_one_invocation_is_advice_for_the_next(
     tmp_path: Path, kind: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """B463: a reused profile changed after a clean launch; the next launch refused.
+    """B463: a reused profile changed after a clean launch.
 
     The first invocation launches from a clean profile and, through its own
     shell tool, leaves a file in the profile. Its post-invocation inventory
-    records that file. The second launch is refused with the typed error,
-    which names the entry by path, type, size and hash, and never its contents.
+    records that file. Since 26 October 2026 (step 2, census GKF-035) the
+    second launch goes on; the advice names the entry by path, type, size and
+    hash, and never its contents.
     """
-    from guardkitfactory.harness import PlayerLaunchRefused
-
     repo = tmp_path / "empty-task"
     repo.mkdir()
     profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
@@ -1449,30 +1550,20 @@ def test_profile_written_by_one_invocation_refuses_the_next_with_its_entries(
             model_two, backend=_backend(repo), player_config=selected
         )
         with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
-            with pytest.raises(PlayerLaunchRefused) as refused:
-                asyncio.run(_collect(harness_two, repo))
-        error = refused.value
-        assert isinstance(error, LangGraphHarnessError)
-        assert error.failure_kind == "agent_launch_refused"
-        assert error.profile == str(profile)
-        if kind == "link":
-            expected = {"path": relative, "type": "symlink", "size": len(str(repo)), "sha256": None}
-        else:
-            expected = {
-                "path": relative,
-                "type": "file",
-                "size": len(secret),
-                "sha256": hashlib.sha256(secret.encode()).hexdigest(),
-            }
-        assert expected in error.entries
-        assert relative in str(error) and secret not in str(error)
-        if kind != "link":
-            assert expected["sha256"] in str(error)
-            assert "unexpected configuration or nonempty memory" in str(error)
-        logged = [r.getMessage() for r in caplog.records if "launch refused" in r.getMessage()]
+            events_two = asyncio.run(_collect(harness_two, repo))
+        assert any(isinstance(event, ResultMessageEvent) for event in events_two)
+        logged = [
+            r.getMessage()
+            for r in caplog.records
+            if "run profile holds more than dcode's own empty files" in r.getMessage()
+        ]
         assert logged and relative in logged[0] and secret not in logged[0]
-        # Nothing reached the model, and the profile was left for diagnosis.
-        assert not second.requests
+        if kind == "link":
+            assert f"{relative} (symlink, size={len(str(repo))}, sha256=None)" in logged[0]
+        else:
+            assert hashlib.sha256(secret.encode()).hexdigest() in logged[0]
+        # The model was reached, and the profile was left for diagnosis.
+        assert second.requests
         assert target.is_symlink() or target.exists()
     finally:
         if kind != "nonempty_memory" and (target.is_symlink() or target.exists()):
@@ -1534,17 +1625,16 @@ def test_process_wide_launch_refusals_are_typed(
                     )
         error = refused.value
         assert error.failure_kind == "agent_launch_refused"
-        assert error.entries == ()
         assert error.profile == str(selected.dcode_home)
-        assert "unexpected profile entries" not in str(error)
         assert not exchange.requests
     finally:
         _close_clients(sync, async_)
 
 
-def test_owner_unreadable_profile_file_is_a_typed_refusal(tmp_path: Path) -> None:
-    """A profile file the owner cannot read (mode 0044) is refused, not retried."""
-    from guardkitfactory.harness import PlayerLaunchRefused
+def test_owner_unreadable_profile_file_is_advice(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A profile file the owner cannot read (mode 0044) is logged; the launch goes on."""
     from guardkitfactory.harness.dcode_harness import _validate_launch
 
     if os.geteuid() == 0:
@@ -1557,25 +1647,20 @@ def test_owner_unreadable_profile_file_is_a_typed_refusal(tmp_path: Path) -> Non
     hidden.write_text("{}")
     hidden.chmod(0o044)
     try:
-        with pytest.raises(PlayerLaunchRefused) as refused:
-            _validate_launch(selected)
-        assert {
-            "path": "guardkit-player/hidden.json",
-            "type": "file",
-            "size": 2,
-            "sha256": None,
-            "error": "PermissionError",
-        } in refused.value.entries
-        assert "PermissionError" in str(refused.value)
+        with caplog.at_level("WARNING"):
+            assert _validate_launch(selected) == selected.dcode_home
+        assert (
+            "guardkit-player/hidden.json (file, size=2, sha256=None, error=PermissionError)"
+            in caplog.text
+        )
     finally:
         hidden.chmod(0o644)
         hidden.unlink()
 
 
-def test_nonempty_profile_memory_after_construction_is_typed(tmp_path: Path) -> None:
+def test_nonempty_profile_memory_is_advice(tmp_path: Path) -> None:
     from deepagents_code.project_utils import ProjectContext
 
-    from guardkitfactory.harness import PlayerLaunchRefused
     from guardkitfactory.harness.dcode_harness import _inventory
 
     repo = tmp_path / "task"
@@ -1586,14 +1671,8 @@ def test_nonempty_profile_memory_after_construction_is_typed(tmp_path: Path) -> 
     memory.parent.mkdir(parents=True, exist_ok=True)
     memory.write_text("remembered")
     try:
-        with pytest.raises(PlayerLaunchRefused, match="must remain empty") as refused:
-            _inventory(selected, ProjectContext(user_cwd=repo, project_root=repo))
-        assert {
-            "path": "guardkit-player/AGENTS.md",
-            "type": "file",
-            "size": 10,
-            "sha256": hashlib.sha256(b"remembered").hexdigest(),
-        } in refused.value.entries
+        inventory = _inventory(selected, ProjectContext(user_cwd=repo, project_root=repo))
+        assert "profile AGENTS.md is not empty" in inventory["warnings"]
     finally:
         if original is None:
             memory.unlink()
@@ -1634,52 +1713,28 @@ def _inventory_bare_repo(tmp_path: Path) -> dict[str, Any]:
 
 
 @pytest.mark.parametrize("folder", [(".agents", "skills"), (".claude", "skills")])
-def test_home_skills_folder_is_refused_in_plain_words(
+def test_skills_in_the_home_folder_are_advice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: tuple[str, str]
 ) -> None:
-    """Skills in the user's home are still refused, with what, why and what to do."""
+    """26 October 2026 (step 2, census GKF-044): logged, the Player starts."""
     home = tmp_path / "home"
     _fake_launch_home(monkeypatch, home)
     skills = home.joinpath(*folder)
     _write_skill(skills)
 
-    with pytest.raises(LangGraphHarnessError) as refused:
-        _inventory_bare_repo(tmp_path)
+    inventory = _inventory_bare_repo(tmp_path)
 
-    message = str(refused.value)
-    assert message.startswith(
-        f"dcode Player: will not start, because the skills folder in your home folder "
-        f"is not empty: {skills}."
+    assert any(
+        warning.startswith(f"unexpected skill discovery source: {skills}")
+        for warning in inventory["warnings"]
     )
-    assert "uses only the skills this project declares" in message
-    assert "move or rename that folder" in message
-    assert f"mv {skills} {skills}.off" in message
-    assert "unexpected skill discovery source" not in message
 
 
-def test_home_skills_refusal_names_both_home_folders(
+def test_a_home_skills_folder_with_a_link_inside_is_advice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    agents, claude = home / ".agents" / "skills", home / ".claude" / "skills"
-    _write_skill(agents)
-    _write_skill(claude, "other")
-
-    with pytest.raises(LangGraphHarnessError) as refused:
-        _inventory_bare_repo(tmp_path)
-
-    message = str(refused.value)
-    found = f"the skills folders in your home folder are not empty: {agents} and {claude}."
-    assert found in message
-    assert "move or rename those folders" in message
-    assert f"mv {agents} {agents}.off; mv {claude} {claude}.off" in message
-
-
-def test_home_skills_folder_with_a_link_inside_gets_the_plain_words(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A linked-in skill (a common way to share skills) is refused the same way."""
+    """A linked-in skill (a common way to share skills) is not followed by the
+    inventory, and says so."""
     home = tmp_path / "home"
     _fake_launch_home(monkeypatch, home)
     elsewhere = tmp_path / "shared-skills"
@@ -1688,50 +1743,24 @@ def test_home_skills_folder_with_a_link_inside_gets_the_plain_words(
     skills.mkdir(parents=True)
     (skills / "example").symlink_to(elsewhere / "example", target_is_directory=True)
 
-    with pytest.raises(
-        LangGraphHarnessError, match="the skills folder in your home folder is not empty"
-    ) as refused:
-        _inventory_bare_repo(tmp_path)
-    assert "symlink inside discovery source" not in str(refused.value)
+    inventory = _inventory_bare_repo(tmp_path)
+
+    assert any("symlink inside discovery source" in w for w in inventory["warnings"])
 
 
-def test_a_broken_claude_skills_link_does_not_hide_the_plain_words(
+def test_a_broken_agents_skills_link_is_advice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Skills in ~/.agents/skills beside a broken ~/.claude/skills link (say a
-    dotfiles link whose target moved): the message names the folder with skills."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    agents = home / ".agents" / "skills"
-    _write_skill(agents)
-    (home / ".claude").mkdir()
-    (home / ".claude" / "skills").symlink_to(tmp_path / "moved-away", target_is_directory=True)
-
-    with pytest.raises(LangGraphHarnessError) as refused:
-        _inventory_bare_repo(tmp_path)
-
-    message = str(refused.value)
-    assert message.startswith(
-        f"dcode Player: will not start, because the skills folder in your home folder "
-        f"is not empty: {agents}."
-    )
-    assert ".claude" not in message
-
-
-def test_a_broken_agents_skills_link_is_still_refused_as_before(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The mirror case. dcode always lists ~/.agents/skills first, and a broken
-    link there stopped start-up with a file error before this change too; that
-    is unchanged (still refused), and the listing adds nothing to it."""
+    """A broken ~/.agents/skills link used to stop start-up with a file error."""
     home = tmp_path / "home"
     _fake_launch_home(monkeypatch, home)
     _write_skill(home / ".claude" / "skills")
     (home / ".agents").mkdir()
     (home / ".agents" / "skills").symlink_to(tmp_path / "moved-away", target_is_directory=True)
 
-    with pytest.raises(FileNotFoundError):
-        _inventory_bare_repo(tmp_path)
+    inventory = _inventory_bare_repo(tmp_path)
+
+    assert any("cannot be resolved" in w for w in inventory["warnings"])
 
 
 def test_a_looping_claude_skills_link_is_ignored_as_before(
@@ -1751,38 +1780,6 @@ def test_a_looping_claude_skills_link_is_ignored_as_before(
     assert not any(entry["path"].startswith(home_claude) for entry in inventory["skills"])
 
 
-def test_the_suggested_new_name_is_one_that_does_not_exist_yet(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """`mv folder folder.off` would move the folder inside an existing folder.off."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    skills = home / ".claude" / "skills"
-    _write_skill(skills)
-    (home / ".claude" / "skills.off").mkdir()
-
-    with pytest.raises(LangGraphHarnessError) as refused:
-        _inventory_bare_repo(tmp_path)
-
-    assert f"for example: mv {skills} {skills}.off-2. " in str(refused.value)
-
-
-def test_a_broken_link_named_like_the_suggestion_is_not_suggested(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A dangling folder.off link still occupies the name, so mv onto it would fail."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    skills = home / ".claude" / "skills"
-    _write_skill(skills)
-    (home / ".claude" / "skills.off").symlink_to(tmp_path / "gone")
-
-    with pytest.raises(LangGraphHarnessError) as refused:
-        _inventory_bare_repo(tmp_path)
-
-    assert f"for example: mv {skills} {skills}.off-2. " in str(refused.value)
-
-
 def test_renamed_or_empty_home_skills_folders_are_not_refused(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1799,21 +1796,19 @@ def test_renamed_or_empty_home_skills_folders_are_not_refused(
     assert not any(path.startswith(str(home.resolve() / ".claude")) for path in by_path)
 
 
-def test_other_unexpected_skill_sources_keep_their_message(
+def test_a_projects_own_extra_skill_folder_is_advice(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Only the two home folders get the new words; a project's own extra folder does not."""
     _fake_launch_home(monkeypatch, tmp_path / "home")
     repo = tmp_path / "task"
     _write_skill(repo / ".claude" / "skills")
 
-    with pytest.raises(
-        LangGraphHarnessError,
-        match=re.escape(
-            f"dcode Player: unexpected skill discovery source: {repo / '.claude' / 'skills'}"
-        ),
-    ):
-        _inventory_bare_repo(tmp_path)
+    inventory = _inventory_bare_repo(tmp_path)
+
+    assert any(
+        warning.startswith(f"unexpected skill discovery source: {repo / '.claude' / 'skills'}")
+        for warning in inventory["warnings"]
+    )
 
 
 def test_profile_inventory_describes_entries_without_contents(tmp_path: Path) -> None:
@@ -2640,16 +2635,16 @@ def test_invocation_returns_when_the_post_invocation_inventory_blocks(
             blocked.unlink()
 
 
-def test_refusal_is_raised_promptly_when_its_diagnostic_read_blocks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_launch_advice_is_given_promptly_when_its_diagnostic_read_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """The integrity check rejects at once; a blocked diagnostic read cannot delay it."""
+    """A blocked diagnostic read cannot delay the launch."""
     import threading
     import time
 
-    from guardkitfactory.harness import PlayerLaunchRefused, dcode_harness
+    from guardkitfactory.harness import dcode_harness
 
-    monkeypatch.setattr(dcode_harness, "_REFUSAL_INVENTORY_SECONDS", 0.3)
+    monkeypatch.setattr(dcode_harness, "_ADVICE_INVENTORY_SECONDS", 0.3)
     repo = tmp_path / "task"
     repo.mkdir()
     selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
@@ -2660,38 +2655,23 @@ def test_refusal_is_raised_promptly_when_its_diagnostic_read_blocks(
     blocked = agent_dir / "z.bin"
     blocked.write_bytes(b"z" * 8)
     release = _block_profile_reads(monkeypatch, blocked)
-    outcome: list[BaseException] = []
+    outcome: list[object] = []
 
     def launch() -> None:
-        try:
-            dcode_harness._validate_launch(selected)
-        except BaseException as exc:  # noqa: BLE001 - recorded for the assertion
-            outcome.append(exc)
+        outcome.append(dcode_harness._validate_launch(selected))
 
     try:
         begun = time.monotonic()
-        worker = threading.Thread(target=launch, daemon=True)
-        worker.start()
-        worker.join(10)
+        with caplog.at_level("WARNING"):
+            worker = threading.Thread(target=launch, daemon=True)
+            worker.start()
+            worker.join(10)
         elapsed = time.monotonic() - begun
-        assert not worker.is_alive(), "the refusal waited on its diagnostics"
+        assert not worker.is_alive(), "the launch waited on its diagnostics"
         assert elapsed < 3
-        error = outcome[0]
-        assert isinstance(error, PlayerLaunchRefused)
-        assert "symlink inside discovery source" in str(error)
-        assert {
-            "path": "guardkit-player/a-link",
-            "type": "symlink",
-            "size": len(str(repo)),
-            "sha256": None,
-        } in error.entries
-        assert {
-            "path": "guardkit-player/z.bin",
-            "type": "other",
-            "size": None,
-            "sha256": None,
-            "error": "not recorded: timed out",
-        } in error.entries
+        assert outcome == [selected.dcode_home]
+        assert f"guardkit-player/a-link (symlink, size={len(str(repo))}, sha256=None)" in caplog.text
+        assert "guardkit-player/z.bin (other, size=None, sha256=None, error=not recorded: timed out)" in caplog.text
     finally:
         release.set()
         link.unlink()

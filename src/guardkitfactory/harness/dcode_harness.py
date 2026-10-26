@@ -12,7 +12,6 @@ import hashlib
 import importlib.util
 import logging
 import os
-import shlex
 import stat
 import sys
 import threading
@@ -44,153 +43,82 @@ def _refuse(message: str) -> NoReturn:
     raise LangGraphHarnessError(f"dcode Player: {message}")
 
 
-def _read(path: Path, root: Path) -> bytes:
-    resolved = path.resolve(strict=True)
-    if not resolved.is_relative_to(root) or not resolved.is_file():
-        _refuse(f"escaping or invalid discovery file: {path}")
-    if not resolved.stat().st_mode & (stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH):
-        _refuse(f"unreadable discovery file: {path}")
-    return resolved.read_bytes()
+def _advise(message: str, advice: list[str] | None = None) -> None:
+    """Record a launch finding that does not stop the Player.
+
+    26 October 2026 (step 2): what the launch finds about the project's
+    skills, memory and the run profile is logged, and listed in the
+    construction evidence's ``warnings`` when ``advice`` is given; the Player
+    starts all the same.
+    """
+    logger.warning("dcode Player launch advice: %s", message)
+    if advice is not None:
+        advice.append(message)
 
 
-def _tree(path: Path) -> dict[str, str]:
-    """Inventory every file, rejecting hidden escapes and unreadable directories."""
+def _read(path: Path) -> bytes:
+    return path.resolve(strict=True).read_bytes()
+
+
+def _tree(path: Path, advice: list[str] | None = None) -> dict[str, str]:
+    """Inventory every file below ``path`` by SHA-256.
+
+    A link inside is not followed, and an unreadable folder or file is left
+    out; each is advice, not a refusal (26 October 2026, step 2).
+    """
     try:
         path.lstat()
     except FileNotFoundError:
         return {}
-    root = path.resolve(strict=True)
+    try:
+        root = path.resolve(strict=True)
+    except (OSError, RuntimeError) as exc:
+        _advise(f"discovery source cannot be resolved ({type(exc).__name__}): {path}", advice)
+        return {}
     if not root.is_dir():
-        _refuse(f"discovery source is not a directory: {path}")
+        _advise(f"discovery source is not a directory: {path}", advice)
+        return {}
     result: dict[str, str] = {}
 
     def walk(directory: Path) -> None:
-        mode = directory.stat().st_mode
-        if not mode & 0o444 or not mode & 0o111:
-            _refuse(f"unreadable discovery directory: {directory}")
-        for child in sorted(directory.iterdir()):
-            # A selected top-level seed link is supported; nested links make the
-            # effective skill contents ambiguous and are deliberately refused.
+        try:
+            children = sorted(directory.iterdir())
+        except OSError:
+            _advise(f"unreadable discovery directory left out: {directory}", advice)
+            return
+        for child in children:
             if child.is_symlink():
-                _refuse(f"symlink inside discovery source: {child}")
+                _advise(f"symlink inside discovery source not followed: {child}", advice)
+                continue
             if child.is_dir():
                 walk(child)
-            else:
-                result[str(child.relative_to(root))] = hashlib.sha256(
-                    _read(child, root)
-                ).hexdigest()
+                continue
+            try:
+                body = _read(child)
+            except OSError:
+                _advise(f"unreadable discovery file left out: {child}", advice)
+                continue
+            result[str(child.relative_to(root))] = hashlib.sha256(body).hexdigest()
 
     walk(root)
     return result
 
 
-def _home_skill_folders() -> list[Path]:
-    """The two skill folders dcode reads from the launching user's home.
-
-    dcode works these out from the GuardKit process's own $HOME when it is
-    imported: `~/.agents/skills`, and `~/.claude/skills` (which dcode reads only
-    when it exists). The fresh DEEPAGENTS_HOME profile does not hide them.
-    """
-    from deepagents_code._paths import get_user_agent_skills_dir, get_user_claude_skills_dir
-
-    return [p for p in (get_user_agent_skills_dir(), get_user_claude_skills_dir()) if p is not None]
-
-
-def _resolved(path: Path) -> Path | None:
-    """`path.resolve()`, or None when it cannot be resolved (such as a link loop)."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError):
-        return None
-
-
-def _is_home_skill_folder(path: Path, home_folders: list[Path]) -> bool:
-    """Whether `path` is one of the home skill folders; never raises."""
-    canonical = _resolved(path)
-    return any(
-        path == folder or (canonical is not None and canonical == _resolved(folder))
-        for folder in home_folders
-    )
-
-
-def _home_folder_has_content(path: Path) -> bool:
-    """True when the ordinary inventory would refuse this folder.
-
-    That is any file at all, or anything the inventory cannot read (such as a
-    symlink inside it). An absent folder, or one holding only empty folders,
-    is allowed, exactly as before.
-    """
-    from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
-
-    try:
-        return bool(_tree(path))
-    except LangGraphHarnessError:
-        return True
-
-
-def _home_folders_to_name(path: Path, home_folders: list[Path]) -> list[Path]:
-    """The refused home folder, plus the other one if it is safe to check and not empty.
-
-    This listing only shapes the message, so it never raises: a broken link or
-    anything else that cannot be checked counts as nothing to report.
-    """
-    named = []
-    for folder in home_folders:
-        if _is_home_skill_folder(path, [folder]):
-            named.append(folder)
-            continue
-        try:
-            if _home_folder_has_content(folder):
-                named.append(folder)
-        except (OSError, RuntimeError):
-            pass
-    return named
-
-
-def _spare_name(folder: Path) -> Path:
-    """A name beside `folder` that does not exist yet, so `mv` renames rather than moves into."""
-    candidate = folder.with_name(folder.name + ".off")
-    number = 2
-    while os.path.lexists(candidate):
-        candidate = folder.with_name(f"{folder.name}.off-{number}")
-        number += 1
-    return candidate
-
-
-def _home_skills_message(folders: list[Path]) -> str:
-    """Plain words for the refusal of skills found in the user's home folder."""
-    one = len(folders) == 1
-    found = " and ".join(str(folder) for folder in folders)
-    moves = "; ".join(
-        f"mv {shlex.quote(str(folder))} {shlex.quote(str(_spare_name(folder)))}"
-        for folder in folders
-    )
-    return (
-        f"will not start, because {'the skills folder' if one else 'the skills folders'} "
-        f"in your home folder {'is' if one else 'are'} not empty: {found}. "
-        "The Player uses only the skills this project declares, so skills from your "
-        "home folder would change what it does. "
-        f"To run, move or rename {'that folder' if one else 'those folders'} for the "
-        f"length of the run and put {'it' if one else 'them'} back afterwards, "
-        f"for example: {moves}. "
-        "(Your home folder here is $HOME of the process running GuardKit.)"
-    )
-
-
 def _required_entry(canonical: Path, *, config: PlayerConfig, kind: str) -> dict[str, Any]:
     """Describe one document the Player must read in full before it works."""
 
-    body = _read(canonical, config.cwd)
+    body = _read(canonical)
     try:
-        line_count = len(body.decode("utf-8").splitlines())
+        text = body.decode("utf-8")
     except UnicodeDecodeError:
         label = "selected skill" if kind == "skill" else "declared document"
-        _refuse(f"{label} is not valid UTF-8: {canonical}")
+        _advise(f"{label} is not valid UTF-8: {canonical}")
+        text = body.decode("utf-8", errors="replace")
     return {
         "path": str(canonical),
         "relative_path": str(canonical.relative_to(config.cwd)),
         "sha256": hashlib.sha256(body).hexdigest(),
-        "line_count": line_count,
+        "line_count": len(text.splitlines()),
         "kind": kind,
     }
 
@@ -211,19 +139,25 @@ def required_skill_reads(config: PlayerConfig) -> tuple[dict[str, Any], ...]:
         for path in sorted(source_root.rglob("SKILL.md")):
             canonical = path.resolve(strict=True)
             if not canonical.is_relative_to(source_root) or not canonical.is_file():
-                _refuse(f"escaping or invalid selected skill document: {path}")
-            skill_reads.append(_required_entry(canonical, config=config, kind="skill"))
+                _advise(f"selected skill document left out (escaping or not a file): {path}")
+                continue
+            try:
+                skill_reads.append(_required_entry(canonical, config=config, kind="skill"))
+            except OSError as exc:
+                _advise(f"selected skill document left out ({type(exc).__name__}): {path}")
     if config.skills and not skill_reads:
-        _refuse("selected skills contain no SKILL.md documents")
+        _advise("selected skills contain no SKILL.md documents")
 
     declared_reads: list[dict[str, Any]] = []
     for document in config.required_documents:
-        canonical = document.resolve(strict=True)
-        if not canonical.is_relative_to(config.cwd) or not canonical.is_file():
-            _refuse(f"escaping or invalid declared document: {document}")
-        declared_reads.append(
-            _required_entry(canonical, config=config, kind="declared_document")
-        )
+        try:
+            declared_reads.append(
+                _required_entry(
+                    document.resolve(strict=True), config=config, kind="declared_document"
+                )
+            )
+        except OSError as exc:
+            _advise(f"declared document left out ({type(exc).__name__}): {document}")
     return tuple(skill_reads) + tuple(declared_reads)
 
 
@@ -237,9 +171,10 @@ _INVENTORY_MAX_FILE_BYTES = 16 * 1024 * 1024
 _INVENTORY_MAX_TOTAL_BYTES = 64 * 1024 * 1024
 _INVENTORY_SECONDS = 2.0
 # How long a caller waits for the inventory, which runs on a daemon thread
-# because a read can block whatever the in-walk budget says: a refusal waits
-# briefly before raising, an invocation's finalisation a little longer.
-_REFUSAL_INVENTORY_SECONDS = 3.0
+# because a read can block whatever the in-walk budget says: the launch's
+# advice about the profile waits briefly, an invocation's finalisation a
+# little longer.
+_ADVICE_INVENTORY_SECONDS = 3.0
 _POST_INVOCATION_INVENTORY_SECONDS = 5.0
 _NOT_REGULAR = "not a regular file when opened"
 _TOO_LARGE = "not recorded: too large"
@@ -410,12 +345,12 @@ def profile_inventory(
     and, for regular files, its SHA-256. Links are recorded, never followed, and
     an unreadable entry is recorded with the error's type rather than refused,
     so the inventory itself never fails a launch. Entries, bytes hashed and time
-    are bounded, and the caller waits at most ``seconds`` (the refusal bound by
-    default) however a read behaves; what a bound cut short is marked
+    are bounded, and the caller waits at most ``seconds`` (the launch advice's
+    bound by default) however a read behaves; what a bound cut short is marked
     "not recorded" and every entry gathered before it is kept.
     """
 
-    wait = _REFUSAL_INVENTORY_SECONDS if seconds is None else seconds
+    wait = _ADVICE_INVENTORY_SECONDS if seconds is None else seconds
     return _bounded_inventory(profile, wait)[0]
 
 
@@ -442,31 +377,18 @@ def _describe_entries(entries: list[dict[str, Any]]) -> str:
     )
 
 
-def _refuse_launch(
-    message: str, profile: Path | None, entries: list[dict[str, Any]]
-) -> NoReturn:
+def _refuse_launch(message: str, profile: Path | None) -> NoReturn:
     """Refuse a launch that would be refused the same way on every later turn.
 
-    Used for the process-wide launch conditions (interpreter, dependency,
-    profile selection, offline and tracing settings) and for the profile's own
-    contents; ``entries`` is empty unless the profile's contents are at fault.
+    Used for the process-wide launch conditions that remain: the dependency,
+    the profile selection (never the owner's own settings) and the offline,
+    tracing and local-model settings.
     """
     from guardkitfactory.harness.langgraph_harness import PlayerLaunchRefused
 
-    unexpected = _unexpected_profile_entries(entries)
-    logger.error(
-        "dcode Player launch refused: %s; profile=%s unexpected entries=%s",
-        message,
-        profile,
-        unexpected,
-    )
-    detail = (
-        f"; unexpected profile entries: {_describe_entries(unexpected)}" if unexpected else ""
-    )
+    logger.error("dcode Player launch refused: %s; profile=%s", message, profile)
     raise PlayerLaunchRefused(
-        f"dcode Player: {message}{detail}",
-        profile="" if profile is None else str(profile),
-        entries=unexpected,
+        f"dcode Player: {message}", profile="" if profile is None else str(profile)
     )
 
 
@@ -502,47 +424,37 @@ def log_profile_inventory(profile: Path, *, cwd: Path) -> list[dict[str, Any]]:
 def _validate_launch(config: PlayerConfig) -> Path:
     # Every refusal here is fixed for this process and never reaches the
     # model, so each is raised as PlayerLaunchRefused rather than left to be
-    # retried as if it were an implementation failure.
+    # retried as if it were an implementation failure. The interpreter is
+    # the install rule's (pyproject ``requires-python``), not checked again.
     profile = config.dcode_home
-    if not (3, 12) <= sys.version_info[:2] < (4, 0):
-        _refuse_launch(f"unsupported interpreter; {_INSTALL}", profile, [])
     if importlib.util.find_spec("deepagents_code") is None:
-        _refuse_launch(f"required dependency is not installed; {_INSTALL}", profile, [])
+        _refuse_launch(f"required dependency is not installed; {_INSTALL}", profile)
     configured = os.environ.get("DEEPAGENTS_HOME", "")
     if profile is None or not Path(configured).is_absolute():
         _refuse_launch(
             "set absolute DEEPAGENTS_HOME to the selected fresh run profile before import",
             profile,
-            [],
         )
     if Path(configured).resolve(strict=True) != profile:
-        _refuse_launch("DEEPAGENTS_HOME does not match the selected Player profile", profile, [])
+        _refuse_launch("DEEPAGENTS_HOME does not match the selected Player profile", profile)
     if profile == Path.home().resolve() or profile == Path("/"):
-        _refuse_launch("dcode_home must be a dedicated run profile", profile, [])
+        _refuse_launch("dcode_home must be a dedicated run profile", profile)
     if os.environ.get("DEEPAGENTS_CODE_OFFLINE") != "1":
-        _refuse_launch("DEEPAGENTS_CODE_OFFLINE=1 is required", profile, [])
+        _refuse_launch("DEEPAGENTS_CODE_OFFLINE=1 is required", profile)
     for name in ("LANGCHAIN_TRACING", "LANGCHAIN_TRACING_V2", "LANGSMITH_TRACING"):
         if os.environ.get(name, "false").lower() not in {"false", "0", ""}:
-            _refuse_launch(f"{name} must be disabled for the Player run", profile, [])
-    # Permit only the empty directories/files dcode itself creates. This blocks
-    # config, dotenv, hooks, plugins, credentials and another agent's profile.
-    # The offending entries are described in the refusal.
-    from guardkitfactory.harness.langgraph_harness import LangGraphHarnessError
-
-    try:
-        files = _tree(profile)
-    except (LangGraphHarnessError, OSError) as exc:
-        message = (
-            str(exc).removeprefix("dcode Player: ")
-            if isinstance(exc, LangGraphHarnessError)
-            else f"run profile could not be inspected ({type(exc).__name__})"
-        )
-        _refuse_launch(message, profile, profile_inventory(profile))
-    if files and files != _CLEAN_PROFILE:
-        _refuse_launch(
-            "run profile contains unexpected configuration or nonempty memory",
-            profile,
-            profile_inventory(profile),
+            _refuse_launch(f"{name} must be disabled for the Player run", profile)
+    # dcode itself makes only empty directories and an empty memory file. A
+    # profile holding anything else (26 October 2026, step 2: census GKF-035)
+    # is logged with its entries, by path, type, size and hash, never their
+    # contents, and the launch goes on.
+    findings: list[str] = []
+    files = _tree(profile, findings)
+    if findings or (files and files != _CLEAN_PROFILE):
+        unexpected = _unexpected_profile_entries(profile_inventory(profile))
+        _advise(
+            "run profile holds more than dcode's own empty files; launching anyway: "
+            f"profile={profile}; unexpected profile entries: {_describe_entries(unexpected)}"
         )
     return profile
 
@@ -569,19 +481,23 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
     without following a link, and loses its write bits through that
     descriptor (dcode's 0775/0664 become 0555/0444, the owner-only root 0500).
     Anything else in the root or in ``guardkit-player``, a nonempty or
-    non-regular ``AGENTS.md``, or a nonempty ``skills`` refuses the launch.
+    non-regular ``AGENTS.md``, or a nonempty ``skills`` leaves it unlocked.
     Only the complete skeleton is locked. dcode makes ``guardkit-player`` at
     its first launch; without it the profile is left writable, as today, with
     a WARNING. A missing ``skills`` folder or empty ``AGENTS.md`` is made here
     through ``guardkit-player``'s descriptor (never by path), so a later task
     with memory or skills on still finds them; if that fails the profile is
-    left writable with a WARNING.
+    left writable with a WARNING. Anything else that keeps the profile from
+    being locked (26 October 2026, step 2: census GKF-036) is a WARNING too:
+    the profile is left writable and the launch goes on.
     """
 
+    class _NotLocked(Exception):
+        pass
+
     def refuse(reason: str) -> NoReturn:
-        _refuse_launch(
-            f"run profile was not locked: {reason}", profile, profile_inventory(profile)
-        )
+        not_owned(reason)
+        raise _NotLocked
 
     def not_owned(reason: str) -> None:
         logger.warning("dcode Player run profile not locked: %s; profile=%s", reason, profile)
@@ -671,8 +587,10 @@ def _lock_profile(profile: Path, identity: tuple[int, int]) -> None:
             refuse(f"{_AGENT}/{_MEMORY} is not an empty regular file")
         for descriptor in (memory, skills, agent, root):
             read_only(descriptor)
+    except _NotLocked:
+        return
     except OSError as exc:
-        refuse(f"{type(exc).__name__} while locking")
+        not_owned(f"{type(exc).__name__} while locking")
     finally:
         for descriptor in opened:
             os.close(descriptor)
@@ -690,7 +608,6 @@ def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
         _refuse_launch(
             "requires a resolved local ChatOpenAI using ChatCompletions; no model fallback",
             config.dcode_home,
-            [],
         )
     actual = str(model.openai_api_base or "").rstrip("/")
     parsed = urlsplit(actual)
@@ -708,10 +625,9 @@ def _validate_model(model: Any, config: PlayerConfig) -> dict[str, Any]:
         _refuse_launch(
             "model endpoint does not match the accepted local OPENAI_BASE_URL",
             config.dcode_home,
-            [],
         )
-    if not model.model_name or ":" in model.model_name:
-        _refuse_launch("requires an explicit local model alias", config.dcode_home, [])
+    if not model.model_name:
+        _advise("the model has no explicit alias; the server's default model answers")
     return {
         "alias": model.model_name,
         "endpoint": actual,
@@ -892,46 +808,42 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     from deepagents_code.subagents import list_subagents
 
     cwd = config.cwd
+    # 26 October 2026 (step 2): every finding below is advice, listed in the
+    # evidence's ``warnings``; the Player starts with what dcode discovers.
+    warnings: list[str] = []
     selected = (cwd / "skills").resolve()
     if config.skills and config.skills != (selected,):
-        _refuse("only selected root skills/ is supported")
+        _advise("only the root skills/ folder is discovered; other selected skills are not", warnings)
     if config.skills:
         link = cwd / ".agents" / "skills"
         if not link.is_symlink() or os.readlink(link) != "../skills":
-            _refuse("selected skills require .agents/skills -> ../skills")
-        if not selected.is_relative_to(cwd):
-            _refuse("selected skills escape the task worktree")
+            _advise("selected skills are discovered through .agents/skills -> ../skills, which is missing", warnings)
     plugins = discover_plugins()
     if plugins.plugins or plugins.warnings:
-        _refuse(f"unexpected plugins or discovery warnings: {plugins.warnings!r}")
+        _advise(f"plugins or discovery warnings: {plugins.warnings!r}", warnings)
     agents = [get_user_agents_dir(_AGENT), context.project_agents_dir()]
-    definitions = {str(p): _tree(p) for p in agents if p is not None}
+    definitions = {str(p): _tree(p, warnings) for p in agents if p is not None}
     if any(definitions.values()) or list_subagents(
         user_agents_dir=agents[0], project_agents_dir=agents[1]
     ):
-        _refuse("custom subagents are not supported; retain built-in general-purpose only")
+        _advise("custom subagent definitions are present", warnings)
     builtins = get_built_in_skills_dir().resolve(strict=True)
     sources = []
     seen_paths: set[Path] = set()
     seen_names: set[str] = set()
-    home_folders = _home_skill_folders()
     for raw, label in get_skill_sources(assistant_id=_AGENT, project_context=context):
         path = Path(raw)
         canonical = path.resolve()
         allowed = canonical == builtins or (bool(config.skills) and canonical == selected)
-        # Skills in the user's own home folder are refused like any other
-        # unexpected source, but with words that say why and what to do.
-        if (
-            not allowed
-            and _is_home_skill_folder(path, home_folders)
-            and _home_folder_has_content(path)
-        ):
-            _refuse(_home_skills_message(_home_folders_to_name(path, home_folders)))
-        files = _tree(path)
+        files = _tree(path, warnings)
         if files and not allowed:
-            _refuse(f"unexpected skill discovery source: {path}")
+            _advise(
+                f"unexpected skill discovery source: {path} (its skills are offered "
+                "to the Player too)",
+                warnings,
+            )
         if files and canonical in seen_paths:
-            _refuse(f"duplicate skill discovery source: {path}")
+            _advise(f"duplicate skill discovery source: {path}", warnings)
         if files:
             seen_paths.add(canonical)
         if files:
@@ -948,18 +860,18 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
             finally:
                 sdk_logger.removeHandler(handler)
             if error or handler.messages:
-                _refuse(f"skill discovery warnings for {path}: {error or handler.messages}")
+                _advise(f"skill discovery warnings for {path}: {error or handler.messages}", warnings)
             expected = {
                 (canonical / relative).resolve()
                 for relative in files
                 if Path(relative).name == "SKILL.md"
             }
             if {Path(skill["path"]).resolve() for skill in loaded} != expected:
-                _refuse(f"skill discovery skipped selected files: {path}")
+                _advise(f"skill discovery skipped selected files: {path}", warnings)
             for skill in loaded:
                 name = skill["name"]
                 if name in seen_names:
-                    _refuse(f"duplicate discovered skill name: {name}")
+                    _advise(f"duplicate discovered skill name: {name}", warnings)
                 seen_names.add(name)
         sources.append(
             {
@@ -970,26 +882,22 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
             }
         )
     if config.skills and selected not in seen_paths:
-        _refuse("selected skills were not discovered")
+        _advise("selected skills were not discovered", warnings)
     # Inspect selected instruction sources directly so an optional memory
     # middleware cannot be the only route by which repository guidance reaches
     # the Player. Their contents are also supplied in the invocation prompt.
     instructions = {
-        str(path): hashlib.sha256(_read(path, cwd)).hexdigest()
+        str(path): hashlib.sha256(_read(path)).hexdigest()
         for path in config.repository_instructions
     }
     discovered = tuple(p.resolve() for p in context.project_agent_md_paths())
     if config.memory and discovered != config.memory:
-        _refuse("project memory discovery does not match the selected sources")
-    memory = {str(path): hashlib.sha256(_read(path, cwd)).hexdigest() for path in config.memory}
+        _advise("project memory discovery does not match the selected sources", warnings)
+    memory = {str(path): hashlib.sha256(_read(path)).hexdigest() for path in config.memory}
     user_memory = get_user_agent_md_path(_AGENT)
     if user_memory.exists() or user_memory.is_symlink():
-        if _read(user_memory, config.dcode_home) != b"":
-            _refuse_launch(
-                "profile AGENTS.md must remain empty",
-                config.dcode_home,
-                profile_inventory(config.dcode_home),
-            )
+        if _read(user_memory) != b"":
+            _advise("profile AGENTS.md is not empty", warnings)
     return {
         "skills": sources,
         "memory": memory,
@@ -998,7 +906,7 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
         "protected_paths": [str(path) for path in config.protected_paths],
         "agents": definitions,
         "plugins": [],
-        "warnings": [],
+        "warnings": warnings,
         "subagents": ["general-purpose"],
     }
 
@@ -1010,8 +918,9 @@ def _private_artifacts_root(backend: Any, cwd: Path) -> Path:
     go to the folder ``build_autobuild_backend`` chose
     (``backend_config.model_artifacts_root``), never into the worktree,
     where a checkpoint commit would take them into the build's branch. A
-    missing, symlinked, unresolvable or in-project folder is refused, as is
-    one that is another user's or cannot be made owner-only (mode 0700).
+    missing, symlinked, unresolvable or in-project folder is refused. One
+    that is another user's or cannot be made owner-only (mode 0700) is
+    logged (26 October 2026).
     """
     raw = getattr(backend, "artifacts_root", None)
     if not isinstance(raw, (str, Path)) or not str(raw).strip():
@@ -1069,7 +978,10 @@ def _artifact_backend(backend: Any, cwd: Path, artifacts: Path) -> Any:
         if target.resolve(strict=True) != target or not target.is_dir():
             _refuse(f"invalid artifact directory: {target}")
         _owner_only(target)
-        _tree(target)
+        inside: list[str] = []
+        _tree(target, inside)
+        if inside:
+            _refuse(f"invalid artifact directory contents: {'; '.join(inside)}")
         routes[f"/{name}/"] = FilesystemBackend(root_dir=target, virtual_mode=True)
     return ArtifactRoutes(default=backend, routes=routes)
 
@@ -1105,7 +1017,6 @@ def create_dcode_player(
         _refuse_launch(
             "already-imported dcode profile differs; start a new process for this run",
             profile,
-            [],
         )
     # dcode's auxiliary summarizer otherwise defaults to five extra retries for
     # prebuilt models. A shallow copy preserves the factory-owned clients and
@@ -1155,15 +1066,11 @@ def create_dcode_player(
         extension_registry=registry,
         environ=dcode_environment,
     )
-    after = _inventory(config, context)
-    _validate_launch(config)
-    if before != after:
-        _refuse("discovery sources changed during graph construction")
     if config.lock_profile_identity is not None:
         _lock_profile(profile, config.lock_profile_identity)
     tools = sorted(graph.nodes["tools"].bound.tools_by_name)
     evidence = {
-        "discovery": after,
+        "discovery": before,
         "required_skill_reads": [dict(item) for item in required],
         "model": settings,
         "tools": tools,

@@ -412,17 +412,19 @@ def test_an_existing_open_shell_folder_is_made_owner_only(tmp_path: Path) -> Non
         assert (folder.stat().st_mode & 0o777) == 0o700, folder
 
 
-def test_a_shell_folder_owned_by_another_user_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_shell_folder_owned_by_another_user_is_logged_and_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
+    # 26 October 2026 (step 2, census GKF-014): advice, not a refusal.
     worktree = _factory_worktree(tmp_path)
     toolchain = _scratch(worktree) / "toolchain"
     (toolchain / "SHELL-HOME").mkdir(parents=True)
     real_uid = os.geteuid()
     monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
 
-    with pytest.raises(ValueError, match="another user"):
-        shell_home(worktree)
+    with caplog.at_level("WARNING"):
+        assert shell_home(worktree) == (toolchain / "SHELL-HOME").resolve()
+    assert "belongs to another user" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -501,15 +503,17 @@ def test_what_the_builder_leaves_is_not_seen_by_the_checker(tmp_path: Path) -> N
     assert _detected_changes(worktree) == {"modified": [], "created": []}
 
 
-def test_an_unknown_shell_role_is_refused_before_anything_is_made(
-    tmp_path: Path,
+def test_an_unknown_shell_role_uses_the_shared_folders(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
+    # 26 October 2026 (step 2, census GKF-021): advice, not a refusal.
     worktree = _factory_worktree(tmp_path)
     toolchain = _scratch(worktree) / "toolchain"
 
-    with pytest.raises(ValueError, match="shell role"):
-        build_autobuild_backend(worktree, shell_role="reviewer")
-    assert not toolchain.exists()
+    with caplog.at_level("WARNING"):
+        env = build_autobuild_backend(worktree, shell_role="reviewer").default._env
+    assert env["HOME"] == str((toolchain / "SHELL-HOME").resolve())
+    assert "shell role 'reviewer'" in caplog.text
     assert sorted(p.name for p in worktree.iterdir()) == [".git", "README.md"]
 
 
@@ -537,19 +541,19 @@ def test_a_reused_fallback_folder_opened_up_is_made_owner_only_again(
 
 
 @pytest.mark.parametrize("name", ["HOME", "TMPDIR"])
-def test_a_reused_fallback_folder_of_another_owner_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str
+def test_a_reused_fallback_folder_of_another_owner_is_logged_and_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
+    name: str,
 ) -> None:
     worktree = tmp_path / "plain"
     worktree.mkdir()
-    build_autobuild_backend(worktree, shell_role="builder")
+    first = build_autobuild_backend(worktree, shell_role="builder").default._env
     real_uid = os.geteuid()
     monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
 
     finder = shell_home if name == "HOME" else shell_tmpdir
-    with pytest.raises(ValueError, match="another user"):
-        finder(worktree, "builder")
-    with pytest.raises(ValueError, match="another user"):
-        build_autobuild_backend(worktree, shell_role="builder")
+    with caplog.at_level("WARNING"):
+        assert str(finder(worktree, "builder")) == first[name]
+    assert "belongs to another user" in caplog.text
     monkeypatch.undo()
     backend_config._remove_temporary_model_artifacts()

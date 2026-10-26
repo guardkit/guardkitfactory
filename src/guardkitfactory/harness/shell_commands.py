@@ -28,16 +28,17 @@ words, naming the command and how many processes, and the command's own
 output says so too, so the agent knows that a server or watcher must be
 started and used within one command.
 
-A factory launch runs no command until the real clean-up has passed an
-END-TO-END SELF-TEST in this process (:func:`_self_test`, cached on success):
-a tiny command leaves a process in a session of its own, is stopped exactly as
-any command is, and the process must be gone. That proves the ``/proc``
-listing and record reads, ``waitid`` and the pidfd calls together. Any of
-those failing later, mid-run, ends that command with a plain error (the group
-by its pinned number, the rest through pidfds) instead of falling back to a
-reduced or silently empty clean-up. A person's own run keeps the reduced
-clean-up, with a warning. (Codex review, 20 October 2026; the same rule as
-GuardKit's runner.)
+On a factory launch the real clean-up first runs an END-TO-END SELF-TEST in
+this process (:func:`_self_test`, once, remembered): a tiny command leaves a
+process in a session of its own, is stopped exactly as any command is, and the
+process must be gone. That proves the ``/proc`` listing and record reads,
+``waitid`` and the pidfd calls together. When it passes, any of those failing
+later, mid-run, ends that command with a plain error (the group by its pinned
+number, the rest through pidfds) instead of falling back to a reduced or
+silently empty clean-up. When it fails (26 October 2026, step 2) the reason is
+logged once and the commands run with the reduced clean-up a person's own run
+has: a missing system capability is advice, not a reason to run no command.
+(Codex review, 20 October 2026.)
 
 Two rules keep the stop safe (Codex review, 19 October 2026), the same as
 GuardKit's runner for project commands (``guardkit.orchestrator.process_group``):
@@ -93,8 +94,8 @@ __all__ = [
     "COMMAND_MARKER_NAME",
     "CleanupUnavailableError",
     "cleanup_capability_missing",
+    "full_cleanup",
     "is_factory_launch",
-    "refusal_for_factory_launch",
     "CommandSessionShellBackend",
     "stop_command_processes",
 ]
@@ -151,9 +152,9 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
     except (FileNotFoundError, ProcessLookupError):
         return None  # gone, or never there
     except OSError as exc:
-        # A record that cannot be read is not an absent process: on a factory
-        # launch the command cannot be watched safely.
-        if is_factory_launch():
+        # A record that cannot be read is not an absent process: with the full
+        # clean-up the command cannot be watched safely.
+        if full_cleanup():
             raise _cleanup_failure(
                 f"a process record in /proc could not be read ({exc.strerror or exc})",
                 before_launch=False,
@@ -183,7 +184,7 @@ def _carries_marker(pid: int, marker: bytes) -> bool:
     except OSError as exc:
         if isinstance(exc, PermissionError) and not _could_be_this_commands(pid):
             return False
-        if is_factory_launch():
+        if full_cleanup():
             raise _cleanup_failure(
                 f"a process's environment in /proc could not be read "
                 f"({exc.strerror or exc})",
@@ -406,9 +407,10 @@ def _cleanup_failure(reason: str, *, before_launch: bool) -> CleanupUnavailableE
     return error
 
 
-#: The self-test's success, once per process (a later failure mid-run ends
-#: that command, so a stale success is safe).
-_SELF_TEST_PASSED: list[bool] = []
+#: The self-test's outcome, once per process: ``None`` when it passed (a later
+#: failure mid-run ends that command, so a stale success is safe), else the
+#: reason it failed.
+_SELF_TEST_OUTCOME: list[str | None] = []
 _SELF_TEST_LOCK = threading.Lock()
 _IN_SELF_TEST = threading.local()
 
@@ -625,27 +627,37 @@ def _self_test() -> str | None:
         shutil.rmtree(folder, ignore_errors=True)
 
 
-def refusal_for_factory_launch() -> str | None:
-    """The plain sentence refusing a factory launch's commands, or ``None``.
+def full_cleanup() -> bool:
+    """Whether this process's commands get the full clean-up.
 
-    A factory build must leave nothing running (19 and 20 October 2026). On
-    a factory launch the real clean-up must have passed its end-to-end
-    self-test in this process (run once, cached on success only); any
-    failure later, mid-run, ends that command. A person's own run keeps the
-    reduced clean-up, with a warning.
+    True on a factory launch whose clean-up passed its end-to-end self-test in
+    this process (run on first need, once, remembered), and inside the
+    self-test itself; then a clean-up failure mid-run ends that command. A
+    person's own run, and a factory launch whose self-test failed, get the
+    reduced clean-up instead. The failure is logged once, in plain words
+    (26 October 2026, step 2: it was a refusal of every command).
     """
-    if getattr(_IN_SELF_TEST, "active", False) or not is_factory_launch():
-        return None
-    if _SELF_TEST_PASSED:
-        return None
-    with _SELF_TEST_LOCK:
-        if _SELF_TEST_PASSED:
-            return None
-        reason = _self_test()
-        if reason is None:
-            _SELF_TEST_PASSED.append(True)
-            return None
-    return _cleanup_failure(reason, before_launch=True).strerror
+    if getattr(_IN_SELF_TEST, "active", False):
+        return True
+    if not is_factory_launch():
+        return False
+    if not _SELF_TEST_OUTCOME:
+        with _SELF_TEST_LOCK:
+            if not _SELF_TEST_OUTCOME:
+                _IN_SELF_TEST.active = True
+                try:
+                    reason = _self_test()
+                finally:
+                    _IN_SELF_TEST.active = False
+                _SELF_TEST_OUTCOME.append(reason)
+                if reason is not None:
+                    logger.warning(
+                        "Shell commands run with the reduced clean-up: %s, so what a "
+                        "command leaves running may not all be stopped. %s",
+                        reason,
+                        _ADVICE,
+                    )
+    return _SELF_TEST_OUTCOME[0] is None
 
 
 _WARNED: list[bool] = []
@@ -773,9 +785,9 @@ class _Command:
         try:
             names = [entry.name for entry in _PROC.iterdir()]
         except OSError as exc:
-            # A listing that cannot be made is not an empty one: on a factory
-            # launch it ends the command; on a person's own run it is said.
-            if is_factory_launch():
+            # A listing that cannot be made is not an empty one: with the full
+            # clean-up it ends the command; otherwise it is said.
+            if full_cleanup():
                 raise _cleanup_failure(
                     f"/proc could not be listed ({exc.strerror or exc})",
                     before_launch=False,
@@ -847,9 +859,9 @@ class _Command:
 
 
 def _refusal_mid_run(reason: str, cause: OSError) -> None:
-    """On a factory launch a refused pidfd call ends the command; on a
-    person's own run the process is reported as not stopped."""
-    if is_factory_launch():
+    """With the full clean-up a refused pidfd call ends the command;
+    otherwise the process is reported as not stopped."""
+    if full_cleanup():
         raise _cleanup_failure(reason, before_launch=False) from cause
 
 
@@ -1101,10 +1113,7 @@ class CommandSessionShellBackend(LocalShellBackend):
             msg = f"timeout must be positive, got {effective_timeout}"
             raise ValueError(msg)
 
-        refusal = refusal_for_factory_launch()
-        if refusal is not None:
-            return ExecuteResponse(output=f"Error: {refusal}", exit_code=1, truncated=False)
-        if not is_factory_launch():
+        if not full_cleanup():
             missing = cleanup_capability_missing()
             if missing is not None:
                 _warn_reduced_cleanup_once(missing)
@@ -1116,9 +1125,9 @@ class CommandSessionShellBackend(LocalShellBackend):
     ) -> tuple[ExecuteResponse, Exception | None]:
         """Run ``command`` and stop what it leaves; return the answer and the
         failure, if any, that ended it (the self-test reads the failure)."""
-        # A person's own run only: a factory launch never takes the reduced
-        # path (its self-test proved waitid; a refusal later ends the command).
-        if is_factory_launch():
+        # The reduced path is never taken with the full clean-up (its
+        # self-test proved waitid; a refusal later ends the command).
+        if full_cleanup():
             # Fresh before every command, even after a cached self-test
             # success: one cheap call on this process itself. A refusal
             # refuses the command before it starts.
@@ -1131,7 +1140,7 @@ class CommandSessionShellBackend(LocalShellBackend):
                     ),
                     refusal,
                 )
-        reduced = not is_factory_launch() and not _can_wait_without_collecting()
+        reduced = not full_cleanup() and not _can_wait_without_collecting()
         marker = uuid.uuid4().hex
         env = dict(self._env)
         env[COMMAND_MARKER_NAME] = marker

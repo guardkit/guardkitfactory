@@ -156,7 +156,6 @@ from __future__ import annotations
 
 import atexit
 import dataclasses
-import errno
 import logging
 import os
 import re
@@ -178,11 +177,7 @@ from deepagents.backends.protocol import (
     WriteResult,
 )
 
-from guardkitfactory.harness.shell_commands import (
-    CleanupUnavailableError,
-    CommandSessionShellBackend,
-    refusal_for_factory_launch,
-)
+from guardkitfactory.harness.shell_commands import CommandSessionShellBackend
 
 logger = logging.getLogger(__name__)
 
@@ -463,6 +458,10 @@ class PathConfinedBackend:
         protected_directories: set[Path] = set()
         protected_file_aliases: set[Path] = set()
         protected_directory_aliases: set[Path] = set()
+        # 26 October 2026 (step 2): a declared path that protects nothing is
+        # a note, not a refusal. One that does not exist yet, lies outside
+        # the worktree (writes there are refused anyway) or is neither a file
+        # nor a folder is logged and skipped.
         for raw in protected_paths:
             candidate = Path(raw)
             if not candidate.is_absolute():
@@ -470,10 +469,20 @@ class PathConfinedBackend:
             lexical = self._absolute_path(candidate)
             try:
                 resolved = candidate.resolve(strict=True)
-            except (OSError, RuntimeError) as exc:
-                raise ValueError(f"protected path does not exist: {raw}") from exc
+            except (OSError, RuntimeError):
+                logger.info(
+                    "AutoBuild declared-path protection: %s does not exist; "
+                    "it protects nothing",
+                    raw,
+                )
+                continue
             if not resolved.is_relative_to(worktree):
-                raise ValueError(f"protected path escapes the worktree: {raw}")
+                logger.warning(
+                    "AutoBuild declared-path protection: %s is outside the "
+                    "worktree; skipped",
+                    raw,
+                )
+                continue
             if resolved.is_dir():
                 protected_directories.add(resolved)
                 protected_directory_aliases.add(lexical)
@@ -481,11 +490,19 @@ class PathConfinedBackend:
                 protected_files.add(resolved)
                 protected_file_aliases.add(lexical)
             else:
-                raise ValueError(f"protected path is not a file or directory: {raw}")
+                logger.warning(
+                    "AutoBuild declared-path protection: %s is neither a file "
+                    "nor a folder; skipped",
+                    raw,
+                )
         self._protected_files = frozenset(protected_files)
         self._protected_directories = frozenset(protected_directories)
         self._protected_file_aliases = frozenset(protected_file_aliases)
         self._protected_directory_aliases = frozenset(protected_directory_aliases)
+        # Files this backend created inside a protected folder. They did not
+        # exist when the backend was built, so they stay the builder's to
+        # change and delete.
+        self._created: set[Path] = set()
 
     def __getattr__(self, name: str) -> Any:
         # Only reached for attributes NOT defined on this class — i.e. every
@@ -562,6 +579,29 @@ class PathConfinedBackend:
             )
         )
 
+    def _refuses_protected(
+        self, file_path: str, resolved: Path, *, recursive: bool = False
+    ) -> bool:
+        """Whether changing ``file_path`` would change an existing protected file.
+
+        26 October 2026 (step 2): only existing files are protected. A path
+        that does not exist yet (a new file inside a protected folder) and a
+        file this backend created are not refused.
+        """
+        alias = self._absolute_path(file_path)
+        if not (resolved.exists() or os.path.lexists(alias)):
+            return False
+        if resolved in self._created:
+            return False
+        return self._protects_declared_path(resolved, alias=alias, recursive=recursive)
+
+    def _note_created(self, file_path: str, resolved: Path, result: Any) -> None:
+        """Remember a new file written inside a protected folder."""
+        if getattr(result, "error", None):
+            return
+        if self._protects_declared_path(resolved, alias=self._absolute_path(file_path)):
+            self._created.add(resolved)
+
     def _reject_protected(self, op: str, file_path: str) -> str:
         logger.warning(
             "AutoBuild declared-path protection: rejected %s of '%s'",
@@ -601,30 +641,30 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
-        if self._protects_declared_path(
-            self._resolve_path(file_path), alias=self._absolute_path(file_path)
-        ):
+        resolved = self._resolve_path(file_path)
+        if self._refuses_protected(file_path, resolved):
             return WriteResult(error=self._reject_protected("overwrite", file_path))
-        return self._inner.write(file_path, content)
+        result = self._inner.write(file_path, content)
+        self._note_created(file_path, resolved, result)
+        return result
 
     async def awrite(self, file_path: str, content: str) -> Any:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return WriteResult(error=self._reject("write", file_path, escaped))
-        if self._protects_declared_path(
-            self._resolve_path(file_path), alias=self._absolute_path(file_path)
-        ):
+        resolved = self._resolve_path(file_path)
+        if self._refuses_protected(file_path, resolved):
             return WriteResult(error=self._reject_protected("overwrite", file_path))
-        return await self._inner.awrite(file_path, content)
+        result = await self._inner.awrite(file_path, content)
+        self._note_created(file_path, resolved, result)
+        return result
 
     # -- edit -------------------------------------------------------------
     def edit(self, file_path: str, *args: Any, **kwargs: Any) -> Any:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
-        if self._protects_declared_path(
-            self._resolve_path(file_path), alias=self._absolute_path(file_path)
-        ):
+        if self._refuses_protected(file_path, self._resolve_path(file_path)):
             return EditResult(error=self._reject_protected("edit", file_path))
         return self._inner.edit(file_path, *args, **kwargs)
 
@@ -632,9 +672,7 @@ class PathConfinedBackend:
         escaped = self._resolve_outside(file_path)
         if escaped is not None:
             return EditResult(error=self._reject("edit", file_path, escaped))
-        if self._protects_declared_path(
-            self._resolve_path(file_path), alias=self._absolute_path(file_path)
-        ):
+        if self._refuses_protected(file_path, self._resolve_path(file_path)):
             return EditResult(error=self._reject_protected("edit", file_path))
         return await self._inner.aedit(file_path, *args, **kwargs)
 
@@ -688,10 +726,9 @@ class PathConfinedBackend:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
             )
-        if self._protects_declared_path(
-            resolved, alias=self._absolute_path(file_path), recursive=True
-        ):
+        if self._refuses_protected(file_path, resolved, recursive=True):
             return DeleteResult(error=self._reject_protected("delete", file_path))
+        self._created.discard(resolved)
         return self._inner.delete(file_path)
 
     async def adelete(self, file_path: str) -> Any:
@@ -708,10 +745,9 @@ class PathConfinedBackend:
             return DeleteResult(
                 error=f"Error: refusing to delete allowed root '{resolved}'."
             )
-        if self._protects_declared_path(
-            resolved, alias=self._absolute_path(file_path), recursive=True
-        ):
+        if self._refuses_protected(file_path, resolved, recursive=True):
             return DeleteResult(error=self._reject_protected("delete", file_path))
+        self._created.discard(resolved)
         return await self._inner.adelete(file_path)
 
     # -- execute (unconfined passthrough) ----------------------------------
@@ -883,10 +919,10 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
 def _ensure_private_directory(directory: Path, label: str) -> Path:
     """Create ``directory`` (mode 0700) or reuse it; refuse anything else.
 
-    An existing folder must belong to this process's user and is set to mode
-    0700 if it is not already (19 October 2026, through
-    :func:`ensure_owner_only_directory`); a symlink, a non-folder or another
-    user's folder is refused with ``ValueError``.
+    An existing folder is set to mode 0700 if it is not already (19 October
+    2026, through :func:`ensure_owner_only_directory`; another user's folder
+    is logged since 26 October); a symlink or a non-folder is refused with
+    ``ValueError``.
 
     Two backends built at once for one new worktree may both find it missing;
     the one that loses the ``mkdir`` race reuses the folder the other made
@@ -924,13 +960,14 @@ def _ensure_private_directory(directory: Path, label: str) -> Path:
 
 
 def ensure_owner_only_directory(directory: Path, label: str) -> Path:
-    """Make an existing ``directory`` readable by its owner alone, or refuse.
+    """Make an existing ``directory`` readable by its owner alone.
 
     14 October 2026: for the folders holding the coding model's transcripts.
-    The folder is opened without following a symlink, must belong to this
-    process's user, and is set to mode 0700 if it is not already. Anything
-    else (a symlink, not a directory, another owner, a failed change) raises
-    ``ValueError``.
+    The folder is opened without following a symlink; a symlink or a
+    non-directory raises ``ValueError`` (a link could send the transcripts
+    into the project). It is set to mode 0700 if it is not already. Another
+    user's folder, or a mode that cannot be changed, is logged and the folder
+    is used as it is (26 October 2026, step 2).
     """
     try:
         descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -941,19 +978,15 @@ def ensure_owner_only_directory(directory: Path, label: str) -> Path:
     try:
         status = os.fstat(descriptor)
         if status.st_uid != os.geteuid():
-            raise ValueError(
-                f"AutoBuild {label} belongs to another user: {directory}"
-            )
-        if stat.S_IMODE(status.st_mode) != 0o700:
+            logger.warning("AutoBuild %s belongs to another user: %s", label, directory)
+        elif stat.S_IMODE(status.st_mode) != 0o700:
             os.fchmod(descriptor, 0o700)
             if stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o700:
-                raise ValueError(
-                    f"AutoBuild {label} could not be made private: {directory}"
-                )
+                logger.warning("AutoBuild %s could not be made private: %s", label, directory)
     except OSError as exc:
-        raise ValueError(
-            f"AutoBuild {label} could not be made private: {directory}"
-        ) from exc
+        logger.warning(
+            "AutoBuild %s could not be made private: %s (%s)", label, directory, exc
+        )
     finally:
         os.close(descriptor)
     return directory
@@ -1034,10 +1067,11 @@ def model_artifacts_root(worktree: Path) -> Path:
     the same one for that worktree for the rest of the process, removed when
     the process exits.
 
-    Every time, the folder is made owner-only (mode 0700, owned by this
-    user) and returned resolved. ``model-artifacts`` itself being a symlink,
-    not a folder, another user's or impossible to make private, or a folder
-    inside the project, refuses construction with ``ValueError``.
+    Every time, the folder is made owner-only (mode 0700) where it can be
+    (another user's, or a mode that cannot be changed, is logged) and
+    returned resolved. ``model-artifacts`` itself being a symlink, not a
+    folder, or a folder inside the project, refuses construction with
+    ``ValueError``.
     """
     try:
         from guardkit.orchestrator.paths import prepare_builder_scratch_dir
@@ -1093,13 +1127,12 @@ _LAUNCH_CREDENTIAL_WORDS = (
 )
 
 
-def _launch_name_refusal(name: object) -> str | None:
-    """``None`` for a name a project may declare, else why not."""
-    # fullmatch: ``$`` in a ``match`` would also accept a trailing newline.
-    if not isinstance(name, str) or not _LAUNCH_NAME_RE.fullmatch(name):
-        return "is not a variable name"
-    if len(name) > _LAUNCH_MAX_NAME_LENGTH:
-        return f"is longer than {_LAUNCH_MAX_NAME_LENGTH} characters"
+def _launch_name_refusal(name: str) -> str | None:
+    """``None`` for a name a project may declare, else why not.
+
+    Reserved and credential-shaped names are the safety fence: the factory's
+    own settings, model keys and credentials never reach project commands.
+    """
     upper = name.upper()
     if upper.startswith(_LAUNCH_RESERVED_PREFIXES) or upper in _LAUNCH_RESERVED_NAMES:
         return "is reserved for the factory itself"
@@ -1111,16 +1144,18 @@ def _launch_name_refusal(name: object) -> str | None:
 def _launch_names(
     launch_environment: Mapping[str, Sequence[str]] | None,
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Return ``(settings, scratch)`` names, refusing anything malformed.
+    """Return ``(settings, scratch)`` names, at the point they reach the shell.
 
-    GuardKit validates the project's declaration first; this is the second
-    check, at the point the names reach the shell.
+    A reserved or credential-shaped name refuses construction (the safety
+    fence). Anything else malformed (an unknown key, a value that is not a
+    list, a name that is not a variable name or is too long) is logged and
+    left out (26 October 2026, step 2).
     """
     if not launch_environment:
         return (), ()
     unknown = sorted(set(launch_environment) - _LAUNCH_KEYS)
     if unknown:
-        raise ValueError(f"AutoBuild launch environment has unknown keys: {unknown}")
+        logger.warning("AutoBuild launch environment keys ignored: %s", unknown)
     lists = []
     for key in ("settings", "scratch"):
         raw = launch_environment.get(key)
@@ -1128,24 +1163,41 @@ def _launch_names(
             raw = ()
         if not isinstance(raw, (list, tuple)):
             # A string would otherwise be read letter by letter.
-            raise ValueError(
-                f"AutoBuild launch {key} must be a list of names, "
-                f"not {type(raw).__name__}"
+            logger.warning(
+                "AutoBuild launch %s is a %s, not a list of names; ignored",
+                key,
+                type(raw).__name__,
             )
-        names = tuple(raw)
-        for name in names:
+            raw = ()
+        names = []
+        for name in raw:
+            # fullmatch: ``$`` in a ``match`` would also accept a trailing newline.
+            if (
+                not isinstance(name, str)
+                or not _LAUNCH_NAME_RE.fullmatch(name)
+                or len(name) > _LAUNCH_MAX_NAME_LENGTH
+            ):
+                logger.warning(
+                    "AutoBuild launch %s name %r is not a variable name of at most "
+                    "%d characters; ignored",
+                    key,
+                    name,
+                    _LAUNCH_MAX_NAME_LENGTH,
+                )
+                continue
             refusal = _launch_name_refusal(name)
             if refusal is not None:
                 raise ValueError(f"AutoBuild launch {key} name {name!r} {refusal}")
-        lists.append(names)
+            names.append(name)
+        lists.append(tuple(names))
     return lists[0], lists[1]
 
 
 def _no_launch_scratch_folder(scratch: Sequence[str]) -> str:
     return (
         "The project declares launch scratch folders "
-        f"({', '.join(scratch)}) but this shell has no scratch folder, so it "
-        "cannot be built. Nothing is put inside the project instead."
+        f"({', '.join(scratch)}) but this shell has no scratch folder, so they "
+        "are not set; nothing is put inside the project instead."
     )
 
 
@@ -1160,8 +1212,10 @@ def _apply_launch_environment(
     A name never replaces one this module sets itself. A declared setting is
     copied from this process's environment only when set there. Each scratch
     name is set to ``<scratch_root>/toolchain/<NAME>``, a private folder made
-    on demand; with no scratch folder construction fails, because the only
-    other place a tool's cache could go is inside the project.
+    on demand. A scratch name the backend sets itself, and every scratch name
+    when there is no scratch folder, is logged and not set: the tool then
+    uses its default under the shell's private ``HOME``, outside the project
+    (26 October 2026, step 2).
     """
     own = set(env) | {"PYTHONPATH"}
     for name in settings:
@@ -1175,15 +1229,19 @@ def _apply_launch_environment(
         value = os.environ.get(name)
         if value is not None:
             env[name] = value
-    if not scratch:
-        return
     clashing = sorted(set(scratch) & own)
     if clashing:
-        raise ValueError(
-            f"AutoBuild launch scratch names are set by the backend itself: {clashing}"
+        logger.warning(
+            "AutoBuild launch scratch names %s are set by the backend itself; "
+            "not set again",
+            clashing,
         )
+    scratch = [name for name in scratch if name not in own]
+    if not scratch:
+        return
     if scratch_root is None:
-        raise ValueError(_no_launch_scratch_folder(scratch))
+        logger.warning(_no_launch_scratch_folder(scratch))
+        return
     base = _ensure_private_directory(
         scratch_root / _LAUNCH_SCRATCH_SUBDIR, "launch scratch folder"
     )
@@ -1259,9 +1317,12 @@ def _shell_folder_name(kind: str, role: str | None) -> str:
     if role is None:
         return kind
     if role not in SHELL_ROLES:
-        raise ValueError(
-            f"AutoBuild shell role {role!r} is not one of {', '.join(SHELL_ROLES)}"
+        logger.warning(
+            "AutoBuild shell role %r is not one of %s; the shared folder is used",
+            role,
+            ", ".join(SHELL_ROLES),
         )
+        return kind
     return f"{role}-{kind}"
 
 
@@ -1414,10 +1475,13 @@ def build_autobuild_backend(
             sibling symlink — see :func:`_allowed_write_roots`) that
             ``write``/``edit`` may target. ``None`` (the default) confines
             writes to the worktree + sibling-symlink policy roots.
-        protected_paths: Existing project-declared files or directories that
-            the Player may read but may not write, edit, or delete. Relative
-            paths resolve from ``worktree``. Missing, escaping, or invalid
-            declarations fail construction instead of weakening protection.
+        protected_paths: Project-declared files or directories whose
+            existing files the Player may read but may not overwrite, edit or
+            delete. Creating a new file inside a protected folder is allowed,
+            and a file the backend created stays changeable (26 October 2026).
+            Relative paths resolve from ``worktree``. A declared path that
+            does not exist, lies outside the worktree or is neither a file nor
+            a folder is logged and skipped: it protects nothing.
         scratch_root: 3 October 2026. A folder outside the project where the
             builder may write throwaway scripts (guardkit passes one inside
             the worktree's git directory). It is created if missing, added to
@@ -1431,14 +1495,15 @@ def build_autobuild_backend(
             [...]}``. Each setting is copied from this process's environment
             when set there; each scratch name is set to
             ``<scratch_root>/toolchain/<NAME>``, created private on demand.
-            Declared scratch names with no usable ``scratch_root`` fail
-            construction (no fallback into the worktree).
+            Declared scratch names with no usable ``scratch_root`` are logged
+            and not set (never a folder in the worktree). A reserved or
+            credential-shaped name refuses construction.
             ``None`` keeps the environment exactly as before.
         launch_scratch_root: The folder declared scratch names resolve under
             when this shell has no ``scratch_root`` of its own (guardkit passes
             the worktree's scratch folder for the Coach and specialists). Held
-            to the same checks as ``scratch_root``, failing construction when
-            refused, but NOT added to the allowed write roots: the caches are
+            to the same checks as ``scratch_root`` (one refused is not used),
+            but NOT added to the allowed write roots: the caches are
             written by shell commands, which write confinement does not cover,
             so the file tools gain no write access.
         read_only: 13 October 2026. When True, the backend is wrapped in a
@@ -1453,8 +1518,8 @@ def build_autobuild_backend(
             ``"specialist"`` otherwise). Each role gets its own private
             ``HOME`` and ``TMPDIR`` (:func:`shell_home`,
             :func:`shell_tmpdir`), so the builder's shell cannot change what
-            the checker's shell runs. ``None`` keeps the shared folders. Any
-            other value refuses construction.
+            the checker's shell runs. ``None`` keeps the shared folders, and
+            so does any other value, with a warning.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -1464,9 +1529,6 @@ def build_autobuild_backend(
     """
     worktree = Path(worktree)
     launch_settings, launch_scratch = _launch_names(launch_environment)
-    if launch_scratch and scratch_root is None and launch_scratch_root is None:
-        # Refused before anything is created in the worktree.
-        raise ValueError(_no_launch_scratch_folder(launch_scratch))
     if not worktree.is_dir():
         raise ValueError(f"AutoBuild worktree is not an existing folder: {worktree}")
     # Outside the project, so no temporary file lands in it (19 October 2026).
@@ -1496,19 +1558,21 @@ def build_autobuild_backend(
             scratch_root = checked_scratch_folder(Path(scratch_root))
         except ValueError as exc:
             # A convenience, not a safeguard: without it the build still runs
-            # and a scratch write is refused like any other outside write.
-            # Not so when the project's declared caches need it.
-            if launch_scratch:
-                raise
+            # and a scratch write is refused like any other outside write;
+            # declared scratch names are then not set (26 October 2026).
             logger.warning("%s; continuing without a scratch folder.", exc)
             scratch_root = None
         else:
             extra_write_roots = [*(extra_write_roots or []), scratch_root]
     # Where declared scratch names resolve: the shell's own scratch folder,
-    # else the one handed over for that alone (never a write root).
+    # else the one handed over for that alone (never a write root). One that
+    # is refused is not used.
     launch_base = scratch_root
     if launch_base is None and launch_scratch and launch_scratch_root is not None:
-        launch_base = checked_scratch_folder(Path(launch_scratch_root))
+        try:
+            launch_base = checked_scratch_folder(Path(launch_scratch_root))
+        except ValueError as exc:
+            logger.warning("%s; declared scratch names are not set.", exc)
 
     env: dict[str, str] = {
         "PATH": _AUTOBUILD_PATH,
@@ -1531,12 +1595,6 @@ def build_autobuild_backend(
     # settings, so a project that declares ``CI`` keeps its own value.
     env.setdefault("CI", "true")
     env = _finish_shell_environment(env, launch_scratch)
-
-    # 19 October 2026: a factory build's shell must be able to stop
-    # everything its commands leave; refused before anything runs.
-    refusal = refusal_for_factory_launch()
-    if refusal is not None and not read_only:
-        raise CleanupUnavailableError(errno.ENOSYS, refusal)
 
     # 19 October 2026: DeepAgents' backend, except that a command leaves no
     # processes running behind it (``shell_commands``).

@@ -547,13 +547,14 @@ class LangGraphHarnessError(RuntimeError):
 
 
 class PlayerLaunchRefused(LangGraphHarnessError):
-    """The dcode Player's run profile failed its launch integrity check.
+    """A dcode Player launch condition fixed for this process was not met.
 
-    Nothing reached the model, and every later turn would be refused the same
-    way, so the orchestrator stops the task instead of treating this as an
-    implementation failure. ``entries`` lists each unexpected profile entry by
-    relative path, file type, size and SHA-256 (never its contents) so the
-    file, and the invocation that wrote it, can be traced.
+    These are the safety settings (offline, no tracing, the local model) and
+    the run profile's selection (never the owner's own settings). Nothing
+    reached the model, and every later turn would be refused the same way, so
+    the orchestrator stops the task instead of treating this as an
+    implementation failure. The run profile's contents are advice since
+    26 October 2026 and never raise this.
 
     GuardKit does not depend on this package. It recognises the refusal by the
     stable ``failure_kind`` value rather than by importing this class.
@@ -561,16 +562,9 @@ class PlayerLaunchRefused(LangGraphHarnessError):
 
     failure_kind = "agent_launch_refused"
 
-    def __init__(
-        self,
-        message: str,
-        *,
-        profile: str,
-        entries: tuple[dict[str, Any], ...] | list[dict[str, Any]],
-    ) -> None:
+    def __init__(self, message: str, *, profile: str) -> None:
         super().__init__(message)
         self.profile = profile
-        self.entries = tuple(dict(entry) for entry in entries)
 
 
 @dataclass(frozen=True)
@@ -878,20 +872,33 @@ class LangGraphHarness(HarnessAdapter):
         """
 
         config = self.player_config
+        # 26 October 2026 (step 2): a finalization request for any graph but
+        # the read-only reviewer's is not applied, and a tool-round budget
+        # outside 1 to 14 is brought inside it; each is logged, not refused.
         if self.specialist_finalization is not None:
             if role != "coach" or allowed_tools is None:
-                raise LangGraphHarnessError("Specialist finalization requires the read-only reviewer graph")
-            budget = self.specialist_finalization.get("tool_round_budget", 14)
-            if isinstance(budget, bool) or not isinstance(budget, int) or not 1 <= budget <= 14:
-                raise LangGraphHarnessError("Specialist tool-round budget must be between 1 and 14")
-
-            self.specialist_finalization.clear()
-            self.specialist_finalization.update(tool_round_budget=budget, step_cap=self.recursion_limit,
-                                               actual_tool_rounds=0, forced_finalization=False, completion="absent")
+                logger.warning(
+                    "Specialist finalization applies only to the read-only reviewer "
+                    "graph; not applied for role=%r",
+                    role,
+                )
+            else:
+                budget = self.specialist_finalization.get("tool_round_budget", 14)
+                if isinstance(budget, bool) or not isinstance(budget, int):
+                    logger.warning("Specialist tool-round budget %r is not a whole number; 14 used", budget)
+                    budget = 14
+                elif not 1 <= budget <= 14:
+                    logger.warning("Specialist tool-round budget %d brought within 1 to 14", budget)
+                    budget = min(max(budget, 1), 14)
+                self.specialist_finalization.clear()
+                self.specialist_finalization.update(tool_round_budget=budget, step_cap=self.recursion_limit,
+                                                   actual_tool_rounds=0, forced_finalization=False, completion="absent")
         if role != "player":
             if config is not None:
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: player_config may only be used for role='player'"
+                logger.warning(
+                    "LangGraphHarness: player_config is for role='player' only; "
+                    "ignored for role=%r",
+                    role,
                 )
             # Only the Coach's tool-using pass gets the read-only code search
             # tools (12 October 2026); every other role stays on the built-ins,
@@ -962,17 +969,20 @@ class LangGraphHarness(HarnessAdapter):
         )
 
     @staticmethod
-    def _player_terminal_message(result: Any) -> AIMessage:
-        """Return the last actual AIMessage without falling back to older text."""
+    def _player_terminal_message(result: Any) -> AIMessage | None:
+        """Return the last actual AIMessage without falling back to older text.
+
+        ``None`` (logged) when the run holds no assistant message at all: the
+        turn still ends normally, and its files are what the checks read
+        (26 October 2026, step 2).
+        """
 
         messages = result.get("messages", []) if isinstance(result, dict) else []
         for message in reversed(messages):
             if isinstance(message, AIMessage):
                 return message
-        raise LangGraphHarnessError(
-            "LangGraphHarness: Player returned no terminal AIMessage",
-            raw_result=result,
-        )
+        logger.warning("LangGraphHarness: Player returned no terminal assistant message")
+        return None
 
     @staticmethod
     def _player_terminal_metadata(
@@ -1049,17 +1059,16 @@ class LangGraphHarness(HarnessAdapter):
 
         model = self.model
         routing_configured = feature_routing_is_configured()
-        if routing_configured:
-            if isinstance(model, BaseChatModel):
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: feature routing cannot use a caller-owned "
-                    "prebuilt model"
-                )
-            if not is_supported_routed_model(model):
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: feature routing requires a supported local "
-                    "openai:<model> transport"
-                )
+        # 26 October 2026 (step 2): routing is bookkeeping. A model whose
+        # requests cannot carry the routing header is logged and used.
+        if routing_configured and (
+            isinstance(model, BaseChatModel) or not is_supported_routed_model(model)
+        ):
+            logger.warning(
+                "LangGraphHarness: feature routing is configured, but this model's "
+                "requests will not carry the routing header (%r)",
+                model,
+            )
         if role == "player" and "GUARDKIT_PLAYER_MODEL_LIMITS" in os.environ:
             from guardkitfactory.harness.model_config import resolve_player_model_limits
 
@@ -1321,20 +1330,23 @@ class LangGraphHarness(HarnessAdapter):
             terminal_message: AIMessage | None = None
             if self.player_config is not None:
                 terminal_message = self._player_terminal_message(result)
-                text, stop_reason, usage, reasoning_text = (
-                    self._player_terminal_metadata(terminal_message)
-                )
+                if terminal_message is None:
+                    text, stop_reason, usage, reasoning_text = "", None, None, None
+                else:
+                    text, stop_reason, usage, reasoning_text = (
+                        self._player_terminal_metadata(terminal_message)
+                    )
+                # 26 October 2026 (step 2): the edits are what matter. An empty
+                # or cut-off final answer is logged and the turn ends as usual.
                 if not text.strip():
-                    raise LangGraphHarnessError(
-                        "LangGraphHarness: Player returned an empty "
-                        "terminal assistant answer",
-                        raw_result=result,
+                    logger.warning(
+                        "LangGraphHarness: Player returned an empty terminal "
+                        "assistant answer"
                     )
                 if stop_reason is not None and stop_reason.casefold() == "length":
-                    raise LangGraphHarnessError(
-                        "LangGraphHarness: Player terminal answer was "
-                        "truncated (finish_reason='length')",
-                        raw_result=result,
+                    logger.warning(
+                        "LangGraphHarness: Player terminal answer was cut off "
+                        "(finish_reason='length')"
                     )
                 from guardkitfactory.harness.skill_read_middleware import (
                     SelectedSkillReadMiddleware,
@@ -1547,13 +1559,18 @@ class LangGraphHarness(HarnessAdapter):
             _extras["chat_template_kwargs"] = {"enable_thinking": False}
         extra_body: dict[str, Any] | None = _extras or None
 
-        routing_configured = feature_routing_is_configured()
+        # 26 October 2026 (step 2): routing is bookkeeping. A synthesis model
+        # whose requests cannot carry the routing header is logged and used.
+        if feature_routing_is_configured() and (
+            isinstance(self.model, BaseChatModel)
+            or not is_supported_routed_model(self.model)
+        ):
+            logger.warning(
+                "LangGraphHarness: feature routing is configured, but the synthesis "
+                "model's requests will not carry the routing header (%r)",
+                self.model,
+            )
         if isinstance(self.model, BaseChatModel):
-            if routing_configured:
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: feature routing cannot use a caller-owned "
-                    "prebuilt synthesis model"
-                )
             # Injected local ChatOpenAI instances need the same transport
             # normalisation as Player/Coach graph models. Resolve without a
             # role here so a caller-provided synthesis budget stays intact.
@@ -1569,12 +1586,6 @@ class LangGraphHarness(HarnessAdapter):
                         sorted(extra_body), type(self.model).__name__, exc,
                     )
             return model
-
-        if routing_configured and not is_supported_routed_model(self.model):
-            raise LangGraphHarnessError(
-                "LangGraphHarness: feature routing requires a supported local "
-                "openai:<model> synthesis transport"
-            )
 
         # Production string-alias path: build a chat-completions ChatOpenAI.
         from guardkitfactory.harness.model_config import _bare_model_name

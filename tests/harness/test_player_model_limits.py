@@ -1,4 +1,4 @@
-"""Bounded Player limits: strict refusal and required dcode HTTP parity."""
+"""Bounded Player limits: the local-model fence, guides as advice, and dcode HTTP parity."""
 
 from __future__ import annotations
 
@@ -72,12 +72,25 @@ def isolated(monkeypatch):
         ],
     ],
 )
-def test_invalid_carrier_refuses_before_construction(monkeypatch, raw):
+def test_a_malformed_carrier_is_advice_and_the_limits_still_apply(monkeypatch, caplog, raw):
+    # 26 October 2026 (step 2, census GKF-063 to GKF-066): the setting is a guide.
     monkeypatch.setenv(ENV, raw)
-    with patch.object(model_config, "_resolve_model_for_transport") as construct:
-        with pytest.raises(LangGraphHarnessError, match="explicit Player model limits refused"):
-            LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
-    construct.assert_not_called()
+    with caplog.at_level("WARNING", logger=model_config.__name__):
+        result = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert isinstance(result, ChatOpenAI)
+    assert result.model_name == "workhorse"
+    assert type(result.max_tokens) is int and result.max_tokens > 0
+    assert result.profile["max_input_tokens"] > 0
+    assert "GUARDKIT_PLAYER_MODEL_LIMITS:" in caplog.text
+
+
+def test_other_numbers_from_the_carrier_are_used(monkeypatch):
+    monkeypatch.setenv(
+        ENV, json.dumps({**LIMITS, "context_tokens": 65536, "output_tokens": 4096})
+    )
+    result = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert result.max_tokens == 4096
+    assert result.profile["max_input_tokens"] == 65536
 
 
 @pytest.mark.parametrize(
@@ -250,13 +263,9 @@ def test_absent_carrier_retains_baseline():
         {"model_name": "other"},
         {"openai_api_base": "http://other/v1"},
         {"use_responses_api": True},
-        {"profile": {"max_input_tokens": 64000}},
-        {"profile": {"max_output_tokens": 1234}},
-        {"max_tokens": 1234},
-        {"extra_body": {"max_completion_tokens": 1234}},
     ],
 )
-def test_resolved_conflicts_refuse(monkeypatch, changes):
+def test_a_resolved_model_that_is_not_the_local_client_is_refused(monkeypatch, changes):
     monkeypatch.setenv(ENV, json.dumps(LIMITS))
     model = ChatOpenAI(
         model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
@@ -266,6 +275,32 @@ def test_resolved_conflicts_refuse(monkeypatch, changes):
     with patch.object(model_config, "_resolve_model_for_transport", return_value=model):
         with pytest.raises(LangGraphHarnessError):
             LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"profile": {"max_input_tokens": 64000}},
+        {"profile": {"max_output_tokens": 1234}},
+        {"max_tokens": 1234},
+        {"extra_body": {"max_completion_tokens": 1234}},
+    ],
+)
+def test_conflicting_model_settings_are_advice_and_the_limits_apply(
+    monkeypatch, caplog, changes
+):
+    monkeypatch.setenv(ENV, json.dumps(LIMITS))
+    model = ChatOpenAI(
+        model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
+    )
+    for key, value in changes.items():
+        setattr(model, key, value)
+    with patch.object(model_config, "_resolve_model_for_transport", return_value=model):
+        with caplog.at_level("WARNING", logger=model_config.__name__):
+            result = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert result.max_tokens == 8192
+    assert result.profile["max_input_tokens"] == 131072
+    assert "GUARDKIT_PLAYER_MODEL_LIMITS:" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -293,15 +328,17 @@ def test_resolved_conflicts_refuse(monkeypatch, changes):
         ("extra_body", {"chat_template_kwargs": {"enable_reasoning": False}}),
     ],
 )
-def test_thinking_control_conflicts_refuse(monkeypatch, attribute, value):
+def test_thinking_control_conflicts_are_advice(monkeypatch, caplog, attribute, value):
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
     model = ChatOpenAI(
         model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
     )
     setattr(model, attribute, value)
     with patch.object(model_config, "_resolve_model_for_transport", return_value=model):
-        with pytest.raises(LangGraphHarnessError):
-            LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+        with caplog.at_level("WARNING", logger=model_config.__name__):
+            result = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert result.max_tokens == 8192
+    assert "GUARDKIT_PLAYER_MODEL_LIMITS:" in caplog.text
 
 
 def test_thinking_setting_preserves_unrelated_extra_body_with_copy_isolation(monkeypatch):
@@ -331,7 +368,7 @@ def test_thinking_setting_preserves_unrelated_extra_body_with_copy_isolation(mon
     assert original_template_kwargs == {"add_generation_prompt": True}
 
 
-def test_profile_preserved_and_assignment_failure_refuses(monkeypatch):
+def test_profile_preserved_and_assignment_failure_is_advice(monkeypatch, caplog):
     monkeypatch.setenv(ENV, json.dumps(LIMITS))
     model = ChatOpenAI(
         model="workhorse",
@@ -351,22 +388,23 @@ def test_profile_preserved_and_assignment_failure_refuses(monkeypatch):
             original(self, name, value)
 
         with patch.object(ChatOpenAI, "__setattr__", fail):
-            with pytest.raises(LangGraphHarnessError, match="assignment failed"):
+            with caplog.at_level("WARNING", logger=model_config.__name__):
                 LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+        assert "could not all be set" in caplog.text
 
 
 @pytest.mark.parametrize(
     ("mode", "message"),
     [
-        ("raise", "assignment failed"),
-        ("ignore", "not retained"),
-        ("zero", "not retained"),
-        ("zero_float", "not retained"),
-        ("mutate_true", "not retained"),
-        ("mutate_delete", "not retained"),
+        ("raise", "could not all be set"),
+        ("ignore", "not all retained"),
+        ("zero", "not all retained"),
+        ("zero_float", "not all retained"),
+        ("mutate_true", "not all retained"),
+        ("mutate_delete", "not all retained"),
     ],
 )
-def test_thinking_assignment_failure_is_refused(monkeypatch, mode, message):
+def test_thinking_assignment_failure_is_advice(monkeypatch, caplog, mode, message):
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS))
     model = ChatOpenAI(
         model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
@@ -396,9 +434,10 @@ def test_thinking_assignment_failure_is_refused(monkeypatch, mode, message):
     with (
         patch.object(model_config, "_resolve_model_for_transport", return_value=model),
         patch.object(ChatOpenAI, "__setattr__", intercept),
+        caplog.at_level("WARNING", logger=model_config.__name__),
     ):
-        with pytest.raises(LangGraphHarnessError, match=message):
-            LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+        LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert message in caplog.text
 
 
 
@@ -598,6 +637,11 @@ def test_dcode_failure_and_cancellation_cleanup(monkeypatch, tmp_path, outcome):
                 with pytest.raises(asyncio.CancelledError):
                     await task
                 assert settled.is_set()
+            elif outcome == "empty_terminal":
+                # 26 October 2026 (step 2, census GKF-123): an empty final
+                # answer is logged and the turn ends as usual.
+                events = await task
+                assert any(isinstance(event, ResultMessageEvent) for event in events)
             else:
                 with pytest.raises(LangGraphHarnessError):
                     await task
@@ -608,7 +652,7 @@ def test_dcode_failure_and_cancellation_cleanup(monkeypatch, tmp_path, outcome):
     asyncio.run(run())
 
 
-def test_silent_limit_assignment_is_refused(monkeypatch):
+def test_silent_limit_assignment_is_advice(monkeypatch, caplog):
     monkeypatch.setenv(ENV, json.dumps(LIMITS))
     model = ChatOpenAI(
         model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
@@ -622,9 +666,10 @@ def test_silent_limit_assignment_is_refused(monkeypatch):
     with (
         patch.object(model_config, "_resolve_model_for_transport", return_value=model),
         patch.object(ChatOpenAI, "__setattr__", ignore),
+        caplog.at_level("WARNING", logger=model_config.__name__),
     ):
-        with pytest.raises(LangGraphHarnessError, match="not retained"):
-            LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+        LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert "not all retained" in caplog.text
 
 
 def test_player_limits_path_builds_reasoning_replay_model(monkeypatch):

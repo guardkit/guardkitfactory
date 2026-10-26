@@ -258,8 +258,11 @@ def test_player_revalidates_sources_and_backend_worktree(tmp_path: Path) -> None
     selected = _player_config(repo)
     (repo / "AGENTS.md").unlink()
     missing = LangGraphHarness(object(), backend=_backend(repo), player_config=selected)
-    with pytest.raises(LangGraphHarnessError, match="does not exist"):
+    # 26 October 2026 (step 2, census GKF-071): a source that went is left
+    # out; what stops this turn is a launch fence further on, not the source.
+    with pytest.raises(LangGraphHarnessError, match="dcode Player") as caught:
         asyncio.run(_collect(missing, repo))
+    assert "does not exist" not in str(caught.value)
 
     restored = _scaffold(tmp_path, "restored")
     selected = _player_config(restored, tmp_path / "restored-profile")
