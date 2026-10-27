@@ -190,79 +190,24 @@ class _AllowedToolsMiddleware(AgentMiddleware):
     error tool message the model can read, and is not run.
     """
 
-    def __init__(self, *, allowed: frozenset[str], finalization=None) -> None:
+    def __init__(self, *, allowed: frozenset[str]) -> None:
         super().__init__()
         self.allowed = frozenset(allowed)
-        self.finalization = finalization
-        self._executed_tool_steps: set[int] = set()
 
     def _filter(self, request: Any) -> Any:
         tools = [tool for tool in request.tools if _tool_name(tool) in self.allowed]
-        if self.finalization is not None:
-            from langchain_core.messages import SystemMessage
-            from langgraph.config import get_config
-            rounds = len(self._executed_tool_steps)
-            try:
-                step = get_config().get("metadata", {}).get("langgraph_step", 0)
-            except RuntimeError:
-                step = 0
-            self.finalization["actual_tool_rounds"] = rounds
-            out_of_rounds = rounds >= self.finalization["tool_round_budget"]
-            forced = out_of_rounds or step >= self.finalization["step_cap"] - 6
-            if forced:
-                self.finalization.update(
-                    forced_finalization=True,
-                    completion="incomplete",
-                    ending_reason="tool budget" if out_of_rounds else "graph headroom",
-                )
-                prompt = request.system_message.content if request.system_message else ""
-                return request.override(
-                    tools=[],
-                    tool_choice="none",
-                    system_message=SystemMessage(
-                        content=str(prompt)
-                        + "\nReturn the final review now. No more tools. For each criterion "
-                        "state met / not met / cannot tell. Identify unreviewed scope "
-                        "explicitly. Verdict: incomplete is permitted. Do not claim full "
-                        "coverage."
-                    ),
-                )
         return request.override(tools=tools)
 
-    def _finish(self, response):
-        if self.finalization is not None:
-            forced = self.finalization.get("forced_finalization", False)
-            messages = response.result
-            if forced and any(isinstance(m, AIMessage) and m.tool_calls for m in messages):
-                from langchain.agents.middleware.types import ModelResponse
-                self.finalization["ending_reason"] = "tool request after finalization"
-                return ModelResponse(
-                    result=[
-                        AIMessage(
-                            content=(
-                                "Verdict: incomplete. The review stopped at its tool budget. "
-                                "Remaining criteria: cannot tell; source coverage is incomplete."
-                            )
-                        )
-                    ]
-                )
-            asks_for_tools = any(isinstance(m, AIMessage) and m.tool_calls for m in messages)
-            self.finalization["completion"] = (
-                "incomplete" if forced else ("in_progress" if asks_for_tools else "complete")
-            )
-            self.finalization["coverage"] = "incomplete" if forced else "unverified"
-        return response
-
     def wrap_model_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
-        return self._finish(handler(self._filter(request)))
+        return handler(self._filter(request))
 
     async def awrap_model_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
-        return self._finish(await handler(self._filter(request)))
+        return await handler(self._filter(request))
 
     def _refusal(self, request: Any) -> ToolMessage | None:
         call = request.tool_call
         name = call.get("name")
-        if name in self.allowed and not (self.finalization or {}).get("forced_finalization"):
+        if name in self.allowed:
             return None
         return ToolMessage(
             content=(
@@ -275,27 +220,16 @@ class _AllowedToolsMiddleware(AgentMiddleware):
             status="error",
         )
 
-    def _record_tool_round(self):
-        if self.finalization is not None:
-            from langgraph.config import get_config
-            # Every tool in a batch shares the graph step. Keep this outside
-            # message history so summarization cannot reset the round count.
-            step = get_config()["metadata"]["langgraph_step"]
-            self._executed_tool_steps.add(step)
-            self.finalization["actual_tool_rounds"] = len(self._executed_tool_steps)
-
     def wrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
         refusal = self._refusal(request)
         if refusal is not None:
             return refusal
-        self._record_tool_round()
         return handler(request)
 
     async def awrap_tool_call(self, request: Any, handler: Callable[[Any], Any]) -> Any:
         refusal = self._refusal(request)
         if refusal is not None:
             return refusal
-        self._record_tool_round()
         return await handler(request)
 
 
@@ -787,7 +721,6 @@ class LangGraphHarness(HarnessAdapter):
         backend: Any = None,
         permissions: list[Any] | None = None,
         recursion_limit: int | None = _RECURSION_LIMIT_DEFAULT,
-        specialist_finalization: dict[str, Any] | None = None,
         on_model_activity: Callable[[], None] | None = None,
         on_native_tool_event: Callable[[NativeToolEvent], None] | None = None,
         player_config: PlayerConfig | None = None,
@@ -811,7 +744,6 @@ class LangGraphHarness(HarnessAdapter):
         # langgraph 1.2.11; 9,999 bound by DeepAgents). The Coach gather passes a small
         # value to bound its tool-using loop; see module-level constant.
         self.recursion_limit = recursion_limit
-        self.specialist_finalization = specialist_finalization
         # TASK-FIX-CTOUT01: handle to the in-flight ``agent.ainvoke``
         # asyncio Task, exposed for cooperative cancellation by
         # :meth:`cancel`. Set inside :meth:`invoke` after
@@ -848,22 +780,6 @@ class LangGraphHarness(HarnessAdapter):
         """
 
         config = self.player_config
-        # The read-only reviewer's tool-round limit: at most 14 rounds (the
-        # default when none is given). Other graphs have no such limit.
-        if self.specialist_finalization is not None:
-            if role == "coach" and allowed_tools is not None:
-                budget = self.specialist_finalization.get("tool_round_budget", 14)
-                if isinstance(budget, bool) or not isinstance(budget, int):
-                    budget = 14
-                budget = min(max(budget, 1), 14)
-                self.specialist_finalization.clear()
-                self.specialist_finalization.update(
-                    tool_round_budget=budget,
-                    step_cap=self.recursion_limit,
-                    actual_tool_rounds=0,
-                    forced_finalization=False,
-                    completion="absent",
-                )
         if role != "player":
             # Only the Coach's tool-using pass gets the read-only code search
             # tools (12 October 2026); every other role stays on the built-ins,
@@ -890,11 +806,7 @@ class LangGraphHarness(HarnessAdapter):
                 return create_deep_agent(
                     model=resolved_model,
                     tools=extra_tools,
-                    middleware=[
-                        _AllowedToolsMiddleware(
-                            allowed=allowed_tools, finalization=self.specialist_finalization
-                        )
-                    ],
+                    middleware=[_AllowedToolsMiddleware(allowed=allowed_tools)],
                     backend=self.backend,
                     permissions=self.permissions,
                     system_prompt=_read_only_system_prompt_for_role(role, offered),
@@ -1279,19 +1191,7 @@ class LangGraphHarness(HarnessAdapter):
                         self._player_terminal_metadata(terminal_message)
                     )
             else:
-                if self.specialist_finalization is not None:
-                    # Empty final review is absent. Never reuse a prior tool
-                    # preamble or the human prompt as the reviewer's evidence.
-                    terminal = [m for m in result.get("messages", [])
-                                if isinstance(m, AIMessage) and not m.tool_calls]
-                    text = extract_last_ai_message({"messages": terminal[-1:]}) or ""
-                    if not text.strip():
-                        forced = self.specialist_finalization.get("forced_finalization")
-                        self.specialist_finalization["completion"] = (
-                            "incomplete" if forced else "absent"
-                        )
-                else:
-                    text = extract_last_ai_message(result) or ""
+                text = extract_last_ai_message(result) or ""
                 stop_reason = "end_turn"
                 usage = None
             # TASK-FIX-COACHBUDG01 (2026-06-06): surface reasoning_content
