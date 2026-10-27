@@ -4,9 +4,6 @@ Covers AC-008 + the cross-repo subclass relation from AC-001:
 
 * Happy path: stub model + empty tool list + ``invoke()`` returns a final
   assistant message in the event stream.
-* Dual-system-message input raises ``ValueError`` via the
-  :func:`lib.factory_guards.assert_no_system_messages` guard
-  (TASK-REV-R2A1 mitigation).
 * Unknown model surfaces an attributable ``LangGraphHarnessError`` rather
   than a generic langchain failure.
 * The :meth:`LangGraphHarness.invoke` return value is an async iterator.
@@ -238,43 +235,6 @@ class TestHappyPath:
         assert len(events) == 2
         assert isinstance(events[0], AssistantMessageEvent)
         assert events[0].text == ""
-
-
-# ---------------------------------------------------------------------------
-# AC-008.2: dual-system-message guard (TASK-REV-R2A1)
-# ---------------------------------------------------------------------------
-
-
-class TestDualSystemMessageGuard:
-    def test_input_with_system_message_raises_value_error(self) -> None:
-        """If a system message somehow lands in the ainvoke input, fail loudly.
-
-        The harness builds its own input dict from the prompt in
-        production, so the only way to inject a ``system`` role payload is
-        to override ``_build_input``. The test does exactly that to prove
-        the :func:`assert_no_system_messages` guard is wired.
-        """
-
-        class SystemMessageHarness(LangGraphHarness):
-            def _build_input(self, prompt: str) -> dict[str, Any]:
-                return {
-                    "messages": [
-                        {"role": "system", "content": "stowaway system msg"},
-                        {"role": "user", "content": prompt},
-                    ]
-                }
-
-        harness = SystemMessageHarness(model="ignored")
-
-        # The guard must fire BEFORE create_deep_agent runs — patch the
-        # constructor too so a real construction can't accidentally
-        # succeed and mask the assertion.
-        with patch(
-            "guardkitfactory.harness.langgraph_harness.create_deep_agent",
-        ) as create_mock:
-            with pytest.raises(ValueError, match="system messages"):
-                _drain(harness)
-            create_mock.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

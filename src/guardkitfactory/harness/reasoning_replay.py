@@ -18,13 +18,12 @@ giving it reasoning would change its behaviour.
 The overrides wrap three private ``ChatOpenAI`` methods of the pinned
 langchain-openai version (``pyproject.toml``); tests run the real library
 code. A reply or request whose messages cannot be paired is sent without the
-earlier thinking, with a warning (26 October 2026, step 2): the replay is a
+earlier thinking: the replay is a
 speed-up, never a reason to fail a turn.
 """
 
 from __future__ import annotations
 
-import logging
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -36,8 +35,6 @@ from langchain_openai.chat_models.base import ChatOpenAI
 REASONING_KEY = "reasoning_content"
 # LiteLLM returns ``reasoning_content``; vLLM reached directly returns ``reasoning``.
 _RESPONSE_KEYS = ("reasoning_content", "reasoning")
-
-logger = logging.getLogger(__name__)
 
 
 def _reasoning_text(source: Any) -> str | None:
@@ -78,12 +75,8 @@ class ReasoningReplayChatOpenAI(ChatOpenAI):  # type: ignore[override]
         result = super()._create_chat_result(response, generation_info)
         raw_messages = _response_messages(response)
         if len(raw_messages) != len(result.generations):
-            logger.warning(
-                "reply has %d choices but langchain-openai built %d generations; "
-                "its thinking is not kept",
-                len(raw_messages),
-                len(result.generations),
-            )
+            # Nothing pairs the reply's choices with its generations; the
+            # reply goes without its thinking.
             return result
         for generation, raw in zip(result.generations, raw_messages, strict=True):
             text = _reasoning_text(raw)
@@ -106,12 +99,8 @@ class ReasoningReplayChatOpenAI(ChatOpenAI):  # type: ignore[override]
             return payload
         messages: Sequence[BaseMessage] = self._convert_input(input_).to_messages()
         if len(entries) != len(messages):
-            logger.warning(
-                "langchain-openai built %d request messages from %d input messages; "
-                "earlier thinking is not sent back",
-                len(entries),
-                len(messages),
-            )
+            # Nothing pairs the request with its input; it goes without the
+            # earlier thinking.
             return payload
         for entry, message in zip(entries, messages, strict=True):
             if not isinstance(message, AIMessage) or entry.get("role") != "assistant":

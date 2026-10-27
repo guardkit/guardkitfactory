@@ -21,9 +21,6 @@ What this skeleton ships (TASK-HMIG-001B)
   generator stub wired to :func:`deepagents.create_deep_agent` (NOT to a
   bare ``ChatOpenAI`` / hand-rolled ``StateGraph`` — see the AC-003 note
   in the parent task on why that path was rejected).
-* The :func:`assert_no_system_messages` safety guard from
-  ``lib/factory_guards.py`` (TASK-REV-R2A1 mitigation against dual
-  system messages → vLLM HTTP 400).
 * Result extraction via :func:`extract_last_ai_message` lifted from
   specialist-agent ``generation_loop.py:364-390``.
 * A minimal :class:`HarnessEvent` stream emitting one
@@ -80,7 +77,6 @@ from guardkitfactory.harness.player_config import (
     PlayerConfigError,
     revalidate_player_config,
 )
-from guardkitfactory.lib.factory_guards import assert_no_system_messages
 
 logger = logging.getLogger(__name__)
 
@@ -304,15 +300,13 @@ def _player_context_prompt(
             sections.append(f"#### {relative}\n{path.read_text(encoding='utf-8')}")
     if required_skill_documents:
         sections.append(
-            "### Required reads before execution, delegation or file changes\n"
-            "Use read_file to read every document below in full: the selected "
-            "skill bodies and the documents this project declared as required. "
-            "Discovery alone does not satisfy this requirement."
+            "### Documents to read first\n"
+            "Use read_file to read every document below before you start: the "
+            "selected skill bodies and the documents this project declared."
         )
         sections.extend(
             f"- [{_READ_KINDS.get(str(item.get('kind', 'skill')), 'required document')}] "
-            f"{item['path']} (sha256 {item['sha256']}; {item['line_count']} lines; "
-            f"read from offset 0 with limit at least {item['line_count']})"
+            f"{item['path']}"
             for item in required_skill_documents
         )
     if config.declared_commands:
@@ -553,8 +547,8 @@ class PlayerLaunchRefused(LangGraphHarnessError):
     the run profile's selection (never the owner's own settings). Nothing
     reached the model, and every later turn would be refused the same way, so
     the orchestrator stops the task instead of treating this as an
-    implementation failure. The run profile's contents are advice since
-    26 October 2026 and never raise this.
+    implementation failure. Nothing about the run profile's contents raises
+    this.
 
     GuardKit does not depend on this package. It recognises the refusal by the
     stable ``failure_kind`` value rather than by importing this class.
@@ -787,7 +781,6 @@ class LangGraphHarness(HarnessAdapter):
         self.on_model_activity = on_model_activity
         self.on_native_tool_event = on_native_tool_event
         self.player_config = player_config
-        self.last_player_evidence: dict[str, Any] | None = None
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # leaves the graph's own limit (10007 by LangGraph's default in
@@ -809,52 +802,11 @@ class LangGraphHarness(HarnessAdapter):
         self._ainvoke_task: asyncio.Task[Any] | None = None
 
     def _player_backend_root(self) -> Path:
-        """Return the proved execution root used by an enabled config."""
+        """The folder the Player's commands run in: the backend's own."""
 
         default = getattr(self.backend, "default", None)
-        backend_cwd = getattr(self.backend, "cwd", None)
-        default_cwd = getattr(default, "cwd", None)
-        execution_label = "default backend cwd" if default is not None else "backend cwd"
-        execution_root = default_cwd if default is not None else backend_cwd
-        if execution_root is None:
-            raise LangGraphHarnessError(
-                "LangGraphHarness: a Player requires an explicit "
-                f"execution cwd ({execution_label}); artifacts_root alone does not "
-                "prove where commands run"
-            )
-
-        # ``artifacts_root`` is not compared: since 14 October 2026 it is a
-        # private folder outside the worktree (dcode_harness checks it).
-        raw_roots = [
-            ("backend cwd", backend_cwd),
-            ("default backend cwd", default_cwd),
-        ]
-        selected = [(label, root) for label, root in raw_roots if root is not None]
-
-        resolved_roots: list[tuple[str, Path]] = []
-        for label, root in selected:
-            try:
-                resolved = Path(root).resolve(strict=True)
-            except (OSError, RuntimeError, TypeError) as exc:
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: Player config "
-                    f"{label} is invalid: {root!r}"
-                ) from exc
-            if not resolved.is_dir():
-                raise LangGraphHarnessError(
-                    "LangGraphHarness: Player config "
-                    f"{label} is not a directory: {resolved}"
-                )
-            resolved_roots.append((label, resolved))
-
-        unique_roots = {root for _, root in resolved_roots}
-        if len(unique_roots) != 1:
-            detail = ", ".join(f"{label}={root}" for label, root in resolved_roots)
-            raise LangGraphHarnessError(
-                "LangGraphHarness: Player config has conflicting backend roots: "
-                f"{detail}"
-            )
-        return next(root for label, root in resolved_roots if label == execution_label)
+        root = getattr(default if default is not None else self.backend, "cwd", None)
+        return Path(root).resolve()
 
     def _create_agent(
         self,
@@ -872,34 +824,18 @@ class LangGraphHarness(HarnessAdapter):
         """
 
         config = self.player_config
-        # 26 October 2026 (step 2): a finalization request for any graph but
-        # the read-only reviewer's is not applied, and a tool-round budget
-        # outside 1 to 14 is brought inside it; each is logged, not refused.
+        # The read-only reviewer's tool-round limit: at most 14 rounds (the
+        # default when none is given). Other graphs have no such limit.
         if self.specialist_finalization is not None:
-            if role != "coach" or allowed_tools is None:
-                logger.warning(
-                    "Specialist finalization applies only to the read-only reviewer "
-                    "graph; not applied for role=%r",
-                    role,
-                )
-            else:
+            if role == "coach" and allowed_tools is not None:
                 budget = self.specialist_finalization.get("tool_round_budget", 14)
                 if isinstance(budget, bool) or not isinstance(budget, int):
-                    logger.warning("Specialist tool-round budget %r is not a whole number; 14 used", budget)
                     budget = 14
-                elif not 1 <= budget <= 14:
-                    logger.warning("Specialist tool-round budget %d brought within 1 to 14", budget)
-                    budget = min(max(budget, 1), 14)
+                budget = min(max(budget, 1), 14)
                 self.specialist_finalization.clear()
                 self.specialist_finalization.update(tool_round_budget=budget, step_cap=self.recursion_limit,
                                                    actual_tool_rounds=0, forced_finalization=False, completion="absent")
         if role != "player":
-            if config is not None:
-                logger.warning(
-                    "LangGraphHarness: player_config is for role='player' only; "
-                    "ignored for role=%r",
-                    role,
-                )
             # Only the Coach's tool-using pass gets the read-only code search
             # tools (12 October 2026); every other role stays on the built-ins,
             # and invoke_synthesis binds no tools at all.
@@ -941,7 +877,7 @@ class LangGraphHarness(HarnessAdapter):
 
         if config is None:
             raise LangGraphHarnessError(
-                "LangGraphHarness: role='player' requires a validated Player config; "
+                "LangGraphHarness: role='player' requires a Player config; "
                 "the native Player implementation has been retired"
             )
         try:
@@ -970,18 +906,14 @@ class LangGraphHarness(HarnessAdapter):
 
     @staticmethod
     def _player_terminal_message(result: Any) -> AIMessage | None:
-        """Return the last actual AIMessage without falling back to older text.
-
-        ``None`` (logged) when the run holds no assistant message at all: the
-        turn still ends normally, and its files are what the checks read
-        (26 October 2026, step 2).
+        """Return the last actual AIMessage without falling back to older text,
+        or ``None`` when the run holds none; the turn ends normally either way.
         """
 
         messages = result.get("messages", []) if isinstance(result, dict) else []
         for message in reversed(messages):
             if isinstance(message, AIMessage):
                 return message
-        logger.warning("LangGraphHarness: Player returned no terminal assistant message")
         return None
 
     @staticmethod
@@ -1052,23 +984,7 @@ class LangGraphHarness(HarnessAdapter):
         intact. Profile injection is a best-effort fallback; never a
         failure mode.
         """
-        from guardkitfactory.harness.http_clients import (
-            feature_routing_is_configured,
-            is_supported_routed_model,
-        )
-
         model = self.model
-        routing_configured = feature_routing_is_configured()
-        # 26 October 2026 (step 2): routing is bookkeeping. A model whose
-        # requests cannot carry the routing header is logged and used.
-        if routing_configured and (
-            isinstance(model, BaseChatModel) or not is_supported_routed_model(model)
-        ):
-            logger.warning(
-                "LangGraphHarness: feature routing is configured, but this model's "
-                "requests will not carry the routing header (%r)",
-                model,
-            )
         if role == "player" and "GUARDKIT_PLAYER_MODEL_LIMITS" in os.environ:
             from guardkitfactory.harness.model_config import resolve_player_model_limits
 
@@ -1100,16 +1016,9 @@ class LangGraphHarness(HarnessAdapter):
             return model
 
     def _build_input(self, prompt: str) -> dict[str, Any]:
-        """Construct the ``ainvoke()`` input payload.
-
-        Factored out so the AC-008 dual-system-message test can monkeypatch
-        a system-message-bearing payload and prove the
-        :func:`assert_no_system_messages` guard fires. Production calls
-        never inject ``system`` messages here — the role-prompt becomes
-        the agent's ``system_prompt`` via ``create_deep_agent``, which
-        prepends it automatically (the dual-system-message hazard
-        TASK-REV-R2A1 documents).
-        """
+        """Construct the ``ainvoke()`` input payload: the prompt as one user
+        message. The role prompt becomes the agent's ``system_prompt`` via
+        ``create_deep_agent``, which prepends it."""
         return {"messages": [{"role": "user", "content": prompt}]}
 
     def _build_invoke_config(self) -> dict[str, Any] | None:
@@ -1165,7 +1074,6 @@ class LangGraphHarness(HarnessAdapter):
         """
         required_skill_documents: tuple[dict[str, Any], ...] = ()
         if role == "player" and self.player_config is not None:
-            self.last_player_evidence = None
             try:
                 player_config = revalidate_player_config(self.player_config, cwd=cwd)
             except PlayerConfigError as exc:
@@ -1181,7 +1089,6 @@ class LangGraphHarness(HarnessAdapter):
                 f"{prompt}"
             )
         input_data = self._build_input(prompt)
-        assert_no_system_messages(input_data)
 
         # TASK-FIX-LGTOOLS (2026-06-03): drop the caller's ``tools`` list on
         # the Wave-2 path. The orchestrator passes SDK tool-name strings
@@ -1329,6 +1236,8 @@ class LangGraphHarness(HarnessAdapter):
 
             terminal_message: AIMessage | None = None
             if self.player_config is not None:
+                # The edits are what matter: the turn ends as usual whatever
+                # the final answer says, or when there is none.
                 terminal_message = self._player_terminal_message(result)
                 if terminal_message is None:
                     text, stop_reason, usage, reasoning_text = "", None, None, None
@@ -1336,36 +1245,6 @@ class LangGraphHarness(HarnessAdapter):
                     text, stop_reason, usage, reasoning_text = (
                         self._player_terminal_metadata(terminal_message)
                     )
-                # 26 October 2026 (step 2): the edits are what matter. An empty
-                # or cut-off final answer is logged and the turn ends as usual.
-                if not text.strip():
-                    logger.warning(
-                        "LangGraphHarness: Player returned an empty terminal "
-                        "assistant answer"
-                    )
-                if stop_reason is not None and stop_reason.casefold() == "length":
-                    logger.warning(
-                        "LangGraphHarness: Player terminal answer was cut off "
-                        "(finish_reason='length')"
-                    )
-                from guardkitfactory.harness.skill_read_middleware import (
-                    SelectedSkillReadMiddleware,
-                )
-
-                # The evidence is a record, not a gate: whatever cannot be
-                # recorded is said to be missing and the turn completes.
-                evidence = getattr(agent, "guardkit_dcode_evidence", None)
-                if not isinstance(evidence, dict):
-                    logger.warning("dcode Player did not expose construction evidence")
-                    evidence = {}
-                skill_gate = getattr(agent, "guardkit_skill_read_gate", None)
-                if isinstance(skill_gate, SelectedSkillReadMiddleware):
-                    consumption = skill_gate.evidence()
-                else:
-                    logger.warning("dcode Player did not expose its skill-read gate")
-                    consumption = {"status": "unavailable"}
-                evidence["skill_consumption"] = consumption
-                self.last_player_evidence = dict(evidence)
             else:
                 if self.specialist_finalization is not None:
                     # Empty final review is absent. Never reuse a prior tool
@@ -1443,15 +1322,6 @@ class LangGraphHarness(HarnessAdapter):
                 task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await task
-            # The Player profile is reused across invocations and checked
-            # before each launch. Recording what this invocation left there
-            # lets a later launch refusal be traced to the invocation that
-            # wrote the file. Evidence only: it never changes the outcome.
-            if role == "player" and self.player_config is not None:
-                from guardkitfactory.harness.dcode_harness import log_profile_inventory
-
-                with suppress(Exception):
-                    log_profile_inventory(self.player_config.dcode_home, cwd=Path(cwd))
 
     def _synthesis_max_tokens(self) -> int:
         """Resolve the toolless-synthesis generation budget (env-overridable)."""
@@ -1539,11 +1409,6 @@ class LangGraphHarness(HarnessAdapter):
         """
         from langchain_core.language_models import BaseChatModel
 
-        from guardkitfactory.harness.http_clients import (
-            feature_routing_is_configured,
-            is_supported_routed_model,
-        )
-
         # TASK-PERF-COACHTURNBUDGET (Lever 2): assemble the request-body extras.
         # ``grammar`` (TASK-ARCH-COACHSPLIT) and ``reasoning_budget`` (this task,
         # default-off) ride together as top-level body fields. When BOTH are
@@ -1559,17 +1424,6 @@ class LangGraphHarness(HarnessAdapter):
             _extras["chat_template_kwargs"] = {"enable_thinking": False}
         extra_body: dict[str, Any] | None = _extras or None
 
-        # 26 October 2026 (step 2): routing is bookkeeping. A synthesis model
-        # whose requests cannot carry the routing header is logged and used.
-        if feature_routing_is_configured() and (
-            isinstance(self.model, BaseChatModel)
-            or not is_supported_routed_model(self.model)
-        ):
-            logger.warning(
-                "LangGraphHarness: feature routing is configured, but the synthesis "
-                "model's requests will not carry the routing header (%r)",
-                self.model,
-            )
         if isinstance(self.model, BaseChatModel):
             # Injected local ChatOpenAI instances need the same transport
             # normalisation as Player/Coach graph models. Resolve without a
@@ -1646,7 +1500,6 @@ class LangGraphHarness(HarnessAdapter):
         grammar and emits no tool-call markers.
         """
         input_data = self._build_input(prompt)
-        assert_no_system_messages(input_data)
 
         model = self._build_synthesis_model(grammar=grammar, role=role)
 

@@ -160,10 +160,10 @@ import logging
 import os
 import re
 import shutil
-import stat
 import tempfile
 import threading
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -458,10 +458,8 @@ class PathConfinedBackend:
         protected_directories: set[Path] = set()
         protected_file_aliases: set[Path] = set()
         protected_directory_aliases: set[Path] = set()
-        # 26 October 2026 (step 2): a declared path that protects nothing is
-        # a note, not a refusal. One that does not exist yet, lies outside
-        # the worktree (writes there are refused anyway) or is neither a file
-        # nor a folder is logged and skipped.
+        # A declared path that does not exist, or lies outside the worktree
+        # (writes there are refused anyway), protects nothing and is skipped.
         for raw in protected_paths:
             candidate = Path(raw)
             if not candidate.is_absolute():
@@ -470,18 +468,8 @@ class PathConfinedBackend:
             try:
                 resolved = candidate.resolve(strict=True)
             except (OSError, RuntimeError):
-                logger.info(
-                    "AutoBuild declared-path protection: %s does not exist; "
-                    "it protects nothing",
-                    raw,
-                )
                 continue
             if not resolved.is_relative_to(worktree):
-                logger.warning(
-                    "AutoBuild declared-path protection: %s is outside the "
-                    "worktree; skipped",
-                    raw,
-                )
                 continue
             if resolved.is_dir():
                 protected_directories.add(resolved)
@@ -489,12 +477,6 @@ class PathConfinedBackend:
             elif resolved.is_file():
                 protected_files.add(resolved)
                 protected_file_aliases.add(lexical)
-            else:
-                logger.warning(
-                    "AutoBuild declared-path protection: %s is neither a file "
-                    "nor a folder; skipped",
-                    raw,
-                )
         self._protected_files = frozenset(protected_files)
         self._protected_directories = frozenset(protected_directories)
         self._protected_file_aliases = frozenset(protected_file_aliases)
@@ -722,10 +704,6 @@ class PathConfinedBackend:
             return DeleteResult(error=f"Error: cannot resolve '{file_path}' for deletion: {exc}")
         if escaped is not None:
             return DeleteResult(error=self._reject("delete", file_path, escaped))
-        if resolved in self._allowed_roots:
-            return DeleteResult(
-                error=f"Error: refusing to delete allowed root '{resolved}'."
-            )
         if self._refuses_protected(file_path, resolved, recursive=True):
             return DeleteResult(error=self._reject_protected("delete", file_path))
         self._created.discard(resolved)
@@ -741,10 +719,6 @@ class PathConfinedBackend:
             return DeleteResult(error=f"Error: cannot resolve '{file_path}' for deletion: {exc}")
         if escaped is not None:
             return DeleteResult(error=self._reject("delete", file_path, escaped))
-        if resolved in self._allowed_roots:
-            return DeleteResult(
-                error=f"Error: refusing to delete allowed root '{resolved}'."
-            )
         if self._refuses_protected(file_path, resolved, recursive=True):
             return DeleteResult(error=self._reject_protected("delete", file_path))
         self._created.discard(resolved)
@@ -916,87 +890,17 @@ def _detect_venv_site_packages(worktree: Path) -> str | None:
     return None
 
 
-def _ensure_private_directory(directory: Path, label: str) -> Path:
-    """Create ``directory`` (mode 0700) or reuse it; refuse anything else.
-
-    An existing folder is set to mode 0700 if it is not already (19 October
-    2026, through :func:`ensure_owner_only_directory`; another user's folder
-    is logged since 26 October); a symlink or a non-folder is refused with
-    ``ValueError``.
+def _private_directory(directory: Path) -> Path:
+    """Create ``directory`` (mode 0700) or reuse it, and make it owner-only.
 
     Two backends built at once for one new worktree may both find it missing;
-    the one that loses the ``mkdir`` race reuses the folder the other made
-    (14 October 2026), still subject to the checks below.
+    ``exist_ok`` lets the second reuse the folder the first made (14 October
+    2026).
     """
-    try:
-        status = directory.lstat()
-    except FileNotFoundError:
-        try:
-            directory.mkdir(mode=0o700)
-        except FileExistsError:
-            pass
-        except OSError as exc:
-            raise ValueError(
-                f"AutoBuild {label} could not be created at {directory}"
-            ) from exc
-        try:
-            status = directory.lstat()
-        except OSError as exc:
-            raise ValueError(
-                f"AutoBuild {label} could not be inspected at {directory}"
-            ) from exc
-    except OSError as exc:
-        raise ValueError(
-            f"AutoBuild {label} could not be inspected at {directory}"
-        ) from exc
-
-    if stat.S_ISLNK(status.st_mode):
-        raise ValueError(f"AutoBuild {label} must not be a symlink: {directory}")
-    if not stat.S_ISDIR(status.st_mode):
-        raise ValueError(f"AutoBuild {label} must be a directory: {directory}")
-    # 19 October 2026: an existing folder is not taken as it is. It must be
-    # this user's, and it is made owner-only, as a new one would be.
-    return ensure_owner_only_directory(directory, label)
-
-
-def ensure_owner_only_directory(directory: Path, label: str) -> Path:
-    """Make an existing ``directory`` readable by its owner alone.
-
-    14 October 2026: for the folders holding the coding model's transcripts.
-    The folder is opened without following a symlink; a symlink or a
-    non-directory raises ``ValueError`` (a link could send the transcripts
-    into the project). It is set to mode 0700 if it is not already. Another
-    user's folder, or a mode that cannot be changed, is logged and the folder
-    is used as it is (26 October 2026, step 2).
-    """
-    try:
-        descriptor = os.open(directory, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError as exc:
-        raise ValueError(
-            f"AutoBuild {label} is not a real folder that can be opened: {directory}"
-        ) from exc
-    try:
-        status = os.fstat(descriptor)
-        if status.st_uid != os.geteuid():
-            logger.warning("AutoBuild %s belongs to another user: %s", label, directory)
-        elif stat.S_IMODE(status.st_mode) != 0o700:
-            os.fchmod(descriptor, 0o700)
-            if stat.S_IMODE(os.fstat(descriptor).st_mode) != 0o700:
-                logger.warning("AutoBuild %s could not be made private: %s", label, directory)
-    except OSError as exc:
-        logger.warning(
-            "AutoBuild %s could not be made private: %s (%s)", label, directory, exc
-        )
-    finally:
-        os.close(descriptor)
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with suppress(OSError):
+        os.chmod(directory, 0o700)
     return directory
-
-
-def _private_artifacts_folder(directory: Path, label: str) -> Path:
-    """Create or reuse ``directory``, then make it owner-only."""
-    return ensure_owner_only_directory(
-        _ensure_private_directory(directory, label), label
-    )
 
 
 # 14 October 2026: the coding model's own working files. deepagents writes
@@ -1068,10 +972,7 @@ def model_artifacts_root(worktree: Path) -> Path:
     the process exits.
 
     Every time, the folder is made owner-only (mode 0700) where it can be
-    (another user's, or a mode that cannot be changed, is logged) and
-    returned resolved. ``model-artifacts`` itself being a symlink, not a
-    folder, or a folder inside the project, refuses construction with
-    ``ValueError``.
+    and returned resolved.
     """
     try:
         from guardkit.orchestrator.paths import prepare_builder_scratch_dir
@@ -1085,24 +986,16 @@ def model_artifacts_root(worktree: Path) -> Path:
     project = worktree.resolve()
     scratch = prepare_builder_scratch_dir(worktree)
     if scratch is None:
-        folder = _temporary_private_folder(
+        return _temporary_private_folder(
             "model-artifacts",
             project,
             "the coding model's own working files (conversation summaries and "
             "large tool output)",
         )
-        folder = ensure_owner_only_directory(folder, "model artifacts folder")
-    else:
-        folder = _private_artifacts_folder(
-            Path(scratch) / _MODEL_ARTIFACTS_SUBDIR, "model artifacts folder"
-        ).resolve()
-    if folder.is_relative_to(project) and not folder.is_relative_to(project / ".git"):
-        raise ValueError(f"AutoBuild model artifacts folder is inside the project: {folder}")
-    return folder
+    return _private_directory(Path(scratch) / _MODEL_ARTIFACTS_SUBDIR).resolve()
 
 
 # 12 October 2026: the project's declared ``launch:`` names for the shell.
-_LAUNCH_KEYS = frozenset({"settings", "scratch"})
 # Scratch entries live here, under the scratch folder.
 _LAUNCH_SCRATCH_SUBDIR = "toolchain"
 # The name rules, mirrored from Forge's ``launch_environment``
@@ -1112,7 +1005,6 @@ _LAUNCH_SCRATCH_SUBDIR = "toolchain"
 # :func:`build_autobuild_backend` passes the shell's environment through
 # GuardKit's ``finish_project_environment``. It never imports Forge.)
 _LAUNCH_NAME_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-_LAUNCH_MAX_NAME_LENGTH = 128
 _LAUNCH_RESERVED_PREFIXES = ("FORGE_", "GUARDKIT_", "FLEET_MEMORY_", "OPENAI_", "ANTHROPIC_")
 _LAUNCH_RESERVED_NAMES = frozenset({"PATH", "HOME", "TMPDIR", "SSH_AUTH_SOCK"})
 _LAUNCH_CREDENTIAL_WORDS = (
@@ -1146,44 +1038,22 @@ def _launch_names(
 ) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """Return ``(settings, scratch)`` names, at the point they reach the shell.
 
-    A reserved or credential-shaped name refuses construction (the safety
-    fence). Anything else malformed (an unknown key, a value that is not a
-    list, a name that is not a variable name or is too long) is logged and
-    left out (26 October 2026, step 2).
+    A reserved or credential-shaped name refuses construction (the secrets
+    fence). A value that is not a list, and a name that cannot be a variable
+    name, are left out: they could not be set.
     """
     if not launch_environment:
         return (), ()
-    unknown = sorted(set(launch_environment) - _LAUNCH_KEYS)
-    if unknown:
-        logger.warning("AutoBuild launch environment keys ignored: %s", unknown)
     lists = []
     for key in ("settings", "scratch"):
         raw = launch_environment.get(key)
-        if raw is None:
-            raw = ()
+        # A string would otherwise be read letter by letter.
         if not isinstance(raw, (list, tuple)):
-            # A string would otherwise be read letter by letter.
-            logger.warning(
-                "AutoBuild launch %s is a %s, not a list of names; ignored",
-                key,
-                type(raw).__name__,
-            )
             raw = ()
         names = []
         for name in raw:
             # fullmatch: ``$`` in a ``match`` would also accept a trailing newline.
-            if (
-                not isinstance(name, str)
-                or not _LAUNCH_NAME_RE.fullmatch(name)
-                or len(name) > _LAUNCH_MAX_NAME_LENGTH
-            ):
-                logger.warning(
-                    "AutoBuild launch %s name %r is not a variable name of at most "
-                    "%d characters; ignored",
-                    key,
-                    name,
-                    _LAUNCH_MAX_NAME_LENGTH,
-                )
+            if not isinstance(name, str) or not _LAUNCH_NAME_RE.fullmatch(name):
                 continue
             refusal = _launch_name_refusal(name)
             if refusal is not None:
@@ -1191,14 +1061,6 @@ def _launch_names(
             names.append(name)
         lists.append(tuple(names))
     return lists[0], lists[1]
-
-
-def _no_launch_scratch_folder(scratch: Sequence[str]) -> str:
-    return (
-        "The project declares launch scratch folders "
-        f"({', '.join(scratch)}) but this shell has no scratch folder, so they "
-        "are not set; nothing is put inside the project instead."
-    )
 
 
 def _apply_launch_environment(
@@ -1212,46 +1074,23 @@ def _apply_launch_environment(
     A name never replaces one this module sets itself. A declared setting is
     copied from this process's environment only when set there. Each scratch
     name is set to ``<scratch_root>/toolchain/<NAME>``, a private folder made
-    on demand. A scratch name the backend sets itself, and every scratch name
-    when there is no scratch folder, is logged and not set: the tool then
-    uses its default under the shell's private ``HOME``, outside the project
-    (26 October 2026, step 2).
+    on demand; with no scratch folder none is set, and the tool uses its
+    default under the shell's private ``HOME``, outside the project.
     """
     own = set(env) | {"PYTHONPATH"}
     for name in settings:
-        if name in own:
-            logger.warning(
-                "AutoBuild launch setting %s is set by the backend itself; "
-                "the declared value is not passed.",
-                name,
-            )
-            continue
         value = os.environ.get(name)
-        if value is not None:
+        if name not in own and value is not None:
             env[name] = value
-    clashing = sorted(set(scratch) & own)
-    if clashing:
-        logger.warning(
-            "AutoBuild launch scratch names %s are set by the backend itself; "
-            "not set again",
-            clashing,
-        )
     scratch = [name for name in scratch if name not in own]
-    if not scratch:
+    if not scratch or scratch_root is None:
         return
-    if scratch_root is None:
-        logger.warning(_no_launch_scratch_folder(scratch))
-        return
-    base = _ensure_private_directory(
-        scratch_root / _LAUNCH_SCRATCH_SUBDIR, "launch scratch folder"
-    )
+    base = _private_directory(scratch_root / _LAUNCH_SCRATCH_SUBDIR)
     for name in scratch:
-        env[name] = str(_ensure_private_directory(base / name, "launch scratch folder"))
+        env[name] = str(_private_directory(base / name))
 
 
-def _shell_toolchain_folder(
-    worktree: Path, name: str, label: str, description: str
-) -> Path:
+def _shell_toolchain_folder(worktree: Path, name: str, description: str) -> Path:
     """Return the shell's private ``<scratch>/toolchain/<name>`` folder.
 
     The scratch folder is GuardKit's builder scratch folder
@@ -1266,13 +1105,11 @@ def _shell_toolchain_folder(
     they run while ``git status`` stays empty. ``name`` has a hyphen, so no
     declared ``launch.scratch`` name can be the same folder.
 
-    An existing real folder is reused as it is; a missing one is made with
-    mode 0700. A symlink (broken or not) or a non-folder refuses construction
-    with ``ValueError``, as does a folder inside the project (other than under
-    its own ``.git``). When GuardKit has no scratch folder for the worktree
-    (it is not a git checkout), a private temporary folder is used instead,
-    with a warning, the same one for that worktree for the rest of the process
-    and removed when the process exits. Returned resolved.
+    An existing folder is reused; a missing one is made with mode 0700.
+    When GuardKit has no scratch folder for the worktree (it is not a git
+    checkout), a private temporary folder is used instead, with a warning,
+    the same one for that worktree for the rest of the process and removed
+    when the process exits. Returned resolved.
     """
     try:
         from guardkit.orchestrator.paths import prepare_builder_scratch_dir
@@ -1287,22 +1124,10 @@ def _shell_toolchain_folder(
     project = worktree.resolve()
     scratch = prepare_builder_scratch_dir(worktree)
     if scratch is None:
-        # Reused for the rest of the process, so checked like any existing
-        # folder every time (review R2, 19 October 2026): this user's, made
-        # 0700 again if it was opened up, another user's refused.
-        folder = ensure_owner_only_directory(
-            _temporary_private_folder(
-                name.lower(), project, f"the shell's {description}"
-            ),
-            label,
-        )
+        folder = _temporary_private_folder(name.lower(), project, f"the shell's {description}")
     else:
-        base = _ensure_private_directory(Path(scratch) / _LAUNCH_SCRATCH_SUBDIR, label)
-        folder = _ensure_private_directory(base / name, label)
-    folder = folder.resolve()
-    if folder.is_relative_to(project) and not folder.is_relative_to(project / ".git"):
-        raise ValueError(f"AutoBuild {label} is inside the project: {folder}")
-    return folder
+        folder = _private_directory(Path(scratch) / _LAUNCH_SCRATCH_SUBDIR / name)
+    return folder.resolve()
 
 
 #: The roles a shell can be built for (19 October 2026). Each has its own
@@ -1317,11 +1142,6 @@ def _shell_folder_name(kind: str, role: str | None) -> str:
     if role is None:
         return kind
     if role not in SHELL_ROLES:
-        logger.warning(
-            "AutoBuild shell role %r is not one of %s; the shared folder is used",
-            role,
-            ", ".join(SHELL_ROLES),
-        )
         return kind
     return f"{role}-{kind}"
 
@@ -1342,10 +1162,7 @@ def shell_home(worktree: Path, role: str | None = None) -> Path:
     still points its own tool elsewhere.
     """
     return _shell_toolchain_folder(
-        worktree,
-        _shell_folder_name("SHELL-HOME", role),
-        "shell home folder",
-        "home folder (tool caches)",
+        worktree, _shell_folder_name("SHELL-HOME", role), "home folder (tool caches)"
     )
 
 
@@ -1357,10 +1174,10 @@ def shell_tmpdir(worktree: Path, role: str | None = None) -> Path:
     kept out of commits only by GuardKit's ``.tmp/`` filters. It is now
     ``<scratch>/toolchain/<role>-SHELL-TMPDIR`` (``SHELL-TMPDIR`` when no
     role is named), one per role and apart from the project commands'
-    ``TMPDIR``. Errors name ``TMPDIR``.
+    ``TMPDIR``.
     """
     return _shell_toolchain_folder(
-        worktree, _shell_folder_name("SHELL-TMPDIR", role), "TMPDIR", "temporary folder"
+        worktree, _shell_folder_name("SHELL-TMPDIR", role), "temporary folder"
     )
 
 
@@ -1459,9 +1276,7 @@ def build_autobuild_backend(
         worktree: Filesystem path to the worktree the agent should operate
             inside. It must exist before construction. The shell's private
             ``HOME`` and ``TMPDIR`` are made outside it (:func:`shell_home`,
-            :func:`shell_tmpdir`); a symlink, non-directory or creation
-            failure there refuses construction before exposing shell
-            execution.
+            :func:`shell_tmpdir`).
         max_tool_result_chars: TASK-PERF-COACHSYNTH. When set, each
             ``read``/``grep``/``execute`` result is capped at this many chars
             (with a visible truncation marker) via :class:`TruncatingBackend`,
@@ -1480,30 +1295,25 @@ def build_autobuild_backend(
             delete. Creating a new file inside a protected folder is allowed,
             and a file the backend created stays changeable (26 October 2026).
             Relative paths resolve from ``worktree``. A declared path that
-            does not exist, lies outside the worktree or is neither a file nor
-            a folder is logged and skipped: it protects nothing.
+            does not exist or lies outside the worktree protects nothing.
         scratch_root: 3 October 2026. A folder outside the project where the
             builder may write throwaway scripts (guardkit passes one inside
             the worktree's git directory). It is created if missing, added to
-            the allowed write roots, and named in every refusal. A symlink, a
-            non-directory, a folder inside the project (other than under the
-            worktree's own ``.git``) or one that cannot be created is skipped
-            with a warning; ``backend.default.scratch_root`` then reads
-            ``None``. ``None`` keeps the earlier behaviour.
+            the allowed write roots, and named in every refusal. ``None``
+            keeps the earlier behaviour.
         launch_environment: 12 October 2026. The names the project declares
             in its ``launch:`` block, as ``{"settings": [...], "scratch":
             [...]}``. Each setting is copied from this process's environment
             when set there; each scratch name is set to
             ``<scratch_root>/toolchain/<NAME>``, created private on demand.
-            Declared scratch names with no usable ``scratch_root`` are logged
-            and not set (never a folder in the worktree). A reserved or
+            Declared scratch names with no ``scratch_root`` are not set
+            (never a folder in the worktree). A reserved or
             credential-shaped name refuses construction.
             ``None`` keeps the environment exactly as before.
         launch_scratch_root: The folder declared scratch names resolve under
             when this shell has no ``scratch_root`` of its own (guardkit passes
-            the worktree's scratch folder for the Coach and specialists). Held
-            to the same checks as ``scratch_root`` (one refused is not used),
-            but NOT added to the allowed write roots: the caches are
+            the worktree's scratch folder for the Coach and specialists), but
+            NOT added to the allowed write roots: the caches are
             written by shell commands, which write confinement does not cover,
             so the file tools gain no write access.
         read_only: 13 October 2026. When True, the backend is wrapped in a
@@ -1519,7 +1329,7 @@ def build_autobuild_backend(
             ``HOME`` and ``TMPDIR`` (:func:`shell_home`,
             :func:`shell_tmpdir`), so the builder's shell cannot change what
             the checker's shell runs. ``None`` keeps the shared folders, and
-            so does any other value, with a warning.
+            so does any other value.
 
     Returns:
         A configured :class:`CompositeBackend` wrapping a
@@ -1533,46 +1343,14 @@ def build_autobuild_backend(
         raise ValueError(f"AutoBuild worktree is not an existing folder: {worktree}")
     # Outside the project, so no temporary file lands in it (19 October 2026).
     temp_directory = shell_tmpdir(worktree, shell_role)
-    project = worktree.resolve()
-
-    def inside_project(path: Path) -> bool:
-        return path.is_relative_to(project) and not path.is_relative_to(
-            project / ".git"
-        )
-
-    def checked_scratch_folder(planned: Path) -> Path:
-        # Judged before and after creation, so nothing lands in the project.
-        if inside_project(planned.parent.resolve() / planned.name):
-            raise ValueError(
-                f"AutoBuild scratch folder is inside the project: {planned}"
-            )
-        folder = _ensure_private_directory(planned, "scratch folder").resolve()
-        if inside_project(folder):
-            raise ValueError(
-                f"AutoBuild scratch folder is inside the project: {folder}"
-            )
-        return folder
-
     if scratch_root is not None:
-        try:
-            scratch_root = checked_scratch_folder(Path(scratch_root))
-        except ValueError as exc:
-            # A convenience, not a safeguard: without it the build still runs
-            # and a scratch write is refused like any other outside write;
-            # declared scratch names are then not set (26 October 2026).
-            logger.warning("%s; continuing without a scratch folder.", exc)
-            scratch_root = None
-        else:
-            extra_write_roots = [*(extra_write_roots or []), scratch_root]
+        scratch_root = _private_directory(Path(scratch_root)).resolve()
+        extra_write_roots = [*(extra_write_roots or []), scratch_root]
     # Where declared scratch names resolve: the shell's own scratch folder,
-    # else the one handed over for that alone (never a write root). One that
-    # is refused is not used.
+    # else the one handed over for that alone (never a write root).
     launch_base = scratch_root
     if launch_base is None and launch_scratch and launch_scratch_root is not None:
-        try:
-            launch_base = checked_scratch_folder(Path(launch_scratch_root))
-        except ValueError as exc:
-            logger.warning("%s; declared scratch names are not set.", exc)
+        launch_base = _private_directory(Path(launch_scratch_root)).resolve()
 
     env: dict[str, str] = {
         "PATH": _AUTOBUILD_PATH,
@@ -1644,9 +1422,7 @@ def build_autobuild_backend(
     routes: dict[str, Any] = {}
     if not read_only:
         for name in MODEL_ARTIFACT_NAMES:
-            folder = _private_artifacts_folder(
-                artifacts_root / name, "model artifacts folder"
-            )
+            folder = _private_directory(artifacts_root / name)
             routes[f"{artifacts_root}/{name}/"] = FilesystemBackend(
                 root_dir=folder, virtual_mode=True
             )

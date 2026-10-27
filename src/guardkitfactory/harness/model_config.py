@@ -483,25 +483,13 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
     ``openai:<alias>`` string, an ``OPENAI_BASE_URL`` that is not an explicit
     local endpoint without credentials, and a resolved model that is not the
     local Chat Completions client for that alias and endpoint (the local-model
-    fence; nothing falls back). Everything else about the setting is a guide
-    (26 October 2026, step 2): a malformed setting, a different model name,
-    other numbers, the thinking switch on another model, conflicting settings
-    already on the model and a value that does not stick are logged, and the
-    limits are applied as far as they can be.
+    fence; nothing falls back). The setting itself is read as far as it can
+    be: what is missing or unreadable takes the standard 131,072-token context
+    and 8,192-token output, and ``"enable_thinking": false`` switches the
+    model's thinking off.
     """
     def reject(message: str) -> None:
         raise ValueError(f"GUARDKIT_PLAYER_MODEL_LIMITS: {message}")
-
-    def advise(message: str) -> None:
-        logger.warning("GUARDKIT_PLAYER_MODEL_LIMITS: %s", message)
-
-    def last_wins(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
-        result: dict[str, Any] = {}
-        for key, value in pairs:
-            if key in result:
-                advise(f"repeated JSON key {key!r}; the last value is used")
-            result[key] = value
-        return result
 
     if (
         not isinstance(model, str)
@@ -510,37 +498,17 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
         reject("model must be the configured openai:<alias> string")
 
     try:
-        limits = json.loads(raw, object_pairs_hook=last_wins)
+        limits = json.loads(raw)
     except (ValueError, TypeError):
-        advise("not a JSON object; the standard limits are used")
         limits = {}
     if not isinstance(limits, dict):
-        advise("not a JSON object; the standard limits are used")
         limits = {}
-    known = {"model", "context_tokens", "output_tokens", "enable_thinking"}
-    if set(limits) - known:
-        advise(f"unknown fields ignored: {sorted(set(limits) - known)}")
-    missing = {"model", "context_tokens", "output_tokens"} - set(limits)
-    if missing:
-        advise(f"missing fields take the standard values: {sorted(missing)}")
-    if "model" in limits and limits["model"] != model:
-        advise(f"names {limits['model']!r}, not the configured {model!r}; applied to {model!r}")
     sizes: dict[str, int] = {}
     for key, standard in (("context_tokens", 131072), ("output_tokens", 8192)):
         value = limits.get(key, standard)
-        if type(value) is not int or value <= 0:
-            advise(f"{key} {value!r} is not a positive whole number; {standard} is used")
-            value = standard
-        sizes[key] = value
+        sizes[key] = value if type(value) is int and value > 0 else standard
     context_tokens, output_tokens = sizes["context_tokens"], sizes["output_tokens"]
-    disable_thinking = False
-    if "enable_thinking" in limits:
-        if type(limits["enable_thinking"]) is bool and limits["enable_thinking"] is False:
-            disable_thinking = True
-            if model != "openai:workhorse":
-                advise(f"enable_thinking is known only for openai:workhorse; applied to {model}")
-        else:
-            advise("enable_thinking other than JSON false is ignored")
+    disable_thinking = limits.get("enable_thinking", True) is False
 
     from guardkit.orchestrator.m0_fence import is_local_seat_host
     from langchain_openai.chat_models.base import ChatOpenAI
@@ -580,75 +548,13 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
     ):
         reject("resolved model must preserve alias, endpoint and ChatCompletions")
     profile = dict(resolved.profile or {})
-    for key, value in (("max_input_tokens", context_tokens), ("max_output_tokens", output_tokens)):
-        existing = profile.get(key)
-        if existing is not None and existing != value:
-            advise(f"the model's profile {key} {existing!r} differs from the limits")
-    if resolved.max_tokens is not None and resolved.max_tokens != output_tokens:
-        advise(f"the model's output limit {resolved.max_tokens!r} is replaced by {output_tokens}")
-    for settings in (resolved.model_kwargs, resolved.extra_body or {}):
-        if isinstance(settings, dict) and any(
-            key in settings for key in ("max_tokens", "max_completion_tokens", "max_output_tokens")
-        ):
-            advise("the model carries its own request-level output limit")
-    expected_extra_body = resolved.extra_body
-    if disable_thinking:
-        model_kwargs = resolved.model_kwargs
-        raw_extra_body = resolved.extra_body
-        extra_body = {} if raw_extra_body is None else raw_extra_body
-        template_kwargs = extra_body.get("chat_template_kwargs", {}) if isinstance(extra_body, dict) else None
-        if not isinstance(model_kwargs, dict) or not isinstance(extra_body, dict) or not isinstance(
-            template_kwargs, dict
-        ):
-            advise("request settings are not mappings; thinking is left as it is")
-            disable_thinking = False
-        else:
-            reasoning_keys = {"reasoning", "reasoning_effort", "reasoning_budget"}
-            template_keys = {"chat_template", "template", "template_kwargs"}
-            thinking_keys = {"thinking", "enable_reasoning", "enable_thinking"}
-            competing_keys = reasoning_keys | template_keys | thinking_keys
-            if (
-                competing_keys.intersection(model_kwargs)
-                or "extra_body" in model_kwargs
-                or "chat_template_kwargs" in model_kwargs
-                or competing_keys.intersection(extra_body)
-                or (reasoning_keys | {"thinking", "enable_reasoning"}).intersection(template_kwargs)
-                or template_kwargs.get("enable_thinking", False) is not False
-            ):
-                advise("the model carries another thinking control; enable_thinking false is added")
-            copied_template_kwargs = dict(template_kwargs)
-            copied_template_kwargs["enable_thinking"] = False
-            copied_extra_body = dict(extra_body)
-            copied_extra_body["chat_template_kwargs"] = copied_template_kwargs
-            expected_extra_body = copied_extra_body
     profile["max_input_tokens"] = context_tokens
-    try:
-        resolved.profile = profile
-        resolved.max_tokens = output_tokens
-        if disable_thinking:
-            resolved.extra_body = expected_extra_body
-    except Exception as exc:  # noqa: BLE001 - a guide that could not be set
-        advise(f"the limits could not all be set ({type(exc).__name__}: {exc})")
-        return resolved
-    thinking_setting_retained = True
+    resolved.profile = profile
+    resolved.max_tokens = output_tokens
     if disable_thinking:
-        actual_extra_body = resolved.extra_body
-        if not isinstance(actual_extra_body, dict):
-            thinking_setting_retained = False
-        else:
-            actual_template_kwargs = actual_extra_body.get("chat_template_kwargs")
-            thinking_setting_retained = (
-                isinstance(actual_template_kwargs, dict)
-                and "enable_thinking" in actual_template_kwargs
-                and type(actual_template_kwargs["enable_thinking"]) is bool
-                and actual_template_kwargs["enable_thinking"] is False
-            )
-    if (
-        resolved.profile != profile
-        or type(resolved.max_tokens) is not int
-        or resolved.max_tokens != output_tokens
-        or (disable_thinking and resolved.extra_body != expected_extra_body)
-        or not thinking_setting_retained
-    ):
-        advise("the limits were not all retained by the model")
+        extra_body = dict(resolved.extra_body or {})
+        template_kwargs = dict(extra_body.get("chat_template_kwargs") or {})
+        template_kwargs["enable_thinking"] = False
+        extra_body["chat_template_kwargs"] = template_kwargs
+        resolved.extra_body = extra_body
     return resolved

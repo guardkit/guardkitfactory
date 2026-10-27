@@ -512,11 +512,11 @@ def test_player_streaming_keeps_thinking() -> None:
     assert message.additional_kwargs["reasoning_content"] == "think harder"
 
 
-def test_reasoning_replay_that_cannot_pair_is_advice(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+def test_reasoning_replay_that_cannot_pair_goes_without_the_thinking(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """26 October 2026 (step 2, census GKF-128): a reply or request that cannot
-    be paired goes without the earlier thinking, with a warning."""
+    """A reply or request that cannot be paired goes without the earlier
+    thinking; the turn goes on."""
     from langchain_core.messages import HumanMessage
 
     from guardkitfactory.harness import reasoning_replay
@@ -527,10 +527,8 @@ def test_reasoning_replay_that_cannot_pair_is_advice(
     )
     monkeypatch.setattr(reasoning_replay, "_response_messages", lambda _response: [])
     try:
-        with caplog.at_level("WARNING", logger=reasoning_replay.__name__):
-            reply = model.invoke([HumanMessage("say done")])
+        reply = model.invoke([HumanMessage("say done")])
     finally:
         _close(sync_client, async_client)
     assert reply.content == "done"
     assert "reasoning_content" not in reply.additional_kwargs
-    assert "its thinking is not kept" in caplog.text

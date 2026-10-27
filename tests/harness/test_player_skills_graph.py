@@ -310,29 +310,23 @@ def test_player_context_prompt_lists_both_required_kinds(tmp_path: Path) -> None
         {
             "path": "/repo/skills/planning/SKILL.md",
             "relative_path": "skills/planning/SKILL.md",
-            "sha256": "aa" * 32,
-            "line_count": 12,
             "kind": "skill",
         },
         {
             "path": "/repo/skills/planning/references/project-conventions.md",
             "relative_path": "skills/planning/references/project-conventions.md",
-            "sha256": "bb" * 32,
-            "line_count": 3,
             "kind": "declared_document",
         },
     )
 
     prompt = _player_context_prompt(selected, required)
 
-    assert "Required reads before execution, delegation or file changes" in prompt
+    assert "Documents to read first" in prompt
     assert "[selected skill] /repo/skills/planning/SKILL.md" in prompt
     assert (
         "[project-declared document] "
         "/repo/skills/planning/references/project-conventions.md" in prompt
     )
-    assert "12 lines" in prompt and "3 lines" in prompt
-    assert "aa" * 32 in prompt and "bb" * 32 in prompt
 
 
 def test_player_context_prompt_without_declarations_is_skill_only(

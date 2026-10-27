@@ -311,7 +311,7 @@ class TestLeftoversAreStopped:
         def refused(_pid: int) -> int:
             raise PermissionError(errno.EPERM, "refused by a filter")
 
-        monkeypatch.setattr(shell_commands.os, "pidfd_open", refused)
+        monkeypatch.setattr(shell_commands, "pidfd_open", refused)
         result = _shell(tmp_path).execute(
             "sleep 300 >/dev/null 2>&1 & echo $! > bg.pid; echo started"
         )
@@ -338,7 +338,7 @@ class TestLeftoversAreStopped:
         def no_kill(pid: int, sig: int) -> None:
             raise AssertionError(f"signalled {pid} by number")
 
-        monkeypatch.setattr(shell_commands.os, "pidfd_open", refused)
+        monkeypatch.setattr(shell_commands, "pidfd_open", refused)
         monkeypatch.setattr(shell_commands.os, "kill", no_kill)
         with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
             result = _shell(tmp_path).execute(
@@ -371,7 +371,7 @@ class TestLeftoversAreStopped:
         def refused(_handle: int, _sig: int) -> None:
             raise PermissionError(errno.EPERM, "refused by a filter")
 
-        monkeypatch.setattr(shell_commands.signal, "pidfd_send_signal", refused)
+        monkeypatch.setattr(shell_commands, "pidfd_send_signal", refused)
         result = _shell(tmp_path).execute(
             "sleep 300 >/dev/null 2>&1 & echo $! > bg.pid; "
             "setsid sh -c 'echo $$ > inner.pid; exec sleep 300' >/dev/null 2>&1 & "
@@ -414,14 +414,14 @@ class TestLeftoversAreStopped:
         # names another process, which even passes the ownership check. The
         # signal goes to the ended process, so the other one is untouched.
         gone = subprocess.Popen(["true"])
-        stale = os.pidfd_open(gone.pid)
+        stale = shell_commands.pidfd_open(gone.pid)
         gone.wait()
         victim = subprocess.Popen(["sleep", "300"], start_new_session=True)
         started.append(victim.pid)
         command = shell_commands._Command(os.getpid() + 1, "0" * 32, since=None)
         fields = ("S", victim.pid, victim.pid, 0)  # outside the command's group
         monkeypatch.setattr(command, "owns", lambda pid: fields)
-        monkeypatch.setattr(shell_commands.os, "pidfd_open", lambda pid: os.dup(stale))
+        monkeypatch.setattr(shell_commands, "pidfd_open", lambda pid: os.dup(stale))
         monkeypatch.setattr(
             shell_commands.os, "kill",
             lambda pid, sig: pytest.fail(f"signalled {pid} by number"),
@@ -583,76 +583,23 @@ class TestCommandsGoFirstWhenMemoryRunsOut:
         assert ours.output == "[/bin/sh][2][a][b c][$1]"
 
 
-class TestCleanupCapability:
-    """Where a command's leftovers cannot all be stopped safely (no pidfd, no
-    ``os.waitid``, no ``/proc``), a factory launch's self-test fails. Since
-    26 October 2026 (step 2, census GKF-026, 081, 133) that is logged once and
-    the commands run with the reduced clean-up, as a person's own run does."""
-
-    _MISSING = (
-        "pidfd_open is refused here by the kernel or a security filter "
-        "(Operation not permitted)"
-    )
-
-    _ADVICE = (
-        "Run the factory where /proc can be read and waitid, pidfd_open and "
-        "pidfd_send_signal are allowed (Linux 5.3 or later)."
-    )
-
-    @pytest.fixture
-    def missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # A factory launch: the self-test fails; a person's run: the check
-        # finds the same thing missing.
-        monkeypatch.setattr(shell_commands, "_self_test", lambda: self._MISSING)
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [self._MISSING])
-        monkeypatch.setattr(shell_commands, "_WARNED", [])
+class TestWhereTheCleanupCannotDoEverything:
+    """Where a system call the clean-up needs is refused (no pidfd, no
+    ``os.waitid``, no ``/proc`` listing), the command still runs; what was
+    not stopped is said in its output or the log (26 and 27 October 2026)."""
 
     @linux_only
-    def test_this_system_has_everything_needed(self) -> None:
-        assert shell_commands._missing_capability() is None
-
-    @linux_only
-    def test_the_self_test_passes_here_and_leaves_nothing(self) -> None:
-        before_fds = len(os.listdir("/proc/self/fd"))
-        before = _self_test_processes()  # earlier tests' refused ones
-        assert shell_commands._self_test() is None
-        assert len(os.listdir("/proc/self/fd")) == before_fds
-        assert _self_test_processes() - before == set()
-
-    def test_a_refused_pidfd_is_named(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        def refused(_pid: int) -> int:
-            raise PermissionError(errno.EPERM, "Operation not permitted")
-
-        if not Path("/proc/self/stat").exists():
-            pytest.skip("needs /proc")
-        monkeypatch.setattr(shell_commands.os, "pidfd_open", refused)
-        assert shell_commands._missing_capability() == self._MISSING
-
-    @linux_only
-    def test_a_refused_signal_through_a_pidfd_is_named_and_a_factory_command_still_runs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
+    def test_a_refused_signal_through_a_pidfd_still_runs_the_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         # A filter may allow opening a pidfd and refuse signalling through it.
         def refused(_handle: int, _sig: int) -> None:
             raise PermissionError(errno.EPERM, "Operation not permitted")
 
-        monkeypatch.setattr(shell_commands.signal, "pidfd_send_signal", refused)
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [])
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        expected = (
-            "pidfd_send_signal is refused here by the kernel or a security filter "
-            "(Operation not permitted)"
-        )
-
-        assert shell_commands._missing_capability() == expected
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran")
+        monkeypatch.setattr(shell_commands, "pidfd_send_signal", refused)
+        result = _shell(tmp_path).execute("touch ran")
         assert result.exit_code == 0
         assert (tmp_path / "ran").exists()
-        assert "reduced clean-up" in caplog.text
 
     @linux_only
     def test_a_python_without_the_pidfd_wrappers_uses_the_system_calls(
@@ -662,13 +609,8 @@ class TestCleanupCapability:
         # and signal.pidfd_send_signal although the kernel has the calls.
         if shutil.which("setsid", path=_ENV["PATH"]) is None:
             pytest.skip("no setsid program")
-        monkeypatch.delattr(os, "pidfd_open")
-        monkeypatch.delattr(signal, "pidfd_send_signal")
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [])
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-
-        assert shell_commands._missing_capability() is None
+        monkeypatch.delattr(os, "pidfd_open", raising=False)
+        monkeypatch.delattr(signal, "pidfd_send_signal", raising=False)
         result = _shell(tmp_path).execute(
             "setsid sh -c 'echo $$ > bg.pid; exec sleep 300' >/dev/null 2>&1 & "
             + _WAIT_FOR.format(name="bg.pid")
@@ -679,95 +621,44 @@ class TestCleanupCapability:
         assert not _alive(_pid(tmp_path, "bg.pid"))
 
     @linux_only
-    def test_without_wrappers_or_system_calls_the_python_build_is_named(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
+    def test_without_wrappers_or_system_calls_the_command_still_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         def refused(_number: int, *_args: object) -> int:
             raise OSError(errno.EPERM, "Operation not permitted")
 
-        monkeypatch.delattr(os, "pidfd_open")
+        monkeypatch.delattr(os, "pidfd_open", raising=False)
+        monkeypatch.delattr(signal, "pidfd_send_signal", raising=False)
         monkeypatch.setattr(shell_commands, "_raw_syscall", refused)
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [])
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        expected = (
-            "this Python build lacks pidfd_open, and the system call itself is "
-            "refused by the kernel or a security filter (Operation not permitted)"
-        )
-
-        assert shell_commands._missing_capability() == expected
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran")
+        result = _shell(tmp_path).execute("touch ran")
         assert result.exit_code == 0
         assert (tmp_path / "ran").exists()
-        assert "reduced clean-up" in caplog.text
-
-    def test_without_wrappers_off_linux_the_platform_is_named(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        if not Path("/proc/self/stat").exists():
-            pytest.skip("needs /proc")
-        monkeypatch.delattr(os, "pidfd_open", raising=False)
-        monkeypatch.setattr(shell_commands.sys, "platform", "darwin")
-        assert shell_commands._missing_capability() == (
-            "this Python build lacks pidfd_open, and this system is not Linux"
-        )
 
     @linux_only
-    @pytest.mark.parametrize("send", ["works", "refused"])
-    def test_the_probe_closes_its_pidfd(
-        self, monkeypatch: pytest.MonkeyPatch, send: str
+    def test_a_refused_waitid_still_runs_the_command(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        if send == "refused":
-            def refused(_handle: int, _sig: int) -> None:
-                raise PermissionError(errno.EPERM, "Operation not permitted")
-
-            monkeypatch.setattr(signal, "pidfd_send_signal", refused)
-        before = len(os.listdir("/proc/self/fd"))
-        for _ in range(20):
-            shell_commands._missing_capability()
-        assert len(os.listdir("/proc/self/fd")) == before
-
-    @linux_only
-    def test_a_refused_waitid_is_named_and_a_factory_launch_still_runs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        # os.waitid exists but a filter refuses it: the probe makes the call.
+        # os.waitid exists but a filter refuses it: the command gets the
+        # reduced clean-up and runs.
         def refused(*_args: object) -> None:
             raise PermissionError(errno.EPERM, "Operation not permitted")
 
         monkeypatch.setattr(shell_commands.os, "waitid", refused)
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [])
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setattr(shell_commands, "_WARNED", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        expected = (
-            "waitid is refused here by the kernel or a security filter "
-            "(Operation not permitted)"
-        )
-
-        assert shell_commands._missing_capability() == expected
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran")
+        result = _shell(tmp_path).execute("touch ran; echo ok")
         build_autobuild_backend(_worktree(tmp_path / "w"))
         monkeypatch.undo()
         assert result.exit_code == 0
+        assert result.output == "ok\n"
         assert (tmp_path / "ran").exists()
-        assert expected in caplog.text and "reduced clean-up" in caplog.text
 
     @linux_only
-    def test_a_refused_waitid_on_a_persons_run_falls_back_and_never_hangs(
+    def test_a_refused_waitid_falls_back_and_never_hangs(
         self, tmp_path: Path, started: list[int], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         def refused(*_args: object) -> None:
             raise PermissionError(errno.EPERM, "Operation not permitted")
 
         monkeypatch.setattr(shell_commands.os, "waitid", refused)
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [])
-        monkeypatch.setattr(shell_commands, "_WARNED", [])
-        monkeypatch.delenv(shell_commands.FACTORY_LAUNCH_ENV, raising=False)
         assert _shell(tmp_path).execute("echo ok").output == "ok\n"
         result = _shell(tmp_path).execute("echo $$ > fg.pid; exec sleep 300", timeout=1)
         monkeypatch.undo()
@@ -800,10 +691,10 @@ class TestCleanupCapability:
     def test_waitid_refused_while_a_command_runs_never_hangs(
         self, tmp_path: Path, started: list[int], monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The probe passes (this process is no child of its own), then
-        # watching the shell is refused once the command is under way: the
-        # command is ended and collected within bounds, and the answer says
-        # why (execute never raises).
+        # The check before the command passes (this process is no child of
+        # its own), then watching the shell is refused once the command is
+        # under way: the command is ended and collected within bounds, and the
+        # answer says why (execute never raises).
         real_waitid = os.waitid
         own = os.getpid()
 
@@ -815,8 +706,6 @@ class TestCleanupCapability:
         if shutil.which("setsid", path=_ENV["PATH"]) is None:
             pytest.skip("no setsid program")
         monkeypatch.setattr(shell_commands.os, "waitid", flaky)
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [None])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
         began = time.monotonic()
         # A process in a session of its own, one in another group of the same
         # session (timeout), then the shell itself.
@@ -837,88 +726,6 @@ class TestCleanupCapability:
         assert not _alive(_pid(tmp_path, "fg.pid"))
         assert not _alive(_pid(tmp_path, "bg.pid"))
         assert not _alive(_pid(tmp_path, "inner.pid"))
-
-    def test_a_factory_launch_runs_its_commands_with_one_warning(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        missing: None,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            first = _shell(tmp_path).execute("touch ran; echo ok")
-            second = _shell(tmp_path).execute("echo ok")
-
-        assert first.output == second.output == "ok\n"
-        assert (tmp_path / "ran").exists()
-        warnings = [r for r in caplog.records if "reduced clean-up" in r.getMessage()]
-        assert len(warnings) == 1
-        assert warnings[0].getMessage() == (
-            f"Shell commands run with the reduced clean-up: {self._MISSING}, so what "
-            f"a command leaves running may not all be stopped. {self._ADVICE}"
-        )
-
-    def test_a_factory_launch_builds_its_shell(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: None
-    ) -> None:
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "1")
-        backend = build_autobuild_backend(_worktree(tmp_path))
-        assert backend.execute("echo ok").output == "ok\n"
-
-    def test_a_persons_own_run_goes_on_with_a_warning(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        missing: None,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        monkeypatch.delenv(shell_commands.FACTORY_LAUNCH_ENV, raising=False)
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            first = _shell(tmp_path).execute("touch ran; echo ok")
-            second = _shell(tmp_path).execute("echo ok")
-
-        assert first.output == second.output == "ok\n"
-        assert (tmp_path / "ran").exists()
-        warnings = [r for r in caplog.records if "may be left running" in r.getMessage()]
-        assert len(warnings) == 1
-
-    def test_an_empty_factory_signal_is_not_a_factory_launch(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "")
-        assert not shell_commands.is_factory_launch()
-        monkeypatch.delenv(shell_commands.FACTORY_LAUNCH_ENV)
-        assert not shell_commands.is_factory_launch()
-
-    @pytest.mark.parametrize("value", ["   ", "0", "false"])
-    def test_any_other_factory_signal_is_a_factory_launch(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, missing: None, value: str,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        # Whitespace or "0" still counts as a factory launch: the self-test runs.
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, value)
-        assert shell_commands.is_factory_launch()
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran")
-        assert result.exit_code == 0
-        assert "reduced clean-up" in caplog.text
-
-
-def _self_test_processes() -> set[int]:
-    marker_name = COMMAND_MARKER_NAME.encode()
-    found = set()
-    for name in os.listdir("/proc"):
-        if not name.isdigit():
-            continue
-        try:
-            environ = Path(f"/proc/{name}/environ").read_bytes()
-            cmdline = Path(f"/proc/{name}/cmdline").read_bytes()
-        except OSError:
-            continue
-        if marker_name in environ and b"os.setsid()" in cmdline and _alive(int(name)):
-            found.add(int(name))
-    return found
 
 
 class _DeniedProc(type(Path("/proc"))):  # type: ignore[misc]
@@ -944,13 +751,9 @@ class _DeniedProc(type(Path("/proc"))):  # type: ignore[misc]
 
 
 @linux_only
-class TestTheRuleOnAFactoryLaunch:
-    """Codex review, 20 October 2026: the probe proved less than the clean-up
-    needs, so a factory launch runs an end-to-end self-test first. Since
-    27 October 2026 (step 2 review) a failure of the clean-up later, after a
-    passed self-test, never refuses or ends the command: it is logged or
-    reported in the command's output, and the command runs, as on a
-    person's own run."""
+class TestWhenProcCannotBeRead:
+    """A record or listing of ``/proc`` that cannot be read never refuses or
+    ends the command: it is logged, and the command runs (27 October 2026)."""
 
     @staticmethod
     def _deny_proc_listing(monkeypatch: pytest.MonkeyPatch, when=lambda: True) -> None:
@@ -963,31 +766,13 @@ class TestTheRuleOnAFactoryLaunch:
         monkeypatch.setattr(_DeniedProc, "deny_environ", staticmethod(which))
         monkeypatch.setattr(shell_commands, "_PROC", _DeniedProc("/proc"))
 
-    def test_a_denied_proc_listing_fails_the_self_test(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        self._deny_proc_listing(monkeypatch)
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran")
-        build_autobuild_backend(_worktree(tmp_path / "w"))
-
-        assert result.exit_code == 0
-        assert (tmp_path / "ran").exists()
-        assert "Shell commands run with the reduced clean-up" in caplog.text
-        assert "/proc could not be listed (Permission denied)" in caplog.text
-
-    def test_a_listing_denied_mid_run_is_said_and_a_factory_command_runs(
+    def test_a_listing_denied_mid_run_is_said_and_the_command_runs(
         self,
         tmp_path: Path,
         started: list[int],
         monkeypatch: pytest.MonkeyPatch,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [None])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
         self._deny_proc_listing(monkeypatch, when=lambda: (tmp_path / "fg.pid").exists())
         with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
             result = _shell(tmp_path).execute(
@@ -999,67 +784,6 @@ class TestTheRuleOnAFactoryLaunch:
         assert result.output == "ok\n"
         assert "/proc could not be listed (Permission denied)" in caplog.text
 
-    def test_a_listing_denied_on_a_persons_run_is_said(
-        self,
-        tmp_path: Path,
-        started: list[int],
-        monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        monkeypatch.delenv(shell_commands.FACTORY_LAUNCH_ENV, raising=False)
-        monkeypatch.setattr(shell_commands, "_CAPABILITY", [None])
-        self._deny_proc_listing(monkeypatch)
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute(
-                "sleep 300 >/dev/null 2>&1 & echo $! > bg.pid; echo ok"
-            )
-        assert result.output == "ok\n"
-        assert "/proc could not be listed" in caplog.text
-
-    def test_a_cached_success_then_a_refused_waitid_runs_the_command_reduced(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        # The fresh waitid check before every command now chooses the reduced
-        # clean-up, logged once; the command runs.
-        def refused(*_args: object) -> None:
-            raise PermissionError(errno.EPERM, "Operation not permitted")
-
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [None])
-        monkeypatch.setattr(shell_commands, "_WARNED", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        monkeypatch.setattr(shell_commands.os, "waitid", refused)
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran; echo ok")
-        monkeypatch.undo()
-
-        assert result.exit_code == 0
-        assert result.output == "ok\n"
-        assert (tmp_path / "ran").exists()
-        assert (
-            "Here waitid is refused here by the kernel or a security filter "
-            "(Operation not permitted), so a process a shell command moves out of "
-            "its process group may be left running"
-        ) in caplog.text
-
-    def test_a_denied_environment_read_fails_the_self_test(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        own = os.getpid()
-        self._deny_environ(monkeypatch, lambda pid: pid != own)
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        with caplog.at_level(logging.WARNING, logger=shell_commands.__name__):
-            result = _shell(tmp_path).execute("touch ran")
-
-        assert result.exit_code == 0
-        assert (tmp_path / "ran").exists()
-        assert (
-            "the clean-up self-test's process environment could not be read "
-            "(Permission denied)"
-        ) in caplog.text
-
     def test_a_denied_environment_read_mid_run_leaves_that_process_out(
         self, tmp_path: Path, started: list[int], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1070,8 +794,6 @@ class TestTheRuleOnAFactoryLaunch:
             file = tmp_path / "bg.pid"
             return file.exists() and file.read_text().strip() == str(pid)
 
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [None])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
         self._deny_environ(monkeypatch, escapee)
         result = _shell(tmp_path).execute(
             "setsid sh -c 'echo $$ > bg.pid; exec sleep 300' >/dev/null 2>&1 & "
@@ -1085,40 +807,7 @@ class TestTheRuleOnAFactoryLaunch:
         assert result.exit_code == 0
         assert result.output == "ok\n"
 
-    def test_the_self_test_checks_its_own_process_not_only_the_scan(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # A scan that misses marked processes would leave the self-test's
-        # process running; the pinned pidfd shows it, so the test fails.
-        monkeypatch.setattr(shell_commands, "_carries_marker", lambda _pid, _entry: False)
-        assert shell_commands._self_test() == (
-            "the clean-up self-test's left-behind process was still running after the stop"
-        )
-
-    def test_the_emergency_kill_checks_ownership_after_pinning(
-        self, started: list[int], monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # A number listed as the self-test's but handed on before it was
-        # pinned: the process it names now does not carry the marker, so it
-        # is not signalled.
-        stranger = subprocess.Popen(["sleep", "300"], start_new_session=True)
-        started.append(stranger.pid)
-        monkeypatch.setattr(
-            shell_commands, "pidfd_send_signal",
-            lambda handle, sig: pytest.fail("signalled a process that is not the self-test's"),
-        )
-        try:
-            shell_commands._end_self_test_leftovers(
-                {stranger.pid}, f"\0{COMMAND_MARKER_NAME}={'f' * 32}\0".encode(), None
-            )
-            time.sleep(0.2)
-            assert _alive(stranger.pid)
-        finally:
-            monkeypatch.undo()
-            stranger.kill()
-            stranger.wait()
-
-    def test_a_refused_pidfd_mid_run_is_reported_and_a_factory_command_runs(
+    def test_a_refused_pidfd_mid_run_is_reported_and_the_command_runs(
         self, tmp_path: Path, started: list[int], monkeypatch: pytest.MonkeyPatch
     ) -> None:
         if shutil.which("setsid", path=_ENV["PATH"]) is None:
@@ -1127,9 +816,7 @@ class TestTheRuleOnAFactoryLaunch:
         def refused(_handle: int, _sig: int) -> None:
             raise PermissionError(errno.EPERM, "Operation not permitted")
 
-        monkeypatch.setattr(shell_commands, "_SELF_TEST_OUTCOME", [None])
-        monkeypatch.setenv(shell_commands.FACTORY_LAUNCH_ENV, "build-x")
-        monkeypatch.setattr(shell_commands.signal, "pidfd_send_signal", refused)
+        monkeypatch.setattr(shell_commands, "pidfd_send_signal", refused)
         result = _shell(tmp_path).execute(
             "setsid sh -c 'echo $$ > bg.pid; exec sleep 300' >/dev/null 2>&1 & "
             + _WAIT_FOR.format(name="bg.pid") + "; echo ok"
@@ -1255,8 +942,3 @@ class TestUpstreamOutputIsKept:
 
         assert result.output == "hi\n"
         assert caplog.records == []
-
-    def test_an_empty_command_is_refused_as_upstream(self, tmp_path: Path) -> None:
-        assert _shell(tmp_path).execute("") == LocalShellBackend(
-            root_dir=tmp_path, virtual_mode=False
-        ).execute("")

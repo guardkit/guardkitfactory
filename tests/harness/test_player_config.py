@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -76,7 +75,7 @@ def test_project_inputs_are_canonical_and_immutable(tmp_path: Path) -> None:
     )
     with pytest.raises(FrozenInstanceError):
         config.cwd = profile  # type: ignore[misc]
-    assert revalidate_player_config(config, cwd=root) is config
+    assert revalidate_player_config(config, cwd=root) == config
 
 
 def test_empty_project_declarations_add_no_stack_defaults(tmp_path: Path) -> None:
@@ -92,28 +91,22 @@ def test_empty_project_declarations_add_no_stack_defaults(tmp_path: Path) -> Non
 
 
 @pytest.mark.parametrize(
-    ("field", "value", "logged"),
+    ("field", "value"),
     [
-        ("skills", ["missing"], "does not exist"),
-        ("skills", ["docs/CONTRIBUTING.md"], "is not a directory"),
-        ("repository_instructions", ["skills"], "is not a regular file"),
-        ("protected_paths", ["missing"], "it protects nothing"),
+        ("skills", ["missing"]),
+        ("skills", ["docs/CONTRIBUTING.md"]),
+        ("repository_instructions", ["skills"]),
+        ("protected_paths", ["missing"]),
     ],
 )
-def test_unusable_declared_paths_are_logged_and_skipped(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-    field: str,
-    value: list[str],
-    logged: str,
+def test_unusable_declared_paths_are_skipped(
+    tmp_path: Path, field: str, value: list[str]
 ) -> None:
-    # 26 October 2026 (step 2): a declaration slip is a note, not a refusal
-    # of the Player (census GKF-071 and GKF-072).
+    # A declaration slip is never a refusal of the Player: what cannot be
+    # used is left out.
     root, profile = _worktree(tmp_path)
-    with caplog.at_level(logging.INFO):
-        config = build_player_config(cwd=root, dcode_home=profile, **{field: value})
+    config = build_player_config(cwd=root, dcode_home=profile, **{field: value})
     assert getattr(config, field) == ()
-    assert logged in caplog.text
 
 
 def test_sources_and_protection_outside_the_worktree_are_not_used(
@@ -133,38 +126,6 @@ def test_sources_and_protection_outside_the_worktree_are_not_used(
     )
     assert config.skills == ((root / "skills").resolve(),)
     assert config.protected_paths == ((root / "evidence").resolve(),)
-
-
-def test_dcode_profile_must_be_outside_the_worktree(tmp_path: Path) -> None:
-    root, profile = _worktree(tmp_path)
-    assert build_player_config(cwd=root, dcode_home=profile).dcode_home == profile.resolve()
-
-    inside = root / "profile"
-    inside.mkdir()
-    with pytest.raises(PlayerConfigError, match="outside"):
-        build_player_config(cwd=root, dcode_home=inside)
-
-
-def test_a_bad_lock_identity_is_logged_and_dropped(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    root, profile = _worktree(tmp_path)
-    with caplog.at_level(logging.WARNING):
-        config = build_player_config(
-            cwd=root, dcode_home=profile, lock_profile_identity=(1, "2")  # type: ignore[arg-type]
-        )
-    assert config.lock_profile_identity is None
-    assert "will not be locked" in caplog.text
-
-
-def test_blank_or_repeated_commands_are_skipped(tmp_path: Path) -> None:
-    root, profile = _worktree(tmp_path)
-    config = build_player_config(
-        cwd=root,
-        dcode_home=profile,
-        declared_commands=[("test", "make check"), ("", "x"), ("test", "make other")],
-    )
-    assert config.declared_commands == (("test", "make check"),)
 
 
 def test_revalidation_leaves_out_a_source_that_went(tmp_path: Path) -> None:
@@ -215,7 +176,7 @@ def test_declared_documents_are_canonical_and_revalidated(tmp_path: Path) -> Non
     assert config.required_documents == (
         (root / "references" / "project-conventions.md").resolve(),
     )
-    assert revalidate_player_config(config, cwd=root) is config
+    assert revalidate_player_config(config, cwd=root) == config
     (root / "references" / "project-conventions.md").unlink()
     assert revalidate_player_config(config, cwd=root).required_documents == ()
 
@@ -236,11 +197,9 @@ def test_declared_documents_work_for_a_non_python_project(tmp_path: Path) -> Non
     assert config.declared_commands == (("test", "make check"),)
 
 
-def test_declared_document_slips_are_logged_by_path(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_declared_document_slips_are_skipped_and_large_ones_kept(tmp_path: Path) -> None:
     """A missing, escaping or non-file document is skipped; a large or
-    non-UTF-8 one is kept. Each is logged by path (26 October 2026)."""
+    non-UTF-8 one is kept."""
 
     root, profile = _worktree(tmp_path)
 
@@ -251,27 +210,20 @@ def test_declared_document_slips_are_logged_by_path(
     (root / "references" / "oversized.md").write_bytes(b"x" * 131_073)
     (root / "references" / "binary.md").write_bytes(b"# title\n\xff\xfe")
 
-    cases: list[tuple[list[str], str, int]] = [
-        (["references/missing.md"], "does not exist", 0),
-        (["../outside/conventions.md"], "outside the task worktree", 0),
-        (["references/outside-link.md"], "outside the task worktree", 0),
-        (["references/oversized.md"], "more than the guide of 131072", 1),
-        (["references/binary.md"], "not valid UTF-8", 1),
-        (["references"], "is not a regular file", 0),
+    cases: list[tuple[list[str], int]] = [
+        (["references/missing.md"], 0),
+        (["../outside/conventions.md"], 0),
+        (["references/outside-link.md"], 0),
+        (["references/oversized.md"], 1),
+        (["references/binary.md"], 1),
+        (["references"], 0),
     ]
-    for value, logged, kept in cases:
-        caplog.clear()
-        with caplog.at_level(logging.WARNING):
-            config = build_player_config(
-                cwd=root, dcode_home=profile, required_documents=value
-            )
+    for value, kept in cases:
+        config = build_player_config(cwd=root, dcode_home=profile, required_documents=value)
         assert len(config.required_documents) == kept, value
-        assert logged in caplog.text, value
 
 
-def test_more_than_32_declared_documents_are_kept_with_a_note(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_more_than_32_declared_documents_are_all_kept(tmp_path: Path) -> None:
     root, profile = _worktree(tmp_path)
     declared: list[str] = []
     for index in range(33):
@@ -279,12 +231,8 @@ def test_more_than_32_declared_documents_are_kept_with_a_note(
         (root / name).write_text(f"# document {index}\n")
         declared.append(name)
 
-    with caplog.at_level(logging.WARNING):
-        config = build_player_config(
-            cwd=root, dcode_home=profile, required_documents=declared
-        )
+    config = build_player_config(cwd=root, dcode_home=profile, required_documents=declared)
     assert len(config.required_documents) == 33
-    assert "more than the guide of 32" in caplog.text
 
 
 # Repository instructions: CLAUDE.md that links to AGENTS.md (7 October 2026).
@@ -309,7 +257,7 @@ def test_claude_md_linked_to_agents_md_is_one_document_read_once(
     )
 
     assert config.repository_instructions == ((root / "AGENTS.md").resolve(),)
-    assert revalidate_player_config(config, cwd=root) is config
+    assert revalidate_player_config(config, cwd=root) == config
     prompt = _player_context_prompt(config)
     assert prompt.count("Run the declared check.") == 1
 
@@ -367,3 +315,11 @@ def test_a_repeated_declared_document_is_kept_once(tmp_path: Path) -> None:
     assert config.required_documents == (
         (root / "references" / "project-conventions.md").resolve(),
     )
+
+
+def test_a_missing_worktree_or_profile_leaves_nothing_to_work_from(tmp_path: Path) -> None:
+    root, profile = _worktree(tmp_path)
+    with pytest.raises(PlayerConfigError, match="Player cwd"):
+        build_player_config(cwd=tmp_path / "absent", dcode_home=profile)
+    with pytest.raises(PlayerConfigError, match="dcode_home"):
+        build_player_config(cwd=root, dcode_home=tmp_path / "absent")

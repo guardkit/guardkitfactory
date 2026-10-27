@@ -19,7 +19,7 @@ from unittest.mock import patch
 import httpx
 import pytest
 from guardkit.orchestrator.harness import AssistantMessageEvent, ResultMessageEvent, ToolResultEvent
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness, LangGraphHarnessError
 from guardkitfactory.harness.player_config import build_player_config
@@ -100,61 +100,6 @@ def config_with_documents(repo: Path, documents: list[str] | None = None) -> Any
 
 def read_call(path: Path) -> tuple[str, dict[str, object]]:
     return ("read_file", {"file_path": str(path), "limit": 1000})
-
-
-def build_gate(selected: Any) -> tuple[Any, tuple[dict[str, Any], ...]]:
-    """Construct the real read gate over the real required set."""
-
-    from guardkitfactory.harness.dcode_harness import required_skill_reads
-    from guardkitfactory.harness.skill_read_middleware import (
-        SelectedSkillReadMiddleware,
-    )
-
-    required = required_skill_reads(selected)
-    return (
-        SelectedSkillReadMiddleware(cwd=selected.cwd, required=required),
-        required,
-    )
-
-
-def rendered_body(item: dict[str, Any]) -> str:
-    raw = Path(item["path"]).read_bytes().decode("utf-8")
-    text = raw.replace("\r\n", "\n").replace("\r", "\n")
-    body = text[:-1] if text.endswith("\n") else text
-    lines = item["line_count"]
-    return f"@@ lines 1-{lines} of {lines} @@\n{body}"
-
-
-def record_read(
-    gate: Any,
-    item: dict[str, Any],
-    *,
-    call_id: str = "call-0",
-    path: str | None = None,
-    offset: int = 0,
-    limit: int | None = None,
-    status: str = "success",
-    content: str | None = None,
-) -> None:
-    """Drive one completed ``read_file`` through the real gate recorder."""
-
-    message = ToolMessage(
-        content=content if content is not None else rendered_body(item),
-        tool_call_id=call_id,
-        status=status,
-    )
-    gate.record_completed_read(
-        {
-            "name": "read_file",
-            "args": {
-                "file_path": path if path is not None else item["path"],
-                "offset": offset,
-                "limit": item["line_count"] if limit is None else limit,
-            },
-            "id": call_id,
-        },
-        message,
-    )
 
 
 def selected_skill_calls(repo: Path) -> list[tuple[str, dict[str, object]]]:
@@ -238,7 +183,7 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     try:
         with patch("deepagents_code.agent.create_cli_agent", side_effect=observe):
             graph = harness._create_agent(role="player", cwd=repo, resolved_model=model)
-        assert graph.guardkit_dcode_evidence["discovery"]["subagents"] == ["general-purpose"]
+        assert graph.guardkit_dcode_evidence["model"]["alias"] == "qwen36-workhorse"
         assert graph.guardkit_dcode_backend.default.default is harness.backend
         events = asyncio.run(_collect(harness, repo))
     finally:
@@ -266,25 +211,9 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     assert "./qa/run-suite.sh --exact" in supplied_messages
     assert "product_tests" in supplied_messages
     assert "Complete the checked change." in supplied_messages
-    assert (
-        "Required reads before execution, delegation or file changes"
-        in supplied_messages
-    )
+    assert "Documents to read first" in supplied_messages
     assert "[selected skill]" in supplied_messages
     assert "[project-declared document]" not in supplied_messages
-    assert harness.last_player_evidence is not None
-    consumption = harness.last_player_evidence["skill_consumption"]
-    assert consumption["status"] == "passed"
-    assert [Path(item["path"]).name for item in consumption["observed"]] == [
-        "SKILL.md",
-        "SKILL.md",
-    ]
-    assert {
-        item["relative_path"] for item in consumption["observed"]
-    } == {
-        "examples/coding-skills-bundle/skills/code-review/SKILL.md",
-        "examples/coding-skills-bundle/skills/planning/SKILL.md",
-    }
     assert "compact_conversation" in exchange.requests[0]["offered"]
     assert all(
         b["model"] == "qwen36-workhorse"
@@ -296,76 +225,12 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
         "repair",
         {
             "inventory": graph.guardkit_dcode_evidence,
-            "run_evidence": harness.last_player_evidence,
             "requests": exchange.bodies,
             "results": results,
             "activity": len(activity),
             "acceptance_sha256": digest,
         },
     )
-
-
-@pytest.mark.parametrize("kind", ["missing", "wrong_root", "outside_alias"])
-def test_unread_selected_skills_are_recorded_and_the_turn_completes(
-    tmp_path: Path, kind: str
-) -> None:
-    repo = _scaffold(tmp_path)
-    other = _scaffold(tmp_path, "other")
-    if kind == "missing":
-        calls = [("read_file", {"file_path": str(repo / "AGENTS.md")})]
-    elif kind == "wrong_root":
-        calls = [
-            ("read_file", {"file_path": str(other / "skills/planning/SKILL.md")}),
-            ("read_file", {"file_path": str(other / "skills/code-review/SKILL.md")}),
-        ]
-    else:
-        outside_alias = repo.parent / "outside-alias"
-        outside_alias.symlink_to((repo / "skills").resolve(), target_is_directory=True)
-        calls = [
-            ("read_file", {"file_path": str(outside_alias / "planning/SKILL.md")}),
-            ("read_file", {"file_path": str(outside_alias / "code-review/SKILL.md")}),
-        ]
-    exchange = Exchange(calls)
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert harness.last_player_evidence is not None
-        consumption = harness.last_player_evidence["skill_consumption"]
-        assert consumption["status"] == "incomplete"
-        assert len(consumption["missing"]) == 2
-    finally:
-        _close_clients(sync, async_)
-
-
-def test_a_player_without_a_gate_or_evidence_still_completes_the_turn(
-    tmp_path: Path,
-) -> None:
-    from unittest.mock import patch
-
-    repo = _scaffold(tmp_path)
-    model, sync, async_ = _model(Exchange([]))
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-
-    async def ainvoke(_input: Any, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        return {
-            "messages": [
-                AIMessage(content="done", response_metadata={"finish_reason": "stop"})
-            ]
-        }
-
-    bare_agent = SimpleNamespace(ainvoke=ainvoke)
-    try:
-        with patch.object(LangGraphHarness, "_create_agent", return_value=bare_agent):
-            events = asyncio.run(_collect(harness, repo))
-    finally:
-        _close_clients(sync, async_)
-
-    assert any(isinstance(event, ResultMessageEvent) for event in events)
-    assert harness.last_player_evidence == {
-        "skill_consumption": {"status": "unavailable"}
-    }
 
 
 def test_protected_file_is_readable_but_refused_for_writes_in_a_full_turn(
@@ -505,34 +370,6 @@ def test_a_new_file_in_a_protected_folder_is_written_in_a_full_turn(
     assert other.read_text() == "# DDR-112\n"
 
 
-def test_a_partial_read_of_a_required_skill_counts_and_is_recorded(
-    tmp_path: Path,
-) -> None:
-    repo = _scaffold(tmp_path)
-    calls = [
-        ("read_file", {"file_path": str(repo / "skills/planning/SKILL.md"), "limit": 1}),
-        (
-            "read_file",
-            {"file_path": str(repo / "skills/code-review/SKILL.md"), "offset": 1},
-        ),
-    ]
-    exchange = Exchange(calls)
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert harness.last_player_evidence is not None
-        consumption = harness.last_player_evidence["skill_consumption"]
-        assert consumption["status"] == "passed"
-        assert sorted((o["offset"], o["limit"]) for o in consumption["observed"]) == [
-            (0, 1),
-            (1, 100),
-        ]
-    finally:
-        _close_clients(sync, async_)
-
-
 _REFUSAL = "Read these required documents in full before running commands: "
 
 
@@ -545,208 +382,6 @@ def tool_results(exchange: Exchange, call_id: str) -> list[str]:
         for message in body.get("messages", [])
         if message.get("role") == "tool" and message.get("tool_call_id") == call_id
     ][:1]
-
-
-def test_command_before_reads_is_answered_then_runs_after_reads(
-    tmp_path: Path,
-) -> None:
-    """An early command gets an error result; the turn goes on and recovers."""
-
-    repo = _scaffold(tmp_path)
-    marker = repo / "early.txt"
-    exchange = Exchange(
-        [
-            ("execute", {"command": "touch early.txt"}),
-            *selected_skill_calls(repo),
-            ("execute", {"command": "touch early.txt"}),
-        ],
-        final_text="read the documents and ran the command",
-    )
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-    finally:
-        _close_clients(sync, async_)
-    assert any(isinstance(event, ResultMessageEvent) for event in events)
-    [refused] = tool_results(exchange, "call-0")
-    assert _REFUSAL in refused and refused.endswith(". Then retry.")
-    assert str((repo / "skills/planning/SKILL.md").resolve()) in refused
-    assert str((repo / "skills/code-review/SKILL.md").resolve()) in refused
-    [ran] = tool_results(exchange, "call-3")
-    assert _REFUSAL not in ran
-    assert marker.exists()
-    assert harness.last_player_evidence is not None
-    assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
-
-
-@pytest.mark.parametrize("early", [1, 2, 3, 4])
-def test_three_early_commands_are_answered_and_a_fourth_runs(
-    tmp_path: Path, early: int
-) -> None:
-    repo = _scaffold(tmp_path)
-    marker = repo / "early.txt"
-    exchange = Exchange(
-        [
-            *[("execute", {"command": "touch early.txt"})] * early,
-            *selected_skill_calls(repo),
-            ("execute", {"command": "touch early.txt"}),
-        ],
-        final_text="read the documents and ran the command",
-    )
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-    finally:
-        _close_clients(sync, async_)
-    assert any(isinstance(event, ResultMessageEvent) for event in events)
-    for index in range(early):
-        [result] = tool_results(exchange, f"call-{index}")
-        assert (_REFUSAL in result) == (index < 3)
-    assert marker.exists()
-    assert harness.last_player_evidence is not None
-
-
-def test_selected_skill_reads_accept_sdk_project_alias(tmp_path: Path) -> None:
-    repo = _scaffold(tmp_path)
-    calls = [
-        (
-            "read_file",
-            {
-                "file_path": str(repo / ".agents/skills/planning/SKILL.md"),
-                "limit": 1000,
-            },
-        ),
-        (
-            "read_file",
-            {
-                "file_path": str(repo / ".agents/skills/code-review/SKILL.md"),
-                "limit": 1000,
-            },
-        ),
-    ]
-    exchange = Exchange(calls, final_text="selected project skills consumed")
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert harness.last_player_evidence is not None
-        assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
-    finally:
-        _close_clients(sync, async_)
-
-
-def test_selected_skill_gate_blocks_real_write_before_handler(tmp_path: Path) -> None:
-    repo = _scaffold(tmp_path)
-    marker = repo / "should-not-exist.txt"
-    exchange = Exchange(
-        [("write_file", {"file_path": str(marker), "content": "MUTATED"})]
-    )
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert not marker.exists()
-        assert harness.last_player_evidence is not None
-        assert harness.last_player_evidence["skill_consumption"]["status"] == "incomplete"
-        [refused] = tool_results(exchange, "call-0")
-        assert refused.startswith("'write_file' was not run. " + _REFUSAL)
-    finally:
-        _close_clients(sync, async_)
-
-
-def test_selected_skill_gate_blocks_same_batch_write_while_reads_run(
-    tmp_path: Path,
-) -> None:
-    repo = _scaffold(tmp_path)
-    marker = repo / "same-batch-must-not-exist.txt"
-    backend = _backend(repo)
-    original_aread = backend.default.aread
-
-    async def delayed_aread(*args: Any, **kwargs: Any) -> Any:
-        await asyncio.sleep(0.05)
-        return await original_aread(*args, **kwargs)
-
-    backend.default.aread = delayed_aread
-
-    class BatchExchange(Exchange):
-        def __call__(self, request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content)
-            self.bodies.append(body)
-            self.requests.append({"offered": []})
-            write = ("write_file", {"file_path": str(marker), "content": "MUTATED"})
-            turn = len(self.bodies) - 1
-            if turn == 0:
-                calls = [*selected_skill_calls(repo), write]
-                prefix = "batch"
-            elif turn == 1:
-                assert not marker.exists()
-                calls = [write]
-                prefix = "retry"
-            else:
-                calls = []
-            message: dict[str, Any] = (
-                {
-                    "role": "assistant",
-                    "content": None,
-                    "tool_calls": [
-                        {
-                            "id": f"{prefix}-{index}",
-                            "type": "function",
-                            "function": {
-                                "name": name,
-                                "arguments": json.dumps(arguments),
-                            },
-                        }
-                        for index, (name, arguments) in enumerate(calls)
-                    ],
-                }
-                if calls
-                else {"role": "assistant", "content": "retried after the reads"}
-            )
-            return httpx.Response(
-                200,
-                json={
-                    "id": "batch",
-                    "object": "chat.completion",
-                    "created": 1,
-                    "model": body["model"],
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": message,
-                            "finish_reason": "tool_calls" if calls else "stop",
-                        }
-                    ],
-                    "usage": {
-                        "prompt_tokens": 100,
-                        "completion_tokens": 10,
-                        "total_tokens": 110,
-                    },
-                },
-            )
-
-    exchange = BatchExchange([])
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=backend, player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-    finally:
-        _close_clients(sync, async_)
-    assert any(isinstance(event, ResultMessageEvent) for event in events)
-    [refused] = tool_results(exchange, "batch-2")
-    assert refused.startswith("'write_file' was not run. " + _REFUSAL)
-    for call_id in ("batch-0", "batch-1"):
-        [read] = tool_results(exchange, call_id)
-        assert _REFUSAL not in read
-    [retried] = tool_results(exchange, "retry-0")
-    assert _REFUSAL not in retried
-    assert marker.read_text() == "MUTATED"
-    assert harness.last_player_evidence is not None
-    assert harness.last_player_evidence["skill_consumption"]["status"] == "passed"
 
 
 def test_selected_skill_complete_read_normalizes_crlf(tmp_path: Path) -> None:
@@ -763,31 +398,11 @@ def test_selected_skill_complete_read_normalizes_crlf(tmp_path: Path) -> None:
         _close_clients(sync, async_)
 
 
-def test_selected_skill_non_utf8_is_advice_and_the_turn_runs(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    # 26 October 2026 (step 2, census GKF-028).
-    repo = _scaffold(tmp_path)
-    (repo / "skills/planning/SKILL.md").resolve().write_bytes(b"---\nname: bad\n---\n\xff")
-    exchange = Exchange([])
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        with caplog.at_level("WARNING"):
-            events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert exchange.requests
-        assert "not valid UTF-8" in caplog.text
-    finally:
-        _close_clients(sync, async_)
-
-
 @pytest.mark.parametrize("text,finish", [("", "stop"), ("", "length"), ("partial", "length")])
 def test_an_empty_or_cut_off_final_answer_ends_the_turn_as_usual(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture, text: str, finish: str
+    tmp_path: Path, text: str, finish: str
 ) -> None:
-    # 26 October 2026 (step 2, census GKF-123 and GKF-124): the edits are
-    # what matter; the answer's state is logged.
+    # The edits are what matter; the turn ends whatever the answer says.
     repo = _scaffold(tmp_path)
     exchange = Exchange(
         [("read_file", {"file_path": str(repo / "AGENTS.md")})],
@@ -805,12 +420,10 @@ def test_an_empty_or_cut_off_final_answer_ends_the_turn_as_usual(
             received.append(event)
 
     try:
-        with caplog.at_level("WARNING"):
-            asyncio.run(run())
+        asyncio.run(run())
         [result] = [event for event in received if isinstance(event, ResultMessageEvent)]
         assert result.stop_reason == finish
         assert harness._ainvoke_task is None
-        assert ("empty terminal" if not text else "cut off") in caplog.text
     finally:
         _close_clients(sync, async_)
 
@@ -828,20 +441,17 @@ _ADVICE_KINDS = (
 @pytest.mark.parametrize(
     "kind",
     [
-        # Kept: the wrong folder, the local model, custom subagents (which
-        # could name a hosted model), transcripts outside the project.
+        # Refused: the wrong folder, a backend naming none, the local model.
+        # (Custom subagents: test_a_valid_custom_subagent_naming_a_hosted_model_cannot_run.)
         "sibling",
-        "custom_agent",
         "opaque",
         "endpoint",
         "unresolved",
-        "artifact_link",
-        "artifact_in_worktree",
-        # Advice since 26 October 2026 (step 2): the Player starts.
+        # The Player starts with what is there.
         *_ADVICE_KINDS,
     ],
 )
-def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) -> None:
+def test_refusals_before_model_activity_and_what_starts(tmp_path: Path, kind: str) -> None:
     repo = _scaffold(tmp_path)
     selected = config(repo)
     exchange = Exchange([])
@@ -859,13 +469,6 @@ def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) ->
         model.openai_api_base = "http://other.test/v1"
     elif kind == "unresolved":
         model = "unknown:model"
-    elif kind == "artifact_link":
-        history = Path(backend.artifacts_root) / "conversation_history"
-        history.rmdir()
-        history.symlink_to(tmp_path)
-    elif kind == "artifact_in_worktree":
-        # The old location: the worktree itself (14 October 2026 leak).
-        backend.artifacts_root = str(repo)
     elif kind == "extra_skill":
         extra = repo / ".claude/skills/unselected"
         extra.mkdir(parents=True)
@@ -878,10 +481,6 @@ def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) ->
     elif kind == "extra_memory":
         (repo / ".deepagents").mkdir()
         (repo / ".deepagents/AGENTS.md").write_text("extra")
-    elif kind == "custom_agent":
-        extra = repo / ".deepagents/agents"
-        extra.mkdir(parents=True)
-        (extra / "other.md").write_text("custom")
     harness = LangGraphHarness(model, backend=backend, player_config=selected)
     try:
         if kind == "changed":
@@ -894,7 +493,6 @@ def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) ->
                 )
                 return result
 
-            # The second inventory and its comparison are gone (census GKF-054).
             with patch("deepagents_code.agent.create_cli_agent", side_effect=changing):
                 events = asyncio.run(_collect(harness, repo))
             assert any(isinstance(event, ResultMessageEvent) for event in events)
@@ -904,17 +502,9 @@ def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) ->
             events = asyncio.run(_collect(harness, repo))
             assert any(isinstance(event, ResultMessageEvent) for event in events)
             assert exchange.requests
-            if kind != "source_removed":
-                assert harness.last_player_evidence["discovery"]["warnings"]
             return
-        else:
-            expected = {
-                "artifact_link": "symlink",
-                "artifact_in_worktree": "inside the worktree",
-                "custom_agent": "custom subagents",
-            }.get(kind)
-            with pytest.raises(LangGraphHarnessError, match=expected):
-                asyncio.run(_collect(harness, repo))
+        with pytest.raises(LangGraphHarnessError):
+            asyncio.run(_collect(harness, repo))
         assert not exchange.requests
     finally:
         _close_clients(sync, async_)
@@ -1054,8 +644,6 @@ def test_real_graph_forced_compaction_and_large_result_round_trip(tmp_path: Path
     backend = _backend(repo)
     private = Path(backend.artifacts_root)
     assert private == (repo / ".git" / "guardkit-scratch" / "model-artifacts").resolve()
-    # Opened up after the backend was built: dcode closes it again.
-    (private / "conversation_history").chmod(0o755)
     harness = LangGraphHarness(
         model,
         backend=backend,
@@ -1437,7 +1025,7 @@ def test_compaction_error_has_only_provider_retry_budget(
         _close_clients(sync, async_)
 
 
-def test_profile_and_discovery_controls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_profile_controls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     repo = _scaffold(tmp_path)
     selected = config(repo)
     exchange = Exchange([])
@@ -1457,55 +1045,6 @@ def test_profile_and_discovery_controls(tmp_path: Path, monkeypatch: pytest.Monk
                 asyncio.run(_collect(harness, repo))
         assert PATHS.profile.root == selected.dcode_home
         assert not exchange.requests
-        # Advice since 26 October 2026 (step 2, census GKF-042 and GKF-027).
-        with patch(
-            "deepagents_code.plugins.discover_plugins",
-            return_value=SimpleNamespace(plugins=[], warnings=["unreadable plugin registry"]),
-        ):
-            asyncio.run(_collect(harness, repo))
-        assert any(
-            "unreadable plugin registry" in warning
-            for warning in harness.last_player_evidence["discovery"]["warnings"]
-        )
-        skill = repo / "skills/planning/SKILL.md"
-        original = skill.stat().st_mode
-        skill.chmod(0)
-        try:
-            asyncio.run(_collect(harness, repo))
-        finally:
-            skill.chmod(original)
-        assert any(
-            "unreadable discovery file left out" in warning
-            for warning in harness.last_player_evidence["discovery"]["warnings"]
-        )
-    finally:
-        _close_clients(sync, async_)
-
-
-@pytest.mark.parametrize("kind", ["malformed", "nested", "duplicate_name"])
-def test_skill_metadata_that_does_not_match_discovery_is_advice(
-    tmp_path: Path, kind: str
-) -> None:
-    # 26 October 2026 (step 2, census GKF-046 and GKF-047).
-    repo = _scaffold(tmp_path)
-    if kind == "malformed":
-        (repo / "skills/planning/SKILL.md").write_text("---\nname: planning\n---\n")
-    elif kind == "nested":
-        extra = repo / "skills/planning/nested"
-        extra.mkdir()
-        (extra / "SKILL.md").write_text("---\nname: nested\ndescription: nested\n---\n")
-    else:
-        extra = repo / "skills/remember"
-        extra.mkdir()
-        (extra / "SKILL.md").write_text("---\nname: remember\ndescription: collision\n---\n")
-    exchange = Exchange([])
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        warnings = harness.last_player_evidence["discovery"]["warnings"]
-        assert any(re.search("discovery|duplicate", warning) for warning in warnings)
     finally:
         _close_clients(sync, async_)
 
@@ -1527,86 +1066,6 @@ def test_dcode_without_selected_skills_or_instructions(tmp_path: Path) -> None:
         assert "<available_skills>" not in exchange.requests[0]["system"]
     finally:
         _close_clients(sync, async_)
-
-
-@pytest.mark.parametrize("kind", ["unexpected_file", "nonempty_memory", "link"])
-def test_profile_written_by_one_invocation_is_advice_for_the_next(
-    tmp_path: Path, kind: str, caplog: pytest.LogCaptureFixture
-) -> None:
-    """B463: a reused profile changed after a clean launch.
-
-    The first invocation launches from a clean profile and, through its own
-    shell tool, leaves a file in the profile. Its post-invocation inventory
-    records that file. Since 26 October 2026 (step 2, census GKF-035) the
-    second launch goes on; the advice names the entry by path, type, size and
-    hash, and never its contents.
-    """
-    repo = tmp_path / "empty-task"
-    repo.mkdir()
-    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
-    agent_dir = profile / "guardkit-player"
-    secret = "remember-this-secret"
-    relative = {
-        "unexpected_file": "guardkit-player/notes.json",
-        "nonempty_memory": "guardkit-player/AGENTS.md",
-        "link": "guardkit-player/linked.md",
-    }[kind]
-    target = profile / relative
-    memory = agent_dir / "AGENTS.md"
-    original_memory = memory.read_bytes() if memory.exists() else None
-    if kind == "link":
-        command = f"mkdir -p {agent_dir} && ln -s {repo} {target}"
-    else:
-        command = f"mkdir -p {agent_dir} && printf '%s' '{secret}' > {target}"
-    selected = build_player_config(cwd=repo, dcode_home=str(profile))
-    first = Exchange([("execute", {"command": command})])
-    model, sync, async_ = _model(first)
-    second = Exchange([])
-    model_two, sync_two, async_two = _model(second)
-    try:
-        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
-        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
-            events = asyncio.run(_collect(harness, repo))
-        # The clean profile launched as before and the command ran.
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert target.is_symlink() if kind == "link" else target.read_text() == secret
-        traces = [
-            record.getMessage()
-            for record in caplog.records
-            if "post-invocation profile inventory" in record.getMessage()
-        ]
-        assert len(traces) == 1 and f"cwd={repo}" in traces[0]
-        assert relative in traces[0] and secret not in traces[0]
-
-        caplog.clear()
-        harness_two = LangGraphHarness(
-            model_two, backend=_backend(repo), player_config=selected
-        )
-        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
-            events_two = asyncio.run(_collect(harness_two, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events_two)
-        logged = [
-            r.getMessage()
-            for r in caplog.records
-            if "run profile holds more than dcode's own empty files" in r.getMessage()
-        ]
-        assert logged and relative in logged[0] and secret not in logged[0]
-        if kind == "link":
-            assert f"{relative} (symlink, size={len(str(repo))}, sha256=None)" in logged[0]
-        else:
-            assert hashlib.sha256(secret.encode()).hexdigest() in logged[0]
-        # The model was reached, and the profile was left for diagnosis.
-        assert second.requests
-        assert target.is_symlink() or target.exists()
-    finally:
-        if kind != "nonempty_memory" and (target.is_symlink() or target.exists()):
-            target.unlink()
-        if original_memory is not None:
-            memory.write_bytes(original_memory)
-        elif memory.exists():
-            memory.unlink()
-        _close_clients(sync, async_)
-        _close_clients(sync_two, async_two)
 
 
 @pytest.mark.parametrize(
@@ -1664,213 +1123,12 @@ def test_process_wide_launch_refusals_are_typed(
         _close_clients(sync, async_)
 
 
-def test_owner_unreadable_profile_file_is_advice(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A profile file the owner cannot read (mode 0044) is logged; the launch goes on."""
-    from guardkitfactory.harness.dcode_harness import _validate_launch
-
-    if os.geteuid() == 0:
-        pytest.skip("root reads files regardless of mode")
-    repo = tmp_path / "task"
-    repo.mkdir()
-    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
-    hidden = selected.dcode_home / "guardkit-player" / "hidden.json"
-    hidden.parent.mkdir(parents=True, exist_ok=True)
-    hidden.write_text("{}")
-    hidden.chmod(0o044)
-    try:
-        with caplog.at_level("WARNING"):
-            assert _validate_launch(selected) == selected.dcode_home
-        assert (
-            "guardkit-player/hidden.json (file, size=2, sha256=None, error=PermissionError)"
-            in caplog.text
-        )
-    finally:
-        hidden.chmod(0o644)
-        hidden.unlink()
-
-
-def test_nonempty_profile_memory_is_advice(tmp_path: Path) -> None:
-    from deepagents_code.project_utils import ProjectContext
-
-    from guardkitfactory.harness.dcode_harness import _inventory
-
-    repo = tmp_path / "task"
-    repo.mkdir()
-    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
-    memory = selected.dcode_home / "guardkit-player" / "AGENTS.md"
-    original = memory.read_bytes() if memory.exists() else None
-    memory.parent.mkdir(parents=True, exist_ok=True)
-    memory.write_text("remembered")
-    try:
-        inventory = _inventory(selected, ProjectContext(user_cwd=repo, project_root=repo))
-        assert "profile AGENTS.md is not empty" in inventory["warnings"]
-    finally:
-        if original is None:
-            memory.unlink()
-        else:
-            memory.write_bytes(original)
-
-
-def _fake_launch_home(monkeypatch: pytest.MonkeyPatch, home: Path) -> None:
-    """Point dcode's user-level folders at `home`, as if GuardKit ran with HOME=home.
-
-    dcode works these folders out from $HOME once, at import, so the test swaps
-    that captured value rather than the environment.
-    """
-    import dataclasses
-
-    from deepagents_code import _paths
-
-    home.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(_paths, "PATHS", dataclasses.replace(_paths.PATHS, launch_home=home))
-
-
-def _write_skill(folder: Path, name: str = "example") -> None:
-    (folder / name).mkdir(parents=True, exist_ok=True)
-    (folder / name / "SKILL.md").write_text(
-        f"---\nname: {name}\ndescription: An example skill.\n---\n\nDo the example.\n"
-    )
-
-
-def _inventory_bare_repo(tmp_path: Path) -> dict[str, Any]:
-    from deepagents_code.project_utils import ProjectContext
-
-    from guardkitfactory.harness.dcode_harness import _inventory
-
-    repo = tmp_path / "task"
-    repo.mkdir(exist_ok=True)
-    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
-    return _inventory(selected, ProjectContext(user_cwd=repo, project_root=repo))
-
-
-@pytest.mark.parametrize("folder", [(".agents", "skills"), (".claude", "skills")])
-def test_skills_in_the_home_folder_are_advice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folder: tuple[str, str]
-) -> None:
-    """26 October 2026 (step 2, census GKF-044): logged, the Player starts."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    skills = home.joinpath(*folder)
-    _write_skill(skills)
-
-    inventory = _inventory_bare_repo(tmp_path)
-
-    assert any(
-        warning.startswith(f"unexpected skill discovery source: {skills}")
-        for warning in inventory["warnings"]
-    )
-
-
-def test_a_home_skills_folder_with_a_link_inside_is_advice(
+def test_resolved_comparison_defaults_across_main_subagent_compaction(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A linked-in skill (a common way to share skills) is not followed by the
-    inventory, and says so."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    elsewhere = tmp_path / "shared-skills"
-    _write_skill(elsewhere)
-    skills = home / ".claude" / "skills"
-    skills.mkdir(parents=True)
-    (skills / "example").symlink_to(elsewhere / "example", target_is_directory=True)
-
-    inventory = _inventory_bare_repo(tmp_path)
-
-    assert any("symlink inside discovery source" in w for w in inventory["warnings"])
-
-
-def test_a_broken_agents_skills_link_is_advice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A broken ~/.agents/skills link used to stop start-up with a file error."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    _write_skill(home / ".claude" / "skills")
-    (home / ".agents").mkdir()
-    (home / ".agents" / "skills").symlink_to(tmp_path / "moved-away", target_is_directory=True)
-
-    inventory = _inventory_bare_repo(tmp_path)
-
-    assert any("cannot be resolved" in w for w in inventory["warnings"])
-
-
-def test_a_looping_claude_skills_link_is_ignored_as_before(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """dcode skips a ~/.claude/skills link that loops; checking for home folders
-    must not turn that into an error for the project's own folders."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    (home / ".claude").mkdir()
-    (home / ".claude" / "skills").symlink_to(home / ".claude" / "loop")
-    (home / ".claude" / "loop").symlink_to(home / ".claude" / "skills")
-
-    inventory = _inventory_bare_repo(tmp_path)
-
-    home_claude = str(home / ".claude")
-    assert not any(entry["path"].startswith(home_claude) for entry in inventory["skills"])
-
-
-def test_renamed_or_empty_home_skills_folders_are_not_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The fix the message suggests works; empty folders were never refused."""
-    home = tmp_path / "home"
-    _fake_launch_home(monkeypatch, home)
-    _write_skill(home / ".claude" / "skills.off")
-    (home / ".agents" / "skills" / "empty").mkdir(parents=True)
-
-    inventory = _inventory_bare_repo(tmp_path)
-
-    by_path = {entry["path"]: entry for entry in inventory["skills"]}
-    assert by_path[str((home / ".agents" / "skills").resolve())]["files"] == {}
-    assert not any(path.startswith(str(home.resolve() / ".claude")) for path in by_path)
-
-
-def test_a_projects_own_extra_skill_folder_is_advice(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    _fake_launch_home(monkeypatch, tmp_path / "home")
-    repo = tmp_path / "task"
-    _write_skill(repo / ".claude" / "skills")
-
-    inventory = _inventory_bare_repo(tmp_path)
-
-    assert any(
-        warning.startswith(f"unexpected skill discovery source: {repo / '.claude' / 'skills'}")
-        for warning in inventory["warnings"]
-    )
-
-
-def test_profile_inventory_describes_entries_without_contents(tmp_path: Path) -> None:
-    from guardkitfactory.harness.dcode_harness import profile_inventory
-
-    profile = tmp_path / "profile"
-    (profile / "guardkit-player" / "nested").mkdir(parents=True)
-    (profile / "guardkit-player" / "AGENTS.md").write_bytes(b"")
-    (profile / "guardkit-player" / "nested" / "hooks.json").write_text("{}")
-    assert profile_inventory(profile) == [
-        {"path": "guardkit-player", "type": "directory", "size": None, "sha256": None},
-        {
-            "path": "guardkit-player/AGENTS.md",
-            "type": "file",
-            "size": 0,
-            "sha256": hashlib.sha256(b"").hexdigest(),
-        },
-        {"path": "guardkit-player/nested", "type": "directory", "size": None, "sha256": None},
-        {
-            "path": "guardkit-player/nested/hooks.json",
-            "type": "file",
-            "size": 2,
-            "sha256": hashlib.sha256(b"{}").hexdigest(),
-        },
-    ]
-    assert profile_inventory(tmp_path / "absent") == []
-
-
-def test_resolved_comparison_defaults_across_main_subagent_compaction(tmp_path: Path) -> None:
+    # The local model is built from its alias; the client needs a key to
+    # exist (the GitHub workflow sets none).
+    monkeypatch.setenv("OPENAI_API_KEY", "synthetic-test")
     repo = _scaffold(tmp_path)
     (repo / "long.txt").write_text("HISTORY_SENTINEL " * 2500)
     artifact = ArtifactExchange(repo)
@@ -2102,11 +1360,11 @@ def test_inventory_reports_no_replay_for_a_plain_model(monkeypatch: pytest.Monke
         assert settings["reasoning_replay"] is expected
 
 
-# --- Project-declared mandatory supporting documents (Lane A) ----------------
+# --- Project-declared supporting documents (Lane A) -------------------------
 
 
 def test_declared_documents_join_the_required_reads(tmp_path: Path) -> None:
-    """Positive control: the declared document is required, read and recorded."""
+    """The declared document is named to the Player after the skill bodies."""
 
     repo = _scaffold(tmp_path)
     document = declare_document(repo)
@@ -2121,310 +1379,15 @@ def test_declared_documents_join_the_required_reads(tmp_path: Path) -> None:
     try:
         events = asyncio.run(_collect(harness, repo))
         assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert harness.last_player_evidence is not None
-        consumption = harness.last_player_evidence["skill_consumption"]
-        assert consumption["status"] == "passed"
-        assert [item["kind"] for item in consumption["required"]] == [
-            "skill",
-            "skill",
-            "declared_document",
-        ]
-        assert {item["kind"] for item in consumption["observed"]} == {
-            "skill",
-            "declared_document",
-        }
-        assert any(
-            item["relative_path"].endswith("references/project-conventions.md")
-            and item["kind"] == "declared_document"
-            for item in consumption["observed"]
-        )
+        from guardkitfactory.harness.dcode_harness import required_skill_reads
+
+        required = required_skill_reads(config_with_documents(repo))
+        assert [item["kind"] for item in required] == ["skill", "skill", "declared_document"]
+        assert required[-1]["relative_path"].endswith("references/project-conventions.md")
         supplied = str(exchange.bodies[0]["messages"])
-        assert (
-            "Required reads before execution, delegation or file changes" in supplied
-        )
+        assert "Documents to read first" in supplied
         assert "[project-declared document]" in supplied
         assert "project-conventions.md" in supplied
-    finally:
-        _close_clients(sync, async_)
-
-
-def test_unread_declared_document_blocks_a_real_write(tmp_path: Path) -> None:
-    """Both skill bodies read is no longer enough to earn a mutation."""
-
-    repo = _scaffold(tmp_path)
-    declare_document(repo)
-    marker = repo / "declared-document-guard.txt"
-    exchange = Exchange(
-        [
-            *selected_skill_calls(repo),
-            ("write_file", {"file_path": str(marker), "content": "MUTATED"}),
-        ]
-    )
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(
-        model, backend=_backend(repo), player_config=config_with_documents(repo)
-    )
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert not marker.exists()
-        assert harness.last_player_evidence is not None
-        consumption = harness.last_player_evidence["skill_consumption"]
-        assert consumption["status"] == "incomplete"
-        assert [Path(path).name for path in consumption["missing"]] == [
-            "project-conventions.md"
-        ]
-        [refused] = tool_results(exchange, "call-2")
-        assert _REFUSAL in refused and "project-conventions.md" in refused
-        assert "SKILL.md" not in refused
-    finally:
-        _close_clients(sync, async_)
-
-
-@pytest.mark.parametrize("tool", ["execute", "write_file", "edit_file", "task"])
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_wrapped_early_call_gets_an_error_result_not_an_exception(
-    tmp_path: Path, tool: str, mode: str
-) -> None:
-    repo = _scaffold(tmp_path)
-    document = declare_document(repo)
-    gate, required = build_gate(config_with_documents(repo))
-    for index, item in enumerate(required):
-        if item["kind"] == "skill":
-            record_read(gate, item, call_id=f"skill-{index}")
-    ran: list[str] = []
-
-    def handler(request: Any) -> ToolMessage:
-        ran.append(request.tool_call["id"])
-        return ToolMessage(content="ran", tool_call_id=request.tool_call["id"])
-
-    async def ahandler(request: Any) -> ToolMessage:
-        return handler(request)
-
-    def call(call_id: str) -> Any:
-        request = SimpleNamespace(tool_call={"name": tool, "args": {}, "id": call_id})
-        if mode == "sync":
-            return gate.wrap_tool_call(request, handler)
-        return asyncio.run(gate.awrap_tool_call(request, ahandler))
-
-    refused = call("early")
-    assert isinstance(refused, ToolMessage)
-    assert refused.status == "error"
-    assert refused.tool_call_id == "early" and refused.name == tool
-    assert refused.content == (
-        f"{tool!r} was not run. Read these required documents in full before "
-        f"running commands: {document.resolve()}. Then retry."
-    )
-    assert ran == []
-
-    declared = next(item for item in required if item["kind"] == "declared_document")
-    record_read(gate, declared, call_id="doc")
-    result = call("after")
-    assert result.content == "ran" and ran == ["after"]
-    assert gate.evidence()["status"] == "passed"
-
-
-@pytest.mark.parametrize("mode", ["sync", "async"])
-def test_fourth_early_call_in_a_turn_runs(tmp_path: Path, mode: str) -> None:
-    from guardkitfactory.harness.skill_read_middleware import MAX_EARLY_REFUSALS
-
-    repo = _scaffold(tmp_path)
-    declare_document(repo)
-    gate, _ = build_gate(config_with_documents(repo))
-    ran: list[str] = []
-
-    def handler(request: Any) -> ToolMessage:
-        ran.append(request.tool_call["id"])
-        return ToolMessage(content="ran", tool_call_id=request.tool_call["id"])
-
-    async def ahandler(request: Any) -> ToolMessage:
-        return handler(request)
-
-    def call(call_id: str) -> Any:
-        request = SimpleNamespace(
-            tool_call={"name": "execute", "args": {}, "id": call_id}
-        )
-        if mode == "sync":
-            return gate.wrap_tool_call(request, handler)
-        return asyncio.run(gate.awrap_tool_call(request, ahandler))
-
-    assert MAX_EARLY_REFUSALS == 3
-    for index in range(MAX_EARLY_REFUSALS):
-        result = call(f"early-{index}")
-        assert result.status == "error" and result.tool_call_id == f"early-{index}"
-    # Calls that are always allowed do not count and still run.
-    assert call_discovery(gate, mode, handler, ahandler).content == "ran"
-    assert call("early-3").content == "ran"
-    assert ran == ["discovery", "early-3"]
-    assert gate.evidence()["status"] == "incomplete"
-
-
-def call_discovery(gate: Any, mode: str, handler: Any, ahandler: Any) -> Any:
-    request = SimpleNamespace(
-        tool_call={"name": "ls", "args": {"path": "."}, "id": "discovery"}
-    )
-    if mode == "sync":
-        return gate.wrap_tool_call(request, handler)
-    return asyncio.run(gate.awrap_tool_call(request, ahandler))
-
-
-@pytest.mark.parametrize("tool", ["execute", "write_file", "edit_file", "task"])
-def test_guarded_tools_refuse_while_a_declared_document_is_unread(
-    tmp_path: Path, tool: str
-) -> None:
-    repo = _scaffold(tmp_path)
-    document = declare_document(repo)
-    gate, required = build_gate(config_with_documents(repo))
-    for index, item in enumerate(required):
-        if item["kind"] == "skill":
-            record_read(gate, item, call_id=f"skill-{index}")
-
-    refusal = gate.refuse_early_call({"name": tool, "id": "early"})
-
-    assert refusal is not None and refusal.status == "error"
-    assert str(document.resolve()) in refusal.content
-
-
-@pytest.mark.parametrize(
-    "tool", ["read_file", "ls", "glob", "grep", "write_todos"]
-)
-def test_discovery_tools_stay_open_while_a_declared_document_is_unread(
-    tmp_path: Path, tool: str
-) -> None:
-    repo = _scaffold(tmp_path)
-    declare_document(repo)
-    gate, _ = build_gate(config_with_documents(repo))
-
-    assert gate.refuse_early_call({"name": tool, "id": "call"}) is None
-
-
-@pytest.mark.parametrize("kind", ["partial", "offset", "error"])
-def test_declared_document_reads_count_unless_they_errored(
-    tmp_path: Path, kind: str
-) -> None:
-    repo = _scaffold(tmp_path)
-    declare_document(repo)
-    gate, required = build_gate(config_with_documents(repo))
-    declared = next(item for item in required if item["kind"] == "declared_document")
-    for index, item in enumerate(required):
-        if item["kind"] == "skill":
-            record_read(gate, item, call_id=f"skill-{index}")
-
-    if kind == "partial":
-        record_read(gate, declared, call_id="doc", limit=1)
-    elif kind == "offset":
-        record_read(gate, declared, call_id="doc", offset=1)
-    else:
-        record_read(gate, declared, call_id="doc", status="error")
-
-    evidence_block = gate.evidence()
-    if kind == "error":
-        assert evidence_block["status"] == "incomplete"
-        assert evidence_block["missing"] == [declared["path"]]
-        record_read(gate, declared, call_id="doc-again")
-    observed = next(
-        item
-        for item in gate.evidence()["observed"]
-        if item["kind"] == "declared_document"
-    )
-    assert gate.evidence()["status"] == "passed"
-    if kind == "partial":
-        assert observed["limit"] == 1
-    if kind == "offset":
-        assert observed["offset"] == 1
-
-
-def test_concurrent_guarded_calls_are_both_refused_while_a_read_is_missing(
-    tmp_path: Path,
-) -> None:
-    from concurrent.futures import ThreadPoolExecutor
-
-    repo = _scaffold(tmp_path)
-    declare_document(repo)
-    gate, required = build_gate(config_with_documents(repo))
-    for index, item in enumerate(required):
-        if item["kind"] == "skill":
-            record_read(gate, item, call_id=f"skill-{index}")
-
-    def guarded() -> str:
-        refusal = gate.refuse_early_call({"name": "execute", "id": "call"})
-        return "refused" if refusal is not None else "passed"
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        outcomes = list(pool.map(lambda _: guarded(), range(2)))
-    assert outcomes == ["refused", "refused"]
-
-    declared = next(item for item in required if item["kind"] == "declared_document")
-    record_read(gate, declared, call_id="doc")
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        outcomes = list(pool.map(lambda _: guarded(), range(2)))
-    assert outcomes == ["passed", "passed"]
-
-
-def test_declared_document_alias_accepted_and_unrelated_symlink_not_counted(
-    tmp_path: Path,
-) -> None:
-    repo = _scaffold(tmp_path)
-    document = declare_document(repo)
-    alias = repo / ".agents" / "skills" / "planning" / "references" / document.name
-    unrelated = repo / "unrelated-link"
-    unrelated.symlink_to(document.parent, target_is_directory=True)
-
-    gate, required = build_gate(config_with_documents(repo))
-    declared = next(item for item in required if item["kind"] == "declared_document")
-    for index, item in enumerate(required):
-        if item["kind"] == "skill":
-            record_read(gate, item, call_id=f"skill-{index}")
-
-    record_read(gate, declared, call_id="unrelated", path=str(unrelated / document.name))
-    assert gate.evidence()["status"] == "incomplete"
-
-    record_read(gate, declared, call_id="alias", path=str(alias))
-    evidence_block = gate.evidence()
-    assert evidence_block["status"] == "passed"
-    assert {item["kind"] for item in evidence_block["observed"]} == {
-        "skill",
-        "declared_document",
-    }
-
-
-def test_declared_document_works_for_a_non_python_project(tmp_path: Path) -> None:
-    """A Makefile project declaring a plain-text document, end to end."""
-
-    repo = _scaffold(tmp_path)
-    (repo / "Makefile").write_text("check:\n\t./qa/run-suite.sh\n")
-    (repo / "docs").mkdir()
-    conventions = repo / "docs" / "conventions.txt"
-    conventions.write_text("Run make check. Name the delivered command.\n")
-    selected = build_player_config(
-        cwd=repo,
-        dcode_home=os.environ["DEEPAGENTS_HOME"],
-        skills=["skills"],
-        memory=["AGENTS.md"],
-        repository_instructions=["AGENTS.md"],
-        declared_commands=[("test", "make check")],
-        required_documents=["docs/conventions.txt"],
-    )
-    exchange = Exchange(
-        [*selected_skill_calls(repo), read_call(conventions)],
-        final_text="make-project documents consumed",
-    )
-    model, sync, async_ = _model(exchange)
-    harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
-    try:
-        events = asyncio.run(_collect(harness, repo))
-        assert any(isinstance(event, ResultMessageEvent) for event in events)
-        assert harness.last_player_evidence is not None
-        consumption = harness.last_player_evidence["skill_consumption"]
-        assert consumption["status"] == "passed"
-        assert [
-            item["relative_path"]
-            for item in consumption["required"]
-            if item["kind"] == "declared_document"
-        ] == ["docs/conventions.txt"]
-        supplied = str(exchange.bodies[0]["messages"])
-        assert "make check" in supplied
-        assert "docs/conventions.txt" in supplied
     finally:
         _close_clients(sync, async_)
 
@@ -2442,290 +1405,3 @@ def test_skill_only_declaration_is_unchanged(tmp_path: Path) -> None:
     required = required_skill_reads(selected)
     assert [item["kind"] for item in required] == ["skill", "skill"]
     assert [Path(item["path"]).name for item in required] == ["SKILL.md", "SKILL.md"]
-
-
-# --- Bounded, race-safe profile inventory (Repair 3, review R7) ---------------
-
-
-def _inventory_in_thread(profile: Path, seconds: float = 10.0) -> list[dict[str, Any]]:
-    """Run the inventory where a hang fails the test instead of the suite."""
-    import threading
-
-    from guardkitfactory.harness.dcode_harness import profile_inventory
-
-    result: list[Any] = []
-    worker = threading.Thread(target=lambda: result.append(profile_inventory(profile)), daemon=True)
-    worker.start()
-    worker.join(seconds)
-    assert not worker.is_alive(), "profile inventory did not return"
-    return result[0]
-
-
-def test_inventory_does_not_hash_a_growing_file(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    growing = profile / "growing.log"
-    growing.write_bytes(b"x" * 10)
-    real_read = os.read
-    grown = []
-
-    def read(descriptor: int, count: int) -> bytes:
-        if not grown and os.fstat(descriptor).st_ino == growing.stat().st_ino:
-            grown.append(1)
-            with growing.open("ab") as handle:
-                handle.write(b"y" * 10)
-        return real_read(descriptor, count)
-
-    monkeypatch.setattr(os, "read", read)
-    entries = _inventory_in_thread(profile)
-    assert entries == [
-        {
-            "path": "growing.log",
-            "type": "file",
-            "size": 10,
-            "sha256": None,
-            "error": "not recorded: changed while reading",
-        }
-    ]
-
-
-def test_inventory_does_not_block_on_a_fifo_swapped_in_after_lstat(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    swapped = profile / "swap.json"
-    swapped.write_text("{}")
-    real_open = os.open
-
-    def swap_then_open(path: Any, flags: int, *args: Any, **kwargs: Any) -> int:
-        if Path(path) == swapped and not stat_is_fifo(swapped):
-            swapped.unlink()
-            os.mkfifo(swapped)
-        return real_open(path, flags, *args, **kwargs)
-
-    def stat_is_fifo(path: Path) -> bool:
-        import stat as stat_module
-
-        return stat_module.S_ISFIFO(path.lstat().st_mode)
-
-    monkeypatch.setattr(os, "open", swap_then_open)
-    entries = _inventory_in_thread(profile)
-    assert entries == [
-        {
-            "path": "swap.json",
-            "type": "file",
-            "size": 2,
-            "sha256": None,
-            "error": "not a regular file when opened",
-        }
-    ]
-
-
-def test_inventory_bounds_keep_partial_entries(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from guardkitfactory.harness import dcode_harness
-
-    profile = tmp_path / "profile"
-    profile.mkdir()
-    (profile / "a.txt").write_text("a")
-    (profile / "b.bin").write_bytes(b"b" * 100)
-    (profile / "c.txt").write_text("c")
-    (profile / "d.txt").write_text("d")
-    monkeypatch.setattr(dcode_harness, "_INVENTORY_MAX_FILE_BYTES", 10)
-    monkeypatch.setattr(dcode_harness, "_INVENTORY_MAX_ENTRIES", 3)
-    entries = _inventory_in_thread(profile)
-    assert entries[0]["sha256"] == hashlib.sha256(b"a").hexdigest()
-    assert entries[1] == {
-        "path": "b.bin",
-        "type": "file",
-        "size": 100,
-        "sha256": None,
-        "error": "not recorded: too large",
-    }
-    assert entries[2]["path"] == "c.txt" and entries[2]["sha256"]
-    assert entries[3] == {
-        "path": "d.txt",
-        "type": "other",
-        "size": None,
-        "sha256": None,
-        "error": "not recorded: too many entries",
-    }
-    assert len(entries) == 4
-
-    monkeypatch.setattr(dcode_harness, "_INVENTORY_SECONDS", 0.0)
-    timed_out = _inventory_in_thread(profile)
-    assert timed_out[-1]["error"] == "not recorded: timed out"
-
-
-def _block_profile_reads(monkeypatch: pytest.MonkeyPatch, blocked: Path) -> Any:
-    """Make any read of ``blocked`` hang until the returned event is set."""
-    import threading
-
-    release = threading.Event()
-    real_read = os.read
-
-    def read(descriptor: int, count: int) -> bytes:
-        try:
-            target = blocked.stat().st_ino
-        except OSError:
-            target = None
-        if target is not None and os.fstat(descriptor).st_ino == target:
-            release.wait(30)
-        return real_read(descriptor, count)
-
-    monkeypatch.setattr(os, "read", read)
-    return release
-
-
-@pytest.mark.parametrize("ending", ["completed", "cancelled"])
-def test_invocation_returns_when_the_post_invocation_inventory_blocks(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: pytest.LogCaptureFixture,
-    ending: str,
-) -> None:
-    import time
-
-    from guardkitfactory.harness import dcode_harness
-
-    monkeypatch.setattr(dcode_harness, "_POST_INVOCATION_INVENTORY_SECONDS", 0.3)
-    repo = tmp_path / "empty-task"
-    repo.mkdir()
-    profile = Path(os.environ["DEEPAGENTS_HOME"]).resolve()
-    blocked = profile / "guardkit-player" / "block.bin"
-    release = _block_profile_reads(monkeypatch, blocked)
-    selected = build_player_config(cwd=repo, dcode_home=str(profile))
-    started = asyncio.Event()
-
-    class Transport(httpx.AsyncBaseTransport):
-        async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
-            body = json.loads(request.content)
-            # The launch has passed its checks; now something writes the file
-            # whose read will hang during the post-invocation inventory.
-            blocked.parent.mkdir(parents=True, exist_ok=True)
-            blocked.write_bytes(b"z" * 8)
-            if ending == "completed":
-                return response(body)
-            started.set()
-            await asyncio.Future()
-            raise AssertionError("unreachable")
-
-    async def run() -> float:
-        from langchain_openai import ChatOpenAI
-
-        sync = httpx.Client(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
-        client = httpx.AsyncClient(transport=Transport())
-        model = ChatOpenAI(
-            model="qwen36-workhorse",
-            base_url="http://fake.test/v1",
-            api_key="synthetic",
-            use_responses_api=False,
-            temperature=0,
-            max_tokens=8192,
-            profile={"max_input_tokens": 131072},
-            http_client=sync,
-            http_async_client=client,
-            max_retries=0,
-            disable_streaming=True,
-            http_socket_options=(),
-        )
-        harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
-        task = asyncio.create_task(_collect(harness, repo))
-        try:
-            if ending == "cancelled":
-                await asyncio.wait_for(started.wait(), 10)
-                begun = time.monotonic()
-                await harness.cancel()
-                with pytest.raises(asyncio.CancelledError):
-                    await asyncio.wait_for(task, 10)
-            else:
-                begun = time.monotonic()
-                events = await asyncio.wait_for(task, 10)
-                assert any(isinstance(event, ResultMessageEvent) for event in events)
-            return time.monotonic() - begun
-        finally:
-            if not task.done():
-                task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-            await client.aclose()
-            sync.close()
-
-    try:
-        with caplog.at_level("INFO", logger="guardkitfactory.harness.dcode_harness"):
-            elapsed = asyncio.run(run())
-        assert elapsed < 5
-        assert any(
-            "profile inventory not recorded: timed out" in record.getMessage()
-            for record in caplog.records
-        )
-    finally:
-        release.set()
-        if blocked.exists():
-            blocked.unlink()
-
-
-def test_launch_advice_is_given_promptly_when_its_diagnostic_read_blocks(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A blocked diagnostic read cannot delay the launch."""
-    import threading
-    import time
-
-    from guardkitfactory.harness import dcode_harness
-
-    monkeypatch.setattr(dcode_harness, "_ADVICE_INVENTORY_SECONDS", 0.3)
-    repo = tmp_path / "task"
-    repo.mkdir()
-    selected = build_player_config(cwd=repo, dcode_home=os.environ["DEEPAGENTS_HOME"])
-    agent_dir = selected.dcode_home / "guardkit-player"
-    agent_dir.mkdir(parents=True, exist_ok=True)
-    link = agent_dir / "a-link"
-    link.symlink_to(repo)
-    blocked = agent_dir / "z.bin"
-    blocked.write_bytes(b"z" * 8)
-    release = _block_profile_reads(monkeypatch, blocked)
-    outcome: list[object] = []
-
-    def launch() -> None:
-        outcome.append(dcode_harness._validate_launch(selected))
-
-    try:
-        begun = time.monotonic()
-        with caplog.at_level("WARNING"):
-            worker = threading.Thread(target=launch, daemon=True)
-            worker.start()
-            worker.join(10)
-        elapsed = time.monotonic() - begun
-        assert not worker.is_alive(), "the launch waited on its diagnostics"
-        assert elapsed < 3
-        assert outcome == [selected.dcode_home]
-        assert f"guardkit-player/a-link (symlink, size={len(str(repo))}, sha256=None)" in caplog.text
-        assert "guardkit-player/z.bin (other, size=None, sha256=None, error=not recorded: timed out)" in caplog.text
-    finally:
-        release.set()
-        link.unlink()
-        blocked.unlink()
-
-
-def test_discovery_warnings_ignore_other_threads() -> None:
-    """A parallel task's skill-loader warning never refuses another launch."""
-    import logging
-    import threading
-
-    from guardkitfactory.harness.dcode_harness import _DiscoveryWarnings
-
-    shared = logging.getLogger("deepagents.middleware.skills")
-    handler = _DiscoveryWarnings()
-    shared.addHandler(handler)
-    try:
-        other = threading.Thread(target=shared.warning, args=("other task's skills missing",))
-        other.start()
-        other.join()
-        shared.warning("this discovery's warning")
-    finally:
-        shared.removeHandler(handler)
-    assert handler.messages == ["this discovery's warning"]

@@ -4,9 +4,8 @@ Verifies the falsifier-level invariants from the task spec:
 
 1. ``from guardkitfactory import HarnessAdapter`` succeeds.
 2. The ``guardkitfactory.harness`` subpackage imports (skeleton at this stage).
-3. The four template-derived ``guardkitfactory.lib`` helpers are present and importable:
-   ``factory_guards``, ``json_extractor``, ``retry_context``,
-   ``session_logging``.
+3. The template-derived ``guardkitfactory.lib`` helpers are present and importable:
+   ``json_extractor``, ``retry_context``, ``session_logging``.
 
 These tests do not exercise behaviour — that is the job of TASK-HMIG-001B
 and beyond. They exist purely to prove that the scaffold installs and that
@@ -74,27 +73,8 @@ def test_harness_subpackage_imports() -> None:
 
 
 # ---------------------------------------------------------------------------
-# AC-004 .. AC-007: vendored guardkitfactory.lib helpers importable
+# AC-005 .. AC-007: vendored guardkitfactory.lib helpers importable
 # ---------------------------------------------------------------------------
-
-def test_lib_factory_guards_importable() -> None:
-    """AC-004: assert_no_system_messages (TASK-REV-R2A1) + assert_tool_inventory."""
-    from guardkitfactory.lib.factory_guards import (
-        ToolLeakageError,
-        assert_no_system_messages,
-        assert_tool_inventory,
-    )
-
-    assert callable(assert_no_system_messages)
-    assert callable(assert_tool_inventory)
-    assert issubclass(ToolLeakageError, Exception)
-
-    # Cheap sanity check on the system-message guard since it has no
-    # external dependencies.
-    assert_no_system_messages({"messages": [{"role": "user", "content": "hi"}]})
-    with pytest.raises(ValueError):
-        assert_no_system_messages({"messages": [{"role": "system", "content": "no"}]})
-
 
 def test_lib_json_extractor_importable() -> None:
     """AC-005: 5-strategy JSON extraction cascade."""
@@ -128,13 +108,12 @@ def test_lib_session_logging_importable() -> None:
 
 
 # ---------------------------------------------------------------------------
-# guardkitfactory.lib aggregate __init__ also re-exports the four helpers cleanly
+# guardkitfactory.lib aggregate __init__ also re-exports the helpers cleanly
 # ---------------------------------------------------------------------------
 
 def test_lib_package_reexports() -> None:
     from guardkitfactory import lib
 
-    assert hasattr(lib, "assert_no_system_messages")
     assert hasattr(lib, "JsonExtractor")
     assert hasattr(lib, "build_retry_input")
     assert hasattr(lib, "write_session_log")

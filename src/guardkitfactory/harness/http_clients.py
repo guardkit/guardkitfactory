@@ -8,7 +8,6 @@ caller: the harness neither reconstructs them nor closes their transports.
 from __future__ import annotations
 
 import asyncio
-import logging
 import os
 import re
 from collections.abc import AsyncIterator, Callable, Mapping
@@ -22,10 +21,8 @@ _P = ParamSpec("_P")
 _T = TypeVar("_T")
 
 FEATURE_ROUTING_ID_ENV = "GUARDKIT_FEATURE_ROUTING_ID"
-FEATURE_ROUTING_REQUIRED_ENV = "GUARDKIT_FEATURE_ROUTING_REQUIRED"
 FEATURE_ROUTING_HEADER = "x-feature-id"
 _FEATURE_ROUTING_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,256}\Z")
-logger = logging.getLogger(__name__)
 
 
 def resolve_feature_routing_headers(
@@ -36,68 +33,18 @@ def resolve_feature_routing_headers(
     """Copy headers and add the per-child routing value when it is usable.
 
     The source mappings are never mutated. Header names are compared without
-    regard to case. Routing is bookkeeping (26 October 2026, step 2): a
-    required flag other than '0' or '1', a routing id that is not 1 to 256
-    ASCII letters, digits, '_' or '-', a missing id, and duplicate or
-    conflicting caller headers are logged, never a refusal. An unusable id
-    adds no header; the environment's usable id replaces any caller copy.
+    regard to case. A routing id of 1 to 256 ASCII letters, digits, '_' or '-'
+    replaces any caller copy of the routing header; any other value adds no
+    header (it could not be sent as one).
     """
     source: Mapping[str, str] = os.environ if environ is None else environ
     result = dict(headers or {})
-
-    required_raw = source.get(FEATURE_ROUTING_REQUIRED_ENV)
-    if required_raw not in (None, "0", "1"):
-        logger.warning(
-            "%s is %r, not '0' or '1'; treated as not required",
-            FEATURE_ROUTING_REQUIRED_ENV,
-            required_raw,
-        )
-    required = required_raw == "1"
-
     routing_id = source.get(FEATURE_ROUTING_ID_ENV)
-    if routing_id is not None and (
-        not isinstance(routing_id, str) or _FEATURE_ROUTING_ID_RE.fullmatch(routing_id) is None
-    ):
-        logger.warning(
-            "%s is not 1 to 256 ASCII letters, digits, '_' or '-'; no routing header is sent",
-            FEATURE_ROUTING_ID_ENV,
-        )
-        routing_id = None
-    if routing_id is None and required:
-        logger.warning(
-            "%s=1 but no usable %s; requests go without a routing header",
-            FEATURE_ROUTING_REQUIRED_ENV,
-            FEATURE_ROUTING_ID_ENV,
-        )
-
-    reserved = [name for name in result if name.lower() == FEATURE_ROUTING_HEADER]
-    if len(reserved) > 1 or (
-        reserved and (routing_id is None or result[reserved[0]] != routing_id)
-    ):
-        logger.warning(
-            "caller-supplied %s header(s) %s differ from the child's routing; %s",
-            FEATURE_ROUTING_HEADER,
-            reserved,
-            "replaced" if routing_id is not None else "kept",
-        )
-    if routing_id is not None:
-        for name in reserved:
+    if isinstance(routing_id, str) and _FEATURE_ROUTING_ID_RE.fullmatch(routing_id):
+        for name in [name for name in result if name.lower() == FEATURE_ROUTING_HEADER]:
             del result[name]
         result[FEATURE_ROUTING_HEADER] = routing_id
     return result
-
-
-def feature_routing_is_configured(*, environ: Mapping[str, str] | None = None) -> bool:
-    """Validate routing and report whether this child expects tagged HTTP."""
-    return bool(resolve_feature_routing_headers(environ=environ))
-
-
-def is_supported_routed_model(model: object) -> bool:
-    """Whether model resolution is guaranteed to use ``create_chat_openai``."""
-    if not isinstance(model, str):
-        return False
-    provider, separator, bare = model.partition(":")
-    return provider == "openai" and bool(separator) and bool(bare)
 
 
 async def _close_owned_clients(stack: AsyncExitStack) -> None:

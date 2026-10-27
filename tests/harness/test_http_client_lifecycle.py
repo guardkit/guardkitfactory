@@ -29,7 +29,6 @@ from guardkitfactory.harness.backend_config import build_autobuild_backend
 from guardkitfactory.harness.http_clients import (
     FEATURE_ROUTING_HEADER,
     FEATURE_ROUTING_ID_ENV,
-    FEATURE_ROUTING_REQUIRED_ENV,
     create_chat_openai,
     resolve_feature_routing_headers,
     with_invocation_clients,
@@ -147,7 +146,6 @@ def test_workhorse_then_synthesis_and_repeat_across_loops(
     server, owned, monkeypatch, tmp_path, proxy
 ):
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_wire-A")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     if proxy:
         monkeypatch.setenv("HTTP_PROXY", server.url)
         monkeypatch.setenv("OPENAI_BASE_URL", "http://fixture.invalid/v1")
@@ -202,7 +200,6 @@ def test_simultaneous_worker_loops_and_same_loop(server, owned, tmp_path):
 
 def test_player_transmits_feature_header(server, owned, monkeypatch):
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "player_route-B")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
 
     @with_invocation_clients
     async def run():
@@ -224,7 +221,6 @@ def test_external_construction_branch_transmits_feature_header(
     server, owned, monkeypatch,
 ):
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "external_route-B2")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
 
     async def run():
         sync_client = httpx.Client(timeout=None)
@@ -249,41 +245,22 @@ def test_external_construction_branch_transmits_feature_header(
 
 
 @pytest.mark.parametrize("synthesis", [False, True])
-def test_missing_required_feature_route_is_advice_and_the_request_goes(
-    server, owned, monkeypatch, tmp_path, caplog, synthesis,
+def test_without_a_feature_route_the_request_goes_without_the_header(
+    server, owned, monkeypatch, tmp_path, synthesis,
 ):
-    # 26 October 2026 (step 2, census GKF-055): routing is bookkeeping.
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     monkeypatch.delenv(FEATURE_ROUTING_ID_ENV, raising=False)
-    with caplog.at_level("WARNING", logger=http_clients.__name__):
-        events = asyncio.run(
-            collect(LangGraphHarness("openai:coach"), tmp_path, synthesis=synthesis)
-        )
+    events = asyncio.run(
+        collect(LangGraphHarness("openai:coach"), tmp_path, synthesis=synthesis)
+    )
     assert any(isinstance(event, ResultMessageEvent) for event in events)
     assert len(server.requests) == 1
     headers = {name.lower() for name in server.requests[0][3]}
     assert FEATURE_ROUTING_HEADER not in headers
-    assert "no usable" in caplog.text
     assert all(client.is_closed for client in owned)
 
 
-@pytest.mark.parametrize("model", ["anthropic:coach", "openai:", "openai"])
-def test_routing_with_a_model_that_cannot_carry_the_header_is_advice(
-    monkeypatch, caplog, model,
-):
-    # 26 October 2026 (step 2, census GKF-060): logged, not refused.
-    monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-C")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
-    with caplog.at_level("WARNING", logger=harness_module.__name__):
-        try:
-            LangGraphHarness(model)._resolve_model_for_invoke("coach")
-        except LangGraphHarnessError:
-            pass  # "openai:" names no model to build (a separate, kept error)
-    assert "will not carry the routing header" in caplog.text
-
-
-def test_routing_with_a_caller_owned_prebuilt_model_is_advice(
-    server, owned, monkeypatch, tmp_path, caplog,
+def test_a_caller_owned_prebuilt_model_keeps_its_own_clients(
+    server, owned, monkeypatch, tmp_path,
 ):
     sync_client = httpx.Client(timeout=None)
     async_client = httpx.AsyncClient(timeout=None)
@@ -294,12 +271,9 @@ def test_routing_with_a_caller_owned_prebuilt_model_is_advice(
         http_async_client=async_client,
     )
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "feature_route-D")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     try:
-        with caplog.at_level("WARNING", logger=harness_module.__name__):
-            LangGraphHarness(model)._resolve_model_for_invoke("coach")
-            LangGraphHarness(model)._build_synthesis_model(grammar=None, role="coach")
-        assert caplog.text.count("will not carry the routing header") == 2
+        LangGraphHarness(model)._resolve_model_for_invoke("coach")
+        LangGraphHarness(model)._build_synthesis_model(grammar=None, role="coach")
         assert not async_client.is_closed
         assert not sync_client.is_closed
         assert not owned
@@ -334,19 +308,9 @@ def test_feature_route_accepts_256_ascii_bytes_and_preserves_caller_headers():
         original,
         environ={
             FEATURE_ROUTING_ID_ENV: routing_id,
-            FEATURE_ROUTING_REQUIRED_ENV: "1",
         },
     ) == {"X-Trace": "trace", FEATURE_ROUTING_HEADER: routing_id}
     assert original == {"X-Trace": "trace"}
-
-
-@pytest.mark.parametrize("required", ["", "true", " 1", "2"])
-def test_an_inexact_required_setting_is_treated_as_not_required(required, caplog):
-    with caplog.at_level("WARNING", logger=http_clients.__name__):
-        assert resolve_feature_routing_headers(
-            environ={FEATURE_ROUTING_REQUIRED_ENV: required}
-        ) == {}
-    assert "treated as not required" in caplog.text
 
 
 def test_header_resolution_is_isolated_across_concurrent_child_contexts():
@@ -355,7 +319,6 @@ def test_header_resolution_is_isolated_across_concurrent_child_contexts():
             {"X-Trace": name},
             environ={
                 FEATURE_ROUTING_ID_ENV: name,
-                FEATURE_ROUTING_REQUIRED_ENV: "1",
             },
         )
 
@@ -603,7 +566,6 @@ def test_nested_subagent_keeps_owned_client_until_parent_finishes(
     server, owned, monkeypatch, tmp_path
 ):
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "nested_route-F")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     def reply(body):
         assert owned and not any(client.is_closed for client in owned)
         last = body["messages"][-1]
@@ -638,7 +600,6 @@ def test_real_compaction_uses_owned_client_through_final_request(
     server, owned, monkeypatch, tmp_path,
 ):
     monkeypatch.setenv(FEATURE_ROUTING_ID_ENV, "compact_route-G")
-    monkeypatch.setenv(FEATURE_ROUTING_REQUIRED_ENV, "1")
     from deepagents import create_deep_agent
     from deepagents.middleware.summarization import SummarizationMiddleware
 

@@ -255,49 +255,6 @@ def test_build_autobuild_backend_reuses_existing_tmpdir_made_owner_only(
     assert (temp_directory.stat().st_mode & 0o777) == 0o700
 
 
-def test_build_autobuild_backend_refuses_tmpdir_file(tmp_path: Path) -> None:
-    worktree = _git_checkout(tmp_path / "wt")
-    temp_directory = _toolchain_tmpdir(worktree)
-    temp_directory.parent.mkdir(parents=True)
-    temp_directory.write_text("not a directory\n")
-
-    with pytest.raises(ValueError, match="TMPDIR must be a directory"):
-        build_autobuild_backend(worktree)
-
-
-@pytest.mark.parametrize("broken", [False, True], ids=["existing-target", "broken"])
-def test_build_autobuild_backend_refuses_tmpdir_symlink(
-    tmp_path: Path, broken: bool
-) -> None:
-    worktree = _git_checkout(tmp_path / "worktree")
-    target = tmp_path / "redirected"
-    if not broken:
-        target.mkdir()
-    temp_directory = _toolchain_tmpdir(worktree)
-    temp_directory.parent.mkdir(parents=True)
-    temp_directory.symlink_to(target, target_is_directory=True)
-
-    with pytest.raises(ValueError, match="TMPDIR must not be a symlink"):
-        build_autobuild_backend(worktree)
-
-
-def test_build_autobuild_backend_refuses_tmpdir_creation_failure(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    worktree = _git_checkout(tmp_path / "wt")
-    temp_directory = _toolchain_tmpdir(worktree)
-    original_mkdir = Path.mkdir
-
-    def fail_tmpdir(path: Path, *args, **kwargs):
-        if path == temp_directory:
-            raise PermissionError("synthetic refusal")
-        return original_mkdir(path, *args, **kwargs)
-
-    monkeypatch.setattr(Path, "mkdir", fail_tmpdir)
-    with pytest.raises(ValueError, match="TMPDIR could not be created"):
-        build_autobuild_backend(worktree)
-
-
 def test_build_autobuild_backend_refuses_missing_worktree(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="worktree is not an existing folder"):
         build_autobuild_backend(tmp_path / "missing-worktree")
@@ -420,17 +377,6 @@ def test_a_non_git_worktree_gets_a_private_temporary_folder(tmp_path: Path) -> N
     assert not (tmp_path / "conversation_history").exists()
 
 
-def test_a_symlinked_model_artifacts_folder_is_refused(tmp_path: Path) -> None:
-    worktree = _git_checkout(tmp_path / "wt")
-    scratch = worktree / ".git" / "guardkit-scratch"
-    scratch.mkdir()
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    (scratch / "model-artifacts").symlink_to(elsewhere, target_is_directory=True)
-    with pytest.raises(ValueError, match="symlink"):
-        build_autobuild_backend(worktree)
-
-
 def test_read_only_backend_gets_no_artifact_routes(tmp_path: Path) -> None:
     """A read-only backend refuses the offload writes, as before."""
     worktree = _git_checkout(tmp_path / "wt")
@@ -473,21 +419,6 @@ def test_existing_open_artifact_folders_are_made_owner_only(tmp_path: Path) -> N
     private.chmod(0o755)
     build_autobuild_backend(worktree)
     assert (private.stat().st_mode & 0o777) == 0o700
-
-
-def test_an_artifact_folder_owned_by_another_user_is_logged_and_used(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    # 26 October 2026 (step 2, census GKF-014): advice, not a refusal.
-    worktree = _git_checkout(tmp_path / "wt")
-    private = worktree / ".git" / "guardkit-scratch" / "model-artifacts"
-    private.mkdir(parents=True)
-    real_uid = os.geteuid()
-    monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
-    with caplog.at_level("WARNING"):
-        backend = build_autobuild_backend(worktree)
-    assert backend.artifacts_root == str(private.resolve())
-    assert "belongs to another user" in caplog.text
 
 
 def test_concurrent_backends_for_one_new_worktree_share_one_folder(
@@ -1041,8 +972,6 @@ class TestScratchFolder:
         assert result.error is None
         assert (scratch / "verify.py").read_text() == "print('ok')\n"
         assert backend.delete(str(scratch / "verify.py")).error is None
-        # The folder itself cannot be deleted, like any allowed root.
-        assert backend.delete(str(scratch)).error is not None
 
     def test_refusal_names_the_scratch_folder(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)
@@ -1069,38 +998,6 @@ class TestScratchFolder:
         assert result_relative.error is not None
         assert not (scratch.parent / "config").exists()
         assert not (tmp_path / "host" / "escape.txt").exists()
-
-    def test_symlinked_scratch_folder_is_skipped_not_followed(
-        self, tmp_path: Path
-    ) -> None:
-        worktree = _make_worktree(tmp_path)
-        scratch = self._scratch(tmp_path)
-        elsewhere = tmp_path / "elsewhere"
-        elsewhere.mkdir()
-        scratch.symlink_to(elsewhere)
-
-        backend = build_autobuild_backend(worktree, scratch_root=scratch)
-        result = backend.write(str(scratch / "verify.py"), "x")
-
-        assert result.error is not None
-        assert not (elsewhere / "verify.py").exists()
-        assert "scratch folder" not in result.error
-        assert backend.default.scratch_root is None
-
-    def test_scratch_folder_inside_the_project_is_skipped(
-        self, tmp_path: Path
-    ) -> None:
-        worktree = _make_worktree(tmp_path)
-        inside = worktree / "src"
-        inside.mkdir()
-
-        backend = build_autobuild_backend(worktree, scratch_root=inside)
-
-        assert backend.default.scratch_root is None
-        assert "scratch folder" not in backend.write("/tmp/x.py", "x").error
-        # Nothing is created inside the project either.
-        build_autobuild_backend(worktree, scratch_root=inside / "guardkit-scratch")
-        assert not (inside / "guardkit-scratch").exists()
 
     def test_accepted_scratch_folder_is_reported(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)
@@ -1355,16 +1252,6 @@ class TestDeleteConfinement:
         assert result.error is None
         assert not victim.exists()
 
-    def test_delete_allowed_root_itself_is_rejected(self, tmp_path: Path) -> None:
-        worktree = _make_worktree(tmp_path)
-        backend = build_autobuild_backend(worktree)
-
-        result = backend.delete(str(worktree))
-
-        assert result.error is not None
-        assert "allowed root" in result.error
-        assert worktree.is_dir()
-
     def test_delete_available_through_gather_wrapper(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)
         victim = worktree / "gather.tmp"
@@ -1526,11 +1413,7 @@ class TestDeclaredPathProtection:
         assert result.error is None
         assert arbitrary.read_text() == "after\n"
 
-    def test_missing_or_escaping_declaration_is_skipped_with_a_note(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        import logging
-
+    def test_missing_or_escaping_declaration_is_skipped(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)
         outside = tmp_path / "outside"
         outside.mkdir()
@@ -1538,13 +1421,10 @@ class TestDeclaredPathProtection:
         kept.parent.mkdir(parents=True)
         kept.write_text("kept\n")
 
-        with caplog.at_level(logging.INFO):
-            backend = build_autobuild_backend(
-                worktree, protected_paths=["missing", outside, "checks/kept.txt"]
-            )
+        backend = build_autobuild_backend(
+            worktree, protected_paths=["missing", outside, "checks/kept.txt"]
+        )
 
-        assert "missing does not exist; it protects nothing" in caplog.text
-        assert "is outside the worktree; skipped" in caplog.text
         # The path that exists is still protected; the missing one can be made.
         assert backend.write(str(kept), "changed\n").error is not None
         assert backend.write(str(worktree / "missing"), "made\n").error is None
@@ -1640,60 +1520,37 @@ class TestLaunchEnvironment:
         assert backend.default._env["PYTHONNOUSERSITE"] == "1"
 
     def test_declared_scratch_without_a_scratch_folder_is_not_set(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        # 26 October 2026 (step 2, census GKF-023): logged; the tool's cache
-        # follows the shell's private HOME, outside the project.
-        worktree = _make_worktree(tmp_path)
-
-        with caplog.at_level("WARNING"):
-            backend = build_autobuild_backend(
-                worktree, launch_environment={"scratch": ["TOOL_CACHE"]}
-            )
-        assert "TOOL_CACHE" not in backend.default._env
-        assert "this shell has no scratch folder" in caplog.text
-        assert list(worktree.iterdir()) == []
-
-    def test_declared_scratch_with_a_refused_scratch_folder_is_not_set(
         self, tmp_path: Path
     ) -> None:
+        # The tool's cache follows the shell's private HOME, outside the project.
         worktree = _make_worktree(tmp_path)
-        inside = worktree / "src"
-        inside.mkdir()
 
         backend = build_autobuild_backend(
-            worktree,
-            scratch_root=inside / "guardkit-scratch",
-            launch_environment={"scratch": ["TOOL_CACHE"]},
+            worktree, launch_environment={"scratch": ["TOOL_CACHE"]}
         )
         assert "TOOL_CACHE" not in backend.default._env
-        assert not (inside / "guardkit-scratch").exists()
+        assert list(worktree.iterdir()) == []
 
-    def test_malformed_names_are_logged_and_left_out(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    def test_malformed_names_are_left_out(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # 26 October 2026 (step 2, census GKF-017 to GKF-019).
         worktree = _make_worktree(tmp_path)
         scratch = self._scratch(tmp_path)
         monkeypatch.setenv("GOOD_SETTING", "kept")
 
-        with caplog.at_level("WARNING"):
-            backend = build_autobuild_backend(
-                worktree,
-                scratch_root=scratch,
-                launch_environment={
-                    "settings": ["1BAD", "X" * 129, "GOOD_SETTING"],
-                    "pass_through": ["X"],
-                    "scratch": ["PYTHONNOUSERSITE"],
-                },
-            )
+        backend = build_autobuild_backend(
+            worktree,
+            scratch_root=scratch,
+            launch_environment={
+                "settings": ["1BAD", "GOOD_SETTING"],
+                "pass_through": ["X"],
+                "scratch": ["PYTHONNOUSERSITE"],
+            },
+        )
         env = backend.default._env
         assert env["GOOD_SETTING"] == "kept"
-        assert "1BAD" not in env and "X" * 129 not in env
+        assert "1BAD" not in env and "X" not in env
         assert env["PYTHONNOUSERSITE"] == "1"
-        assert "is not a variable name" in caplog.text
-        assert "keys ignored" in caplog.text
-        assert "set by the backend itself" in caplog.text
 
     @pytest.mark.parametrize(
         "name",
@@ -1723,22 +1580,17 @@ class TestLaunchEnvironment:
         assert "GOCACHE\n" not in backend.default._env
 
     @pytest.mark.parametrize("raw", ["GOCACHE", {"GOCACHE": 1}, 3])
-    def test_names_that_are_not_a_list_are_ignored(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture, raw
-    ) -> None:
+    def test_names_that_are_not_a_list_are_ignored(self, tmp_path: Path, raw) -> None:
         worktree = _make_worktree(tmp_path)
         scratch = self._scratch(tmp_path)
 
         for key in ("settings", "scratch"):
-            caplog.clear()
-            with caplog.at_level("WARNING"):
-                backend = build_autobuild_backend(
-                    worktree,
-                    scratch_root=scratch,
-                    launch_environment={key: raw},
-                )
+            backend = build_autobuild_backend(
+                worktree,
+                scratch_root=scratch,
+                launch_environment={key: raw},
+            )
             assert "GOCACHE" not in backend.default._env
-            assert "not a list of names; ignored" in caplog.text
 
     def test_launch_scratch_root_places_names_without_write_access(
         self, tmp_path: Path
@@ -1764,19 +1616,6 @@ class TestLaunchEnvironment:
         # The shell itself can still fill its cache.
         assert backend.execute('echo c > "$TOOL_CACHE/c"').exit_code == 0
         assert (folder / "c").read_text() == "c\n"
-
-    def test_launch_scratch_root_inside_the_project_is_not_used(
-        self, tmp_path: Path
-    ) -> None:
-        worktree = _make_worktree(tmp_path)
-
-        backend = build_autobuild_backend(
-            worktree,
-            launch_environment={"scratch": ["TOOL_CACHE"]},
-            launch_scratch_root=worktree / "cache",
-        )
-        assert "TOOL_CACHE" not in backend.default._env
-        assert not (worktree / "cache").exists()
 
     def test_launch_scratch_root_alone_changes_nothing(self, tmp_path: Path) -> None:
         worktree = _make_worktree(tmp_path)

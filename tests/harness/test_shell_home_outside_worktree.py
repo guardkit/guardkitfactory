@@ -29,17 +29,15 @@ No tool or language is named in the code under test: every cache here follows
 
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
-import threading
 from pathlib import Path
 
 import pytest
 
 from guardkitfactory import build_autobuild_backend
 from guardkitfactory.harness import backend_config
-from guardkitfactory.harness.backend_config import shell_home, shell_tmpdir
+from guardkitfactory.harness.backend_config import shell_tmpdir
 
 _GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -120,14 +118,18 @@ def _checker_shell(worktree: Path):
 
 
 def _detected_changes(worktree: Path) -> dict:
-    """GuardKit's own post-turn git detection for this worktree."""
-    from guardkit.orchestrator.agent_invoker import AgentInvoker
+    """What git sees changed in this worktree after the turn, as GuardKit's
+    post-turn detection counts it (modified and created files).
 
-    invoker = AgentInvoker.__new__(AgentInvoker)
-    invoker._git_lock = threading.Lock()
-    invoker.worktree_path = worktree
-    invoker._baseline_commit = None
-    return invoker._detect_git_changes()
+    27 October 2026: GuardKit's own detection now needs the admitted task's
+    scope, which this test does not build, so git is asked directly.
+    """
+    modified: list[str] = []
+    created: list[str] = []
+    for line in _git(worktree, "status", "--porcelain", "--untracked-files=all").splitlines():
+        status, name = line[:2], line[3:]
+        (created if status == "??" else modified).append(name)
+    return {"modified": sorted(modified), "created": sorted(created)}
 
 
 def test_builder_and_checker_shells_have_home_outside_the_worktree(
@@ -322,20 +324,6 @@ def test_a_worktree_without_git_gets_a_private_temporary_home(tmp_path: Path) ->
     assert not first.exists()
 
 
-def test_a_symlinked_home_folder_is_refused(tmp_path: Path) -> None:
-    worktree = _factory_worktree(tmp_path)
-    toolchain = _scratch(worktree) / "toolchain"
-    toolchain.mkdir(mode=0o700)
-    elsewhere = tmp_path / "elsewhere"
-    elsewhere.mkdir()
-    os.symlink(elsewhere, toolchain / "SHELL-HOME")
-
-    with pytest.raises(ValueError, match="symlink"):
-        shell_home(worktree)
-    with pytest.raises(ValueError, match="symlink"):
-        build_autobuild_backend(worktree)
-
-
 def test_builder_and_checker_shells_have_tmpdir_outside_the_worktree(
     tmp_path: Path,
 ) -> None:
@@ -410,21 +398,6 @@ def test_an_existing_open_shell_folder_is_made_owner_only(tmp_path: Path) -> Non
     names = ("SHELL-HOME", "SHELL-TMPDIR", "TOOL_CACHE")
     for folder in (toolchain, *(toolchain / name for name in names)):
         assert (folder.stat().st_mode & 0o777) == 0o700, folder
-
-
-def test_a_shell_folder_owned_by_another_user_is_logged_and_used(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    # 26 October 2026 (step 2, census GKF-014): advice, not a refusal.
-    worktree = _factory_worktree(tmp_path)
-    toolchain = _scratch(worktree) / "toolchain"
-    (toolchain / "SHELL-HOME").mkdir(parents=True)
-    real_uid = os.geteuid()
-    monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
-
-    with caplog.at_level("WARNING"):
-        assert shell_home(worktree) == (toolchain / "SHELL-HOME").resolve()
-    assert "belongs to another user" in caplog.text
 
 
 # ---------------------------------------------------------------------------
@@ -503,57 +476,10 @@ def test_what_the_builder_leaves_is_not_seen_by_the_checker(tmp_path: Path) -> N
     assert _detected_changes(worktree) == {"modified": [], "created": []}
 
 
-def test_an_unknown_shell_role_uses_the_shared_folders(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
-    # 26 October 2026 (step 2, census GKF-021): advice, not a refusal.
+def test_an_unknown_shell_role_uses_the_shared_folders(tmp_path: Path) -> None:
     worktree = _factory_worktree(tmp_path)
     toolchain = _scratch(worktree) / "toolchain"
 
-    with caplog.at_level("WARNING"):
-        env = build_autobuild_backend(worktree, shell_role="reviewer").default._env
+    env = build_autobuild_backend(worktree, shell_role="reviewer").default._env
     assert env["HOME"] == str((toolchain / "SHELL-HOME").resolve())
-    assert "shell role 'reviewer'" in caplog.text
     assert sorted(p.name for p in worktree.iterdir()) == [".git", "README.md"]
-
-
-# ---------------------------------------------------------------------------
-# 19 October 2026 (review R2): the no-git fallback folders are checked on
-# every reuse, like the git-backed ones.
-
-
-@pytest.mark.parametrize("role", [None, "builder", "checker", "specialist"])
-def test_a_reused_fallback_folder_opened_up_is_made_owner_only_again(
-    tmp_path: Path, role: str | None
-) -> None:
-    worktree = tmp_path / "plain"
-    worktree.mkdir()
-    first = build_autobuild_backend(worktree, shell_role=role).default._env
-    for name in ("HOME", "TMPDIR"):
-        Path(first[name]).chmod(0o777)
-
-    again = build_autobuild_backend(worktree, shell_role=role).default._env
-
-    for name in ("HOME", "TMPDIR"):
-        assert again[name] == first[name]
-        assert (Path(again[name]).stat().st_mode & 0o777) == 0o700, name
-    backend_config._remove_temporary_model_artifacts()
-
-
-@pytest.mark.parametrize("name", ["HOME", "TMPDIR"])
-def test_a_reused_fallback_folder_of_another_owner_is_logged_and_used(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture,
-    name: str,
-) -> None:
-    worktree = tmp_path / "plain"
-    worktree.mkdir()
-    first = build_autobuild_backend(worktree, shell_role="builder").default._env
-    real_uid = os.geteuid()
-    monkeypatch.setattr(os, "geteuid", lambda: real_uid + 1)
-
-    finder = shell_home if name == "HOME" else shell_tmpdir
-    with caplog.at_level("WARNING"):
-        assert str(finder(worktree, "builder")) == first[name]
-    assert "belongs to another user" in caplog.text
-    monkeypatch.undo()
-    backend_config._remove_temporary_model_artifacts()

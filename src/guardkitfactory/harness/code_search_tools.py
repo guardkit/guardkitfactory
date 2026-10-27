@@ -3,8 +3,8 @@
 Three tools, each bound when the graph is built to one worktree root, so two
 builds' worktrees never see each other's files. They run the pinned programs
 through :mod:`guardkitfactory.code_search`; a ``path`` that leads outside the
-root is refused. They only read, so the Player's skill-read gate treats them
-like ``grep`` and ``glob``. When the pinned programs are not installed no tool
+root is refused. They only read, like ``grep`` and ``glob``. When the
+pinned programs are not installed no tool
 is offered and the reason is returned for the launch evidence; the built-in
 ``read_file``, ``grep`` and ``glob`` stay as the text fallback either way.
 """
