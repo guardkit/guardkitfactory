@@ -161,10 +161,6 @@ ALLOWED: Dict[Tuple[str, str], str] = {
         "which build_autobuild_backend makes with finish_project_environment "
         "(test_the_shell_has_no_factory_credentials runs env through it)"
     ),
-    ("code_search.py", "toolkit"): (
-        "the factory's own pinned search programs' --version, with a fixed "
-        "six-name environment (_git_environment)"
-    ),
     ("code_search.py", "_execute"): (
         "the factory's own pinned search programs and git, with a fixed "
         "six-name environment (_git_environment)"

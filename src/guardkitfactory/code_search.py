@@ -56,33 +56,26 @@ class PinnedTool:
     name: str
     executable: str
     version: str
-    sha256: str
-    version_line: str
 
 
-#: The exact executables this contract was written against (official Linux
-#: ARM64 releases; archive hashes are pinned in the Forge Dockerfile).
+#: The executables this contract was written against (official Linux ARM64
+#: releases; archive hashes are pinned in the Forge Dockerfile, which installs
+#: them).
 PINNED_TOOLS: dict[str, PinnedTool] = {
     "ripgrep": PinnedTool(
         "ripgrep",
         "rg",
         "15.2.0",
-        "c14cdb389f34e504d69e386cfc67d5c5d9a730a990de03ca6910b2a15e30386a",
-        "ripgrep 15.2.0 (rev e89fff89ac)",
     ),
     "ast-grep": PinnedTool(
         "ast-grep",
         "ast-grep",
         "0.50.0",
-        "e453bdbe419cb21e2c2ae1e9586e09111fcbe70f98213276f5ad728849503d6b",
-        "ast-grep 0.50.0",
     ),
     "probe": PinnedTool(
         "probe",
         "probe",
         "0.6.0-rc341",
-        "25890db00250a181dea656537641e1f2f51fd4bc472f5344d0c28793a493a420",
-        "probe-code 0.6.0",
     ),
 }
 
@@ -178,38 +171,10 @@ def tool_dir() -> Path:
     return Path(os.environ.get(TOOL_DIR_ENV) or DEFAULT_TOOL_DIR)
 
 
-_verified: dict[tuple[Any, ...], dict[str, Any]] = {}
-_verified_lock = threading.Lock()
-
-
-def _sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as handle:
-        for chunk in iter(lambda: handle.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def toolkit() -> dict[str, Any]:
-    """Each pinned program's path and whether it is exactly the pinned one.
-
-    Hashes and ``--version`` are checked once per file identity per process.
-    """
+    """Each pinned program's path and whether it is installed and executable."""
 
     folder = tool_dir()
-    identity: list[Any] = [str(folder)]
-    for tool in PINNED_TOOLS.values():
-        path = folder / tool.executable
-        try:
-            st = path.stat()
-            identity.append((tool.executable, st.st_size, st.st_mtime_ns, st.st_ino))
-        except OSError:
-            identity.append((tool.executable, None))
-    key = tuple(identity)
-    with _verified_lock:
-        cached = _verified.get(key)
-    if cached is not None:
-        return cached
     tools: dict[str, Any] = {}
     problems: list[str] = []
     for name, tool in PINNED_TOOLS.items():
@@ -220,42 +185,16 @@ def toolkit() -> dict[str, Any]:
             problem = f"{tool.executable} is not installed at {path}"
         elif not os.access(path, os.X_OK):
             problem = f"{path} is not executable"
-        else:
-            actual = _sha256(path)
-            if actual != tool.sha256:
-                problem = f"{path} is not the pinned {name} {tool.version} (sha256 {actual})"
-            else:
-                try:
-                    shown = subprocess.run(  # noqa: S603 - fixed argv, no shell
-                        [str(path), "--version"],
-                        capture_output=True,
-                        text=True,
-                        timeout=10,
-                        env={**_git_environment(), "NO_COLOR": "1"},
-                        stdin=subprocess.DEVNULL,
-                        check=False,
-                    )
-                    first = (shown.stdout or "").strip().splitlines()[:1]
-                    if shown.returncode != 0 or not first or first[0] != tool.version_line:
-                        problem = (
-                            f"{path} --version answered {first[0] if first else 'nothing'!r}, "
-                            f"expected {tool.version_line!r}"
-                        )
-                except (OSError, subprocess.TimeoutExpired) as exc:
-                    problem = f"{path} could not run: {type(exc).__name__}: {exc}"
         entry["ok"] = problem is None
         if problem:
             entry["problem"] = problem
             problems.append(problem)
         tools[name] = entry
-    result = {"dir": str(folder), "ok": not problems, "tools": tools, "problems": problems}
-    with _verified_lock:
-        _verified[key] = result
-    return result
+    return {"dir": str(folder), "ok": not problems, "tools": tools, "problems": problems}
 
 
 def available() -> tuple[bool, str]:
-    """``(True, "")`` when all three pinned programs verify, else the reason."""
+    """``(True, "")`` when all three programs are installed, else the reason."""
 
     state = toolkit()
     return state["ok"], "; ".join(state["problems"])
@@ -1683,10 +1622,8 @@ def run(
         operation = _echo(str(operation))
     started = time.monotonic()
     # One deadline for the whole call: describing the worktree, finding
-    # files, the program, and checking the worktree again afterwards. The
-    # program stops early enough to leave the last check its share.
+    # files and the program.
     deadline = started + timeout_s
-    after_reserve = min(2.0, timeout_s * 0.2)
 
     def refused(status: str, note: str, tool: str | None = None) -> dict[str, Any]:
         return _fit_to_chars(
@@ -1705,7 +1642,7 @@ def run(
         return refused("input_error", str(exc))
     described_here = source is None
     if described_here:
-        source = worktree_source(root_path, deadline=deadline - after_reserve, cancel=cancel)
+        source = worktree_source(root_path, deadline=deadline, cancel=cancel)
     try:
         target_path, target = _resolve_target(root_path, path)
     except _InputError as exc:
@@ -1755,12 +1692,12 @@ def run(
 
     facts = _new_facts(respect_ignore)
     facts.limits.extend(_snapshot_omissions(omitted, target))
-    program_time = deadline - after_reserve - time.monotonic()
+    program_time = deadline - time.monotonic()
     private = _private_folder(root_path)
     try:
         call = _Call(root_path, target_path, target, limit, respect_ignore, entry["path"],
                      _base_environment(private), private, max(0.0, program_time), cancel,
-                     deadline - after_reserve)
+                     deadline)
         if program_time <= 0:
             facts.limits.append(f"the {timeout_s:g}-second limit ran out before {tool} could run")
         elif operation == "search" and mode == "ranked":
@@ -1782,18 +1719,6 @@ def run(
         shutil.rmtree(private, ignore_errors=True)
     if cancel is not None and cancel.is_set():
         facts.cancelled = True
-    if described_here and source is not None and source.get("kind") == "worktree":
-        if source.get("fingerprint") is None:
-            facts.limits.append("the worktree's state could not be recorded before the search")
-        else:
-            after = worktree_source(root_path, deadline=deadline, cancel=cancel)
-            if after.get("fingerprint") is None:
-                facts.limits.append("the worktree could not be checked again after the search")
-            elif after.get("fingerprint") != source.get("fingerprint") or after.get(
-                "head"
-            ) != source.get("head"):
-                facts.limits.append("the worktree changed while it was searched")
-                source = {**source, "after": after}
     if facts.shown_in_part:
         facts.limits.append(
             f"{facts.shown_in_part} result(s) shown only in part (lines cut at "

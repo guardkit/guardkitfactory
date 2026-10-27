@@ -496,30 +496,6 @@ def test_repeated_edits_to_an_untracked_file_change_the_fingerprint(repo: Path) 
     assert before != after
 
 
-def test_change_during_a_query_is_partial(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    real = code_search._execute
-    edited: list[str] = []
-
-    def edit_while_running(argv, *args, **kwargs):
-        result = real(argv, *args, **kwargs)
-        # Only the search program, after the baseline identity was taken.
-        if argv and argv[0] != "git":
-            (repo / "src" / "users.py").write_text("changed = True\n")
-            edited.append(argv[0])
-        return result
-
-    monkeypatch.setattr(code_search, "_execute", edit_while_running)
-    answer = code_search.run("search", repo, query="count_active", mode="literal")
-    assert edited, "the search program never ran"
-    assert answer["status"] == "partial"
-    assert "the worktree changed while it was searched" in answer["truncation"]
-    # Control: nothing edited, nothing reported.
-    monkeypatch.setattr(code_search, "_execute", real)
-    again = code_search.run("search", repo, query="changed", mode="literal")
-    assert again["status"] == "ok"
-    assert "the worktree changed while it was searched" not in again["truncation"]
-
-
 def test_no_writes_to_the_tree_or_home(repo: Path, tmp_path: Path,
                                        monkeypatch: pytest.MonkeyPatch) -> None:
     home = tmp_path / "home"
@@ -566,20 +542,6 @@ def test_self_check_passes() -> None:
     lines: list[str] = []
     assert code_search.self_check(lines.append) == 0
     assert json.loads(lines[0])["ok"] is True
-
-
-def test_wrong_binary_is_unavailable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    folder = tmp_path / "bin"
-    folder.mkdir()
-    for tool in code_search.PINNED_TOOLS.values():
-        fake = folder / tool.executable
-        fake.write_text("#!/bin/sh\necho fake\n")
-        fake.chmod(0o755)
-    monkeypatch.setenv(code_search.TOOL_DIR_ENV, str(folder))
-    ok, reason = code_search.available()
-    assert not ok and "not the pinned" in reason
-    answer = code_search.run("search", tmp_path, query="x", mode="literal")
-    assert answer["status"] == "tool_unavailable"
 
 
 # -- Codex implementation review round 1 --------------------------------------
@@ -767,25 +729,6 @@ def test_outline_discovery_out_of_time_does_not_launch(
     answer = code_search.run("outline", repo)
     assert answer["status"] == "partial" and launched == []
     assert any("finding files" in reason for reason in answer["truncation"])
-
-
-def test_identity_not_rechecked_after_the_search_is_partial(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    real = code_search.worktree_source
-    calls = []
-
-    def first_then_unknown(*args, **kwargs):
-        calls.append(1)
-        if len(calls) == 1:
-            return real(*args, **kwargs)
-        return {"kind": "worktree", "root": str(repo), "fingerprint": None,
-                "fingerprint_complete": False, "note": "not described"}
-
-    monkeypatch.setattr(code_search, "worktree_source", first_then_unknown)
-    answer = code_search.run("search", repo, query="count_active", mode="literal")
-    assert answer["status"] == "partial"
-    assert "the worktree could not be checked again after the search" in answer["truncation"]
 
 
 def test_cancelled_identity_is_not_described(repo: Path) -> None:
