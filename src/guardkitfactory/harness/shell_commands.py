@@ -32,13 +32,16 @@ On a factory launch the real clean-up first runs an END-TO-END SELF-TEST in
 this process (:func:`_self_test`, once, remembered): a tiny command leaves a
 process in a session of its own, is stopped exactly as any command is, and the
 process must be gone. That proves the ``/proc`` listing and record reads,
-``waitid`` and the pidfd calls together. When it passes, any of those failing
-later, mid-run, ends that command with a plain error (the group by its pinned
-number, the rest through pidfds) instead of falling back to a reduced or
-silently empty clean-up. When it fails (26 October 2026, step 2) the reason is
-logged once and the commands run with the reduced clean-up a person's own run
-has: a missing system capability is advice, not a reason to run no command.
-(Codex review, 20 October 2026.)
+``waitid`` and the pidfd calls together. When it fails (26 October 2026, step
+2) the reason is logged once and the commands run with the reduced clean-up a
+person's own run has: a missing system capability is advice, not a reason to
+run no command. Since 27 October 2026 (step 2 review) the same holds when one
+of them fails later, after a passed self-test: a record or listing that cannot
+be read is left out (a listing that cannot be made is logged), a process that
+cannot be signalled through a pidfd is reported in the command's output as
+not stopped, and a ``waitid`` refused before a command gives that command the
+reduced clean-up. None of these refuses or ends a command. (Codex review,
+20 October 2026.)
 
 Two rules keep the stop safe (Codex review, 19 October 2026), the same as
 GuardKit's runner for project commands (``guardkit.orchestrator.process_group``):
@@ -151,14 +154,9 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
         data = (_PROC / str(pid) / "stat").read_bytes()
     except (FileNotFoundError, ProcessLookupError):
         return None  # gone, or never there
-    except OSError as exc:
-        # A record that cannot be read is not an absent process: with the full
-        # clean-up the command cannot be watched safely.
-        if full_cleanup():
-            raise _cleanup_failure(
-                f"a process record in /proc could not be read ({exc.strerror or exc})",
-                before_launch=False,
-            ) from exc
+    except OSError:
+        # A record that cannot be read is left out, as on a person's own run
+        # (27 October 2026, step 2 review: it no longer ends the command).
         return None
     # The program name (field 2) may hold spaces and brackets; the fields
     # after the last ")" start at field 3.
@@ -172,67 +170,15 @@ def _stat(pid: int) -> tuple[str, int, int, int] | None:
 def _carries_marker(pid: int, marker: bytes) -> bool:
     """Whether ``pid``'s environment holds ``marker``.
 
-    A process that has gone does not. A process refused by design (see
-    :func:`_could_be_this_commands`) is not this command's. Any other
-    failure to read it is not an absent marker: on a factory launch the
-    command cannot be watched safely.
+    A process that has gone does not, and nor does one whose environment
+    cannot be read (27 October 2026, step 2 review: that no longer ends the
+    command; the process is left out, as on a person's own run).
     """
     try:
         environ = (_PROC / str(pid) / "environ").read_bytes()
-    except (FileNotFoundError, ProcessLookupError):
-        return False
-    except OSError as exc:
-        if isinstance(exc, PermissionError) and not _could_be_this_commands(pid):
-            return False
-        if full_cleanup():
-            raise _cleanup_failure(
-                f"a process's environment in /proc could not be read "
-                f"({exc.strerror or exc})",
-                before_launch=False,
-            ) from exc
+    except OSError:
         return False
     return marker in b"\0" + environ
-
-
-def _status_fields(pid: int) -> dict[str, str]:
-    try:
-        text = (_PROC / str(pid) / "status").read_text(encoding="ascii", errors="replace")
-    except OSError:
-        return {}
-    fields = {}
-    for line in text.splitlines():
-        name, _, value = line.partition(":")
-        fields[name] = value.strip()
-    return fields
-
-
-def _could_be_this_commands(pid: int) -> bool:
-    """Whether a process whose environment cannot be read may still be one
-    of this command's, so that the refusal is a failure, not a boundary.
-
-    Not this command's: one whose ``/proc`` records belong to another user
-    (another user's, or one that is not dumpable, such as ``sshd`` or
-    ``ssh-agent``); one in a deeper pid namespace (a container's); one
-    holding capabilities this process lacks. Those are refused by design.
-    A process the command starts has none of these, and the self-test
-    proved its environment can be read.
-    """
-    try:
-        if (_PROC / str(pid) / "environ").stat().st_uid != os.geteuid():
-            return False
-    except OSError:
-        return False
-    theirs, ours = _status_fields(pid), _status_fields(os.getpid())
-    if not theirs or not ours:
-        return True  # not knowing counts as possibly ours
-    if len(theirs.get("NSpid", "").split()) != len(ours.get("NSpid", "").split()):
-        return False
-    try:
-        their_caps = int(theirs.get("CapPrm", "0"), 16)
-        our_caps = int(ours.get("CapPrm", "0"), 16)
-    except ValueError:
-        return True
-    return their_caps & ~our_caps == 0
 
 
 #: Set when the factory launched this GuardKit (GuardKit's
@@ -391,25 +337,18 @@ _ADVICE = (
 )
 
 
-def _cleanup_failure(reason: str, *, before_launch: bool) -> CleanupUnavailableError:
-    if before_launch:
-        text = (
-            f"The factory does not run commands here: {reason}, so what a command "
-            f"leaves running could not all be stopped safely. {_ADVICE}"
-        )
-    else:
-        text = (
-            f"A shell command was ended because {reason}, so what it left running "
-            f"could not all be stopped safely. {_ADVICE}"
-        )
+def _cleanup_failure(reason: str) -> CleanupUnavailableError:
+    text = (
+        f"A shell command was ended because {reason}, so what it left running "
+        f"could not all be stopped safely. {_ADVICE}"
+    )
     error = CleanupUnavailableError(errno.ENOSYS, text)
     error.reason = reason
     return error
 
 
-#: The self-test's outcome, once per process: ``None`` when it passed (a later
-#: failure mid-run ends that command, so a stale success is safe), else the
-#: reason it failed.
+#: The self-test's outcome, once per process: ``None`` when it passed, else
+#: the reason it failed.
 _SELF_TEST_OUTCOME: list[str | None] = []
 _SELF_TEST_LOCK = threading.Lock()
 _IN_SELF_TEST = threading.local()
@@ -568,10 +507,7 @@ def _self_test() -> str | None:
         except OSError as exc:
             problem = _refused("pidfd_open", _has_wrapper("os"), exc)
         else:
-            try:
-                problem, entry = _self_test_child_check(pid, handle, since)
-            except CleanupUnavailableError as exc:
-                problem = exc.reason or str(exc)
+            problem, entry = _self_test_child_check(pid, handle, since)
         (Path(folder) / "go").write_text("go", encoding="ascii")
         worker.join(_SELF_TEST_WAIT_SECONDS + 60)
         if worker.is_alive():
@@ -613,8 +549,6 @@ def _self_test() -> str | None:
                     and _carries_marker(int(path.name), entry)
                 ):
                     left.add(int(path.name))
-        except CleanupUnavailableError as exc:
-            return exc.reason or str(exc)
         except OSError as exc:
             return f"/proc could not be listed ({exc.strerror or exc})"
         if left:
@@ -632,10 +566,10 @@ def full_cleanup() -> bool:
 
     True on a factory launch whose clean-up passed its end-to-end self-test in
     this process (run on first need, once, remembered), and inside the
-    self-test itself; then a clean-up failure mid-run ends that command. A
-    person's own run, and a factory launch whose self-test failed, get the
-    reduced clean-up instead. The failure is logged once, in plain words
-    (26 October 2026, step 2: it was a refusal of every command).
+    self-test itself. A person's own run, and a factory launch whose
+    self-test failed, get the reduced clean-up instead. The failure is logged
+    once, in plain words (26 October 2026, step 2: it was a refusal of every
+    command).
     """
     if getattr(_IN_SELF_TEST, "active", False):
         return True
@@ -697,11 +631,6 @@ def _waitid_problem() -> str | None:
     return None
 
 
-def _can_wait_without_collecting() -> bool:
-    """Whether the shell's exit can be read without collecting it."""
-    return _waitid_problem() is None
-
-
 def _collect(process: subprocess.Popen[Any]) -> None:
     """Collect the ended shell, never waiting without bound: after
     ``_KILL_WAIT_SECONDS`` its group is sent SIGKILL (by the number the
@@ -747,7 +676,7 @@ def _shell_state(process: subprocess.Popen[Any]) -> str:
         # waitid refused (a filter): the shell's state cannot be read, so the
         # command cannot be watched safely. Never read as "running", which
         # could wait for ever.
-        raise _cleanup_failure(_refused("waitid", True, exc), before_launch=False) from exc
+        raise _cleanup_failure(_refused("waitid", True, exc)) from exc
     return _RUNNING if info is None else _EXITED
 
 
@@ -785,13 +714,8 @@ class _Command:
         try:
             names = [entry.name for entry in _PROC.iterdir()]
         except OSError as exc:
-            # A listing that cannot be made is not an empty one: with the full
-            # clean-up it ends the command; otherwise it is said.
-            if full_cleanup():
-                raise _cleanup_failure(
-                    f"/proc could not be listed ({exc.strerror or exc})",
-                    before_launch=False,
-                ) from exc
+            # A listing that cannot be made is said, and the command goes on
+            # (27 October 2026, step 2 review: it no longer ends the command).
             logger.warning(
                 "/proc could not be listed (%s), so what a shell command left "
                 "running cannot be found or stopped.",
@@ -828,7 +752,6 @@ class _Command:
                 handle = pidfd_open(pid)
             except OSError as exc:
                 if exc.errno != errno.ESRCH:  # ESRCH: it has gone
-                    _refusal_mid_run(_refused("pidfd_open", _has_wrapper("os"), exc), exc)
                     refused.add(pid)
                 continue
             try:
@@ -837,13 +760,10 @@ class _Command:
                     pidfd_send_signal(handle, sig)
             except OSError as exc:
                 # Only ESRCH means it ended after it was pinned; anything else
-                # (a refusal) means it was not signalled.
+                # (a refusal) means it was not signalled, which the command's
+                # output reports (27 October 2026, step 2 review: it no longer
+                # ends the command).
                 if exc.errno != errno.ESRCH:
-                    if isinstance(exc, CleanupUnavailableError):
-                        raise
-                    _refusal_mid_run(
-                        _refused("pidfd_send_signal", _has_wrapper("signal"), exc), exc
-                    )
                     refused.add(pid)
             finally:
                 os.close(handle)
@@ -856,13 +776,6 @@ class _Command:
             if stat is not None and stat[1] != self.leader:
                 found.add(pid)
         return found
-
-
-def _refusal_mid_run(reason: str, cause: OSError) -> None:
-    """With the full clean-up a refused pidfd call ends the command;
-    otherwise the process is reported as not stopped."""
-    if full_cleanup():
-        raise _cleanup_failure(reason, before_launch=False) from cause
 
 
 @dataclass(frozen=True)
@@ -1125,22 +1038,15 @@ class CommandSessionShellBackend(LocalShellBackend):
     ) -> tuple[ExecuteResponse, Exception | None]:
         """Run ``command`` and stop what it leaves; return the answer and the
         failure, if any, that ended it (the self-test reads the failure)."""
-        # The reduced path is never taken with the full clean-up (its
-        # self-test proved waitid; a refusal later ends the command).
-        if full_cleanup():
-            # Fresh before every command, even after a cached self-test
-            # success: one cheap call on this process itself. A refusal
-            # refuses the command before it starts.
-            waitid_problem = _waitid_problem()
-            if waitid_problem is not None:
-                refusal = _cleanup_failure(waitid_problem, before_launch=True)
-                return (
-                    ExecuteResponse(
-                        output=f"Error: {refusal.strerror}", exit_code=1, truncated=False
-                    ),
-                    refusal,
-                )
-        reduced = not full_cleanup() and not _can_wait_without_collecting()
+        # Fresh before every command, even after a cached self-test success:
+        # one cheap call on this process itself. Where the shell's exit cannot
+        # be read without collecting it, the command runs with the reduced
+        # clean-up and that is logged once (27 October 2026, step 2 review:
+        # on a factory launch it was refused before it started).
+        waitid_problem = _waitid_problem()
+        reduced = waitid_problem is not None
+        if reduced:
+            _warn_reduced_cleanup_once(waitid_problem)
         marker = uuid.uuid4().hex
         env = dict(self._env)
         env[COMMAND_MARKER_NAME] = marker

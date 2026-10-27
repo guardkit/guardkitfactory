@@ -809,7 +809,8 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
 
     cwd = config.cwd
     # 26 October 2026 (step 2): every finding below is advice, listed in the
-    # evidence's ``warnings``; the Player starts with what dcode discovers.
+    # evidence's ``warnings``, except custom subagents (a safety fence); the
+    # Player starts with what dcode discovers.
     warnings: list[str] = []
     selected = (cwd / "skills").resolve()
     if config.skills and config.skills != (selected,):
@@ -826,7 +827,10 @@ def _inventory(config: PlayerConfig, context: Any) -> dict[str, Any]:
     if any(definitions.values()) or list_subagents(
         user_agents_dir=agents[0], project_agents_dir=agents[1]
     ):
-        _advise("custom subagent definitions are present", warnings)
+        # Kept (safety fence): dcode resolves each custom subagent's declared
+        # model itself, so one could run on a hosted model; only the built-in
+        # general-purpose subagent, which uses the validated local model, runs.
+        _refuse("custom subagents are not supported; retain built-in general-purpose only")
     builtins = get_built_in_skills_dir().resolve(strict=True)
     sources = []
     seen_paths: set[Path] = set()

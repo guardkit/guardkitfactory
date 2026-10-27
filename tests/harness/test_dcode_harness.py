@@ -821,7 +821,6 @@ _ADVICE_KINDS = (
     "duplicate",
     "escape",
     "extra_memory",
-    "custom_agent",
     "changed",
 )
 
@@ -829,8 +828,10 @@ _ADVICE_KINDS = (
 @pytest.mark.parametrize(
     "kind",
     [
-        # Kept: the wrong folder, the local model, transcripts outside the project.
+        # Kept: the wrong folder, the local model, custom subagents (which
+        # could name a hosted model), transcripts outside the project.
         "sibling",
+        "custom_agent",
         "opaque",
         "endpoint",
         "unresolved",
@@ -910,9 +911,41 @@ def test_refusals_and_advice_before_model_activity(tmp_path: Path, kind: str) ->
             expected = {
                 "artifact_link": "symlink",
                 "artifact_in_worktree": "inside the worktree",
+                "custom_agent": "custom subagents",
             }.get(kind)
             with pytest.raises(LangGraphHarnessError, match=expected):
                 asyncio.run(_collect(harness, repo))
+        assert not exchange.requests
+    finally:
+        _close_clients(sync, async_)
+
+
+def test_a_valid_custom_subagent_naming_a_hosted_model_cannot_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Step 2 review R1 (27 October 2026): a frontier model on the build path
+    # is a safety fence. dcode resolves a custom subagent's declared model
+    # itself, so the launch stops before dcode builds the agent at all.
+    from deepagents_code.subagents import list_subagents
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "fake-key-for-the-test")
+    repo = _scaffold(tmp_path)
+    definition = repo / ".deepagents/agents/researcher/AGENTS.md"
+    definition.parent.mkdir(parents=True)
+    definition.write_text(
+        "---\nname: researcher\ndescription: Researches things\n"
+        "model: anthropic:claude-sonnet-4-6\n---\nResearch.\n"
+    )
+    [declared] = list_subagents(project_agents_dir=repo / ".deepagents/agents")
+    assert declared["model"] == "anthropic:claude-sonnet-4-6"
+    exchange = Exchange([])
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo))
+    try:
+        with patch("deepagents_code.agent.create_cli_agent") as build:
+            with pytest.raises(LangGraphHarnessError, match="custom subagents"):
+                asyncio.run(_collect(harness, repo))
+        build.assert_not_called()
         assert not exchange.requests
     finally:
         _close_clients(sync, async_)
