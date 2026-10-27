@@ -14,12 +14,9 @@ What this package provides:
   permissions configuration that adapts it to different substrates:
   `build_autobuild_backend`, `resolve_autobuild_model`,
   `build_autobuild_permissions`, `MODEL_CONTEXT_WINDOWS`.
-- **`guardkitfactory.bdd`** — the BDD contract surface the Coach's BDD bridge
-  binds to: `discover`, `BDDRunResult`, `StackProfile`, `Scenario`, `BDDPlugin`.
-- **`guardkitfactory.wiring`** — a deterministic (no-LLM) wiring/seam analyzer
-  used by guardkit's post-wave wiring gate: `analyze_wiring` plus the
-  CALLSITE_DRIFT, SYS_MODULES_TAMPER / env-tamper, PERMISSIVE_DOUBLE, and
-  stub-scan checks (WS3-S3). Parsing is stack-agnostic via tree-sitter.
+- The BDD plugins (`guardkitfactory.bdd`) and the wiring analyzer
+  (`guardkitfactory.wiring`) were removed on 27 October 2026, in the cull of
+  the factory's checks. Do not bring them back.
 - **`guardkitfactory.lib`** — helpers vendored from the `langchain-deepagents`
   template (factory guards, JSON extraction, retry context, session logging).
   They live at `src/guardkitfactory/lib/`, *inside* the package namespace: a
@@ -34,8 +31,7 @@ smoke-test contract. Do not use it; use `LangGraphHarness`.
 **Language**: Python (`requires-python = ">=3.12,<4"`)
 **Runtime deps**: `deepagents==0.7.14`, `deepagents-code==0.1.69`,
 `langgraph>=1.2,<2`, `langchain>=1.4,<2`, `langchain-core>=1.6.3,<2`,
-`langchain-openai>=1.6,<2`, `tree-sitter>=0.25,<1`,
-`tree-sitter-language-pack>=1.0,<2` (see `pyproject.toml` for per-pin rationale).
+`langchain-openai>=1.6,<2` (see `pyproject.toml` for per-pin rationale).
 
 ## Version & cross-repo seam
 
@@ -50,7 +46,7 @@ smoke-test contract. Do not use it; use `LangGraphHarness`.
   workflow is the drift guard — do not weaken it. It tracks guardkitfactory's
   default branch (not a pinned tag) so it catches drift as it lands.
 
-When you change a public symbol in `harness/`, `bdd/`, or `wiring/`, treat it
+When you change a public symbol in `harness/`, treat it
 as a **seam change**: guardkit binds to it. Keep `__version__`
 (`src/guardkitfactory/__init__.py`) and `[project].version` (`pyproject.toml`)
 in sync — `tests/test_smoke.py` asserts they match.
@@ -59,10 +55,10 @@ in sync — `tests/test_smoke.py` asserts they match.
 
 ```bash
 uv sync --extra dev        # or: pip install -e ".[dev]"
-pytest tests/              # 300+ tests across harness/, bdd/, wiring/, smoke
+pytest tests/              # harness/, code search, smoke
 ```
 
-The only optional-dependency group is `dev` (`pytest`, `pytest-bdd`, `ruff`,
+The only optional-dependency group is `dev` (`pytest`, `ruff`,
 `mypy`). There is no `providers` extra — the runtime deps above are declared in
 `[project].dependencies` and install by default.
 

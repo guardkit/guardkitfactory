@@ -6,24 +6,22 @@ AutoBuild adversarial-cooperation orchestrator.
 This repository is the **harness substrate** for GuardKit AutoBuild: the
 LangGraph-backed Player/Coach execution harness, the backend/model/permissions
 configuration that adapts it to different model substrates (Anthropic,
-OpenAI-compatible / llama-swap on the GB10), the BDD contract surface the Coach
-consumes, and the deterministic wiring/seam analyzer that catches cross-repo
-composition drift. It began life as the `langchain-deepagents` template
+OpenAI-compatible / llama-swap on the GB10) and the read-only code search
+tools. It began life as the `langchain-deepagents` template
 scaffold (parent review **TASK-REV-HMIG**, feature **FEAT-HMIG**); that
 migration is now complete and the package is published as **v0.2.0** — the
 first tagged release, consumed by `guardkit` against a pinned version contract.
 
 ## Status
 
-The harness migration (FEAT-HMIG) is complete; the wiring/seam layer
-(WS3-S3) landed on top of it. What ships today:
+The harness migration (FEAT-HMIG) is complete. The BDD plugins and the
+wiring analyzer were removed on 27 October 2026 (the checks cull). What ships
+today:
 
 | Area | Module | State |
 |---|---|---|
 | LangGraph harness | `guardkitfactory.harness.LangGraphHarness` | shipped — concrete `HarnessAdapter` subclass (TASK-HMIG-001B) |
 | Backend / model / permissions config | `guardkitfactory.harness` (`build_autobuild_backend`, `resolve_autobuild_model`, `build_autobuild_permissions`) | shipped (TASK-HMIG-002R) |
-| BDD contract surface | `guardkitfactory.bdd` (`discover`, `BDDRunResult`, `StackProfile`, `Scenario`, `BDDPlugin`) | shipped — the seam the Coach BDD bridge binds to |
-| Wiring / seam analyzer | `guardkitfactory.wiring` (`analyze_wiring`, CALLSITE_DRIFT, SYS_MODULES_TAMPER / env-tamper, PERMISSIVE_DOUBLE, stub-scan) | shipped (WS3-S3) |
 | Vendored template helpers | `guardkitfactory.lib` (factory guards, JSON extraction, retry context, session logging) | shipped |
 
 `HarnessAdapter` (the top-level symbol) is a retained **placeholder** that
@@ -63,7 +61,7 @@ Smoke check that the package imports and exposes its public API:
 
 ```bash
 python -c 'import guardkitfactory; print(guardkitfactory.__version__)'
-python -c 'from guardkitfactory import LangGraphHarness, discover; print(LangGraphHarness, discover)'
+python -c 'from guardkitfactory import LangGraphHarness; print(LangGraphHarness)'
 ```
 
 ## Layout
@@ -72,18 +70,16 @@ python -c 'from guardkitfactory import LangGraphHarness, discover; print(LangGra
 guardkitfactory/
 ├── pyproject.toml            # version 0.2.0; deepagents>=0.6.7,<1, langgraph>=1,<2,
 │                             #   langchain>=1.2,<2, langchain-core>=1.2,<2,
-│                             #   langchain-openai>=1.6,<2, tree-sitter>=0.25,<1
+│                             #   langchain-openai>=1.6,<2
 ├── src/guardkitfactory/      # the installable package (src layout)
 │   ├── __init__.py           # public API re-exports + placeholder HarnessAdapter
 │   ├── harness/              # LangGraphHarness + backend/model/permissions config
-│   ├── bdd/                  # BDD discovery + run-result contract (Coach bridge seam)
-│   ├── wiring/               # deterministic wiring/seam analyzer (WS3-S3)
 │   └── lib/                  # vendored helpers from the langchain-deepagents template
 │       ├── factory_guards.py     # tool allowlisting + ainvoke() guard (TASK-REV-R2A1)
 │       ├── json_extractor.py     # 5-strategy JSON extraction cascade
 │       ├── retry_context.py      # retry-input + context manifest (Category C fix)
 │       └── session_logging.py    # per-run diagnostic JSON + logging bootstrap (Category A fix)
-├── tests/                    # 300+ tests: harness/, bdd/, wiring/, test_smoke.py
+├── tests/                    # harness/, code search, test_smoke.py
 └── .github/workflows/ci.yml
 ```
 
@@ -130,7 +126,7 @@ The guardkit↔guardkitfactory contract boundary is CI-gated by
 It checks out this repo, installs it editable, and runs the `@pytest.mark.seam`
 cross-repo contract tests against the **real** installed guardkitfactory — not
 mocks — on every guardkit PR/push. It catches signature/field drift across the
-harness, BDD, and wiring seams in seconds, the class of drift that previously
+harness seam in seconds, the class of drift that previously
 cost a full autobuild run to discover. The seam job tracks guardkitfactory's
 default branch (not a pinned tag) so it detects drift as it lands.
 
@@ -161,7 +157,6 @@ open:
 | `langchain>=1.4,<2`  | Matches the API required by Deep Agents 0.7.14. |
 | `langchain-core>=1.6.3,<2` | Matches the floor required by Deep Agents 0.7.14. |
 | `langchain-openai>=1.6,<2` | Required at runtime for the OpenAI-compatible / llama-swap substrate (TASK-OPS-COACHMOE01); imported lazily but must be installed. |
-| `tree-sitter>=0.25,<1` + `tree-sitter-language-pack>=1.0,<2` | Stack-agnostic parsing for the wiring analyzer; the pack ships precompiled python/js/ts/csharp grammars. |
 | `requires-python = ">=3.12,<4"` | Required by the direct dcode runtime dependency. |
 
 ## References

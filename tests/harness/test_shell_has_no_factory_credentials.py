@@ -1,4 +1,4 @@
-"""The model shells and the BDD plugins hold no factory credentials.
+"""The model shells hold no factory credentials.
 
 13 October 2026. Design: ``docs/designs/factory-project-commands-without-
 factory-credentials-2026-10-13.md``, section 1b and the
@@ -11,8 +11,6 @@ guardkitfactory tests.
   GuardKit's ``finish_project_environment``: a declared proxy that carries a
   user name or password refuses construction, and the run-owner marker reaches
   the shell from this process alone.
-* The BDD plugins (G1 to G4) build their commands' environment with GuardKit's
-  ``project_command_environment``.
 * ``test_every_process_launch_is_accounted_for`` fails on any process launch in
   the package that neither uses the helper nor is one of the factory's own
   programs.
@@ -149,136 +147,6 @@ def _plant(path: Path, text: str) -> None:
     path.chmod(0o755)
 
 
-def test_the_bdd_plugins_hide_factory_credentials(factory) -> None:
-    from guardkitfactory.bdd.plugin import StackProfile
-    from guardkitfactory.bdd.plugins.cucumber_js_plugin import CucumberJSPlugin
-    from guardkitfactory.bdd.plugins.pytest_bdd_plugin import PytestBDDPlugin
-    from guardkitfactory.bdd.plugins.reqnroll_plugin import ReqnrollPlugin
-
-    out = factory.out
-    out.mkdir()
-    wt = factory.worktree
-    dump = f'env > "{out}/$LABEL.env"\n'
-
-    # G1: a planted pytest_bdd.py in the work folder stands in for the module.
-    _plant(wt / "pytest_bdd.py",
-           f"import os\nopen({str(out / 'g1.env')!r}, 'w').write("
-           "'\\n'.join(k + '=' + v for k, v in os.environ.items()))\n")
-    PytestBDDPlugin.discover(
-        StackProfile("python", "pytest", "pip", wt, {"venv_python": sys.executable}), wt
-    )
-    (wt / "pytest_bdd.py").unlink()  # it would shadow the real plugin for G2
-    # G2: the run of the project's scenarios.
-    _plant(wt / "features" / "conftest.py",
-           f"import os\nopen({str(out / 'g2.env')!r}, 'w').write("
-           "'\\n'.join(k + '=' + v for k, v in os.environ.items()))\n")
-    g2_result = PytestBDDPlugin().run([], "TASK-G2", wt, timeout_seconds=60)
-    # G3: npx finds a planted node_modules/.bin/cucumber-js.
-    (wt / "package.json").write_text('{"devDependencies": {"@cucumber/cucumber": "1"}}')
-    _plant(wt / "node_modules" / ".bin" / "cucumber-js", "#!/bin/sh\nLABEL=g3\n" + dump)
-    # G4: dotnet, as the project's PATH resolves it (a stand-in here).
-    tools = out.parent / "tools"
-    _plant(tools / "dotnet", "#!/bin/sh\nLABEL=g4\n" + dump)
-    (wt / "x.csproj").write_text("<Project/>")
-    os.environ["PATH"] = f"{tools}{os.pathsep}{os.environ['PATH']}"
-    try:
-        CucumberJSPlugin.discover(StackProfile("javascript", "cucumber", "npm", wt), wt)
-        ReqnrollPlugin.discover(StackProfile("dotnet", "xunit", "dotnet", wt), wt)
-    finally:
-        os.environ["PATH"] = os.environ["PATH"].split(os.pathsep, 1)[1]
-
-    labels = ["g1", "g2", "g4"]
-    if (out / "g3.env").exists() or _which("npx"):
-        labels.append("g3")
-    for label in labels:
-        path = out / f"{label}.env"
-        assert path.exists(), f"{label} never ran: {g2_result}"
-        _assert_no_sentinel(_parse_env(path.read_text()), label)
-    g2 = _parse_env((out / "g2.env").read_text())
-    assert g2.get("GUARDKIT_BDD_TASK_ID") == "TASK-G2"
-    assert g2.get("STANDIN_SETTING") == "present"
-
-
-def test_a_credentialed_proxy_in_this_process_does_not_break_the_import(factory) -> None:
-    """The pytest-bdd plugin's contract checks run at import; they must not
-    depend on this process's own settings, and a real run is still refused
-    by name (13 October 2026, coach review fix 1)."""
-    script = textwrap.dedent(
-        f"""\
-        import guardkitfactory
-        from guardkitfactory.bdd.loader import _REGISTRY
-        from guardkitfactory.bdd.plugins.pytest_bdd_plugin import PytestBDDPlugin
-        assert PytestBDDPlugin in _REGISTRY, _REGISTRY
-        result = PytestBDDPlugin().run([], "TASK-P1", __import__("pathlib").Path({str(factory.worktree)!r}))
-        print(result.errors)
-        """
-    )
-    env = dict(os.environ)
-    env["HTTPS_PROXY"] = f"http://user:{MARK}@proxy:3128"
-    env["PYTHONPATH"] = os.pathsep.join(p for p in sys.path if p)
-    run = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, env=env, timeout=300
-    )
-    assert run.returncode == 0, run.stderr[-3000:]
-    assert "could not start" in run.stdout and "HTTPS_PROXY" in run.stdout
-    assert MARK not in run.stdout + run.stderr
-
-
-def test_a_failing_built_in_plugin_does_not_take_down_the_import(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-) -> None:
-    from guardkitfactory.bdd import plugins
-    from guardkitfactory.bdd.loader import ContractTestFailure
-
-    def _fail() -> Any:
-        raise ContractTestFailure("PytestBDDPlugin failed its checks")
-
-    with caplog.at_level(logging.ERROR):
-        assert plugins._load("PytestBDDPlugin", _fail) is None
-    assert "is not registered" in caplog.text
-    # The real loaders still give the registered classes.
-    assert plugins._pytest_bdd() is plugins.PytestBDDPlugin is not None
-
-
-@pytest.mark.skipif(not Path("/proc/self/stat").exists(), reason="needs /proc")
-def test_a_timed_out_bdd_run_leaves_nothing_running(
-    factory, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The pytest-bdd run uses GuardKit's process-group runner: a timeout
-    ends everything the run started (13 October 2026)."""
-    import time
-
-    from guardkitfactory.bdd.plugins.pytest_bdd_plugin import PytestBDDPlugin
-
-    factory.out.mkdir()
-    pid = factory.out / "bdd.pid"
-    script = factory.out / "python.sh"
-    script.write_text(f'#!/bin/sh\nsleep 300 &\necho $! > "{pid}"\nwait\n', encoding="utf-8")
-    script.chmod(0o755)
-    monkeypatch.setenv("GUARDKIT_BDD_VENV_PYTHON", str(script))
-    result = PytestBDDPlugin().run([], "TASK-T1", factory.worktree, timeout_seconds=1)
-    assert result.errors == ["timeout"]
-    child = int(pid.read_text().strip())
-
-    def running() -> bool:
-        try:
-            with open(f"/proc/{child}/stat", encoding="utf-8") as fh:
-                return fh.read().rsplit(")", 1)[1].split()[0] != "Z"
-        except OSError:
-            return False
-
-    deadline = time.monotonic() + 5
-    while time.monotonic() < deadline and running():
-        time.sleep(0.1)
-    assert not running(), f"the run's child {child} is still running"
-
-
-def _which(name: str) -> Optional[str]:
-    import shutil
-
-    return shutil.which(name)
-
-
 # ---------------------------------------------------------------------------
 # Section 5: every process launch in the package is accounted for
 # ---------------------------------------------------------------------------
@@ -287,10 +155,6 @@ PACKAGE = Path(__file__).resolve().parents[2] / "src" / "guardkitfactory"
 
 #: Launches that are allowed as they are, with a one-line reason each.
 ALLOWED: Dict[Tuple[str, str], str] = {
-    ("bdd/plugin.py", "run_project_command"): (
-        "passes its caller's arguments to GuardKit's run_project_command; "
-        "every call to it is checked"
-    ),
     ("harness/shell_commands.py", "_run"): (
         "the agent's shell (DeepAgents' LocalShellBackend.execute, kept apart "
         "so a command leaves nothing running), with the backend's own env, "
@@ -319,9 +183,6 @@ GENERIC_RUNNERS: Dict[Tuple[str, str], Dict[str, Any]] = {
         "names": {"run_in_own_group"},
     },
     ("guardkit:orchestrator/process_group.py", "run_project_command"): {
-        "names": {"run_project_command"},
-    },
-    ("bdd/plugin.py", "run_project_command"): {
         "names": {"run_project_command"},
     },
     ("guardkit:orchestrator/quality_gates/coach_validator.py", "_run_recorded"): {
@@ -3700,6 +3561,16 @@ GUARD_PROBES_REEXPORT = {
 }
 
 
+#: A package-local runner the synthetic probes call (27 October 2026: the
+#: package's own, the BDD plugin's, was removed with the plugins).
+_PROBE_RUNNER = {("bdd/plugin.py", "run_project_command"): {"names": {"run_project_command"}}}
+_PROBE_RUNNER_SOURCE = (
+    "def run_project_command(args, **kwargs):\n"
+    "    from guardkit.orchestrator import process_group\n\n"
+    "    return process_group.run_project_command(args, **kwargs)\n"
+)
+
+
 def _probe_package(tmp_path: Path, name: str) -> Path:
     pkg = tmp_path / name
     (pkg / "orchestrator").mkdir(parents=True)
@@ -3707,6 +3578,9 @@ def _probe_package(tmp_path: Path, name: str) -> Path:
     (pkg / "orchestrator" / "__init__.py").write_text("", encoding="utf-8")
     (pkg / "orchestrator" / "zz_probe.py").write_text(GUARD_PROBES, encoding="utf-8")
     (pkg / "orchestrator" / "zz_rebound.py").write_text(GUARD_PROBES_REBOUND, encoding="utf-8")
+    (pkg / "bdd").mkdir()
+    (pkg / "bdd" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "bdd" / "plugin.py").write_text(_PROBE_RUNNER_SOURCE, encoding="utf-8")
     for filename, text in GUARD_PROBES_WILDCARD.items():
         (pkg / "orchestrator" / filename).write_text(text, encoding="utf-8")
     for filename, text in GUARD_PROBES_REEXPORT.items():
@@ -3717,8 +3591,12 @@ def _probe_package(tmp_path: Path, name: str) -> Path:
     return pkg
 
 
-def test_the_guard_catches_every_probe(tmp_path: Path) -> None:
+
+
+def test_the_guard_catches_every_probe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Synthetic source fed to the guard (never added to the package)."""
+    for key, spec in _PROBE_RUNNER.items():
+        monkeypatch.setitem(GENERIC_RUNNERS, key, spec)
     problems = unaccounted_launches(_probe_package(tmp_path, PACKAGE.name))
     named = {p.split(" in ", 1)[1].split(":", 1)[0] for p in problems}
     expected = {
@@ -3817,7 +3695,11 @@ GUARD_PROBES_POSITIONAL_ONLY: Dict[str, str] = {
 }
 
 
-def test_a_positional_only_env_is_reached_only_by_position(tmp_path: Path) -> None:
+def test_a_positional_only_env_is_reached_only_by_position(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    for key, spec in _PROBE_RUNNER.items():
+        monkeypatch.setitem(GENERIC_RUNNERS, key, spec)
     pkg = tmp_path / PACKAGE.name
     for name, text in GUARD_PROBES_POSITIONAL_ONLY.items():
         (pkg / name).parent.mkdir(parents=True, exist_ok=True)
