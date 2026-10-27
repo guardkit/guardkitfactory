@@ -8,7 +8,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
-import pytest
 from langchain_core.messages import AIMessage, ToolMessage
 
 from guardkitfactory.harness.langgraph_harness import (

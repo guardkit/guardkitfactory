@@ -73,7 +73,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from deepagents.backends.local_shell import LocalShellBackend
 from deepagents.backends.protocol import ExecuteResponse
@@ -574,7 +574,7 @@ class _Output:
                 self.chunks[key.fileobj].append(data)
             else:
                 self.selector.unregister(key.fileobj)
-                key.fileobj.close()
+                cast(Any, key.fileobj).close()
 
     def wait(self, limit: float) -> bool:
         """Read until the shell has exited (left uncollected) and the output
@@ -607,7 +607,7 @@ class _Output:
         for key in list(self.selector.get_map().values()):
             self.selector.unregister(key.fileobj)
             if key.fileobj is not self.pidfd:
-                key.fileobj.close()
+                cast(Any, key.fileobj).close()
         if self.pidfd is not None:
             os.close(self.pidfd)
             self.pidfd = None
@@ -751,7 +751,7 @@ class CommandSessionShellBackend(LocalShellBackend):
                 )
             return ExecuteResponse(output=msg + note, exit_code=124, truncated=False), None
         try:
-            stdout, stderr = output.text()
+            stdout, stderr = cast(_Output, output).text()
         except Exception as e:  # noqa: BLE001 - upstream returns this, e.g. bad UTF-8
             response = _error(e)
             response.output += note

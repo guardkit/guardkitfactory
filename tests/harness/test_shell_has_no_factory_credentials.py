@@ -20,13 +20,12 @@ from __future__ import annotations
 
 import ast
 import logging
-import os
-import subprocess
 import sys
 import textwrap
+from collections.abc import Callable, Iterable
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 import pytest
 
@@ -51,8 +50,8 @@ _PROXIES = [
 ]
 
 
-def _parse_env(text: str) -> Dict[str, str]:
-    env: Dict[str, str] = {}
+def _parse_env(text: str) -> dict[str, str]:
+    env: dict[str, str] = {}
     for line in text.splitlines():
         if "=" in line:
             name, value = line.split("=", 1)
@@ -60,7 +59,7 @@ def _parse_env(text: str) -> Dict[str, str]:
     return env
 
 
-def _assert_no_sentinel(env: Dict[str, str], where: str) -> None:
+def _assert_no_sentinel(env: dict[str, str], where: str) -> None:
     leaked = sorted(n for n, v in env.items() if MARK in v or n in SENTINEL_NAMES)
     assert not leaked, f"{where}: the factory's settings reached the project: {leaked}"
 
@@ -154,7 +153,7 @@ def _plant(path: Path, text: str) -> None:
 PACKAGE = Path(__file__).resolve().parents[2] / "src" / "guardkitfactory"
 
 #: Launches that are allowed as they are, with a one-line reason each.
-ALLOWED: Dict[Tuple[str, str], str] = {
+ALLOWED: dict[tuple[str, str], str] = {
     ("harness/shell_commands.py", "_run"): (
         "the agent's shell (DeepAgents' LocalShellBackend.execute, kept apart "
         "so a command leaves nothing running), with the backend's own env, "
@@ -174,7 +173,7 @@ ALLOWED: Dict[Tuple[str, str], str] = {
 #: name (``defs``, e.g. ``CoachValidator._begin_run_evidence``; all of a
 #: protocol's implementations); without it, the module-level function of
 #: that name. Its environment parameter is read from those only.
-GENERIC_RUNNERS: Dict[Tuple[str, str], Dict[str, Any]] = {
+GENERIC_RUNNERS: dict[tuple[str, str], dict[str, Any]] = {
     ("guardkit:orchestrator/process_group.py", "run_in_own_group"): {
         "names": {"run_in_own_group"},
     },
@@ -200,7 +199,7 @@ GENERIC_RUNNERS: Dict[Tuple[str, str], Dict[str, Any]] = {
 #: those rules are waived there (and only here: an ALLOWED entry does not
 #: waive them); every launch rule still applies. Each entry must still be
 #: needed (test_every_module_use_allowance_is_still_needed).
-MODULE_USE_ALLOWED: Dict[Tuple[str, str], str] = {}
+MODULE_USE_ALLOWED: dict[tuple[str, str], str] = {}
 
 #: The repository's helper, by the dotted name it is imported from. A
 #: launch whose ``env=`` is a call to it (or to a function that only ever
@@ -237,7 +236,7 @@ _ANY_RECEIVER_LAUNCHES = {
 }
 
 
-_REAL_SUBMODULES: Dict[str, bool] = {}
+_REAL_SUBMODULES: dict[str, bool] = {}
 
 
 def _is_launch_module(dotted: str) -> bool:
@@ -272,15 +271,15 @@ class _Module(SimpleNamespace):
     rel: str
     dotted: str
     tree: ast.Module
-    parents: Dict[int, ast.AST]
-    imports: Dict[str, str]
+    parents: dict[int, ast.AST]
+    imports: dict[str, str]
 
 
-def _load_modules(package: Path) -> List[_Module]:
+def _load_modules(package: Path) -> list[_Module]:
     modules = []
     for path in sorted(package.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
-        parents: Dict[int, ast.AST] = {}
+        parents: dict[int, ast.AST] = {}
         for node in ast.walk(tree):
             for child in ast.iter_child_nodes(node):
                 parents[id(child)] = node
@@ -303,7 +302,7 @@ def _load_modules(package: Path) -> List[_Module]:
     known = set(HELPERS) | {
         _runner_identity(package.name, rel, fname) for rel, fname in GENERIC_RUNNERS
     }
-    finals: Dict[str, frozenset] = {}
+    finals: dict[str, frozenset] = {}
     for m in modules:
         m.index, m.known, m.finals = index, known, finals
         m.root = package.name
@@ -315,7 +314,7 @@ def _load_modules(package: Path) -> List[_Module]:
 _UNFOLLOWED = "<unfollowed>"
 
 
-def _final_identities(mod: "_Module", dotted: str) -> set:
+def _final_identities(mod: _Module, dotted: str) -> set:
     """What ``dotted`` finally names, following re-exports inside the
     scanned package (14 October 2026).
 
@@ -337,7 +336,7 @@ def _final_identities(mod: "_Module", dotted: str) -> set:
     return set(mod.finals[dotted])
 
 
-def _follow(mod: "_Module", dotted: str, seen: frozenset, out: set) -> None:
+def _follow(mod: _Module, dotted: str, seen: frozenset, out: set) -> None:
     index, known = mod.index, mod.known
     if (
         _UNFOLLOWED in dotted
@@ -362,7 +361,7 @@ def _follow(mod: "_Module", dotted: str, seen: frozenset, out: set) -> None:
         # replaces the module: the name is that binding only. Any other
         # binding (refused by _init_submodule_collisions anyway) keeps both.
         package = index.get(".".join(parts[:-1])) if len(parts) > 1 else None
-        sites: List[Tuple[str, ast.AST, Optional[str]]] = []
+        sites: list[tuple[str, ast.AST, str | None]] = []
         if package is not None and package.rel.endswith("__init__.py") and dotted not in seen:
             sites = [
                 site
@@ -390,8 +389,8 @@ def _follow(mod: "_Module", dotted: str, seen: frozenset, out: set) -> None:
 
 
 def _follow_binding(
-    mod: "_Module", exporter: "_Module", name: str, rest: List[str],
-    sites: List[Tuple[str, ast.AST, Optional[str]]], seen: frozenset, out: set,
+    mod: _Module, exporter: _Module, name: str, rest: list[str],
+    sites: list[tuple[str, ast.AST, str | None]], seen: frozenset, out: set,
 ) -> None:
     """Follow how ``exporter`` binds ``name`` at module scope (``sites``),
     carrying the ``rest`` of an attribute chain (see :func:`_final_identities`)."""
@@ -426,7 +425,7 @@ def _follow_binding(
     out.add(unfollowed)
 
 
-def _final_targets(mod: "_Module", targets: Iterable[str]) -> set:
+def _final_targets(mod: _Module, targets: Iterable[str]) -> set:
     """:func:`_final_identities` of every target in ``targets``."""
     out: set = set()
     for target in targets:
@@ -434,10 +433,10 @@ def _final_targets(mod: "_Module", targets: Iterable[str]) -> set:
     return out
 
 
-def _import_bindings(node: ast.AST, dotted: str, is_package: bool) -> List[Tuple[str, str]]:
+def _import_bindings(node: ast.AST, dotted: str, is_package: bool) -> list[tuple[str, str]]:
     """The (bound name, what it names) pairs one import statement makes."""
     package = dotted if is_package else dotted.rsplit(".", 1)[0]
-    out: List[Tuple[str, str]] = []
+    out: list[tuple[str, str]] = []
     if isinstance(node, ast.Import):
         for alias in node.names:
             if alias.asname:
@@ -455,14 +454,14 @@ def _import_bindings(node: ast.AST, dotted: str, is_package: bool) -> List[Tuple
     return out
 
 
-def _imports(tree: ast.Module, dotted: str, is_package: bool) -> Dict[str, set]:
+def _imports(tree: ast.Module, dotted: str, is_package: bool) -> dict[str, set]:
     """Every name an import binds anywhere in the module, in any scope, ->
     the SET of everything it is imported as (never overwritten).
 
     A call through a name is a launch if ANY of its targets is a launch
     module or function (strict side); a helper or runner qualifies only when
     ALL of them are it (see :func:`_resolve`)."""
-    out: Dict[str, set] = {}
+    out: dict[str, set] = {}
     for node in ast.walk(tree):
         for name, target in _import_bindings(node, dotted, is_package):
             out.setdefault(name, set()).add(target)
@@ -475,7 +474,7 @@ _TYPE_PARAMS = tuple(
 )
 
 
-def _names_bound_by(node: ast.AST, dotted: str, is_package: bool) -> List[Tuple[str, str, Optional[str]]]:
+def _names_bound_by(node: ast.AST, dotted: str, is_package: bool) -> list[tuple[str, str, str | None]]:
     """Every name ``node`` binds, as (name, kind, import target).
 
     THE ONE ENUMERATION of Python's binding forms, used by every "bound
@@ -509,11 +508,11 @@ def _names_bound_by(node: ast.AST, dotted: str, is_package: bool) -> List[Tuple[
 
 
 def _binding_sites(
-    nodes: Iterable[ast.AST], name: str, dotted: str, is_package: bool, own: Optional[ast.AST] = None
-) -> List[Tuple[str, ast.AST, Optional[str]]]:
+    nodes: Iterable[ast.AST], name: str, dotted: str, is_package: bool, own: ast.AST | None = None
+) -> list[tuple[str, ast.AST, str | None]]:
     """Where ``name`` is bound among ``nodes`` (``own``, the function being
     looked into, does not bind its own name inside itself)."""
-    sites: List[Tuple[str, ast.AST, Optional[str]]] = []
+    sites: list[tuple[str, ast.AST, str | None]] = []
     for node in nodes:
         if node is own:
             continue
@@ -523,7 +522,7 @@ def _binding_sites(
     return sites
 
 
-def _bindings(nodes: Iterable[ast.AST], name: str, dotted: str, is_package: bool, own: Optional[ast.AST] = None) -> Tuple[set, bool, bool]:
+def _bindings(nodes: Iterable[ast.AST], name: str, dotted: str, is_package: bool, own: ast.AST | None = None) -> tuple[set, bool, bool]:
     """How ``name`` is bound among ``nodes``: (import targets, defined by a
     def or class, bound any other way), from :func:`_binding_sites`."""
     imports: set = set()
@@ -543,13 +542,13 @@ def _bindings(nodes: Iterable[ast.AST], name: str, dotted: str, is_package: bool
     return imports, definitions == 1, other
 
 
-def _module_scope_nodes(mod: "_Module") -> List[ast.AST]:
+def _module_scope_nodes(mod: _Module) -> list[ast.AST]:
     """Nodes at module scope: not inside any function, lambda or class
     (the bodies are not entered; computed once per module)."""
     cached = getattr(mod, "_scope_nodes", None)
     if cached is not None:
         return cached
-    out: List[ast.AST] = []
+    out: list[ast.AST] = []
     pending = list(ast.iter_child_nodes(mod.tree))
     while pending:
         node = pending.pop()
@@ -568,7 +567,7 @@ def _module_scope_nodes(mod: "_Module") -> List[ast.AST]:
     return out
 
 
-def _own_scope_nodes(mod: "_Module", holder: ast.AST) -> List[ast.AST]:
+def _own_scope_nodes(mod: _Module, holder: ast.AST) -> list[ast.AST]:
     """Nodes in ``holder``'s own scope (a module, class or function): its
     statements, not entering nested functions, lambdas or classes (whose
     def/class node, decorators and defaults are included), plus a function's
@@ -576,8 +575,8 @@ def _own_scope_nodes(mod: "_Module", holder: ast.AST) -> List[ast.AST]:
     cache = mod.__dict__.setdefault("_own_scope_cache", {})
     if id(holder) in cache:
         return cache[id(holder)]
-    out: List[ast.AST] = []
-    pending: List[ast.AST] = list(getattr(holder, "body", []))
+    out: list[ast.AST] = []
+    pending: list[ast.AST] = list(getattr(holder, "body", []))
     if isinstance(holder, (ast.FunctionDef, ast.AsyncFunctionDef)):
         pending.extend(ast.walk(holder.args))
     while pending:
@@ -595,7 +594,7 @@ def _own_scope_nodes(mod: "_Module", holder: ast.AST) -> List[ast.AST]:
     return out
 
 
-def _bound_once_as(mod: "_Module", node: ast.AST) -> bool:
+def _bound_once_as(mod: _Module, node: ast.AST) -> bool:
     """True when the def ``node`` is the ONLY binding of its name in its own
     scope (no second def under if/else, no later assignment, no import...)."""
     holder = _enclosing(mod, node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or mod.tree
@@ -605,7 +604,7 @@ def _bound_once_as(mod: "_Module", node: ast.AST) -> bool:
     return len(sites) == 1 and sites[0][1] is node
 
 
-def _scope_bindings(mod: "_Module", scope: ast.AST, name: str) -> Tuple[set, bool, bool]:
+def _scope_bindings(mod: _Module, scope: ast.AST, name: str) -> tuple[set, bool, bool]:
     """:func:`_bindings` for a function's whole subtree, cached."""
     cache = mod.__dict__.setdefault("_binding_cache", {})
     key = (id(scope), name)
@@ -616,7 +615,7 @@ def _scope_bindings(mod: "_Module", scope: ast.AST, name: str) -> Tuple[set, boo
     return cache[key]
 
 
-def _module_bindings(mod: "_Module", name: str) -> Tuple[set, bool, bool]:
+def _module_bindings(mod: _Module, name: str) -> tuple[set, bool, bool]:
     cache = mod.__dict__.setdefault("_module_binding_cache", {})
     if name not in cache:
         cache[name] = _bindings(
@@ -641,18 +640,18 @@ def _last_name(node: ast.AST) -> str:
     return ""
 
 
-def _enclosing(mod: _Module, node: ast.AST, kinds) -> Optional[ast.AST]:
+def _enclosing(mod: _Module, node: ast.AST, kinds) -> ast.AST | None:
     current = mod.parents.get(id(node))
     while current is not None and not isinstance(current, kinds):
         current = mod.parents.get(id(current))
     return current
 
 
-def _enclosing_function(mod: _Module, node: ast.AST) -> Optional[ast.AST]:
+def _enclosing_function(mod: _Module, node: ast.AST) -> ast.AST | None:
     return _enclosing(mod, node, (ast.FunctionDef, ast.AsyncFunctionDef))
 
 
-def _defining_scope(mod: _Module, node: ast.AST) -> Optional[ast.AST]:
+def _defining_scope(mod: _Module, node: ast.AST) -> ast.AST | None:
     """The function whose BODY ``node`` is in, for name resolution.
 
     A parameter's default, an annotation and a decorator are evaluated where
@@ -682,7 +681,7 @@ def _qualname(mod: _Module, func: ast.AST) -> str:
     return ".".join(reversed(names))
 
 
-def _resolve(mod: _Module, func_node: ast.AST, at: ast.AST) -> Optional[str]:
+def _resolve(mod: _Module, func_node: ast.AST, at: ast.AST) -> str | None:
     """The FINAL dotted name a call target refers to (re-exports inside the
     package followed, :func:`_final_identities`), or ``None`` when unknown
     or when it could stand for more than one thing."""
@@ -693,7 +692,7 @@ def _resolve(mod: _Module, func_node: ast.AST, at: ast.AST) -> Optional[str]:
     return next(iter(finals)) if len(finals) == 1 else None
 
 
-def _resolve_name(mod: _Module, func_node: ast.AST, at: ast.AST) -> Optional[str]:
+def _resolve_name(mod: _Module, func_node: ast.AST, at: ast.AST) -> str | None:
     """The dotted name a call target refers to, or ``None`` when unknown.
 
     A plain name resolves through the scopes that enclose ``at``: a function
@@ -735,7 +734,7 @@ def _resolve_name(mod: _Module, func_node: ast.AST, at: ast.AST) -> Optional[str
     return None
 
 
-def _evaluating_class(mod: _Module, node: ast.AST) -> Optional[ast.ClassDef]:
+def _evaluating_class(mod: _Module, node: ast.AST) -> ast.ClassDef | None:
     """The class whose body may run ``node`` while the class is being
     defined, or ``None``: walking up, a function's body ends the search,
     while a function's defaults, annotations and decorators, and a class's
@@ -776,7 +775,7 @@ def _name_is_shadowed(mod: _Module, at: ast.AST, name: str) -> bool:
     return _module_bindings(mod, name)[2]
 
 
-def _inline_helper(node: Optional[ast.AST], mod: _Module, wrappers: set, none_is_safe: bool = False) -> bool:
+def _inline_helper(node: ast.AST | None, mod: _Module, wrappers: set, none_is_safe: bool = False) -> bool:
     """``node`` is a call to the helper (or to a function that only ever
     returns one) written right there, or ``None`` where that runs nothing."""
     if isinstance(node, ast.Constant) and node.value is None:
@@ -799,7 +798,7 @@ def _inline_helper(node: Optional[ast.AST], mod: _Module, wrappers: set, none_is
 
 def _single_use_helper_name(
     name: str, mod: _Module, func: ast.AST, wrappers: set,
-    env_slot: Callable[[ast.Call], Optional[Tuple[str, Optional[int], int]]],
+    env_slot: Callable[[ast.Call], tuple[str, int | None, int] | None],
 ) -> bool:
     """``name`` is bound exactly once in ``func`` (by any binding form, see
     :func:`_names_bound_by`), by a single-target assignment of an inline helper
@@ -859,9 +858,9 @@ def _single_use_helper_name(
 
 
 def _helper_shaped(
-    node: Optional[ast.AST], mod: _Module, func: Optional[ast.AST], wrappers: set,
+    node: ast.AST | None, mod: _Module, func: ast.AST | None, wrappers: set,
     none_is_safe: bool = False,
-    env_slot: Optional[Callable[[ast.Call], Optional[Tuple[str, Optional[int], int]]]] = None,
+    env_slot: Callable[[ast.Call], tuple[str, int | None, int] | None] | None = None,
 ) -> bool:
     """True when ``node`` (an ``env=`` value) is, provably, the helper's
     result: the helper called inline, or a name that holds nothing else and
@@ -875,7 +874,7 @@ def _helper_shaped(
     return False
 
 
-def _definition_counts(mod: _Module) -> Dict[str, int]:
+def _definition_counts(mod: _Module) -> dict[str, int]:
     """How many definitions (def or class) each full qualified identity has
     across the whole module, nested paths included. Cached."""
     cached = getattr(mod, "_definition_counts", None)
@@ -901,7 +900,7 @@ def _trusted_definition(mod: _Module, node: ast.AST) -> bool:
     return _bound_once_as(mod, node)
 
 
-def _wrapper_name_rebound(mod: _Module, node: ast.AST) -> List[ast.AST]:
+def _wrapper_name_rebound(mod: _Module, node: ast.AST) -> list[ast.AST]:
     """Every other binding of a wrapper's name anywhere in its module (in any
     function or class body too): a wrapper's name is reserved like the
     helper's."""
@@ -912,7 +911,7 @@ def _wrapper_name_rebound(mod: _Module, node: ast.AST) -> List[ast.AST]:
     ]
 
 
-def _guarded_import_bindings(modules: List[_Module], wrappers: set, runner_ids: set) -> List[str]:
+def _guarded_import_bindings(modules: list[_Module], wrappers: set, runner_ids: set) -> list[str]:
     """In each module, every name an import binds to a launch module, a
     launch function, a generic runner, the helper or a wrapper may be bound
     ONLY by imports, and every import of it must name that same one thing
@@ -928,12 +927,12 @@ def _guarded_import_bindings(modules: List[_Module], wrappers: set, runner_ids: 
             or final in HELPERS or final in wrappers
         )
 
-    problems: List[str] = []
+    problems: list[str] = []
     for mod in modules:
         is_package = mod.rel.endswith("__init__.py")
         nodes = list(ast.walk(mod.tree))
-        imported: Dict[str, set] = {}
-        sites: Dict[str, List[ast.AST]] = {}
+        imported: dict[str, set] = {}
+        sites: dict[str, list[ast.AST]] = {}
         for node in nodes:
             for name, kind, target in _names_bound_by(node, mod.dotted, is_package):
                 if kind == "import" and target is not None:
@@ -941,7 +940,7 @@ def _guarded_import_bindings(modules: List[_Module], wrappers: set, runner_ids: 
                     sites.setdefault(name, []).append(node)
         owned = {name: ids for name, ids in imported.items() if any(guarded(i) for i in ids)}
 
-        def report(node: ast.AST, why: str) -> None:
+        def report(node: ast.AST, why: str, mod: _Module = mod) -> None:
             holder = _enclosing(mod, node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
             problems.append(
                 f"{mod.rel}:{getattr(node, 'lineno', 0)} in "
@@ -975,7 +974,7 @@ def _guarded_import_bindings(modules: List[_Module], wrappers: set, runner_ids: 
     return problems
 
 
-def _reserved_environment_names(modules: List[_Module], wrappers: set) -> List[str]:
+def _reserved_environment_names(modules: list[_Module], wrappers: set) -> list[str]:
     """The helper's name and every discovered environment wrapper's name are
     reserved across the whole scanned package (15 October 2026). In any
     module such a name may be bound only by that wrapper's own definition or
@@ -986,7 +985,7 @@ def _reserved_environment_names(modules: List[_Module], wrappers: set) -> List[s
     with its place."""
     owners = set(wrappers) | set(HELPERS)
     names = {identity.rsplit(".", 1)[1] for identity in owners}
-    problems: List[str] = []
+    problems: list[str] = []
     for mod in modules:
         is_package = mod.rel.endswith("__init__.py")
         for node in ast.walk(mod.tree):
@@ -1041,7 +1040,7 @@ def _reserved_environment_names(modules: List[_Module], wrappers: set) -> List[s
     return problems
 
 
-def _wrappers(modules: List[_Module], reserve_names: bool = True) -> set:
+def _wrappers(modules: list[_Module], reserve_names: bool = True) -> set:
     """Functions whose whole body (after a docstring) is one ``return`` of an
     inline helper call, by dotted name; with ``reserve_names``, only those
     whose name is bound nowhere else in their module."""
@@ -1102,7 +1101,7 @@ _DYNAMIC_IMPORTS = {
 _DYNAMIC_IMPORT_NAMES = {"__import__": "builtins.__import__", "__builtins__": "__builtins__"}
 
 
-def _dynamic_import(mod: _Module, call: ast.AST) -> Optional[str]:
+def _dynamic_import(mod: _Module, call: ast.AST) -> str | None:
     """Which dynamic import ``call`` is (``importlib.import_module``,
     ``__import__``, ``importlib.util.module_from_spec`` ...), or ``None``."""
     if not isinstance(call, ast.Call):
@@ -1115,7 +1114,7 @@ def _dynamic_import(mod: _Module, call: ast.AST) -> Optional[str]:
     return None
 
 
-def _dynamic_import_problem(mod: _Module, call: ast.Call) -> Optional[str]:
+def _dynamic_import_problem(mod: _Module, call: ast.Call) -> str | None:
     """Every dynamic import is a violation outside :data:`MODULE_USE_ALLOWED`
     (14 October 2026), whatever its argument: what it loads, and so what it
     launches, is not in the source this guard reads."""
@@ -1128,7 +1127,7 @@ def _dynamic_import_problem(mod: _Module, call: ast.Call) -> Optional[str]:
     )
 
 
-def _dynamic_import_held(mod: _Module, node: ast.AST) -> Optional[str]:
+def _dynamic_import_held(mod: _Module, node: ast.AST) -> str | None:
     """Why ``node`` reaches the import machinery other than by a call to a
     dynamic import (a dynamic import function held, passed or stored, or
     ``__builtins__`` used at all), or ``None``."""
@@ -1150,7 +1149,7 @@ def _dynamic_import_held(mod: _Module, node: ast.AST) -> Optional[str]:
     )
 
 
-_MODULE_SPECS: Dict[str, bool] = {}
+_MODULE_SPECS: dict[str, bool] = {}
 
 
 def _is_module_identity(mod: _Module, dotted: str) -> bool:
@@ -1209,7 +1208,7 @@ def _visible_import_targets(mod: _Module, node: ast.Name) -> set:
     return _final_targets(mod, targets)
 
 
-def _module_used_as_value(mod: _Module, node: ast.AST) -> Optional[str]:
+def _module_used_as_value(mod: _Module, node: ast.AST) -> str | None:
     """Why a loaded name or attribute chain that names a module (any module:
     the package's own, the standard library's or another) is used other
     than as the base of an attribute (stored, passed, returned, defaulted,
@@ -1236,7 +1235,7 @@ def _module_used_as_value(mod: _Module, node: ast.AST) -> Optional[str]:
     return None
 
 
-def _launch_kind(mod: _Module, node: ast.AST) -> Optional[str]:
+def _launch_kind(mod: _Module, node: ast.AST) -> str | None:
     """What launch ``node`` (a call target or a value) names, if any."""
     if isinstance(node, ast.Attribute) and node.attr in _ANY_RECEIVER_LAUNCHES:
         return _dotted(node)
@@ -1282,7 +1281,7 @@ def _factory_literal(call: ast.Call) -> bool:
     )
 
 
-def _env_keyword(call: ast.Call, position: Optional[int] = None) -> Optional[ast.AST]:
+def _env_keyword(call: ast.Call, position: int | None = None) -> ast.AST | None:
     for kw in call.keywords:
         if kw.arg == "env":
             return kw.value
@@ -1295,7 +1294,7 @@ def _annotation_nodes(tree: ast.AST) -> set:
     """Nodes inside type annotations: naming ``subprocess.Popen`` as a type
     launches nothing."""
     found: set = set()
-    roots: List[ast.AST] = []
+    roots: list[ast.AST] = []
     for node in ast.walk(tree):
         if isinstance(node, ast.arg) and node.annotation is not None:
             roots.append(node.annotation)
@@ -1308,7 +1307,7 @@ def _annotation_nodes(tree: ast.AST) -> set:
     return found
 
 
-def _first_argument(call: ast.Call) -> Optional[ast.AST]:
+def _first_argument(call: ast.Call) -> ast.AST | None:
     if call.args:
         return call.args[0]
     for kw in call.keywords:
@@ -1325,10 +1324,10 @@ _POSITIONAL_FORWARDS = {
     "subprocess.check_call": "subprocess.Popen",
     "subprocess.check_output": "subprocess.Popen",
 }
-_LAUNCH_ENV: Dict[str, Tuple[str, Optional[int], int]] = {}
+_LAUNCH_ENV: dict[str, tuple[str, int | None, int]] = {}
 
 
-def _launch_env(target: str) -> Tuple[str, Optional[int], int]:
+def _launch_env(target: str) -> tuple[str, int | None, int]:
     """How the launch function ``target`` takes an environment, read from
     its signature (``inspect.signature``; Popen's for subprocess's
     convenience functions), as for :func:`_runner_env`. When it cannot be
@@ -1338,7 +1337,7 @@ def _launch_env(target: str) -> Tuple[str, Optional[int], int]:
         import importlib
         import inspect
 
-        slot: Tuple[str, Optional[int], int] = ("keyword", None, 0)
+        slot: tuple[str, int | None, int] = ("keyword", None, 0)
         if _is_launch_target(target):
             source = _POSITIONAL_FORWARDS.get(target, target)
             module, _, name = source.rpartition(".")
@@ -1376,10 +1375,10 @@ def _launch_env(target: str) -> Tuple[str, Optional[int], int]:
 #: ``env``), "kwargs" (no ``env`` parameter, but ``**kwargs`` may carry one),
 #: "varargs" (no ``env`` parameter, but ``*args`` past the ``named``
 #: positional parameters may) or "none" (it cannot be given one at all).
-_RUNNER_ENV: Dict[Tuple[str, str], Tuple[str, Optional[int], int]] = {}
+_RUNNER_ENV: dict[tuple[str, str], tuple[str, int | None, int]] = {}
 
 
-def _runner_source(rel: str, package: Optional[Path] = None) -> Path:
+def _runner_source(rel: str, package: Path | None = None) -> Path:
     """The source file a GENERIC_RUNNERS entry names: in the scanned
     ``package`` when it has that file, else in this repository's package, or
     in GuardKit's for a ``guardkit:`` entry."""
@@ -1397,12 +1396,12 @@ def _runner_source(rel: str, package: Optional[Path] = None) -> Path:
     return PACKAGE / rel
 
 
-def _qualified_defs(tree: ast.Module) -> Dict[str, Tuple[ast.AST, bool]]:
+def _qualified_defs(tree: ast.Module) -> dict[str, tuple[ast.AST, bool]]:
     """Every function in ``tree`` by qualified name (``Class.method``,
     ``outer.<locals>.inner``) -> (its def, whether it is a method)."""
-    found: Dict[str, Tuple[ast.AST, bool]] = {}
+    found: dict[str, tuple[ast.AST, bool]] = {}
 
-    def visit(node: ast.AST, prefix: List[str], in_class: bool) -> None:
+    def visit(node: ast.AST, prefix: list[str], in_class: bool) -> None:
         for child in ast.iter_child_nodes(node):
             if isinstance(child, ast.ClassDef):
                 visit(child, [*prefix, child.name], True)
@@ -1417,8 +1416,8 @@ def _qualified_defs(tree: ast.Module) -> Dict[str, Tuple[ast.AST, bool]]:
 
 
 def _runner_env(
-    rel: str, fname: str, package: Optional[Path] = None, defs: Optional[List[str]] = None,
-) -> Tuple[str, Optional[int], int]:
+    rel: str, fname: str, package: Path | None = None, defs: list[str] | None = None,
+) -> tuple[str, int | None, int]:
     """How the runner ``fname`` in ``rel`` takes an environment, read from
     exactly the definitions that implement it (``defs``, qualified names; by
     default the module-level function ``fname``), never from another def that
@@ -1476,8 +1475,8 @@ def _runner_identity(package_name: str, rel: str, fname: str) -> str:
 
 
 def _runner_call_matches(
-    call: ast.Call, spec: Dict[str, Any], mod: Optional[_Module] = None,
-    identity: Optional[str] = None,
+    call: ast.Call, spec: dict[str, Any], mod: _Module | None = None,
+    identity: str | None = None,
 ) -> bool:
     """A call to a generic runner: by what it resolves to (an imported alias
     included), by its last name (any object or module spelling), or by a
@@ -1509,7 +1508,7 @@ def _reserved_names() -> set:
     """Names that may never be rebound: the helper's, and every generic
     runner's (outside the ordinary words above)."""
     reserved = {target.rsplit(".", 1)[1] for target in HELPERS}
-    for (rel, fname), spec in GENERIC_RUNNERS.items():
+    for (_rel, fname), spec in GENERIC_RUNNERS.items():
         if fname not in _ORDINARY_RUNNER_WORDS:
             reserved.add(fname)
         if not spec.get("scope"):
@@ -1517,14 +1516,14 @@ def _reserved_names() -> set:
     return reserved
 
 
-def _reserved_name_rebindings(modules: List[_Module]) -> List[str]:
+def _reserved_name_rebindings(modules: list[_Module]) -> list[str]:
     """Every rebinding of a reserved name: a parameter, a local binding, a
     nested def, a ``global``/``nonlocal``, or a module-level rebinding of the
     helper's, a generic runner's or a launch function's name (an imported
     alias of one included). Imports, and a module-level def or class that is
     not also imported, are not rebindings."""
     base = _reserved_names()
-    problems: List[str] = []
+    problems: list[str] = []
     for mod in modules:
         reserved = set(base)
         for alias, targets in mod.imports.items():
@@ -1533,7 +1532,7 @@ def _reserved_name_rebindings(modules: List[_Module]) -> List[str]:
                 if last in base or target in HELPERS or _is_launch_target(target):
                     reserved.add(alias)
 
-        def flag(node: ast.AST, name: str, how: str) -> None:
+        def flag(node: ast.AST, name: str, how: str, mod: _Module = mod) -> None:
             holder = _enclosing(mod, node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
             where = getattr(holder, "name", "<module>")
             problems.append(
@@ -1566,12 +1565,12 @@ def _reserved_name_rebindings(modules: List[_Module]) -> List[str]:
     return problems
 
 
-def _guarded_names(mod: _Module, runner_ids: set) -> Dict[str, str]:
+def _guarded_names(mod: _Module, runner_ids: set) -> dict[str, str]:
     """The names in ``mod`` that are guarded, by their own spelling: a launch
     module (kind ``module``), and a launch function, a generic runner or the
     helper (kind ``function``), whether imported (in any scope) or, for a
     runner, defined at module level here."""
-    guarded: Dict[str, str] = {}
+    guarded: dict[str, str] = {}
     for name, targets in mod.imports.items():
         for target in _final_targets(mod, targets):
             module, _, last = target.rpartition(".")
@@ -1592,7 +1591,7 @@ def _guarded_names(mod: _Module, runner_ids: set) -> Dict[str, str]:
     return guarded
 
 
-_LAUNCH_BEARING: Dict[str, bool] = {}
+_LAUNCH_BEARING: dict[str, bool] = {}
 
 
 def _is_launch_bearing_module(dotted: str) -> bool:
@@ -1624,7 +1623,7 @@ def _launch_attribute_names() -> set:
     return set(LAUNCH_NAMES)
 
 
-def _indirect_use(mod: _Module, node: ast.Name, kind: str) -> Optional[str]:
+def _indirect_use(mod: _Module, node: ast.Name, kind: str) -> str | None:
     """Why a load of a guarded name is not a direct use, or ``None``.
 
     A function, runner or helper may only be called: the name is the
@@ -1700,15 +1699,15 @@ def _distinctive_guarded_names(runner_ids: set) -> set:
     return names - _GENERIC_GUARDED_WORDS
 
 
-def _aliased_guarded_imports(modules: List[_Module], runner_ids: set) -> List[str]:
+def _aliased_guarded_imports(modules: list[_Module], runner_ids: set) -> list[str]:
     """A guarded name (a launch module or function, a generic runner, the
     helper) imported under another local name is a violation in itself:
     every guarded name is only ever used under its own spelling."""
-    problems: List[str] = []
+    problems: list[str] = []
     distinctive = _distinctive_guarded_names(runner_ids)
     for mod in modules:
         for node in ast.walk(mod.tree):
-            aliased: List[str] = []
+            aliased: list[str] = []
             if isinstance(node, ast.Import):
                 aliased = [
                     f"{a.name} as {a.asname}" for a in node.names
@@ -1718,7 +1717,7 @@ def _aliased_guarded_imports(modules: List[_Module], runner_ids: set) -> List[st
             elif isinstance(node, ast.ImportFrom):
                 # One resolver for every identity: relative levels included.
                 bindings = _import_bindings(node, mod.dotted, mod.rel.endswith("__init__.py"))
-                for alias, (_bound, target) in zip(node.names, bindings):
+                for alias, (_bound, target) in zip(node.names, bindings, strict=False):
                     if not alias.asname or alias.asname == alias.name:
                         continue
                     # What the import finally names, through re-exports.
@@ -1746,7 +1745,7 @@ def _aliased_guarded_imports(modules: List[_Module], runner_ids: set) -> List[st
     return problems
 
 
-def _attribute_used_as_value(mod: _Module, node: ast.Attribute, runner_ids: set) -> Optional[str]:
+def _attribute_used_as_value(mod: _Module, node: ast.Attribute, runner_ids: set) -> str | None:
     """Why a loaded attribute chain is used as a value, or ``None``.
 
     Judged on EVERY attribute, whatever its root, by what it finally names
@@ -1785,12 +1784,12 @@ def _attribute_used_as_value(mod: _Module, node: ast.Attribute, runner_ids: set)
     return None
 
 
-def _launch_named_modules(modules: List[_Module]) -> List[str]:
+def _launch_named_modules(modules: list[_Module]) -> list[str]:
     """No module or package inside the scanned package may be named like a
     launch module (``subprocess``, ``os``, ``asyncio``, ``pty``,
     ``multiprocessing``, ``posix``, ``nt``): the guard reads those names as
     the standard library's."""
-    problems: List[str] = []
+    problems: list[str] = []
     for mod in modules:
         named = [part for part in Path(mod.rel).with_suffix("").parts if part in LAUNCH_MODULES]
         if named:
@@ -1801,7 +1800,7 @@ def _launch_named_modules(modules: List[_Module]) -> List[str]:
     return problems
 
 
-def _init_submodule_collisions(modules: List[_Module]) -> List[str]:
+def _init_submodule_collisions(modules: list[_Module]) -> list[str]:
     """A package's ``__init__`` may not bind a name that is also one of its
     own submodules or subpackages, except by importing that submodule itself
     (``from . import sub``, ``from package import sub``, ``import
@@ -1810,7 +1809,7 @@ def _init_submodule_collisions(modules: List[_Module]) -> List[str]:
     possible identity, see :func:`_follow`). Anything else (an import from
     elsewhere, a def, a class, an assignment) makes what the name gives
     depend on import order, so the guard could judge the wrong one."""
-    problems: List[str] = []
+    problems: list[str] = []
     for mod in modules:
         if not mod.rel.endswith("__init__.py"):
             continue
@@ -1844,10 +1843,10 @@ def _init_submodule_collisions(modules: List[_Module]) -> List[str]:
     return problems
 
 
-def unaccounted_launches(package: Path) -> List[str]:
+def unaccounted_launches(package: Path) -> list[str]:
     modules = _load_modules(package)
     wrappers = _wrappers(modules)
-    problems: List[str] = []
+    problems: list[str] = []
     problems.extend(_reserved_environment_names(modules, wrappers))
     # A wrapper whose name is bound again anywhere in its module is not one;
     # each such binding is reported.
@@ -1888,11 +1887,11 @@ def unaccounted_launches(package: Path) -> List[str]:
 
     def launch_checker(
         mod: _Module,
-    ) -> Callable[[ast.Call], Optional[Tuple[str, Optional[int], int]]]:
+    ) -> Callable[[ast.Call], tuple[str, int | None, int] | None]:
         """Where a call's environment goes when it is a launch or a generic
         runner call (``None`` for any other call)."""
 
-        def env_slot(call: ast.Call) -> Optional[Tuple[str, Optional[int], int]]:
+        def env_slot(call: ast.Call) -> tuple[str, int | None, int] | None:
             kind = _launch_kind(mod, call.func)
             if kind:
                 return _launch_env(kind)
@@ -1908,14 +1907,14 @@ def unaccounted_launches(package: Path) -> List[str]:
 
         return env_slot
 
-    def place(mod: _Module, node: ast.AST) -> Tuple[Optional[ast.AST], str]:
+    def place(mod: _Module, node: ast.AST) -> tuple[ast.AST | None, str]:
         func = _enclosing_function(mod, node)
         named = _enclosing(mod, node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
         return func, getattr(named, "name", "<module>")
 
     def judge(
         mod: _Module, call: ast.Call, what: str, *, default_is_safe=False,
-        none_is_safe=False, runner_env: Optional[Tuple[str, Optional[int], int]] = None,
+        none_is_safe=False, runner_env: tuple[str, int | None, int] | None = None,
     ) -> None:
         """Judge a launch (``runner_env`` None) or a generic runner call.
 
@@ -3683,7 +3682,7 @@ def test_every_process_launch_is_accounted_for() -> None:
 #: A runner whose env is positional-only (14 October 2026): an env= keyword
 #: never reaches it, so it is refused whether env is then left out or given
 #: something unsafe by position; the helper's by position is accepted.
-GUARD_PROBES_POSITIONAL_ONLY: Dict[str, str] = {
+GUARD_PROBES_POSITIONAL_ONLY: dict[str, str] = {
     '__init__.py': '',
     'bdd/__init__.py': '',
     'bdd/plugin.py': 'def run_project_command(args, env=None, /, **kwargs):\n    return None\n',
@@ -3714,7 +3713,7 @@ def test_a_positional_only_env_is_reached_only_by_position(
 #: Method runners (14 October 2026): a method's env only by keyword (called
 #: through its class every argument shifts by one), and the runner read
 #: from its own qualified definition, not a same-named method elsewhere.
-GUARD_PROBES_METHOD_RUNNER: Dict[str, str] = {
+GUARD_PROBES_METHOD_RUNNER: dict[str, str] = {
     '__init__.py': '',
     'orchestrator/__init__.py': '',
     'orchestrator/quality_gates/__init__.py': '',
@@ -3773,7 +3772,7 @@ def test_a_method_runner_takes_its_env_only_by_keyword(tmp_path: Path, shape: st
 
 #: A wrapper's name is reserved across the whole package (15 October 2026):
 #: a lambda parameter in another module may not shadow an imported wrapper.
-GUARD_PROBES_RESERVED_WRAPPER: Dict[str, str] = {
+GUARD_PROBES_RESERVED_WRAPPER: dict[str, str] = {
     '__init__.py': '',
     'envs.py': 'from guardkit.orchestrator.project_command_env import project_command_environment\n\n\ndef command_env(wf):\n    return project_command_environment(wf, None)\n',
     'consumer.py': "import os\nimport subprocess\n\nfrom .envs import command_env\n\nlaunch = lambda cmd, command_env=(lambda wf: dict(os.environ)): subprocess.run(cmd, env=command_env('.'))\n",
@@ -3818,7 +3817,7 @@ def test_a_wrapper_name_is_reserved_across_the_package(tmp_path: Path) -> None:
 
 #: Type parameters bind names (Python 3.12 and later; the probe is skipped
 #: on older interpreters, but the walk handles the nodes either way).
-GUARD_PROBES_TYPE_PARAMETERS: Dict[str, str] = {
+GUARD_PROBES_TYPE_PARAMETERS: dict[str, str] = {
     '__init__.py': '',
     'envs.py': 'from guardkit.orchestrator.project_command_env import project_command_environment\n\n\ndef command_env(wf):\n    return project_command_environment(wf, None)\n',
     'generics.py': "import subprocess\n\nfrom .envs import command_env\n\n\ndef v_generic_def_named_like_the_helper[project_command_environment](x):\n    return x\n\n\nclass v_generic_class_named_like_a_wrapper[command_env]:\n    pass\n\n\ndef v_generic_def_named_like_an_imported_launch_module[subprocess](x):\n    return x\n\n\ndef ok_generic_identity[T](x: T) -> T:\n    return x\n\n\ndef uses(cmd):\n    return subprocess.run(cmd, env=command_env('.'))\n",

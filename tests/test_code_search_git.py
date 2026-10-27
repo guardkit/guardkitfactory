@@ -15,7 +15,6 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -43,7 +42,7 @@ class Lab:
     def path(self, name: str) -> str:
         return str(self.bin / name)
 
-    def fired(self) -> List[str]:
+    def fired(self) -> list[str]:
         if not self.marks.exists():
             return []
         lines = sorted({line.split()[0] for line in self.marks.read_text().splitlines() if line})

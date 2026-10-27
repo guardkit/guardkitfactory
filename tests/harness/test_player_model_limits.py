@@ -384,7 +384,8 @@ def test_actual_dcode_graph_main_subagent_compaction_limits(
         pytest.skip("dcode requires Python 3.12+ and the required dependency")
     from deepagents_code.agent import create_cli_agent
 
-    from .test_dcode_harness import response as wire_response, selected_skill_calls
+    from .test_dcode_harness import response as wire_response
+    from .test_dcode_harness import selected_skill_calls
 
     monkeypatch.setenv(ENV, json.dumps(THINKING_OFF_LIMITS if thinking_off else LIMITS))
     repo = _scaffold(tmp_path)

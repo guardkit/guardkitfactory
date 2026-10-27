@@ -16,7 +16,8 @@ import sys
 import threading
 import time
 from pathlib import Path
-from typing import Any, NoReturn
+from types import FrameType
+from typing import Any, NoReturn, cast
 from urllib.parse import urlsplit
 
 from guardkitfactory.harness.player_config import PlayerConfig
@@ -166,7 +167,7 @@ def _from_model_request() -> bool:
     the record keeps its upstream wording.
     """
     try:
-        frame = sys._getframe(1)
+        frame: FrameType | None = sys._getframe(1)
         for _ in range(_SUMMARY_CALLER_DEPTH):
             if frame is None:
                 return False
@@ -309,12 +310,12 @@ def _artifact_backend(backend: Any, cwd: Path, artifacts: Path) -> Any:
             return f"guardkit-player:{cwd}"
 
         def execute(self, command: str, *, timeout: int | None = None) -> Any:
-            return self.default.execute(command, timeout=timeout)
+            return cast(Any, self.default).execute(command, timeout=timeout)
 
         async def aexecute(self, command: str, *, timeout: int | None = None) -> Any:
-            return await self.default.aexecute(command, timeout=timeout)
+            return await cast(Any, self.default).aexecute(command, timeout=timeout)
 
-    routes = {}
+    routes: dict[str, Any] = {}
     for name in ("conversation_history", "large_tool_results"):
         target = artifacts / name
         target.mkdir(mode=0o700, exist_ok=True)
@@ -384,7 +385,7 @@ def create_dcode_player(
         cli_max_retries=0,
         environ=dcode_environment,
     )
-    tools = sorted(graph.nodes["tools"].bound.tools_by_name)
+    tools = sorted(cast(Any, graph.nodes["tools"].bound).tools_by_name)
     evidence = {
         "model": settings,
         "tools": tools,
@@ -399,7 +400,7 @@ def create_dcode_player(
     }
     # Diagnostics stay on the graph; the factory retains its shared invoke and
     # cancellation ownership, with no wrapper graph or additional task.
-    graph.guardkit_dcode_evidence = evidence
-    graph.guardkit_dcode_backend = effective
+    cast(Any, graph).guardkit_dcode_evidence = evidence
+    cast(Any, graph).guardkit_dcode_backend = effective
     logger.info("dcode Player construction inventory: %s", evidence)
     return graph

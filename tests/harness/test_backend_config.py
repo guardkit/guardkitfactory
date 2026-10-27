@@ -48,6 +48,7 @@ from guardkitfactory.harness.backend_config import (
     shell_tmpdir,
 )
 
+
 def _git_checkout(path: Path) -> Path:
     """A plain git checkout (no network, no commit), like a build's worktree."""
     path.mkdir(parents=True)
@@ -436,7 +437,7 @@ def test_concurrent_backends_for_one_new_worktree_share_one_folder(
         worktree = _git_checkout(tmp_path / f"wt{round_number}")
         start = threading.Barrier(8)
 
-        def build() -> str:
+        def build(start: threading.Barrier = start, worktree: Path = worktree) -> str:
             start.wait()
             return build_autobuild_backend(worktree).artifacts_root
 

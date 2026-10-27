@@ -42,7 +42,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 #: Where the image installs the programs. Deliberately not on any ``PATH``:
 #: the agents' shell has ``PATH=/usr/bin:/bin``, where ``sg`` is ``newgrp``,
@@ -394,9 +394,11 @@ def _execute(
     err = bytearray()
     capped = threading.Event()
 
+    stdout, stderr = process.stdout, process.stderr
+
     def pump_stdout() -> None:
-        assert process.stdout is not None
-        for chunk in iter(lambda: process.stdout.read(65536), b""):
+        assert stdout is not None
+        for chunk in iter(lambda: stdout.read(65536), b""):
             room = max_bytes - len(out)
             if room <= 0:
                 capped.set()
@@ -409,8 +411,8 @@ def _execute(
                 break
 
     def pump_stderr() -> None:
-        assert process.stderr is not None
-        for chunk in iter(lambda: process.stderr.read(8192), b""):
+        assert stderr is not None
+        for chunk in iter(lambda: stderr.read(8192), b""):
             room = MAX_STDERR_BYTES - len(err)
             if room > 0:
                 err.extend(chunk[:room])
@@ -586,8 +588,8 @@ def worktree_source(
     for setting in GIT_FIXED_SETTINGS:
         base += ["-c", setting]
     base += ["-C", str(root)]
-    answers = []
-    switch_offs: list[str] | None = None
+    answers: list[Any] = []
+    switch_offs: list[str] | str | None = None
     for args in (("config", "--list", "--name-only", "-z", "--show-scope"),
                  ("rev-parse", "--verify", "--quiet", "HEAD"),
                  ("status", "--ignore-submodules=dirty", "--porcelain=v1", "-z",
@@ -604,7 +606,7 @@ def worktree_source(
                 if isinstance(switch_offs, str):
                     return unknown(switch_offs)
             argv = [*base[:-2]]
-            for setting in switch_offs:
+            for setting in cast(list[str], switch_offs):
                 argv += ["-c", setting]
             argv += [*base[-2:], *args]
         try:
@@ -867,7 +869,9 @@ _IDENTITY_FIELDS = ("kind", "root", "commit", "head", "fingerprint", "fingerprin
 
 
 def _minimal_metadata(answer: dict[str, Any]) -> None:
-    source = answer.get("source") if isinstance(answer.get("source"), dict) else {}
+    source: dict[str, Any] = (
+        answer["source"] if isinstance(answer.get("source"), dict) else {}
+    )
     answer["source"] = {
         key: (_echo(value, 60) if isinstance(value, str) else value)
         for key, value in source.items()

@@ -27,13 +27,13 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
-
 from guardkit.orchestrator.harness import (
     AssistantMessageEvent,
     ResultMessageEvent,
 )
+from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import AIMessage
+
 from guardkitfactory import LangGraphHarness
 
 

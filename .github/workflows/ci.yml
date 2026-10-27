@@ -29,6 +29,17 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
+      # This package imports GuardKit at run time (the harness subclasses its
+      # HarnessAdapter; the shells use its project-command environment) but
+      # does not declare it, because GuardKit depends on this package. As
+      # GuardKit's own workflow installs this repository beside it, this job
+      # installs GuardKit's default branch (a public repository) into the
+      # same environment. Without it no test module can be imported.
+      - name: Install GuardKit (sibling repository)
+        run: |
+          git clone --depth 1 https://github.com/guardkit/guardkit.git "$RUNNER_TEMP/guardkit"
+          uv pip install -e "$RUNNER_TEMP/guardkit"
+
       - name: pytest
         run: uv run pytest tests/ -v
 

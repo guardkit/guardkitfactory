@@ -2,12 +2,13 @@
 
 import asyncio
 import socket
-import pytest
 
+import pytest
+from guardkit.orchestrator.harness import AssistantMessageEvent
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
 from langchain_core.messages import AIMessage
+
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness
-from guardkit.orchestrator.harness import AssistantMessageEvent
 
 
 @pytest.fixture(autouse=True)
@@ -141,13 +142,14 @@ def test_normal_specialist_selector_graph_injection_and_coach_advisory(
     tmp_path, monkeypatch, scenario, completion
 ):
     import json
+
     from guardkit.orchestrator.agent_invoker import AgentInvoker
-    from guardkit.orchestrator.specialist_invocations import (
-        invoke_code_reviewer,
-        SpecialistInvocationResult,
-    )
-    from guardkit.orchestrator.quality_gates.coach_validator import CoachValidator
     from guardkit.orchestrator.paths import TaskArtifactPaths
+    from guardkit.orchestrator.quality_gates.coach_validator import CoachValidator
+    from guardkit.orchestrator.specialist_invocations import (
+        SpecialistInvocationResult,
+        invoke_code_reviewer,
+    )
 
     prose = {
         "positive": "Verdict: approve. AC-001 met.",

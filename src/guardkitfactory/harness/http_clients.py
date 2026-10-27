@@ -10,15 +10,13 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Callable, Mapping
 from contextlib import AsyncExitStack, aclosing
 from contextvars import ContextVar
 from functools import wraps
-from typing import Any, ParamSpec, TypeVar
+from typing import Any, cast
 
 _owner: ContextVar[AsyncExitStack | None] = ContextVar("factory_http_owner", default=None)
-_P = ParamSpec("_P")
-_T = TypeVar("_T")
 
 FEATURE_ROUTING_ID_ENV = "GUARDKIT_FEATURE_ROUTING_ID"
 FEATURE_ROUTING_HEADER = "x-feature-id"
@@ -61,9 +59,9 @@ async def _close_owned_clients(stack: AsyncExitStack) -> None:
         raise asyncio.CancelledError
 
 
-def with_invocation_clients(
-    invoke: Callable[_P, AsyncIterator[_T]],
-) -> Callable[_P, AsyncIterator[_T]]:
+def with_invocation_clients[**P, T](
+    invoke: Callable[P, AsyncIterator[T]],
+) -> Callable[P, AsyncIterator[T]]:
     """Settle graph work and its clients before delivering buffered events.
 
     These harness generators already await the complete graph/model result
@@ -74,11 +72,11 @@ def with_invocation_clients(
     invocations on other loops or worker threads.
     """
     @wraps(invoke)
-    async def wrapped(*args: _P.args, **kwargs: _P.kwargs) -> AsyncIterator[_T]:
+    async def wrapped(*args: P.args, **kwargs: P.kwargs) -> AsyncIterator[T]:
         stack = AsyncExitStack()
         token = _owner.set(stack)
         try:
-            async with aclosing(invoke(*args, **kwargs)) as stream:
+            async with aclosing(cast(AsyncGenerator[T], invoke(*args, **kwargs))) as stream:
                 events = [event async for event in stream]
         finally:
             _owner.reset(token)
@@ -108,12 +106,13 @@ def create_chat_openai(*, replay_reasoning: bool = False, **kwargs: Any) -> Any:
     if resolved_headers or "default_headers" in kwargs:
         kwargs["default_headers"] = resolved_headers or None
 
-    if replay_reasoning:
-        from guardkitfactory.harness.reasoning_replay import (
-            ReasoningReplayChatOpenAI as ChatOpenAI,
-        )
-    else:
-        from langchain_openai import ChatOpenAI
+    from langchain_openai import ChatOpenAI as PlainChatOpenAI
+
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
+
+    ChatOpenAI: type[PlainChatOpenAI] = (
+        ReasoningReplayChatOpenAI if replay_reasoning else PlainChatOpenAI
+    )
 
     stack = _owner.get()
     if stack is None:
@@ -134,10 +133,12 @@ def create_chat_openai(*, replay_reasoning: bool = False, **kwargs: Any) -> Any:
         http_async_client=None,
         openai_proxy=proxy,
     ):
-        resolved_options = ()
+        resolved_options: tuple[Any, ...] = ()
     else:
         resolved_options = provider._resolve_socket_options(socket_options)
 
+    async_client: Any
+    sync_client: Any
     if proxy:
         async_client = provider._build_proxied_async_httpx_client(
             proxy, global_ssl_context, resolved_options

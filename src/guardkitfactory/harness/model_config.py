@@ -125,7 +125,7 @@ import json
 import logging
 import os
 import re
-from typing import Any, Final, Literal
+from typing import Any, Final, Literal, NoReturn, cast
 from urllib.parse import urlsplit
 
 from deepagents._models import resolve_model
@@ -488,7 +488,7 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
     and 8,192-token output, and ``"enable_thinking": false`` switches the
     model's thinking off.
     """
-    def reject(message: str) -> None:
+    def reject(message: str) -> NoReturn:
         raise ValueError(f"GUARDKIT_PLAYER_MODEL_LIMITS: {message}")
 
     if (
@@ -549,7 +549,7 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
         reject("resolved model must preserve alias, endpoint and ChatCompletions")
     profile = dict(resolved.profile or {})
     profile["max_input_tokens"] = context_tokens
-    resolved.profile = profile
+    resolved.profile = cast(Any, profile)
     resolved.max_tokens = output_tokens
     if disable_thinking:
         extra_body = dict(resolved.extra_body or {})

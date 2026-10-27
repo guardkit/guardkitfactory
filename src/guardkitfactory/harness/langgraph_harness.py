@@ -47,7 +47,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import suppress
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from deepagents import create_deep_agent
 from guardkit.orchestrator.harness import (
@@ -194,27 +194,39 @@ class _AllowedToolsMiddleware(AgentMiddleware):
         super().__init__()
         self.allowed = frozenset(allowed)
         self.finalization = finalization
-        self._executed_tool_steps = set()
+        self._executed_tool_steps: set[int] = set()
 
     def _filter(self, request: Any) -> Any:
         tools = [tool for tool in request.tools if _tool_name(tool) in self.allowed]
         if self.finalization is not None:
-            from langgraph.config import get_config
             from langchain_core.messages import SystemMessage
+            from langgraph.config import get_config
             rounds = len(self._executed_tool_steps)
             try:
                 step = get_config().get("metadata", {}).get("langgraph_step", 0)
             except RuntimeError:
                 step = 0
             self.finalization["actual_tool_rounds"] = rounds
-            forced = rounds >= self.finalization["tool_round_budget"] or step >= self.finalization["step_cap"] - 6
+            out_of_rounds = rounds >= self.finalization["tool_round_budget"]
+            forced = out_of_rounds or step >= self.finalization["step_cap"] - 6
             if forced:
-                self.finalization.update(forced_finalization=True, completion="incomplete",
-                                         ending_reason="tool budget" if rounds >= self.finalization["tool_round_budget"] else "graph headroom")
-                prompt = (request.system_message.content if request.system_message else "")
-                return request.override(tools=[], tool_choice="none", system_message=SystemMessage(content=str(prompt) +
-                    "\nReturn the final review now. No more tools. For each criterion state met / not met / cannot tell. "
-                    "Identify unreviewed scope explicitly. Verdict: incomplete is permitted. Do not claim full coverage."))
+                self.finalization.update(
+                    forced_finalization=True,
+                    completion="incomplete",
+                    ending_reason="tool budget" if out_of_rounds else "graph headroom",
+                )
+                prompt = request.system_message.content if request.system_message else ""
+                return request.override(
+                    tools=[],
+                    tool_choice="none",
+                    system_message=SystemMessage(
+                        content=str(prompt)
+                        + "\nReturn the final review now. No more tools. For each criterion "
+                        "state met / not met / cannot tell. Identify unreviewed scope "
+                        "explicitly. Verdict: incomplete is permitted. Do not claim full "
+                        "coverage."
+                    ),
+                )
         return request.override(tools=tools)
 
     def _finish(self, response):
@@ -224,8 +236,20 @@ class _AllowedToolsMiddleware(AgentMiddleware):
             if forced and any(isinstance(m, AIMessage) and m.tool_calls for m in messages):
                 from langchain.agents.middleware.types import ModelResponse
                 self.finalization["ending_reason"] = "tool request after finalization"
-                return ModelResponse(result=[AIMessage(content="Verdict: incomplete. The review stopped at its tool budget. Remaining criteria: cannot tell; source coverage is incomplete.")])
-            self.finalization["completion"] = "incomplete" if forced else ("in_progress" if any(isinstance(m, AIMessage) and m.tool_calls for m in messages) else "complete")
+                return ModelResponse(
+                    result=[
+                        AIMessage(
+                            content=(
+                                "Verdict: incomplete. The review stopped at its tool budget. "
+                                "Remaining criteria: cannot tell; source coverage is incomplete."
+                            )
+                        )
+                    ]
+                )
+            asks_for_tools = any(isinstance(m, AIMessage) and m.tool_calls for m in messages)
+            self.finalization["completion"] = (
+                "incomplete" if forced else ("in_progress" if asks_for_tools else "complete")
+            )
             self.finalization["coverage"] = "incomplete" if forced else "unverified"
         return response
 
@@ -806,7 +830,7 @@ class LangGraphHarness(HarnessAdapter):
 
         default = getattr(self.backend, "default", None)
         root = getattr(default if default is not None else self.backend, "cwd", None)
-        return Path(root).resolve()
+        return Path(cast(Any, root)).resolve()
 
     def _create_agent(
         self,
@@ -833,8 +857,13 @@ class LangGraphHarness(HarnessAdapter):
                     budget = 14
                 budget = min(max(budget, 1), 14)
                 self.specialist_finalization.clear()
-                self.specialist_finalization.update(tool_round_budget=budget, step_cap=self.recursion_limit,
-                                                   actual_tool_rounds=0, forced_finalization=False, completion="absent")
+                self.specialist_finalization.update(
+                    tool_round_budget=budget,
+                    step_cap=self.recursion_limit,
+                    actual_tool_rounds=0,
+                    forced_finalization=False,
+                    completion="absent",
+                )
         if role != "player":
             # Only the Coach's tool-using pass gets the read-only code search
             # tools (12 October 2026); every other role stays on the built-ins,
@@ -861,7 +890,11 @@ class LangGraphHarness(HarnessAdapter):
                 return create_deep_agent(
                     model=resolved_model,
                     tools=extra_tools,
-                    middleware=[_AllowedToolsMiddleware(allowed=allowed_tools, finalization=self.specialist_finalization)],
+                    middleware=[
+                        _AllowedToolsMiddleware(
+                            allowed=allowed_tools, finalization=self.specialist_finalization
+                        )
+                    ],
                     backend=self.backend,
                     permissions=self.permissions,
                     system_prompt=_read_only_system_prompt_for_role(role, offered),
@@ -1253,7 +1286,10 @@ class LangGraphHarness(HarnessAdapter):
                                 if isinstance(m, AIMessage) and not m.tool_calls]
                     text = extract_last_ai_message({"messages": terminal[-1:]}) or ""
                     if not text.strip():
-                        self.specialist_finalization["completion"] = "incomplete" if self.specialist_finalization.get("forced_finalization") else "absent"
+                        forced = self.specialist_finalization.get("forced_finalization")
+                        self.specialist_finalization["completion"] = (
+                            "incomplete" if forced else "absent"
+                        )
                 else:
                     text = extract_last_ai_message(result) or ""
                 stop_reason = "end_turn"
@@ -1428,7 +1464,7 @@ class LangGraphHarness(HarnessAdapter):
             # Injected local ChatOpenAI instances need the same transport
             # normalisation as Player/Coach graph models. Resolve without a
             # role here so a caller-provided synthesis budget stays intact.
-            model = resolve_autobuild_model(self.model)
+            model: Any = resolve_autobuild_model(self.model)
             if extra_body is not None:
                 try:
                     model = model.bind(extra_body=extra_body)
