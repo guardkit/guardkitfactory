@@ -29,6 +29,7 @@ is the library's own contract.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import time
@@ -1673,11 +1674,22 @@ class TestLaunchEnvironment:
 
         toolchain = scratch.resolve() / "toolchain"
         assert go_env.exit_code == 0, go_env.output
-        assert go_env.output.split() == [
+        # Go's telemetry child (a copy of go it starts with GO_TELEMETRY_CHILD)
+        # can outlive ``go env`` by a few milliseconds. On a slower machine
+        # (GitHub's runner, run 40593200942) the shell's clean-up finds it,
+        # stops it and says so after go's own output. Go's values are checked
+        # exactly; anything after them may only be that note.
+        values, _, note = go_env.output.partition("\n\nNote: ")
+        assert values.split() == [
             str(toolchain / "GOCACHE"),
             str(toolchain / "GOPATH"),
             "local",
         ]
+        assert not note or re.match(
+            r"this command finished but left \d+ process(es)? running; "
+            r"(it was|they were) stopped\.",
+            note,
+        ), go_env.output
         assert npm_cache.exit_code == 0, npm_cache.output
         assert (
             f"({toolchain / 'npm_config_cache' / '_cacache'})" in npm_cache.output
