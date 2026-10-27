@@ -140,12 +140,6 @@ def test_a_declared_proxy_with_credentials_refuses_the_shell(
     assert _parse_env(backend.execute("env").output).get(name) == "http://p:3128"
 
 
-def _plant(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(text, encoding="utf-8")
-    path.chmod(0o755)
-
-
 # ---------------------------------------------------------------------------
 # Section 5: every process launch in the package is accounted for
 # ---------------------------------------------------------------------------

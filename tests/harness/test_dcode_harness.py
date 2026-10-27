@@ -370,9 +370,6 @@ def test_a_new_file_in_a_protected_folder_is_written_in_a_full_turn(
     assert other.read_text() == "# DDR-112\n"
 
 
-_REFUSAL = "Read these required documents in full before running commands: "
-
-
 def tool_results(exchange: Exchange, call_id: str) -> list[str]:
     """The tool results the model was sent for one call id, in order."""
 
