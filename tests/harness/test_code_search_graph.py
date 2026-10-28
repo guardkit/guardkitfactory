@@ -15,7 +15,6 @@ import os
 import shutil
 import subprocess
 import sys
-import time
 from pathlib import Path
 from typing import Any
 
@@ -23,13 +22,19 @@ import pytest
 from guardkit.orchestrator.harness import ToolResultEvent
 
 from guardkitfactory import code_search
-from guardkitfactory.harness.code_search_tools import TOOL_NAMES, code_search_tools
+from guardkitfactory.harness.code_search_tools import (
+    SNAPSHOT_ONLY_TOOL_NAMES,
+    TOOL_NAMES,
+    code_search_tools,
+)
 from guardkitfactory.harness.langgraph_harness import LangGraphHarness
 
 from .test_dcode_harness import Exchange, config, isolate, selected_skill_calls  # noqa: F401
 from .test_player_skills_graph import _backend, _close_clients, _collect, _model, _scaffold
 
 _READY, _WHY = code_search.available()
+#: What a worktree binding (the Player's and the Coach's) offers.
+WORKTREE_TOOL_NAMES = tuple(n for n in TOOL_NAMES if n not in SNAPSHOT_ONLY_TOOL_NAMES)
 pytestmark = [
     pytest.mark.skipif(not _READY, reason=f"pinned programs not installed: {_WHY}"),
     pytest.mark.skipif(
@@ -81,9 +86,10 @@ def test_player_graph_offers_and_runs_the_tools_on_its_worktree(tmp_path: Path) 
     finally:
         _close_clients(sync, async_)
     inventory = graph.guardkit_dcode_evidence
-    assert set(TOOL_NAMES) <= set(inventory["tools"])
-    assert inventory["code_search"] == {"tools": list(TOOL_NAMES), "unavailable": ""}
-    assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
+    assert set(WORKTREE_TOOL_NAMES) <= set(inventory["tools"])
+    assert inventory["code_search"] == {"tools": list(WORKTREE_TOOL_NAMES), "unavailable": ""}
+    assert set(WORKTREE_TOOL_NAMES) <= set(exchange.requests[0]["offered"])
+    assert not set(SNAPSHOT_ONLY_TOOL_NAMES) & set(exchange.requests[0]["offered"])
     search, outline, pattern = _answers(events)[:3]
     # Run before any skill was read: the read gate lets read-only tools through.
     assert search["status"] == "ok"
@@ -114,7 +120,7 @@ def test_coach_gather_graph_has_the_tools_and_synthesis_has_none(tmp_path: Path)
         events = asyncio.run(
             _gather(harness, repo)
         )
-        assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
+        assert set(WORKTREE_TOOL_NAMES) <= set(exchange.requests[0]["offered"])
         search, outline, pattern = _answers(events)[:3]
         assert search["status"] == "ok"
         assert search["results"][0]["path"] == "candidate.py"
@@ -128,12 +134,14 @@ def test_coach_gather_graph_has_the_tools_and_synthesis_has_none(tmp_path: Path)
         _close_clients(sync, async_)
 
 
-def test_read_only_coach_gets_code_references_and_its_server_stops_with_the_turn(
+def test_the_read_only_coach_is_not_given_code_references(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The build reviewer's read-only request (Read, Search, Grep) offers
-    code_references through the Coach's own allowlist, the call reaches the
-    project's declared server, and the server stops when the turn ends."""
+    """The build reviewer's read-only request (Read, Search, Grep) keeps the
+    shared allowlist (code_search_tools.TOOL_NAMES), but its worktree binding
+    has no code_references: a builder could commit a declaration whose server
+    runs its own code. It is not offered, and nothing is started, even with a
+    server declared and installed."""
     servers = tmp_path / "servers"
     servers.mkdir()
     shutil.copy(Path(__file__).parent.parent / "fake_lsp_server.py", servers / "fake-lsp")
@@ -141,7 +149,6 @@ def test_read_only_coach_gets_code_references_and_its_server_stops_with_the_turn
     monkeypatch.setattr(code_search, "LANGUAGE_SERVER_DIRS", ())
     monkeypatch.setenv(code_search.LANGUAGE_SERVER_DIR_ENV, str(servers))
     repo = _scaffold(tmp_path)
-    (repo / "uses_add.py").write_text("from valid import add\n\nTOTAL = add(1, 2)\n")
     pid_file = tmp_path / "server.pid"
     (repo / ".guardkit").mkdir()
     (repo / ".guardkit" / "config.yaml").write_text(json.dumps({"toolchain": {
@@ -149,8 +156,8 @@ def test_read_only_coach_gets_code_references_and_its_server_stops_with_the_turn
                               "env": {"FAKE_LSP_PID": str(pid_file)}}]}}))
     _git_init(repo)
     exchange = Exchange(
-        [("code_references", {"name": "add", "path": "valid.py", "line": 1})],
-        final_text="findings: add is used in uses_add.py",
+        [("code_search", {"query": "add", "mode": "literal"})],
+        final_text="findings: add is defined in valid.py",
     )
     model, sync, async_ = _model(exchange)
     harness = LangGraphHarness(model, backend=_backend(repo))
@@ -158,21 +165,12 @@ def test_read_only_coach_gets_code_references_and_its_server_stops_with_the_turn
         events = asyncio.run(_review(harness, repo))
     finally:
         _close_clients(sync, async_)
-    assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
-    (answer,) = _answers(events)[:1]
-    assert answer["status"] == "ok", answer
-    resolved = {(r["path"], r["first_line"]) for r in answer["results"] if not r.get("text_only")}
-    assert {("valid.py", 1), ("uses_add.py", 1), ("uses_add.py", 3)} <= resolved
-    assert answer["coverage"]["server"]["name"] == "fake-lsp"
-    pid = int(pid_file.read_text())
-    stop = time.monotonic() + 10
-    while Path(f"/proc/{pid}").exists() and time.monotonic() < stop:
-        state = (Path(f"/proc/{pid}") / "stat").read_text().rsplit(")", 1)[1].split()[0]
-        if state in "ZX":
-            break
-        time.sleep(0.05)
-    else:
-        assert not Path(f"/proc/{pid}").exists(), "the server outlived the turn"
+    for request in exchange.requests:
+        assert set(WORKTREE_TOOL_NAMES) <= set(request["offered"])
+        assert "code_references" not in request["offered"]
+    (search,) = _answers(events)[:1]
+    assert search["status"] == "ok"
+    assert not pid_file.exists(), "a language server was started for a worktree"
 
 
 async def _review(harness: LangGraphHarness, repo: Path) -> list[Any]:
@@ -198,7 +196,7 @@ def test_other_roles_get_no_code_search_tools(tmp_path: Path) -> None:
     assert create.call_args.kwargs["tools"] == []
     with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
         harness._create_agent(role="coach", cwd=repo, resolved_model=object())
-    assert [t.name for t in create.call_args.kwargs["tools"]] == list(TOOL_NAMES)
+    assert [t.name for t in create.call_args.kwargs["tools"]] == list(WORKTREE_TOOL_NAMES)
 
 
 def test_tools_are_bound_to_one_worktree(tmp_path: Path) -> None:

@@ -1926,11 +1926,13 @@ _REFUSED_PATH = Path("/tmp/count-check/build.mjs")
 
 
 def _available_code_search_tools() -> set[str]:
+    """The code tools a worktree binding offers (code_references is bound
+    only over a commit snapshot, so the Coach never gets it)."""
     from guardkitfactory import code_search
-    from guardkitfactory.harness.code_search_tools import TOOL_NAMES
+    from guardkitfactory.harness.code_search_tools import SNAPSHOT_ONLY_TOOL_NAMES, TOOL_NAMES
 
     ready, _why = code_search.available()
-    return set(TOOL_NAMES) if ready else set()
+    return set(TOOL_NAMES) - set(SNAPSHOT_ONLY_TOOL_NAMES) if ready else set()
 
 
 def _review_worktree(tmp_path: Path) -> Path:

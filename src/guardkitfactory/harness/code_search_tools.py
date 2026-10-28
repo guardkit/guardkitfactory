@@ -1,7 +1,8 @@
 """Read-only code search tools for the coding Player and the Coach's evidence pass.
 
-Four tools, each bound when the graph is built to one worktree root, so two
-builds' worktrees never see each other's files. They run the pinned programs
+Three tools (four over a commit snapshot), each bound when the graph is built
+to one root, so two builds' worktrees never see each other's files. They run
+the pinned programs
 through :mod:`guardkitfactory.code_search`; a ``path`` that leads outside the
 root is refused. They only read, like ``grep`` and ``glob``. When the
 pinned programs are not installed no tool
@@ -9,25 +10,21 @@ is offered and the reason is returned for the launch evidence; the built-in
 ``read_file``, ``grep`` and ``glob`` stay as the text fallback either way.
 
 ``code_references`` (28 October 2026) asks the language server the project
-declares. Its servers are kept for the binding and stopped by
-:func:`close_code_search_tools`, which the binding's owner calls when the turn
-ends (if it never does, they stop when the binding is collected or at exit).
-
-Which servers run, and with what settings, is pinned when the tools are bound:
-read with ``git show`` from the worktree's base commit, the commit the build
-started from, found by GuardKit's own ``resolve_feature_base`` (the record
-GuardKit makes when it creates the worktree, else ``git merge-base HEAD main``).
-So an edit to ``.guardkit/config.yaml`` in the worktree, committed or not,
-cannot change the program the tools start. GuardKit's per-task toolchain pin
-cannot carry the declaration: the harness is not given the task, and that pin's
-schema refuses unknown keys. Without a base commit (not a git worktree) the
-file is read once, when the tools are bound.
+declares. It is offered only over a commit snapshot (``snapshot=``: the
+planner's plain copy of the start commit, whose declaration is the project's
+own committed one), never over a worktree, where a builder could commit a
+declaration that runs its own code outside the build's isolation (Codex
+review, 28 October 2026). Worktree use waits until servers run inside that
+isolation, with the declaration taken from state the controller owns. Its
+servers are kept for the binding and stopped by
+:func:`close_code_search_tools`, which the binding's owner calls when it ends
+(if it never does, they stop when the binding is collected or at exit).
 """
 
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any, Literal
 
@@ -37,6 +34,8 @@ from pydantic import BaseModel, Field, PrivateAttr
 from guardkitfactory import code_search
 
 TOOL_NAMES = ("code_search", "code_outline", "code_pattern", "code_references")
+#: Offered only over a commit snapshot; a worktree binding has the others.
+SNAPSHOT_ONLY_TOOL_NAMES = ("code_references",)
 
 _STATUS_HELP = (
     "The answer is JSON. 'status' is ok, no_matches (the whole scope was searched), partial "
@@ -106,19 +105,6 @@ def close_code_search_tools(tools: Iterable[Any]) -> None:
             servers.close()
 
 
-def _base_commit(root: Path) -> str | None:
-    """The commit the worktree was made from, by GuardKit's own rule
-    (``guardkit.orchestrator.seam_checks.resolve_feature_base``); ``None``
-    when there is none to find."""
-    try:
-        from guardkit.orchestrator.seam_checks import resolve_feature_base
-
-        found = resolve_feature_base(root)
-    except Exception:  # noqa: BLE001 - no base commit: the file is read once instead
-        return None
-    return found if isinstance(found, str) and found else None
-
-
 def _render(answer: dict[str, Any]) -> str:
     return json.dumps(answer, ensure_ascii=False)
 
@@ -132,89 +118,58 @@ def _bad_arguments(error: Exception) -> str:
 
 def code_search_tools(
     root: Path, *, max_chars: int = code_search.DEFAULT_MAX_CHARS,
-    install_state: str | None = None,
+    snapshot: Mapping[str, Any] | None = None,
 ) -> tuple[list[BaseTool], str]:
-    """The four tools bound to ``root``, or ``([], reason)`` when the pinned
-    programs are not installed exactly. ``install_state`` says whether the
-    project's install step ran on ``root`` (``installed``, ``not_installed``
-    or ``unknown``, the default); ``code_references`` reports it."""
+    """The tools bound to ``root``, or ``([], reason)`` when the pinned
+    programs are not installed exactly.
+
+    A worktree (the default) gets ``code_search``, ``code_outline`` and
+    ``code_pattern``. ``snapshot`` says ``root`` is a plain copy of a commit
+    and describes it (``{"kind": "commit", ...}``, as the Forge helper's
+    ``source``); every answer then carries it, ignore files are not applied
+    (the copy holds exactly the tracked files), and ``code_references`` is
+    offered too, reporting ``install_state: not_installed``."""
 
     ok, reason = code_search.available()
     if not ok:
         return [], reason
     bound = Path(root).resolve(strict=True)
-    servers = code_search.ReferenceServers(
-        pinned=code_search.pin_declaration(bound, _base_commit(bound)))
+    common: dict[str, Any] = {"max_chars": max_chars}
+    if snapshot is not None:
+        common.update({"source": dict(snapshot), "respect_ignore": False})
 
     def search(query: str, mode: str = "ranked", path: str = ".",
                max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
         return _render(code_search.run("search", bound, query=query, mode=mode, path=path,
-                                       max_results=max_results, max_chars=max_chars))
+                                       max_results=max_results, **common))
 
     async def asearch(query: str, mode: str = "ranked", path: str = ".",
                       max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
         return _render(await code_search.run_async(
             "search", bound, query=query, mode=mode, path=path, max_results=max_results,
-            max_chars=max_chars))
+            **common))
 
     def outline(path: str = ".", items: str = "all",
                 max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
         return _render(code_search.run("outline", bound, path=path, items=items,
-                                       max_results=max_results, max_chars=max_chars))
+                                       max_results=max_results, **common))
 
     async def aoutline(path: str = ".", items: str = "all",
                        max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
         return _render(await code_search.run_async(
             "outline", bound, path=path, items=items, max_results=max_results,
-            max_chars=max_chars))
+            **common))
 
     def pattern(pattern: str, language: str, path: str = ".",
                 max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
         return _render(code_search.run("pattern", bound, pattern=pattern, language=language,
-                                       path=path, max_results=max_results,
-                                       max_chars=max_chars))
+                                       path=path, max_results=max_results, **common))
 
     async def apattern(pattern: str, language: str, path: str = ".",
                        max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
         return _render(await code_search.run_async(
             "pattern", bound, pattern=pattern, language=language, path=path,
-            max_results=max_results, max_chars=max_chars))
-
-    def references(name: str, path: str, line: int | None = None,
-                   max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
-        return _render(code_search.run(
-            "references", bound, name=name, path=path, line=line, max_results=max_results,
-            max_chars=max_chars, timeout_s=code_search.REFERENCES_TIMEOUT_S,
-            install_state=install_state, servers=servers))
-
-    async def areferences(name: str, path: str, line: int | None = None,
-                          max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
-        return _render(await code_search.run_async(
-            "references", bound, name=name, path=path, line=line, max_results=max_results,
-            max_chars=max_chars, timeout_s=code_search.REFERENCES_TIMEOUT_S,
-            install_state=install_state, servers=servers))
-
-    references_tool = _ReferencesTool.from_function(
-        func=references,
-        coroutine=areferences,
-        name="code_references",
-        description=(
-            "Find every place that refers to a function, type, method, field or setting, "
-            "as the project's language server resolves it (the compiler's own view, tests "
-            "included), plus the whole-word text matches it did not resolve. Use it before "
-            "changing a signature, renaming or moving code: who uses this, and what stops "
-            "compiling. Give the name and a file that defines or uses it (and the line if you "
-            "know it). Entries marked text_only were not checked by the server (strings, docs, "
-            "tests that read source, other languages): check them by hand. 'unsupported' "
-            "means the project declares no language server for that file: use code_search in "
-            "literal mode. 'tool_error' means the server did not answer: it is not evidence "
-            "of no uses. coverage.install_state says whether the project's dependencies were "
-            "installed. " + _STATUS_HELP
-        ),
-        args_schema=_ReferencesArgs,
-        handle_validation_error=_bad_arguments,
-    )
-    references_tool._servers = servers
+            max_results=max_results, **common))
 
     outline_languages = ", ".join(sorted(set(code_search.OUTLINE_EXTENSIONS.values())))
     tools: list[BaseTool] = [
@@ -257,6 +212,54 @@ def code_search_tools(
             args_schema=_PatternArgs,
             handle_validation_error=_bad_arguments,
         ),
-        references_tool,
     ]
+    if snapshot is not None:
+        tools.append(_references_tool(bound, common))
     return tools, ""
+
+
+def _references_tool(bound: Path, common: dict[str, Any]) -> BaseTool:
+    """``code_references`` over a commit snapshot, with its own servers.
+
+    Not offered over a worktree: there a builder could commit a declaration
+    whose server or environment runs its own code outside the build's
+    isolation. Worktree use waits until servers run inside that isolation,
+    with the declaration taken from state the controller owns."""
+    servers = code_search.ReferenceServers()
+
+    def references(name: str, path: str, line: int | None = None,
+                   max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
+        return _render(code_search.run(
+            "references", bound, name=name, path=path, line=line, max_results=max_results,
+            timeout_s=code_search.REFERENCES_TIMEOUT_S, servers=servers, **common))
+
+    async def areferences(name: str, path: str, line: int | None = None,
+                          max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
+        return _render(await code_search.run_async(
+            "references", bound, name=name, path=path, line=line, max_results=max_results,
+            timeout_s=code_search.REFERENCES_TIMEOUT_S, servers=servers, **common))
+
+    references_tool = _ReferencesTool.from_function(
+        func=references,
+        coroutine=areferences,
+        name="code_references",
+        description=(
+            "Find every place that refers to a function, type, method, field or setting, "
+            "as the project's language server resolves it (the compiler's own view, tests "
+            "included), plus the whole-word text matches it did not resolve. Use it before "
+            "changing a signature, renaming or moving code: who uses this, and what stops "
+            "compiling. Give the name and a file that defines or uses it (and the line if you "
+            "know it). Entries marked text_only were not checked by the server (strings, docs, "
+            "tests that read source, other languages): check them by hand. 'unsupported' "
+            "means the project declares no language server for that file: use code_search in "
+            "literal mode. 'tool_error' means the server did not answer: it is not evidence "
+            "of no uses. This is a plain copy of the start commit: the project's dependencies "
+            "are not installed (coverage.install_state), so confirm uses that pass through "
+            "them with code_search. " + _STATUS_HELP
+        ),
+        args_schema=_ReferencesArgs,
+        handle_validation_error=_bad_arguments,
+    )
+    references_tool._servers = servers
+    return references_tool
+

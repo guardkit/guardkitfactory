@@ -66,7 +66,6 @@ from langchain_core.messages import AIMessage, ToolMessage
 from guardkitfactory.harness.code_search_tools import (
     TOOL_NAMES as _CODE_SEARCH_TOOL_NAMES,
 )
-from guardkitfactory.harness.code_search_tools import close_code_search_tools
 from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
@@ -126,8 +125,9 @@ _READ_ONLY_TOOL_TABLE: dict[str, tuple[str, ...]] = {
 # Requests that also give the Coach its read-only code search tools.
 _CODE_SEARCH_REQUESTS = frozenset({"Search", "Grep"})
 # The tool names come from ``code_search_tools.TOOL_NAMES`` (imported above),
-# so a tool added there (``code_references``, 28 October 2026) is allowed here
-# too, with no second list to keep in step.
+# with no second list to keep in step. A name is only offered when the tools
+# bound to the worktree include it: ``code_references`` is bound only over a
+# commit snapshot, so the Coach is never given it (28 October 2026).
 
 
 def read_only_allowlist(tools: Any, role: str) -> frozenset[str] | None:
@@ -809,7 +809,7 @@ class LangGraphHarness(HarnessAdapter):
                     if name not in _CODE_SEARCH_TOOL_NAMES
                     or name in {getattr(tool, "name", None) for tool in extra_tools}
                 )
-                agent = create_deep_agent(
+                return create_deep_agent(
                     model=resolved_model,
                     tools=extra_tools,
                     middleware=[_AllowedToolsMiddleware(allowed=allowed_tools)],
@@ -817,21 +817,14 @@ class LangGraphHarness(HarnessAdapter):
                     permissions=self.permissions,
                     system_prompt=_read_only_system_prompt_for_role(role, offered),
                 )
-            else:
-                agent = create_deep_agent(
-                    model=resolved_model,
-                    tools=extra_tools,
-                    middleware=[TodoListMiddleware()],
-                    backend=self.backend,
-                    permissions=self.permissions,
-                    system_prompt=_system_prompt_for_role(role),
-                )
-            # The turn's language servers (code_references) stop when invoke
-            # ends; an agent that takes no attributes keeps them until the
-            # tools are collected.
-            with suppress(AttributeError, TypeError):
-                cast(Any, agent).guardkit_code_search_tools = extra_tools
-            return agent
+            return create_deep_agent(
+                model=resolved_model,
+                tools=extra_tools,
+                middleware=[TodoListMiddleware()],
+                backend=self.backend,
+                permissions=self.permissions,
+                system_prompt=_system_prompt_for_role(role),
+            )
 
         if config is None:
             raise LangGraphHarnessError(
@@ -1271,12 +1264,6 @@ class LangGraphHarness(HarnessAdapter):
                 task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await task
-            # The turn is the code tools' binding: stop any language server
-            # code_references started for it (its own process group each).
-            bound_tools = getattr(agent, "guardkit_code_search_tools", None)
-            if isinstance(bound_tools, (list, tuple)) and bound_tools:
-                with suppress(Exception):
-                    await asyncio.to_thread(close_code_search_tools, list(bound_tools))
 
     def _synthesis_max_tokens(self) -> int:
         """Resolve the toolless-synthesis generation budget (env-overridable)."""

@@ -14,7 +14,7 @@ what the client sent.
 process group, pid in ``FAKE_LSP_CHILD``); ``stubborn`` (ignores SIGTERM and
 ``exit``); ``garbage`` (answers ``initialize`` with a broken header).
 ``FAKE_LSP_LOG`` gets one JSON line per message received; ``FAKE_LSP_PID``
-gets this server's pid.
+gets this server's pid; ``FAKE_LSP_ENV`` gets its whole environment.
 """
 
 from __future__ import annotations
@@ -146,6 +146,8 @@ def initialize(message: dict[str, Any]) -> None:
 def main() -> None:
     if os.environ.get("FAKE_LSP_PID"):
         Path(os.environ["FAKE_LSP_PID"]).write_text(str(os.getpid()))
+    if os.environ.get("FAKE_LSP_ENV"):
+        Path(os.environ["FAKE_LSP_ENV"]).write_text(json.dumps(dict(os.environ)))
     if MODE == "crash":
         sys.stderr.write("fake-lsp: cannot start\n")
         sys.exit(3)
