@@ -153,7 +153,10 @@ def code_search_tools(
             description=(
                 "Find code by its syntax shape (ast-grep), for example every call of a "
                 "function or every access of an attribute. Matches are syntax, not proof "
-                "of behaviour or of every caller. " + _STATUS_HELP
+                "of behaviour or of every caller. No matches is not evidence of no uses: "
+                "a short pattern can be read as a different kind of code (in Go, '$X.Name' "
+                "alone is a type, and 'f($$$A)' a conversion), so read the note and confirm "
+                "with code_search in literal mode. " + _STATUS_HELP
             ),
             args_schema=_PatternArgs,
             handle_validation_error=_bad_arguments,

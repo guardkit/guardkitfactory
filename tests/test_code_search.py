@@ -125,6 +125,66 @@ def test_pattern_matches_structure(repo: Path) -> None:
     assert answer["coverage"]["files_scanned"] >= 1
 
 
+# -- an empty pattern answer says when its words are there after all ---------
+# (28 October 2026: measured on the career copies, Go patterns such as
+# `$X.Message` and `health.Run($$$A)` matched nothing although the code holds
+# them, because ast-grep reads them as a type and a type conversion; "no
+# matches" then looked exactly like "no uses".)
+
+
+@pytest.fixture()
+def go_repo(tmp_path: Path) -> Path:
+    root = tmp_path / "gorepo"
+    (root / "health").mkdir(parents=True)
+    (root / "health" / "health.go").write_text(
+        "package health\n\n"
+        "type Result struct{ Message string }\n\n"
+        "func Run(a int, b int) Result { return Result{Message: \"ok\"} }\n"
+    )
+    (root / "health" / "health_test.go").write_text(
+        "package health\n\n"
+        "func check() string {\n"
+        "\tresult := Run(1, 2)\n"
+        "\treturn result.Message\n"
+        "}\n"
+    )
+    _git(root, "init", "-q")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "init")
+    return root
+
+
+def test_an_empty_pattern_answer_says_its_words_are_in_the_files(go_repo: Path) -> None:
+    answer = code_search.run("pattern", go_repo, pattern="$X.Message", language="go")
+    assert answer["status"] == "no_matches" and answer["results"] == []
+    found = answer["coverage"]["pattern_words_found"]
+    assert found["words"] == ["Message"] and found["lines"] >= 2 and found["files"] == 2
+    assert answer["coverage"]["pattern_read_as"] == "qualified_type"
+    assert "not evidence that nothing uses them" in answer["note"]
+    assert "health/health" in answer["note"]
+
+
+def test_a_variadic_call_pattern_misread_in_go_is_explained(go_repo: Path) -> None:
+    answer = code_search.run("pattern", go_repo, pattern="Run($$$A)", language="go")
+    if answer["status"] == "ok":  # a later ast-grep reads it as a call: nothing to explain
+        return
+    assert answer["status"] == "no_matches"
+    assert answer["coverage"]["pattern_words_found"]["words"] == ["Run"]
+    assert answer["coverage"].get("pattern_read_as")
+
+
+def test_a_pattern_whose_words_are_absent_stays_a_plain_no_match(go_repo: Path) -> None:
+    answer = code_search.run("pattern", go_repo, pattern="$X.Nothingness", language="go")
+    assert answer["status"] == "no_matches" and answer["note"] == ""
+    assert "pattern_words_found" not in answer["coverage"]
+
+
+def test_a_matching_pattern_is_unchanged(go_repo: Path) -> None:
+    answer = code_search.run("pattern", go_repo, pattern="Run($A, $B)", language="go")
+    assert answer["status"] == "ok" and len(answer["results"]) == 1
+    assert "pattern_words_found" not in answer["coverage"]
+
+
 # -- no matches is only said when the whole scope was searched ----------------
 
 

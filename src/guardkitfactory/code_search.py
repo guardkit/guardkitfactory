@@ -40,7 +40,7 @@ import tempfile
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -704,6 +704,9 @@ class _Facts:
     elapsed_ms: int = 0
     #: Results whose text is shown only in part (long lines or blocks).
     shown_in_part: int = 0
+    #: Said in place of an empty note when a pattern matched nothing although
+    #: its words are in the files (see :func:`_explain_empty_pattern`).
+    advice: str | None = None
 
 
 def _new_facts(respect_ignore: bool) -> _Facts:
@@ -1558,6 +1561,8 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
         facts.fatal = "ast-grep did not report what it scanned"
     elif counts.get("files_scanned") == 0:
         facts.unsupported = f"no {language} file was searched here"
+    if total == 0 and nothing_matched and counts.get("files_scanned"):
+        _explain_empty_pattern(call, pattern, language, facts)
     if counts.get("files_skipped"):
         # With empty files left out of the walk, what ast-grep still skips
         # (with no error line and an ordinary exit) was not searched.
@@ -1565,6 +1570,86 @@ def _pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
             f"ast-grep skipped {counts['files_skipped']} file(s) it could not search "
             "(unreadable, not UTF-8, too large, or empty)"
         )
+
+
+#: At most this many of a pattern's own words are looked for as text.
+MAX_PATTERN_WORDS = 4
+
+
+def _pattern_words(pattern: str) -> list[str]:
+    """The names a pattern spells out, without its metavariables ($X, $$$A)."""
+
+    words = re.findall(r"(?<![$\w])[A-Za-z_][A-Za-z0-9_]*", pattern)
+    return list(dict.fromkeys(w for w in words if len(w) > 1))[:MAX_PATTERN_WORDS]
+
+
+def _pattern_reading(call: _Call, pattern: str, language: str) -> str | None:
+    """The kind of code ast-grep read the pattern as (the root of its parse),
+    from its own ``--debug-query`` output; ``None`` when it did not say."""
+
+    run = call.execute([call.exe, "run", "--config", str(call.private / "sgconfig.yml"),
+                        "--pattern", pattern, "--lang", language, "--debug-query=pattern",
+                        "--color", "never", str(call.private)])
+    lines = [line.strip() for line in run.stderr.splitlines()]
+    if "Debug Pattern:" not in lines:
+        return None
+    after = lines[lines.index("Debug Pattern:") + 1:]
+    first = next((line for line in after if line), "")
+    kind = first.split()[0] if first else ""
+    return kind if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", kind) else None
+
+
+def _explain_empty_pattern(call: _Call, pattern: str, language: str, facts: _Facts) -> None:
+    """A pattern can match nothing because ast-grep read it as a different
+    kind of code than was meant (in Go, ``$X.Field`` alone is read as a type,
+    so it never matches a field access). An empty answer then looks exactly
+    like "no uses". When the pattern's own words are on lines in the searched
+    files, say so, with how ast-grep read the pattern. Nothing else changes:
+    the status stays ``no_matches`` and no result is added."""
+
+    words = _pattern_words(pattern)
+    ripgrep = toolkit()["tools"].get("ripgrep") or {}
+    if not words or not ripgrep.get("ok"):
+        return
+    text = replace(call, exe=ripgrep["path"])
+    argv = [text.exe, "--json", "--no-config", "--threads", THREADS, "--max-columns", "2000"]
+    if not call.respect_ignore:
+        argv.append("--no-ignore")
+    regex = ".*".join(rf"\b{re.escape(word)}\b" for word in words)
+    run = text.execute([*argv, "--regexp", regex, "--", text.operand])
+    if run.cancelled or run.timed_out or run.output_capped:
+        return
+    hits: list[tuple[str, int]] = []
+    for raw in run.stdout.splitlines():
+        try:
+            event = json.loads(raw)
+        except ValueError:
+            continue
+        data = event.get("data") if isinstance(event, dict) else None
+        if not isinstance(data, dict) or event.get("type") != "match":
+            continue
+        where = data.get("path")
+        reported = where.get("text") if isinstance(where, dict) else None
+        number = _count(data.get("line_number"))
+        path = _relative_result_path(call.root, reported) if isinstance(reported, str) else None
+        if path and path != "." and number:
+            hits.append((path, number))
+    if not hits:
+        return
+    hits.sort()
+    files = len({path for path, _ in hits})
+    reading = _pattern_reading(call, pattern, language)
+    facts.coverage["pattern_words_found"] = {"words": words, "lines": len(hits), "files": files}
+    if reading:
+        facts.coverage["pattern_read_as"] = reading
+    read = f" as ast-grep read it (a {reading})" if reading else ""
+    facts.advice = (
+        f"no code matched the pattern{read}, but its words {', '.join(words)} are on "
+        f"{len(hits)} line(s) in {files} file(s), for example {hits[0][0]}:{hits[0][1]}. A "
+        "short pattern can be read as a different kind of code than meant, so this is not "
+        "evidence that nothing uses them: check those lines with code_search in literal "
+        "mode, or give the pattern more of its surrounding code"
+    )
 
 
 def _snapshot_omissions(omitted: Sequence[Mapping[str, Any]], target: str) -> list[str]:
@@ -1729,6 +1814,8 @@ def run(
             f"{MAX_LINE_CHARS} characters, blocks at {MAX_BLOCK_LINES} lines)"
         )
     status, note = _decide(facts)
+    if status == "no_matches" and facts.advice:
+        note = facts.advice
     answer = _answer(
         operation=operation, status=status, source=source, query=shown_query, tool=tool,
         facts=facts, note=note,
