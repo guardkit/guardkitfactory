@@ -401,6 +401,8 @@ def create_dcode_player(
     # Diagnostics stay on the graph; the factory retains its shared invoke and
     # cancellation ownership, with no wrapper graph or additional task.
     cast(Any, graph).guardkit_dcode_evidence = evidence
+    # The turn's language servers (code_references) stop when invoke ends.
+    cast(Any, graph).guardkit_code_search_tools = search_tools
     cast(Any, graph).guardkit_dcode_backend = effective
     logger.info("dcode Player construction inventory: %s", evidence)
     return graph

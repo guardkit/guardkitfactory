@@ -38,6 +38,10 @@ dependencies = [
     # clean ``uv sync`` pruned it and the synthesis call failed at runtime.
     # (TASK-OPS-COACHMOE01, 2026-06-11.)
     "langchain-openai>=1.6,<2",
+    # code_search's ``references`` operation reads the project's declared
+    # language servers from ``.guardkit/config.yaml`` (28 October 2026). It
+    # was already installed through langchain-core; now it is declared.
+    "pyyaml>=6,<7",
 ]
 
 [project.optional-dependencies]

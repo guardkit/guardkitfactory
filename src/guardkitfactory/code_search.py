@@ -12,10 +12,18 @@ its own.
 
 The Forge sandbox helper runs this over an immutable snapshot of a commit; the
 coding Player and Coach run it over their own worktree. Nothing here keeps an
-index, starts a daemon, downloads anything or writes inside the searched root.
+index, downloads anything or writes inside the searched root.
 
-The module itself uses only the standard library; the Forge helper imports it
-from the same image, which installs GuardKitFactory. ``python -m
+A fourth operation, ``references`` (28 October 2026), asks the language server
+the project declares in ``.guardkit/config.yaml`` who refers to a symbol, and
+adds ripgrep's whole-word matches the server did not return, marked
+``text_only``. Its servers run in their own process groups, kept for one tool
+binding (:class:`ReferenceServers`) or started and stopped within one call.
+
+The module itself uses only the standard library and its own LSP client
+(:mod:`guardkitfactory.lsp_client`), plus PyYAML (a dependency of this package)
+to read the project's declaration; the Forge helper imports it from the same
+image, which installs GuardKitFactory. ``python -m
 guardkitfactory.code_search self-check`` verifies the installed programs inside
 an image.
 """
@@ -39,10 +47,21 @@ import sys
 import tempfile
 import threading
 import time
+import weakref
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
+
+from guardkitfactory.lsp_client import (
+    LspCancelled,
+    LspClient,
+    LspError,
+    LspTimeout,
+    path_uri,
+    uri_path,
+    utf16_column,
+)
 
 #: Where the image installs the programs. Deliberately not on any ``PATH``:
 #: the agents' shell has ``PATH=/usr/bin:/bin``, where ``sg`` is ``newgrp``,
@@ -135,7 +154,7 @@ RANKED_BLOCK_LANGUAGES = frozenset(
     }
 )
 
-OPERATIONS = ("search", "outline", "pattern")
+OPERATIONS = ("search", "outline", "pattern", "references")
 SEARCH_MODES = ("ranked", "literal", "regex")
 
 
@@ -154,6 +173,10 @@ def capabilities() -> dict[str, Any]:
         },
         "outline": sorted(set(OUTLINE_EXTENSIONS.values())),
         "pattern": sorted(PATTERN_LANGUAGES),
+        "references": (
+            "files the project declares a language server for (toolchain.language_servers "
+            "in .guardkit/config.yaml), plus ripgrep's whole-word matches marked text_only"
+        ),
         "not_diagnosed": (
             "syntax errors: tree-sitter parses what it can, so results from a malformed "
             "file may be incomplete without any error being reported"
@@ -707,6 +730,9 @@ class _Facts:
     #: Said in place of an empty note when a pattern matched nothing although
     #: its words are in the files (see :func:`_explain_empty_pattern`).
     advice: str | None = None
+    #: Sentences added to the note of an answer that has results or none
+    #: (``references``: text-only matches, dependencies not installed).
+    notes: list[str] = field(default_factory=list)
 
 
 def _new_facts(respect_ignore: bool) -> _Facts:
@@ -882,7 +908,8 @@ def _minimal_metadata(answer: dict[str, Any]) -> None:
     }
     answer["query"] = {key: (_echo(value, 40) if isinstance(value, str) else None)
                        for key, value in (answer.get("query") or {}).items()
-                       if key in ("path", "mode", "text", "pattern", "language", "items")}
+                       if key in ("path", "mode", "text", "pattern", "language", "items",
+                                  "name")}
     answer["coverage"] = {}
     answer["diagnostics"] = []
     answer["truncation"] = [_echo(t, 100) for t in (answer.get("truncation") or [])[:2]]
@@ -975,10 +1002,14 @@ class _Call:
         return _execute(argv, cwd=self.root, env=self.env, timeout_s=left, cancel=self.cancel)
 
 
-def _search_rg(call: _Call, query: str, mode: str, facts: _Facts) -> None:
+def _search_rg(
+    call: _Call, query: str, mode: str, facts: _Facts, *, whole_word: bool = False
+) -> None:
     argv = [call.exe, "--json", "--no-config", "--threads", THREADS, "--max-columns", "2000"]
     if mode == "literal":
         argv.append("--fixed-strings")
+    if whole_word:
+        argv.append("--word-regexp")
     if not call.respect_ignore:
         argv.append("--no-ignore")
     argv += ["--regexp", query, "--", call.operand]
@@ -1652,6 +1683,639 @@ def _explain_empty_pattern(call: _Call, pattern: str, language: str, facts: _Fac
     )
 
 
+# --------------------------------------------------------------------------
+# Find references through the project's own language server
+#
+# The project names its servers beside the toolchain it already declares in
+# ``.guardkit/config.yaml`` (design: ai-transition
+# docs/designs/find-references-tool-2026-10-28.md):
+#
+#   toolchain:
+#     language_servers:
+#       - command: ["gopls"]             # argv; command[0] is a bare program name
+#         files: ["**/*.go"]             # which files this server answers for
+#         root: "packages/career_agent"  # where it runs (default ".")
+#         env: {GOFLAGS: "-tags=live"}   # optional; may not set PATH
+#         initialization_options: {}     # optional, passed through unchanged
+#         language_id: "go"              # optional; default the file's extension
+#
+# This module keeps no table of languages or servers. ``files`` globs are
+# matched against the path relative to the project root (``**/`` is any
+# number of folders; a glob with no ``/`` matches the file name at any depth),
+# and the file must also be inside the entry's ``root``. The first entry that
+# matches answers.
+
+#: Where a declared program is looked for, in order: the factory image's
+#: language servers, then the toolchain's own folder. Never the caller's PATH.
+LANGUAGE_SERVER_DIRS = ("/opt/language-servers/bin", "/usr/local/go/bin")
+#: For tests only: one more folder, searched after the fixed ones.
+LANGUAGE_SERVER_DIR_ENV = "GUARDKITFACTORY_LANGUAGE_SERVER_DIR"
+#: The tool's whole-call limit: a server's first answer includes its start
+#: and indexing (1.7 to 2.7 seconds on the career copies, 28 October 2026).
+REFERENCES_TIMEOUT_S = 60.0
+INSTALL_STATES = ("installed", "not_installed", "unknown")
+TEXT_ONLY_NOTE = (
+    "text matches the language server did not resolve: strings, docs, tests that read "
+    "source, other languages; check them by hand"
+)
+CONFIG_FILE = ".guardkit/config.yaml"
+MAX_CONFIG_BYTES = 1024 * 1024
+MAX_NAME_CHARS = 200
+#: With no line given, at most this many whole-word occurrences in the file
+#: are tried in turn, until the server resolves one (the first can be a
+#: comment, where a server finds nothing).
+MAX_POSITION_TRIES = 5
+#: A server's first answers can come before it has loaded the project
+#: (pyright and typescript-language-server answered only the declaration on
+#: the first question, 28 October 2026). So the first question to a server,
+#: and any after files changed, waits until the server reports no work in
+#: progress, then is asked again, this far apart, until two answers agree.
+SETTLE_PAUSE_S = 0.25
+MAX_SETTLE_ROUNDS = 8
+#: ripgrep matching lines read for the text-only part.
+MAX_TEXT_LINES_READ = 10_000
+#: Changed files passed to a server before a question: each, and in all.
+MAX_SYNC_FILE_BYTES = 4 * 1024 * 1024
+MAX_SYNC_BYTES = 32 * 1024 * 1024
+_ENTRY_KEYS = frozenset(
+    {"command", "files", "root", "env", "initialization_options", "language_id"}
+)
+_ENV_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+
+
+@dataclass(frozen=True)
+class ServerEntry:
+    """One declared language server (``toolchain.language_servers[i]``)."""
+
+    command: tuple[str, ...]
+    files: tuple[str, ...]
+    root: str = "."
+    env: tuple[tuple[str, str], ...] = ()
+    #: ``initialization_options`` as JSON, so an entry can key a cache.
+    options: str = "null"
+    language_id: str | None = None
+
+
+def _server_entry(item: Any) -> ServerEntry | str:
+    """A checked entry, or why it cannot be used."""
+    if not isinstance(item, dict):
+        return "an entry must be a mapping"
+    unknown = sorted(str(key) for key in item if key not in _ENTRY_KEYS)
+    if unknown:
+        return f"unknown key(s) {', '.join(unknown)}"
+    command = item.get("command")
+    if (not isinstance(command, list) or not command
+            or not all(isinstance(a, str) and a and "\0" not in a for a in command)):
+        return "command must be a non-empty list of program arguments"
+    if "/" in command[0] or command[0] in (".", ".."):
+        return f"command[0] {_echo(command[0], 60)!r} must be a program name, not a path"
+    files = item.get("files")
+    if (not isinstance(files, list) or not files
+            or not all(isinstance(g, str) and g.strip() for g in files)):
+        return "files must be a non-empty list of globs"
+    raw_root = item.get("root", ".")
+    if not isinstance(raw_root, str) or not raw_root.strip() or "\0" in raw_root:
+        return "root must be a folder relative to the project root"
+    parts = [p for p in raw_root.strip().replace("\\", "/").split("/") if p not in ("", ".")]
+    if raw_root.strip().startswith(("/", "~")) or ".." in parts:
+        return f"root {_echo(raw_root, 60)!r} must stay inside the project"
+    env = item.get("env") or {}
+    if not isinstance(env, dict):
+        return "env must be a mapping of names to values"
+    pairs: list[tuple[str, str]] = []
+    for name, value in env.items():
+        if not isinstance(name, str) or not _ENV_NAME.fullmatch(name):
+            return f"env name {_echo(str(name), 60)!r} is not a variable name"
+        if name == "PATH":
+            return "env may not set PATH: the tool fixes where programs are found"
+        if not isinstance(value, (str, int, float)) or isinstance(value, bool):
+            return f"env {name} must be text"
+        if "\0" in str(value):
+            return f"env {name} contains a NUL character"
+        pairs.append((name, str(value)))
+    try:
+        options = json.dumps(item.get("initialization_options"), sort_keys=True)
+    except (TypeError, ValueError):
+        return "initialization_options must be plain data"
+    language_id = item.get("language_id")
+    if language_id is not None and (not isinstance(language_id, str) or not language_id):
+        return "language_id must be text"
+    return ServerEntry(tuple(command), tuple(g.strip() for g in files),
+                       "/".join(parts) or ".", tuple(sorted(pairs)), options, language_id)
+
+
+def declared_servers(root: Path) -> list[ServerEntry] | str | None:
+    """The project's language servers; ``None`` when it declares none, else a
+    sentence saying why its declaration cannot be used."""
+    config = root / CONFIG_FILE
+    try:
+        st = config.lstat()
+        resolved = config.resolve(strict=True)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    except (OSError, RuntimeError) as exc:
+        return f"{CONFIG_FILE} cannot be read ({type(exc).__name__})"
+    if not stat.S_ISREG(st.st_mode) or root not in resolved.parents:
+        return f"{CONFIG_FILE} is not a regular file inside the project"
+    if st.st_size > MAX_CONFIG_BYTES:
+        return f"{CONFIG_FILE} is larger than {MAX_CONFIG_BYTES} bytes"
+    try:
+        import yaml
+    except ImportError:
+        return f"PyYAML is not installed, so {CONFIG_FILE} cannot be read"
+    try:
+        data = yaml.safe_load(config.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        return f"{CONFIG_FILE} is not readable YAML ({type(exc).__name__})"
+    toolchain = data.get("toolchain") if isinstance(data, dict) else None
+    raw = toolchain.get("language_servers") if isinstance(toolchain, dict) else None
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        return "toolchain.language_servers must be a non-empty list"
+    entries: list[ServerEntry] = []
+    for number, item in enumerate(raw, 1):
+        entry = _server_entry(item)
+        if isinstance(entry, str):
+            return f"language server {number} in {CONFIG_FILE} cannot be used: {entry}"
+        entries.append(entry)
+    return entries
+
+
+def _glob_matches(pattern: str, relative: str) -> bool:
+    pattern = pattern.removeprefix("./")
+    if "/" not in pattern:
+        relative = relative.rsplit("/", 1)[-1]
+    out: list[str] = []
+    index = 0
+    while index < len(pattern):
+        if pattern.startswith("**/", index):
+            out.append("(?:.*/)?")
+            index += 3
+        elif pattern.startswith("**", index):
+            out.append(".*")
+            index += 2
+        else:
+            char = pattern[index]
+            out.append("[^/]*" if char == "*" else "[^/]" if char == "?" else re.escape(char))
+            index += 1
+    return re.fullmatch("".join(out), relative) is not None
+
+
+def server_program(name: str) -> Path | None:
+    """Where a declared program is installed, from the fixed folders only."""
+    folders = list(LANGUAGE_SERVER_DIRS)
+    if os.environ.get(LANGUAGE_SERVER_DIR_ENV):
+        folders.append(os.environ[LANGUAGE_SERVER_DIR_ENV])
+    for folder in folders:
+        candidate = Path(folder) / name
+        if candidate.is_file() and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _searched_folders() -> str:
+    extra = os.environ.get(LANGUAGE_SERVER_DIR_ENV)
+    return ", ".join([*LANGUAGE_SERVER_DIRS, *([extra] if extra else [])])
+
+
+class _ServerSession:
+    """One running language server for one declared entry.
+
+    ``known`` holds each file's (modification time, size) as the server last
+    saw it: read from disk when it started, or sent to it since. Before each
+    question :meth:`sync` sends what changed: ``didOpen`` or ``didChange``
+    (full text) for changed and new files, ``didClose`` for deleted open ones,
+    and one ``workspace/didChangeWatchedFiles`` naming them all (pyright needed
+    a change notice to see a new file, 28 October 2026)."""
+
+    def __init__(self, root: Path, entry: ServerEntry, program: Path) -> None:
+        self.root, self.entry, self.program = root, entry, program
+        self.server_root = root if entry.root == "." else root / entry.root
+        self.lock = threading.Lock()
+        self.client: LspClient | None = None
+        self.private: Path | None = None
+        self.known: dict[str, tuple[int, int]] = {}
+        self.opened: dict[str, int] = {}
+        #: Whether an answer has settled since the server last saw a change.
+        self.settled = False
+
+    @property
+    def usable(self) -> bool:
+        return self.client is None or self.client.alive
+
+    def start(self, deadline: float, cancel: threading.Event | None) -> None:
+        self.private = _private_folder(self.root)
+        env = _base_environment(self.private)
+        env["PATH"] = os.pathsep.join(dict.fromkeys(
+            [str(self.program.parent), *LANGUAGE_SERVER_DIRS, "/usr/local/bin", "/usr/bin",
+             "/bin"]))
+        env.update(dict(self.entry.env))
+        self.client = LspClient([str(self.program), *self.entry.command[1:]],
+                                cwd=self.server_root, env=env, workspace=self.server_root)
+        self.client.initialize(initialization_options=json.loads(self.entry.options),
+                               deadline=deadline, cancel=cancel)
+
+    def sync(self, current: dict[str, tuple[int, int]], asked: str) -> tuple[int, int]:
+        """Send what changed since the server last saw it; returns how many
+        files were sent and how many could not be (too large)."""
+        assert self.client is not None
+        changed = [rel for rel, sig in current.items() if self.known.get(rel) != sig]
+        if asked not in self.opened and asked not in changed:
+            changed.append(asked)
+        deleted = [rel for rel in self.known if rel not in current]
+        events: list[dict[str, Any]] = []
+        budget, sent, skipped = MAX_SYNC_BYTES, 0, 0
+        for rel in changed:
+            path = self.root / rel
+            try:
+                data = path.read_bytes() if path.stat().st_size <= min(
+                    MAX_SYNC_FILE_BYTES, budget) else None
+                st = path.stat()
+            except OSError:
+                continue
+            if data is None:
+                skipped += 1
+                continue
+            budget -= len(data)
+            text = data.decode("utf-8", errors="replace")
+            uri = path_uri(path)
+            if rel in self.opened:
+                self.opened[rel] += 1
+                self.client.notify("textDocument/didChange", {
+                    "textDocument": {"uri": uri, "version": self.opened[rel]},
+                    "contentChanges": [{"text": text}]})
+            else:
+                self.opened[rel] = 1
+                self.client.notify("textDocument/didOpen", {"textDocument": {
+                    "uri": uri, "version": 1, "text": text,
+                    "languageId": self.entry.language_id or path.suffix.lstrip(".")}})
+            if self.known.get(rel) != (st.st_mtime_ns, st.st_size):
+                events.append({"uri": uri, "type": 2 if rel in self.known else 1})
+            self.known[rel] = (st.st_mtime_ns, st.st_size)
+            sent += 1
+        for rel in deleted:
+            uri = path_uri(self.root / rel)
+            if self.opened.pop(rel, None) is not None:
+                self.client.notify("textDocument/didClose", {"textDocument": {"uri": uri}})
+            del self.known[rel]
+            events.append({"uri": uri, "type": 3})
+        if events:
+            self.client.notify("workspace/didChangeWatchedFiles", {"changes": events})
+        return sent, skipped
+
+    def close(self) -> None:
+        if self.client is not None:
+            self.client.close()
+        if self.private is not None:
+            shutil.rmtree(self.private, ignore_errors=True)
+
+
+def _close_sessions(sessions: dict[Any, _ServerSession], lock: threading.Lock) -> None:
+    with lock:
+        running = list(sessions.values())
+        sessions.clear()
+    for session in running:
+        with contextlib.suppress(Exception):
+            session.close()
+
+
+class ReferenceServers:
+    """The language servers one tool binding keeps (a planner step, a builder
+    turn): one per project root and declared entry, started on first use and
+    stopped by :meth:`close`, which the binding's owner calls when it ends.
+    If it never does, they are stopped when this object is collected or the
+    interpreter exits. A closed binding can be used again; it starts afresh."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._sessions: dict[tuple[str, ServerEntry], _ServerSession] = {}
+        self._finalizer = weakref.finalize(self, _close_sessions, self._sessions, self._lock)
+
+    def session(self, root: Path, entry: ServerEntry, program: Path) -> _ServerSession:
+        key = (str(root), entry)
+        with self._lock:
+            session = self._sessions.get(key)
+            if session is not None and session.usable and session.program == program:
+                return session
+            fresh = self._sessions[key] = _ServerSession(root, entry, program)
+        if session is not None:
+            with contextlib.suppress(Exception):
+                session.close()
+        return fresh
+
+    def discard(self, session: _ServerSession) -> None:
+        with self._lock:
+            for key, value in list(self._sessions.items()):
+                if value is session:
+                    del self._sessions[key]
+        session.close()
+
+    def running(self) -> int:
+        with self._lock:
+            return sum(1 for s in self._sessions.values() if s.client is not None)
+
+    def close(self) -> None:
+        self._finalizer()
+        self._finalizer = weakref.finalize(self, _close_sessions, self._sessions, self._lock)
+
+
+def _install_state(given: str | None, source_given: bool, respect_ignore: bool) -> str:
+    """Whether the project's install step ran on what is searched.
+
+    Never guessed from files (a dependency folder's name is per language):
+    the caller says, because it knows whether it ran the install step; a
+    commit snapshot (a ``source`` given with every tracked file and nothing
+    else) is ``not_installed``; anything else is ``unknown``."""
+    if given is not None:
+        return given
+    return "not_installed" if source_given and not respect_ignore else "unknown"
+
+
+def _positions(text: str, name: str, line: int | None) -> list[tuple[int, int]]:
+    """0-based (line, UTF-16 column) of the name as a whole word: on the
+    given line, else its first occurrences in the file."""
+    word = re.compile(rf"(?<!\w){re.escape(name)}(?!\w)")
+    lines = text.split("\n")
+    found: list[tuple[int, int]] = []
+    numbers = [line - 1] if line is not None else range(len(lines))
+    for number in numbers:
+        if not 0 <= number < len(lines):
+            continue
+        for match in word.finditer(lines[number]):
+            found.append((number, utf16_column(lines[number], match.start())))
+            if line is not None or len(found) >= MAX_POSITION_TRIES:
+                return found
+    return found
+
+
+def _server_files(call: _Call, session: _ServerSession) -> dict[str, tuple[int, int]] | None:
+    """The files under the server's root that its entry answers for, with
+    (modification time, size); ripgrep lists them, so ignore rules and hidden
+    folders are treated as in a search. ``None`` when the listing failed."""
+    root = session.entry.root
+    argv = [call.exe, "--files", "--no-config", "--threads", THREADS]
+    if not call.respect_ignore:
+        argv.append("--no-ignore")
+    run = call.execute([*argv, "--", "." if root == "." else f"./{root}"])
+    if run.timed_out or run.cancelled or run.output_capped or run.returncode not in (0, 1, 2):
+        return None
+    found: dict[str, tuple[int, int]] = {}
+    for raw in run.stdout.splitlines():
+        rel = _relative_result_path(call.root, os.fsdecode(raw))
+        if rel is None or rel == "." or not any(
+            _glob_matches(g, rel) for g in session.entry.files
+        ):
+            continue
+        with contextlib.suppress(OSError):
+            st = (call.root / rel).stat()
+            found[rel] = (st.st_mtime_ns, st.st_size)
+    return found
+
+
+def _ask_server(
+    call: _Call, session: _ServerSession, servers: ReferenceServers,
+    positions: list[tuple[int, int]], facts: _Facts,
+) -> list[tuple[str, int]] | None:
+    """The (path, line) references the server returned, or ``None`` with the
+    reason in ``facts``."""
+    deadline = call.deadline if call.deadline is not None else time.monotonic() + call.timeout_s
+    name = session.entry.command[0]
+    if not session.lock.acquire(timeout=max(0.0, deadline - time.monotonic())):
+        facts.fatal = (f"the language server {name} was still answering another question "
+                       "when the time ran out; ask again")
+        return None
+    try:
+        current = _server_files(call, session)
+        if current is None:
+            facts.fatal = "the project's files could not be listed for the language server"
+            return None
+        if session.client is None:
+            session.known = dict(current)
+            try:
+                session.start(deadline, call.cancel)
+            except LspCancelled:
+                facts.cancelled = True
+                servers.discard(session)
+                return None
+            except LspTimeout:
+                facts.fatal = (f"the language server {name} did not finish starting within "
+                               f"{call.timeout_s:g} seconds")
+                servers.discard(session)
+                return None
+            except (LspError, OSError) as exc:
+                tail = session.client.stderr_tail() if session.client else ""
+                facts.fatal = f"the language server {name} could not be started: {exc}"
+                if tail:
+                    facts.diagnostics.append(_cut(tail))
+                servers.discard(session)
+                return None
+        assert session.client is not None
+        facts.coverage["server"].update(session.client.server_info)
+        try:
+            sent, skipped = session.sync(current, call.target)
+            facts.coverage["files_sent_to_server"] = sent
+            if skipped:
+                facts.limits.append(f"{skipped} changed file(s) were too large to pass to the "
+                                    "language server, which may not see their latest text")
+            if sent:
+                session.settled = False
+            uri = path_uri(call.target_path)
+            locations: list[dict[str, Any]] = []
+            for tried, (line0, column) in enumerate(positions, 1):
+                facts.coverage["position"] = {"line": line0 + 1, "column": column + 1,
+                                              "tried": tried}
+                locations = _settled_references(session, uri, line0, column, deadline,
+                                                call.cancel, facts)
+                if locations:
+                    break
+            session.settled = True
+        except LspCancelled:
+            facts.cancelled = True
+            return None
+        except LspTimeout:
+            facts.fatal = (f"the language server {name} did not answer within "
+                           f"{call.timeout_s:g} seconds")
+            return None
+        except LspError as exc:
+            facts.fatal = f"the language server {name} failed: {exc}"
+            if not session.client.alive:
+                facts.diagnostics.append(_cut(session.client.stderr_tail()))
+                servers.discard(session)
+            return None
+    finally:
+        session.lock.release()
+    hits: set[tuple[str, int]] = set()
+    outside = 0
+    for location in locations:
+        where = uri_path(str(location.get("uri", "")))
+        rng = location.get("range")
+        start = rng.get("start") if isinstance(rng, dict) else None
+        number = _count(start.get("line")) if isinstance(start, dict) else None
+        rel = _relative_result_path(call.root, str(where)) if where is not None else None
+        if rel is None or rel == "." or number is None:
+            outside += 1
+            continue
+        hits.add((rel, number + 1))
+    if outside:
+        facts.coverage["references_outside_project"] = outside
+    return sorted(hits)
+
+
+def _settled_references(
+    session: _ServerSession, uri: str, line0: int, column: int, deadline: float,
+    cancel: threading.Event | None, facts: _Facts,
+) -> list[dict[str, Any]]:
+    """The server's references, asked until two answers agree when the server
+    is new or has just been told of changes (see :data:`SETTLE_PAUSE_S`)."""
+    client = session.client
+    assert client is not None
+
+    def key(found: list[dict[str, Any]]) -> list[str]:
+        return sorted(json.dumps([f.get("uri"), f.get("range")], sort_keys=True) for f in found)
+
+    if session.settled:
+        return client.references(uri, line0, column, deadline=deadline, cancel=cancel)
+    client.wait_until_idle(deadline=deadline, cancel=cancel)
+    found = client.references(uri, line0, column, deadline=deadline, cancel=cancel)
+    for asked in range(2, MAX_SETTLE_ROUNDS + 1):
+        if deadline - time.monotonic() <= SETTLE_PAUSE_S:
+            break
+        if cancel is not None and cancel.wait(SETTLE_PAUSE_S):
+            raise LspCancelled("cancelled")
+        if cancel is None:
+            time.sleep(SETTLE_PAUSE_S)
+        again = client.references(uri, line0, column, deadline=deadline, cancel=cancel)
+        facts.coverage["asked"] = asked
+        if key(again) == key(found):
+            return again
+        found = again
+    facts.limits.append("the language server's answer was still changing when the time or "
+                        "the repeat limit ran out (it may still be loading the project); ask "
+                        "again")
+    return found
+
+
+def _line_text(root: Path, rel: str, number: int, cache: dict[str, list[str]]) -> str:
+    if rel not in cache:
+        try:
+            cache[rel] = (root / rel).read_text(encoding="utf-8", errors="replace").split("\n")
+        except OSError:
+            cache[rel] = []
+    lines = cache[rel]
+    return lines[number - 1].rstrip("\r") if 0 < number <= len(lines) else ""
+
+
+def _references(
+    call: _Call, name: str, line: int | None, servers: ReferenceServers,
+    install_state: str, facts: _Facts,
+) -> None:
+    facts.coverage["install_state"] = install_state
+    literal = "; use code_search in literal mode"
+    declared = declared_servers(call.root)
+    if declared is None:
+        facts.unsupported = (f"the project declares no language server (toolchain."
+                             f"language_servers in {CONFIG_FILE}){literal}")
+        return
+    if isinstance(declared, str):
+        facts.unsupported = declared + literal
+        return
+    if not call.target_path.is_file():
+        facts.input_problem = "path must name a file that defines or uses the name"
+        return
+    entry = next((e for e in declared
+                  if any(_glob_matches(g, call.target) for g in e.files)
+                  and (e.root == "." or call.target.startswith(e.root + "/"))), None)
+    if entry is None:
+        facts.unsupported = f"the project declares no language server for {call.target}{literal}"
+        return
+    facts.coverage["server"] = {"command": [_echo(a, 100) for a in entry.command[:8]],
+                                "root": entry.root}
+    server_root = call.root if entry.root == "." else call.root / entry.root
+    if not server_root.is_dir() or (call.root / entry.root).resolve() != server_root:
+        facts.unsupported = f"the declared server root {entry.root!r} is not a folder here{literal}"
+        return
+    program = server_program(entry.command[0])
+    if program is None:
+        facts.unsupported = (f"the declared language server {entry.command[0]!r} is not "
+                             f"installed in {_searched_folders()}{literal}")
+        return
+    try:
+        text = call.target_path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:
+        facts.input_problem = f"{call.target} cannot be read ({type(exc).__name__})"
+        return
+    positions = _positions(text, name, line)
+    if line is not None and not positions:
+        facts.input_problem = f"{name!r} is not a whole word on line {line} of {call.target}"
+        return
+    server_hits: list[tuple[str, int]] = []
+    if positions:
+        asked = _ask_server(call, servers.session(call.root, entry, program), servers,
+                            positions, facts)
+        if asked is None:
+            if facts.fatal:
+                facts.fatal += literal
+            return
+        server_hits = asked
+    else:
+        facts.notes.append(f"{name!r} is not a whole word in {call.target}, so the language "
+                           "server was not asked; these are text matches only")
+    text_facts = _new_facts(call.respect_ignore)
+    _search_rg(replace(call, target=".", target_path=call.root,
+                       max_results=MAX_TEXT_LINES_READ), name, "literal", text_facts,
+               whole_word=True)
+    facts.coverage["files_searched"] = text_facts.coverage.get("files_searched")
+    facts.diagnostics.extend(text_facts.diagnostics)
+    if text_facts.cancelled:
+        facts.cancelled = True
+        return
+    if text_facts.fatal or text_facts.input_problem:
+        facts.limits.append("the text search for other uses did not complete: "
+                            f"{text_facts.fatal or text_facts.input_problem}")
+    facts.limits.extend(text_facts.limits)
+    facts.program_errors.extend(text_facts.program_errors)
+    if not positions and not text_facts.results and not facts.limits:
+        facts.input_problem = (f"{name!r} is not a whole word in {call.target} or anywhere else "
+                               "in the project")
+        return
+    _merge_references(call.root, server_hits, text_facts.results, call.max_results,
+                      install_state, facts)
+
+
+def _merge_references(
+    root: Path, server_hits: Sequence[tuple[str, int]], text_matches: Sequence[Mapping[str, Any]],
+    max_results: int, install_state: str, facts: _Facts,
+) -> None:
+    """The server's references first, then ripgrep's whole-word lines it did
+    not return, marked ``text_only``; at most ``max_results`` in all, with the
+    totals. With neither, ``facts`` has no results and :func:`_decide` answers
+    ``no_matches``: the server returned nothing and no other use was found."""
+    cache: dict[str, list[str]] = {}
+    resolved = [{"path": p, "first_line": n, "text": _cut(_line_text(root, p, n, cache))}
+                for p, n in server_hits]
+    seen = set(server_hits)
+    text_only = [{"path": r["path"], "first_line": r["first_line"], "text": r["text"],
+                  "text_only": True}
+                 for r in text_matches if (r["path"], r["first_line"]) not in seen]
+    shown = resolved[:max_results]
+    shown_text = text_only[: max_results - len(shown)]
+    facts.results = [*shown, *shown_text]
+    facts.shown_in_part += sum(1 for r in facts.results if r["text"].endswith("…[line cut]"))
+    facts.coverage.update({"server_references": len(resolved),
+                           "text_only_matches": len(text_only), "tests_included": True})
+    if len(shown) < len(resolved) or len(shown_text) < len(text_only):
+        facts.limits.append(f"showing {len(shown)} of {len(resolved)} server reference(s) and "
+                            f"{len(shown_text)} of {len(text_only)} text-only match(es)")
+    if text_only:
+        facts.notes.append(f"entries marked text_only are {TEXT_ONLY_NOTE}")
+    if install_state != "installed":
+        facts.notes.append(
+            f"the project's dependencies are {install_state.replace('_', ' ')} here, so the "
+            "server may miss uses that pass through them; confirm with code_search in literal "
+            "mode")
+
+
 def _snapshot_omissions(omitted: Sequence[Mapping[str, Any]], target: str) -> list[str]:
     """Files a commit snapshot left out inside the searched path."""
 
@@ -1687,6 +2351,10 @@ def run(
     omitted: Sequence[Mapping[str, Any]] = (),
     respect_ignore: bool = True,
     cancel: threading.Event | None = None,
+    name: str = "",
+    line: int | None = None,
+    install_state: str | None = None,
+    servers: ReferenceServers | None = None,
 ) -> dict[str, Any]:
     """One bounded, read-only operation over ``root``.
 
@@ -1696,6 +2364,12 @@ def run(
     ``source`` the worktree is described before and after the program runs.
     ``respect_ignore`` is false for a snapshot, which holds exactly the
     tracked files.
+
+    ``references`` takes ``name``, ``path`` (a file that defines or uses it)
+    and optional ``line``. ``servers`` keeps its language servers for the
+    caller's binding; without it the server is started and stopped within
+    this call. ``install_state`` says whether the project's install step ran
+    here (see :func:`_install_state`).
     """
 
     limit = _limit(max_results, DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT)
@@ -1707,6 +2381,8 @@ def run(
         shown_query["items"] = _echo(items)
     elif operation == "pattern":
         shown_query.update({"pattern": _echo(pattern), "language": _echo(language)})
+    elif operation == "references":
+        shown_query.update({"name": _echo(name), "line": line})
     else:
         operation = _echo(str(operation))
     started = time.monotonic()
@@ -1718,7 +2394,8 @@ def run(
         return _fit_to_chars(
             _answer(
                 operation=operation, status=status, source=source, query=shown_query,
-                tool=tool, note=note, elapsed_ms=int((time.monotonic() - started) * 1000),
+                tool=None if operation == "references" else tool, note=note,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
             ),
             max_chars,
         )
@@ -1757,6 +2434,19 @@ def run(
         tool = "ast-grep"
         if items not in ("all", "exports", "structure", "imports"):
             return refused("input_error", "items must be all, exports, structure or imports", tool)
+    elif operation == "references":
+        # ripgrep lists the server's files and finds the text-only matches.
+        tool = "ripgrep"
+        if not name or len(name) > MAX_NAME_CHARS or any(ch.isspace() or ch == "\0"
+                                                         for ch in name):
+            return refused("input_error", f"the name must be 1 to {MAX_NAME_CHARS} characters "
+                           "with no spaces or line breaks")
+        if line is not None and (isinstance(line, bool) or not isinstance(line, int)
+                                 or line < 1):
+            return refused("input_error", "line must be a line number from 1")
+        if install_state is not None and install_state not in INSTALL_STATES:
+            return refused("input_error", f"install_state must be one of "
+                           f"{', '.join(INSTALL_STATES)}")
     else:
         tool = "ast-grep"
         language = (language or "").strip().lower()
@@ -1783,6 +2473,10 @@ def run(
     facts.limits.extend(_snapshot_omissions(omitted, target))
     program_time = deadline - time.monotonic()
     private = _private_folder(root_path)
+    label = "the language server or ripgrep" if operation == "references" else tool
+    own_servers = servers is None and operation == "references"
+    if servers is None:
+        servers = ReferenceServers()
     try:
         call = _Call(root_path, target_path, target, limit, respect_ignore, entry["path"],
                      _base_environment(private), private, max(0.0, program_time), cancel,
@@ -1795,19 +2489,26 @@ def run(
             _search_rg(call, query, mode, facts)
         elif operation == "outline":
             _outline(call, items, facts)
+        elif operation == "references":
+            _references(call, name, line, servers,
+                        _install_state(install_state, not described_here, respect_ignore), facts)
         else:
             _pattern(call, pattern, language, facts)
     except OSError as exc:
-        facts.fatal = f"{tool} could not be started: {type(exc).__name__}: {exc}"
+        facts.fatal = f"{label} could not be started: {type(exc).__name__}: {exc}"
     except Exception as exc:  # noqa: BLE001 - output this runner could not interpret
         # A shape the parsers did not foresee is never a result and never a
         # crash: nothing from this run is trusted.
         facts.results.clear()
-        facts.fatal = f"{tool}'s output could not be interpreted ({type(exc).__name__}: {exc})"
+        facts.fatal = f"{label}'s output could not be interpreted ({type(exc).__name__}: {exc})"
     finally:
         shutil.rmtree(private, ignore_errors=True)
+        if own_servers:
+            servers.close()
     if cancel is not None and cancel.is_set():
         facts.cancelled = True
+    if operation == "references":
+        facts.elapsed_ms = int((time.monotonic() - started) * 1000)
     if facts.shown_in_part:
         facts.limits.append(
             f"{facts.shown_in_part} result(s) shown only in part (lines cut at "
@@ -1816,9 +2517,11 @@ def run(
     status, note = _decide(facts)
     if status == "no_matches" and facts.advice:
         note = facts.advice
+    if status in ("ok", "partial", "no_matches") and facts.notes:
+        note = "; ".join(n for n in [note, *facts.notes] if n)
     answer = _answer(
-        operation=operation, status=status, source=source, query=shown_query, tool=tool,
-        facts=facts, note=note,
+        operation=operation, status=status, source=source, query=shown_query,
+        tool=None if operation == "references" else tool, facts=facts, note=note,
     )
     return _fit_to_chars(answer, max_chars)
 

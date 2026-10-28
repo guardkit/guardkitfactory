@@ -12,8 +12,10 @@ import asyncio
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +126,66 @@ def test_coach_gather_graph_has_the_tools_and_synthesis_has_none(tmp_path: Path)
         assert synthesis_requests and all(r["offered"] == [] for r in synthesis_requests)
     finally:
         _close_clients(sync, async_)
+
+
+def test_read_only_coach_gets_code_references_and_its_server_stops_with_the_turn(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The build reviewer's read-only request (Read, Search, Grep) offers
+    code_references through the Coach's own allowlist, the call reaches the
+    project's declared server, and the server stops when the turn ends."""
+    servers = tmp_path / "servers"
+    servers.mkdir()
+    shutil.copy(Path(__file__).parent.parent / "fake_lsp_server.py", servers / "fake-lsp")
+    (servers / "fake-lsp").chmod(0o755)
+    monkeypatch.setattr(code_search, "LANGUAGE_SERVER_DIRS", ())
+    monkeypatch.setenv(code_search.LANGUAGE_SERVER_DIR_ENV, str(servers))
+    repo = _scaffold(tmp_path)
+    (repo / "uses_add.py").write_text("from valid import add\n\nTOTAL = add(1, 2)\n")
+    pid_file = tmp_path / "server.pid"
+    (repo / ".guardkit").mkdir()
+    (repo / ".guardkit" / "config.yaml").write_text(json.dumps({"toolchain": {
+        "language_servers": [{"command": ["fake-lsp"], "files": ["*.py"],
+                              "env": {"FAKE_LSP_PID": str(pid_file)}}]}}))
+    _git_init(repo)
+    exchange = Exchange(
+        [("code_references", {"name": "add", "path": "valid.py", "line": 1})],
+        final_text="findings: add is used in uses_add.py",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo))
+    try:
+        events = asyncio.run(_review(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+    assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
+    (answer,) = _answers(events)[:1]
+    assert answer["status"] == "ok", answer
+    resolved = {(r["path"], r["first_line"]) for r in answer["results"] if not r.get("text_only")}
+    assert {("valid.py", 1), ("uses_add.py", 1), ("uses_add.py", 3)} <= resolved
+    assert answer["coverage"]["server"]["name"] == "fake-lsp"
+    pid = int(pid_file.read_text())
+    stop = time.monotonic() + 10
+    while Path(f"/proc/{pid}").exists() and time.monotonic() < stop:
+        state = (Path(f"/proc/{pid}") / "stat").read_text().rsplit(")", 1)[1].split()[0]
+        if state in "ZX":
+            break
+        time.sleep(0.05)
+    else:
+        assert not Path(f"/proc/{pid}").exists(), "the server outlived the turn"
+
+
+async def _review(harness: LangGraphHarness, repo: Path) -> list[Any]:
+    return [
+        event
+        async for event in harness.invoke(
+            prompt="Review the candidate.",
+            role="coach",
+            tools=["Read", "Search", "Grep"],
+            cwd=repo,
+            timeout_seconds=60,
+        )
+    ]
 
 
 def test_other_roles_get_no_code_search_tools(tmp_path: Path) -> None:

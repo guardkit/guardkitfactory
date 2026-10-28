@@ -1,26 +1,32 @@
 """Read-only code search tools for the coding Player and the Coach's evidence pass.
 
-Three tools, each bound when the graph is built to one worktree root, so two
+Four tools, each bound when the graph is built to one worktree root, so two
 builds' worktrees never see each other's files. They run the pinned programs
 through :mod:`guardkitfactory.code_search`; a ``path`` that leads outside the
 root is refused. They only read, like ``grep`` and ``glob``. When the
 pinned programs are not installed no tool
 is offered and the reason is returned for the launch evidence; the built-in
 ``read_file``, ``grep`` and ``glob`` stay as the text fallback either way.
+
+``code_references`` (28 October 2026) asks the language server the project
+declares. Its servers are kept for the binding and stopped by
+:func:`close_code_search_tools`, which the binding's owner calls when the turn
+ends (if it never does, they stop when the binding is collected or at exit).
 """
 
 from __future__ import annotations
 
 import json
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any, Literal
 
 from langchain_core.tools import BaseTool, StructuredTool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 from guardkitfactory import code_search
 
-TOOL_NAMES = ("code_search", "code_outline", "code_pattern")
+TOOL_NAMES = ("code_search", "code_outline", "code_pattern", "code_references")
 
 _STATUS_HELP = (
     "The answer is JSON. 'status' is ok, no_matches (the whole scope was searched), partial "
@@ -64,6 +70,32 @@ class _PatternArgs(BaseModel):
                              le=code_search.MAX_RESULTS_LIMIT)
 
 
+class _ReferencesArgs(BaseModel):
+    name: str = Field(description="The symbol's name as written in the code, for example "
+                      "'run_health', 'HealthResult' or 'Message' (a field). One name, no "
+                      "package or class prefix.")
+    path: str = Field(description="A file inside the worktree that defines or uses the name.")
+    line: int | None = Field(default=None, ge=1, description="The line in that file where "
+                             "the name is, if known; otherwise its first occurrence is used.")
+    max_results: int = Field(default=code_search.DEFAULT_MAX_RESULTS, ge=1,
+                             le=code_search.MAX_RESULTS_LIMIT)
+
+
+class _ReferencesTool(StructuredTool):
+    """``code_references``, holding the language servers of its binding."""
+
+    _servers: code_search.ReferenceServers | None = PrivateAttr(default=None)
+
+
+def close_code_search_tools(tools: Iterable[Any]) -> None:
+    """Stop the language servers the tools' binding started. Safe to call
+    more than once, and with any tools or none."""
+    for tool in tools:
+        servers = tool._servers if isinstance(tool, _ReferencesTool) else None
+        if servers is not None:
+            servers.close()
+
+
 def _render(answer: dict[str, Any]) -> str:
     return json.dumps(answer, ensure_ascii=False)
 
@@ -76,15 +108,19 @@ def _bad_arguments(error: Exception) -> str:
 
 
 def code_search_tools(
-    root: Path, *, max_chars: int = code_search.DEFAULT_MAX_CHARS
+    root: Path, *, max_chars: int = code_search.DEFAULT_MAX_CHARS,
+    install_state: str | None = None,
 ) -> tuple[list[BaseTool], str]:
-    """The three tools bound to ``root``, or ``([], reason)`` when the pinned
-    programs are not installed exactly."""
+    """The four tools bound to ``root``, or ``([], reason)`` when the pinned
+    programs are not installed exactly. ``install_state`` says whether the
+    project's install step ran on ``root`` (``installed``, ``not_installed``
+    or ``unknown``, the default); ``code_references`` reports it."""
 
     ok, reason = code_search.available()
     if not ok:
         return [], reason
     bound = Path(root).resolve(strict=True)
+    servers = code_search.ReferenceServers()
 
     def search(query: str, mode: str = "ranked", path: str = ".",
                max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
@@ -119,6 +155,42 @@ def code_search_tools(
         return _render(await code_search.run_async(
             "pattern", bound, pattern=pattern, language=language, path=path,
             max_results=max_results, max_chars=max_chars))
+
+    def references(name: str, path: str, line: int | None = None,
+                   max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
+        return _render(code_search.run(
+            "references", bound, name=name, path=path, line=line, max_results=max_results,
+            max_chars=max_chars, timeout_s=code_search.REFERENCES_TIMEOUT_S,
+            install_state=install_state, servers=servers))
+
+    async def areferences(name: str, path: str, line: int | None = None,
+                          max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
+        return _render(await code_search.run_async(
+            "references", bound, name=name, path=path, line=line, max_results=max_results,
+            max_chars=max_chars, timeout_s=code_search.REFERENCES_TIMEOUT_S,
+            install_state=install_state, servers=servers))
+
+    references_tool = _ReferencesTool.from_function(
+        func=references,
+        coroutine=areferences,
+        name="code_references",
+        description=(
+            "Find every place that refers to a function, type, method, field or setting, "
+            "as the project's language server resolves it (the compiler's own view, tests "
+            "included), plus the whole-word text matches it did not resolve. Use it before "
+            "changing a signature, renaming or moving code: who uses this, and what stops "
+            "compiling. Give the name and a file that defines or uses it (and the line if you "
+            "know it). Entries marked text_only were not checked by the server (strings, docs, "
+            "tests that read source, other languages): check them by hand. 'unsupported' "
+            "means the project declares no language server for that file: use code_search in "
+            "literal mode. 'tool_error' means the server did not answer: it is not evidence "
+            "of no uses. coverage.install_state says whether the project's dependencies were "
+            "installed. " + _STATUS_HELP
+        ),
+        args_schema=_ReferencesArgs,
+        handle_validation_error=_bad_arguments,
+    )
+    references_tool._servers = servers
 
     outline_languages = ", ".join(sorted(set(code_search.OUTLINE_EXTENSIONS.values())))
     tools: list[BaseTool] = [
@@ -161,5 +233,6 @@ def code_search_tools(
             args_schema=_PatternArgs,
             handle_validation_error=_bad_arguments,
         ),
+        references_tool,
     ]
     return tools, ""

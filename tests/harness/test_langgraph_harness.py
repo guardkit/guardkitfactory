@@ -141,10 +141,15 @@ class TestHappyPath:
 
         fake_agent = _make_fake_agent(final_text="hello from stub")
 
+        # Without the pinned search programs, as on GitHub's runner: where
+        # they are installed the Coach also gets the code search tools.
         with patch(
             "guardkitfactory.harness.langgraph_harness.create_deep_agent",
             return_value=fake_agent,
-        ) as create_mock:
+        ) as create_mock, patch(
+            "guardkitfactory.code_search.available",
+            return_value=(False, "not installed in this test"),
+        ):
             events = _drain(harness, prompt="say hi")
 
         # The DeepAgent constructor was called with the harness-bound

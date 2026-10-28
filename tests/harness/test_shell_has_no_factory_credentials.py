@@ -158,6 +158,12 @@ ALLOWED: dict[tuple[str, str], str] = {
         "the factory's own pinned search programs and git, with a fixed "
         "six-name environment (_git_environment)"
     ),
+    ("lsp_client.py", "__init__"): (
+        "a language server the project declares, found only in the image's "
+        "fixed folders, with code_search's fixed private environment plus the "
+        "project's declared variables (PATH refused); nothing is inherited "
+        "from the factory (code_search._ServerSession.start)"
+    ),
 }
 
 #: This package has no generic runners of its own. GuardKit's are listed so
