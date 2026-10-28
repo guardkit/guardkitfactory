@@ -262,4 +262,3 @@ def _references_tool(bound: Path, common: dict[str, Any]) -> BaseTool:
     )
     references_tool._servers = servers
     return references_tool
-
