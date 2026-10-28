@@ -12,6 +12,16 @@ is offered and the reason is returned for the launch evidence; the built-in
 declares. Its servers are kept for the binding and stopped by
 :func:`close_code_search_tools`, which the binding's owner calls when the turn
 ends (if it never does, they stop when the binding is collected or at exit).
+
+Which servers run, and with what settings, is pinned when the tools are bound:
+read with ``git show`` from the worktree's base commit, the commit the build
+started from, found by GuardKit's own ``resolve_feature_base`` (the record
+GuardKit makes when it creates the worktree, else ``git merge-base HEAD main``).
+So an edit to ``.guardkit/config.yaml`` in the worktree, committed or not,
+cannot change the program the tools start. GuardKit's per-task toolchain pin
+cannot carry the declaration: the harness is not given the task, and that pin's
+schema refuses unknown keys. Without a base commit (not a git worktree) the
+file is read once, when the tools are bound.
 """
 
 from __future__ import annotations
@@ -96,6 +106,19 @@ def close_code_search_tools(tools: Iterable[Any]) -> None:
             servers.close()
 
 
+def _base_commit(root: Path) -> str | None:
+    """The commit the worktree was made from, by GuardKit's own rule
+    (``guardkit.orchestrator.seam_checks.resolve_feature_base``); ``None``
+    when there is none to find."""
+    try:
+        from guardkit.orchestrator.seam_checks import resolve_feature_base
+
+        found = resolve_feature_base(root)
+    except Exception:  # noqa: BLE001 - no base commit: the file is read once instead
+        return None
+    return found if isinstance(found, str) and found else None
+
+
 def _render(answer: dict[str, Any]) -> str:
     return json.dumps(answer, ensure_ascii=False)
 
@@ -120,7 +143,8 @@ def code_search_tools(
     if not ok:
         return [], reason
     bound = Path(root).resolve(strict=True)
-    servers = code_search.ReferenceServers()
+    servers = code_search.ReferenceServers(
+        pinned=code_search.pin_declaration(bound, _base_commit(bound)))
 
     def search(query: str, mode: str = "ranked", path: str = ".",
                max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:

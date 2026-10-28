@@ -1705,11 +1705,19 @@ def _explain_empty_pattern(call: _Call, pattern: str, language: str, facts: _Fac
 # and the file must also be inside the entry's ``root``. The first entry that
 # matches answers.
 
-#: Where a declared program is looked for, in order: the factory image's
-#: language servers, then the toolchain's own folder. Never the caller's PATH.
-LANGUAGE_SERVER_DIRS = ("/opt/language-servers/bin", "/usr/local/go/bin")
-#: For tests only: one more folder, searched after the fixed ones.
+#: Where a declared program is looked for: the factory image's language
+#: servers only. Never the caller's PATH, and not the toolchain's own folders
+#: (``/usr/local/go/bin`` holds ``go``, which would run any code a declaration
+#: named; 28 October 2026).
+LANGUAGE_SERVER_DIRS = ("/opt/language-servers/bin",)
+#: For tests only: one more folder, searched after the fixed one.
 LANGUAGE_SERVER_DIR_ENV = "GUARDKITFACTORY_LANGUAGE_SERVER_DIR"
+#: The server's own PATH, fixed here: the toolchains it runs (gopls runs
+#: ``go list``; pyright and typescript-language-server are ``node`` scripts,
+#: and the image's ``node`` is in ``/usr/local/bin``). A declared ``env`` may
+#: not change it.
+SERVER_PATH_DIRS = ("/opt/language-servers/bin", "/usr/local/go/bin", "/usr/local/bin",
+                    "/usr/bin", "/bin")
 #: The tool's whole-call limit: a server's first answer includes its start
 #: and indexing (1.7 to 2.7 seconds on the career copies, 28 October 2026).
 REFERENCES_TIMEOUT_S = 60.0
@@ -1805,8 +1813,10 @@ def _server_entry(item: Any) -> ServerEntry | str:
 
 
 def declared_servers(root: Path) -> list[ServerEntry] | str | None:
-    """The project's language servers; ``None`` when it declares none, else a
-    sentence saying why its declaration cannot be used."""
+    """The project's language servers as its ``.guardkit/config.yaml`` says
+    now; ``None`` when it declares none, else a sentence saying why its
+    declaration cannot be used. Read this way only for a commit snapshot or
+    when nothing was pinned (see :func:`pin_declaration`)."""
     config = root / CONFIG_FILE
     try:
         st = config.lstat()
@@ -1820,12 +1830,20 @@ def declared_servers(root: Path) -> list[ServerEntry] | str | None:
     if st.st_size > MAX_CONFIG_BYTES:
         return f"{CONFIG_FILE} is larger than {MAX_CONFIG_BYTES} bytes"
     try:
+        text = config.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return f"{CONFIG_FILE} is not readable ({type(exc).__name__})"
+    return _parse_declaration(text)
+
+
+def _parse_declaration(text: str) -> list[ServerEntry] | str | None:
+    try:
         import yaml
     except ImportError:
         return f"PyYAML is not installed, so {CONFIG_FILE} cannot be read"
     try:
-        data = yaml.safe_load(config.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError as exc:
         return f"{CONFIG_FILE} is not readable YAML ({type(exc).__name__})"
     toolchain = data.get("toolchain") if isinstance(data, dict) else None
     raw = toolchain.get("language_servers") if isinstance(toolchain, dict) else None
@@ -1840,6 +1858,65 @@ def declared_servers(root: Path) -> list[ServerEntry] | str | None:
             return f"language server {number} in {CONFIG_FILE} cannot be used: {entry}"
         entries.append(entry)
     return entries
+
+
+@dataclass(frozen=True)
+class PinnedDeclaration:
+    """The language servers a tool binding uses, read once when it was bound,
+    so later edits to the worktree's ``.guardkit/config.yaml`` change nothing.
+    ``servers`` is what :func:`declared_servers` returns; ``source`` says
+    where it was read (shown as ``coverage.declaration``)."""
+
+    servers: list[ServerEntry] | str | None
+    source: str
+
+
+def pin_declaration(root: Path, base_commit: str | None,
+                    timeout_s: float = 10.0) -> PinnedDeclaration:
+    """Read the declaration at ``base_commit`` (the commit the worktree was
+    made from, which the builder cannot change), with ``git show``. The
+    commit must be one the worktree's ``HEAD`` descends from. Without a
+    commit, the file as it is now is read once and kept for the binding."""
+    root = Path(root).resolve()
+    if not base_commit:
+        return PinnedDeclaration(declared_servers(root), "the worktree when the tools were bound")
+    if not re.fullmatch(r"[0-9a-fA-F]{7,64}", base_commit):
+        return PinnedDeclaration(f"the base commit {_echo(base_commit, 80)!r} is not a commit id",
+                                 "nothing: no usable base commit")
+    base = ["git", "--no-pager", "-c", "safe.directory=*"]
+    for setting in GIT_FIXED_SETTINGS:
+        base += ["-c", setting]
+    base += ["-C", str(root)]
+    env = _git_environment()
+    deadline = time.monotonic() + timeout_s
+    source = f"commit {base_commit[:12]} (the worktree's base)"
+    try:
+        ancestor = _execute([*base, "merge-base", "--is-ancestor", base_commit, "HEAD"],
+                            cwd=root, env=env, timeout_s=timeout_s, cancel=None)
+        if ancestor.returncode != 0:
+            return PinnedDeclaration(
+                f"the worktree's base commit {base_commit[:12]} is not an ancestor of its HEAD",
+                "nothing: the base commit could not be confirmed")
+        listed = _execute([*base, "ls-tree", "--name-only", base_commit, "--", CONFIG_FILE],
+                          cwd=root, env=env, timeout_s=max(0.1, deadline - time.monotonic()),
+                          cancel=None)
+        if listed.returncode != 0:
+            return PinnedDeclaration(f"{CONFIG_FILE} at {base_commit[:12]} could not be read",
+                                     source)
+        if not listed.stdout.strip():
+            return PinnedDeclaration(None, source)
+        shown = _execute([*base, "show", f"{base_commit}:{CONFIG_FILE}"], cwd=root, env=env,
+                         timeout_s=max(0.1, deadline - time.monotonic()), cancel=None,
+                         max_bytes=MAX_CONFIG_BYTES)
+    except OSError as exc:
+        return PinnedDeclaration(f"git could not run ({type(exc).__name__})", source)
+    if shown.returncode != 0 or shown.output_capped or shown.timed_out:
+        return PinnedDeclaration(f"{CONFIG_FILE} at {base_commit[:12]} could not be read", source)
+    try:
+        text = shown.stdout.decode("utf-8")
+    except UnicodeDecodeError:
+        return PinnedDeclaration(f"{CONFIG_FILE} at {base_commit[:12]} is not UTF-8", source)
+    return PinnedDeclaration(_parse_declaration(text), source)
 
 
 def _glob_matches(pattern: str, relative: str) -> bool:
@@ -1907,9 +1984,8 @@ class _ServerSession:
     def start(self, deadline: float, cancel: threading.Event | None) -> None:
         self.private = _private_folder(self.root)
         env = _base_environment(self.private)
-        env["PATH"] = os.pathsep.join(dict.fromkeys(
-            [str(self.program.parent), *LANGUAGE_SERVER_DIRS, "/usr/local/bin", "/usr/bin",
-             "/bin"]))
+        env["PATH"] = os.pathsep.join(dict.fromkeys([str(self.program.parent),
+                                                     *SERVER_PATH_DIRS]))
         env.update(dict(self.entry.env))
         self.client = LspClient([str(self.program), *self.entry.command[1:]],
                                 cwd=self.server_root, env=env, workspace=self.server_root)
@@ -1987,7 +2063,10 @@ class ReferenceServers:
     If it never does, they are stopped when this object is collected or the
     interpreter exits. A closed binding can be used again; it starts afresh."""
 
-    def __init__(self) -> None:
+    def __init__(self, pinned: PinnedDeclaration | None = None) -> None:
+        #: The declaration this binding uses; ``None`` reads the root's file
+        #: on each call (a commit snapshot, which cannot change).
+        self.pinned = pinned
         self._lock = threading.Lock()
         self._sessions: dict[tuple[str, ServerEntry], _ServerSession] = {}
         self._finalizer = weakref.finalize(self, _close_sessions, self._sessions, self._lock)
@@ -2212,7 +2291,11 @@ def _references(
 ) -> None:
     facts.coverage["install_state"] = install_state
     literal = "; use code_search in literal mode"
-    declared = declared_servers(call.root)
+    if servers.pinned is not None:
+        declared = servers.pinned.servers
+        facts.coverage["declaration"] = servers.pinned.source
+    else:
+        declared = declared_servers(call.root)
     if declared is None:
         facts.unsupported = (f"the project declares no language server (toolchain."
                              f"language_servers in {CONFIG_FILE}){literal}")

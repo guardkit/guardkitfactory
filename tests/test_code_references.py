@@ -296,6 +296,67 @@ def test_programs_are_found_only_in_the_fixed_folders(
     assert code_search.server_program("srv") is None  # never the caller's PATH
 
 
+def test_the_toolchain_folder_is_not_searched(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``/usr/local/go/bin/go`` would run any code a declaration named."""
+    monkeypatch.delenv(code_search.LANGUAGE_SERVER_DIR_ENV, raising=False)
+    assert code_search.LANGUAGE_SERVER_DIRS == ("/opt/language-servers/bin",)
+    assert code_search.server_program("go") is None
+    assert code_search.server_program("gofmt") is None
+    # The server's own PATH still has the toolchains it runs.
+    assert "/usr/local/go/bin" in code_search.SERVER_PATH_DIRS
+
+
+def _git(root: Path, *args: str) -> str:
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(root), "GIT_AUTHOR_NAME": "t",
+           "GIT_AUTHOR_EMAIL": "t@example.invalid", "GIT_COMMITTER_NAME": "t",
+           "GIT_COMMITTER_EMAIL": "t@example.invalid", "GIT_CONFIG_GLOBAL": "/dev/null",
+           "GIT_CONFIG_NOSYSTEM": "1"}
+    return subprocess.run(["git", "-C", str(root), *args], check=True, capture_output=True,
+                          text=True, env=env).stdout.strip()
+
+
+def _repo_with_declaration(root: Path, entry: dict[str, Any]) -> str:
+    """A repository on ``main`` declaring ``entry``, then a build branch;
+    returns the base commit."""
+    root.mkdir(parents=True, exist_ok=True)
+    _declare(root, [entry])
+    _git(root, "init", "-q", "-b", "main")
+    _git(root, "add", "-A")
+    _git(root, "commit", "-qm", "base")
+    _git(root, "checkout", "-q", "-b", "autobuild/feature")
+    return _git(root, "rev-parse", "HEAD")
+
+
+def test_the_declaration_is_pinned_at_the_base_commit(tmp_path: Path) -> None:
+    root = (tmp_path / "repo").resolve()
+    base = _repo_with_declaration(root, {"command": ["first-server"], "files": ["**/*.py"]})
+    _declare(root, [{"command": ["second-server"], "files": ["**/*.py"]}])
+    _git(root, "commit", "-qam", "the builder changes the server")
+    _declare(root, [{"command": ["third-server"], "files": ["**/*.py"]}])
+    pinned = code_search.pin_declaration(root, base)
+    assert isinstance(pinned.servers, list)
+    assert [e.command for e in pinned.servers] == [("first-server",)]
+    assert pinned.source.startswith(f"commit {base[:12]}")
+    # A commit the worktree does not descend from is refused, not read.
+    other = _git(root, "commit-tree", "-m", "x", f"{base}^{{tree}}")
+    refused = code_search.pin_declaration(root, other)
+    assert isinstance(refused.servers, str) and "not an ancestor" in refused.servers
+    assert isinstance(code_search.pin_declaration(root, "HEAD; rm").servers, str)
+    # No declaration at the base commit: none, whatever the worktree says now.
+    bare = (tmp_path / "bare").resolve()
+    bare.mkdir()
+    (bare / "a.py").write_text("x = 1\n")
+    _git(bare, "init", "-q", "-b", "main")
+    _git(bare, "add", "-A")
+    _git(bare, "commit", "-qm", "base")
+    _declare(bare, [{"command": ["planted"], "files": ["**/*.py"]}])
+    assert code_search.pin_declaration(bare, _git(bare, "rev-parse", "HEAD")).servers is None
+    # Without a base commit the file is read once, now.
+    now = code_search.pin_declaration(root, None)
+    assert [e.command for e in now.servers] == [("third-server",)]  # type: ignore[union-attr]
+    assert "when the tools were bound" in now.source
+
+
 def test_install_state_is_said_never_guessed() -> None:
     state = code_search._install_state
     assert state("installed", False, True) == "installed"
@@ -497,6 +558,19 @@ def test_a_server_that_fails_is_a_tool_error_never_no_uses(
 
 
 @needs_ripgrep
+def test_a_command_outside_the_server_folder_is_unsupported(
+    fake_dir: Path, project: Path
+) -> None:
+    for command in (["go", "run", "./pwn"], ["sh", "-c", "touch /tmp/pwned"]):
+        _declare(project, [{**_fake_entry(), "command": command}])
+        answer = code_search.run("references", project, name="store_total",
+                                 path="pkg/store.py", line=2)
+        assert answer["status"] == "unsupported", answer
+        assert f"{command[0]!r} is not installed in" in answer["note"]
+        assert "/usr/local/go/bin" not in answer["note"].split("installed in", 1)[1]
+
+
+@needs_ripgrep
 def test_bad_arguments_are_input_errors(fake_dir: Path, project: Path) -> None:
     _declare(project, [_fake_entry()])
     for kwargs, words in (
@@ -583,6 +657,44 @@ def test_the_tool_offers_references_and_closes_its_servers(
     assert not _gone(pid)  # kept for the binding
     close_code_search_tools(tools)
     assert _wait_gone(pid)
+
+
+@needs_ripgrep
+def test_editing_the_declaration_after_binding_changes_nothing(
+    fake_dir: Path, project: Path, tmp_path: Path
+) -> None:
+    if not code_search.available()[0]:
+        pytest.skip("the tools are offered only with every pinned program installed")
+    from guardkitfactory.harness.code_search_tools import (
+        close_code_search_tools,
+        code_search_tools,
+    )
+
+    pinned_pid, edited_pid = tmp_path / "pinned.pid", tmp_path / "edited.pid"
+    _repo_with_declaration(project, _fake_entry(env={"FAKE_LSP_PID": str(pinned_pid)}))
+    tools, _ = code_search_tools(project)
+    tool = next(t for t in tools if t.name == "code_references")
+    edited = _fake_entry(env={"FAKE_LSP_PID": str(edited_pid)})
+    try:
+        # An edit in the worktree after the tools were bound.
+        _declare(project, [edited])
+        answer = json.loads(tool.invoke({"name": "store_total", "path": "pkg/store.py",
+                                         "line": 2}))
+        assert answer["status"] == "ok", answer
+        assert answer["coverage"]["declaration"].startswith("commit ")
+        assert pinned_pid.exists() and not edited_pid.exists()
+    finally:
+        close_code_search_tools(tools)
+    # Committed on the build branch: the next binding still uses the base's.
+    _git(project, "commit", "-qam", "the builder changes the server")
+    tools, _ = code_search_tools(project)
+    try:
+        tool = next(t for t in tools if t.name == "code_references")
+        answer = json.loads(tool.invoke({"name": "store_total", "path": "pkg/store.py",
+                                         "line": 2}))
+        assert answer["status"] == "ok" and not edited_pid.exists()
+    finally:
+        close_code_search_tools(tools)
 
 
 # -- real language servers (skipped unless installed) ---------------------------------
