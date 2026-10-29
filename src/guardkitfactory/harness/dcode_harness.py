@@ -114,21 +114,23 @@ def _only_project_skills(config: PlayerConfig) -> Iterator[list[tuple[Any, ...]]
     import deepagents_code.agent as dcode_agent
 
     used: list[tuple[Any, ...]] = []
-    try:
-        original = dcode_agent.get_skill_sources
-    except AttributeError:
-        logger.error(
-            "dcode Player: deepagents_code.agent.get_skill_sources is gone; the "
-            "builder may also be shown dcode's built-in skills"
-        )
-        yield used
-        return
-
-    def project_only(*args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
-        used[:] = project_skill_sources(original(*args, **kwargs), config)
-        return list(used)
-
+    # The original is read inside the lock, so two overlapping launches never
+    # capture (and later restore) each other's wrapper.
     with _SKILL_SOURCES_LOCK:
+        try:
+            original = dcode_agent.get_skill_sources
+        except AttributeError:
+            logger.error(
+                "dcode Player: deepagents_code.agent.get_skill_sources is gone; the "
+                "builder may also be shown dcode's built-in skills"
+            )
+            yield used
+            return
+
+        def project_only(*args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+            used[:] = project_skill_sources(original(*args, **kwargs), config)
+            return list(used)
+
         dcode_agent.get_skill_sources = project_only
         try:
             yield used
