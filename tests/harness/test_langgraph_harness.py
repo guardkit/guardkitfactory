@@ -161,7 +161,9 @@ class TestHappyPath:
         assert kwargs["backend"] is None
         assert kwargs["permissions"] is None
         assert "write_todos" in kwargs["system_prompt"]
-        assert "Review the implementation independently" in kwargs["system_prompt"]
+        # The build reviewer design of 29 October 2026: no reviewer
+        # instructions here; they are GuardKit's prompt.
+        assert "Review the implementation independently" not in kwargs["system_prompt"]
         assert len(kwargs["middleware"]) == 1
         assert type(kwargs["middleware"][0]).__name__ == "TodoListMiddleware"
 
@@ -1629,7 +1631,9 @@ def test_real_graph_uses_chat_completions_prompt_and_runtime_tools(
     assert "write_todos" in system_text
     assert "project-declared protected paths" in system_text
     assert "tests/acceptance" not in system_text
-    assert "structured verdict" in system_text
+    # The build reviewer design of 29 October 2026: the reviewer's own
+    # instructions (the "structured verdict" block) are GuardKit's prompt only.
+    assert "structured verdict" not in system_text
 
     use_events = [event for event in events if isinstance(event, ToolUseEvent)]
     assert [event.name for event in use_events] == [name for name, _ in calls]
@@ -1954,8 +1958,14 @@ def _run_scripted_graph(
     calls: list[tuple[str, dict[str, Any]]],
     role: str = "coach",
     backend: Any = None,
+    recursion_limit: int | None = 80,
+    language_servers: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], list[Any]]:
-    """Run one real graph turn; return (request bodies, harness events)."""
+    """Run one real graph turn; return (request bodies, harness events).
+
+    A request that offers no tools (the tool limit's final call) is answered
+    with the verdict text, whatever calls are left.
+    """
 
     bodies: list[dict[str, Any]] = []
 
@@ -1982,7 +1992,7 @@ def _run_scripted_graph(
         body = json.loads(request.content)
         bodies.append(body)
         index = len(bodies) - 1
-        if index < len(calls):
+        if index < len(calls) and body.get("tools"):
             name, arguments = calls[index]
             return _response(
                 {
@@ -2025,7 +2035,8 @@ def _run_scripted_graph(
     harness = LangGraphHarness(
         model="openai:flash-next-t06",
         backend=backend if backend is not None else build_autobuild_backend(worktree),
-        recursion_limit=80,
+        recursion_limit=recursion_limit,
+        language_servers=language_servers,
     )
 
     async def _collect() -> list[Any]:
@@ -2205,6 +2216,88 @@ def test_player_and_tool_using_coach_graphs_are_unchanged(
         assert "allowed_tools" not in create.call_args.kwargs, (request, role)
 
 
+def test_read_only_reviewer_has_a_tool_limit_that_ends_with_an_answer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The build reviewer design of 29 October 2026: the reviewer's read-only
+    pass may make 40 tool-using model turns; then its tools are withdrawn and
+    it is asked for its answer, which comes back as the turn's text (the old
+    12-step ceiling threw everything away instead). No step ceiling is set,
+    as GuardKit no longer sets one."""
+    from guardkitfactory.harness.tool_loop import MAX_TOOL_TURNS_PER_RUN
+
+    worktree = _review_worktree(tmp_path)
+    calls = [
+        ("read_file", {"file_path": str(worktree / "counter.mjs"), "offset": i})
+        for i in range(MAX_TOOL_TURNS_PER_RUN + 5)
+    ]
+    bodies, events = _run_scripted_graph(
+        monkeypatch,
+        worktree,
+        tools=["Read", "Search", "Grep", "Glob"],
+        calls=calls,
+        recursion_limit=None,
+    )
+
+    assert MAX_TOOL_TURNS_PER_RUN == 40
+    assert len(bodies) == MAX_TOOL_TURNS_PER_RUN + 1
+    assert all(_bound(body) for body in bodies[:MAX_TOOL_TURNS_PER_RUN])
+    final = bodies[MAX_TOOL_TURNS_PER_RUN]
+    assert not final.get("tools")
+    assert "Tool use has ended for this answer" in json.dumps(final["messages"][-1])
+    (answer,) = [e for e in events if isinstance(e, AssistantMessageEvent)]
+    assert answer.text == '{"verdict":"approve","findings":[]}'
+    assert len(_results_by_call(events)) == MAX_TOOL_TURNS_PER_RUN
+
+
+def test_read_only_reviewer_stops_on_a_repeated_identical_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A third identical call is not run, and the next model call is the final
+    one, without tools."""
+    worktree = _review_worktree(tmp_path)
+    same = ("read_file", {"file_path": str(worktree / "counter.mjs")})
+    bodies, events = _run_scripted_graph(
+        monkeypatch,
+        worktree,
+        tools=["Read", "Search", "Grep", "Glob"],
+        calls=[same, same, same, same],
+    )
+
+    assert len(bodies) == 4
+    assert not bodies[3].get("tools")
+    results = _results_by_call(events)
+    assert not results["call-0"].is_error and not results["call-1"].is_error
+    assert results["call-2"].is_error
+    assert "already called with exactly these arguments" in str(results["call-2"].content)
+    (answer,) = [e for e in events if isinstance(e, AssistantMessageEvent)]
+    assert answer.text == '{"verdict":"approve","findings":[]}'
+
+
+def test_read_only_reviewer_gets_code_references_from_a_passed_declaration(
+    tmp_path: Path,
+) -> None:
+    """The reviewer's code tools are bound with the task's pinned declaration
+    when GuardKit passes one, and handed to ``invoke`` to close, as the
+    builder's are; with none passed there is no declaration to bind."""
+    from guardkitfactory.harness.langgraph_harness import read_only_allowlist
+
+    pinned = [{"command": ["gopls"], "files": ["**/*.go"]}]
+    allowed = read_only_allowlist(["Read", "Search", "Grep", "Glob"], "coach")
+    for passed in (pinned, None):
+        harness = LangGraphHarness(model="m", backend=object(), language_servers=passed)
+        bound = [MagicMock(name="tool")]
+        with patch(
+            "guardkitfactory.harness.code_search_tools.code_search_tools",
+            return_value=(bound, ""),
+        ) as search, patch("guardkitfactory.harness.langgraph_harness.create_deep_agent"):
+            harness._create_agent(
+                role="coach", cwd=tmp_path, resolved_model="m", allowed_tools=allowed
+            )
+        assert search.call_args.kwargs["language_servers"] == passed
+        assert harness._code_tools == bound
+
+
 def test_read_only_allowlist_table() -> None:
     from guardkitfactory.harness.code_search_tools import TOOL_NAMES
     from guardkitfactory.harness.langgraph_harness import read_only_allowlist
@@ -2249,6 +2342,7 @@ def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
         _AllowedToolsMiddleware,
         read_only_allowlist,
     )
+    from guardkitfactory.harness.tool_loop import ToolLoopGuardMiddleware
 
     fake_tools = [
         StructuredTool.from_function(func=lambda: "{}", name=name, description=name)
@@ -2267,11 +2361,15 @@ def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
         )
     kwargs = create.call_args.kwargs
     assert [tool.name for tool in kwargs["tools"]] == list(TOOL_NAMES)
-    (middleware,) = kwargs["middleware"]
+    # The allowlist, then the tool limit (the build reviewer design of 29
+    # October 2026); no todo list.
+    middleware, limit = kwargs["middleware"]
     assert isinstance(middleware, _AllowedToolsMiddleware)
-    assert not isinstance(middleware, TodoListMiddleware)
+    assert isinstance(limit, ToolLoopGuardMiddleware)
+    assert not any(isinstance(m, TodoListMiddleware) for m in kwargs["middleware"])
     assert middleware.allowed == allowed
     assert "code_search" in kwargs["system_prompt"]
+    assert "Review the implementation independently" not in kwargs["system_prompt"]
 
     # Read alone gives no code search tools.
     with patch(

@@ -81,6 +81,7 @@ from guardkitfactory.harness.player_config import (
     PlayerConfigError,
     revalidate_player_config,
 )
+from guardkitfactory.harness.tool_loop import ToolLoopGuardMiddleware
 
 logger = logging.getLogger(__name__)
 
@@ -92,15 +93,12 @@ Keep all file mutations inside approved roots and do not change project-declared
 Report concrete results and any verification that could not be completed.
 """
 
+# The build reviewer design of 29 October 2026: the reviewer's instructions
+# live in GuardKit's prompt only, so there is no "coach" entry here.
 _ROLE_AGENT_INSTRUCTIONS = {
     "player": """\
 Implement the requested change completely. Follow repository instructions,
 preserve existing behavior outside the requested scope, and run focused checks.
-""",
-    "coach": """\
-Review the implementation independently against the supplied acceptance
-criteria. Inspect the actual diff and test evidence, run focused checks when
-needed, and return the structured verdict requested by the user prompt.
 """,
 }
 
@@ -156,8 +154,9 @@ _CODE_SEARCH_REQUESTS = frozenset({"Search", "Grep"})
 # The tool names come from ``code_search_tools.TOOL_NAMES`` (imported above),
 # with no second list to keep in step. A name is only offered when the tools
 # bound to the worktree include it: ``code_references`` needs the task's
-# pinned ``language_servers``, which GuardKit passes for the Player only (29
-# October 2026), so the Coach is not given it.
+# pinned ``language_servers``, which GuardKit passes for the builder and, from
+# the build reviewer design of 29 October 2026, for the reviewer of a task it
+# pinned in this process (none on a resumed task).
 
 
 def read_only_allowlist(tools: Any, role: str) -> frozenset[str] | None:
@@ -189,21 +188,14 @@ any such call is refused. Base your answer on what you read and searched.
 Report concrete results and anything you could not check.
 """
 
-_READ_ONLY_ROLE_INSTRUCTIONS = {
-    "coach": """\
-Review the implementation independently against the supplied acceptance
-criteria. Inspect the actual changed files and any test evidence supplied, and
-return the structured verdict requested by the user prompt.
-""",
-}
-
 
 def _read_only_system_prompt_for_role(role: str, allowed: frozenset[str]) -> str:
-    role_instructions = _READ_ONLY_ROLE_INSTRUCTIONS.get(
-        role, "Complete the assigned review and report what you found.\n"
-    )
-    common = _READ_ONLY_AGENT_INSTRUCTIONS.format(tools=", ".join(sorted(allowed)))
-    return f"{common}\n{role_instructions}"
+    """The generic read-only lines, naming the tools offered.
+
+    The build reviewer design of 29 October 2026: what to review and how to
+    answer is in the caller's prompt (GuardKit's), for every role.
+    """
+    return _READ_ONLY_AGENT_INSTRUCTIONS.format(tools=", ".join(sorted(allowed)))
 
 
 def _tool_name(tool: Any) -> str | None:
@@ -455,18 +447,12 @@ _SYNTHESIS_DISABLE_THINKING_ENV = "GUARDKIT_COACH_SYNTHESIS_DISABLE_THINKING"
 # limit in place (LangGraph's default is 10007 in langgraph 1.2.11, and the
 # DeepAgents graph binds 9,999; not 25) — unchanged behaviour for the Player
 # and synthesis paths.
-# The Coach B-full Phase-A *gather* sets a SMALL value (see
-# ``AgentInvoker._invoke_coach_gather``): the gather is the load-bearing F20
-# surface — its tool-using agentic loop appends tool-result tokens every
-# round-trip, and ``max_turns`` is DROPPED on this substrate
-# (``selector._translate_kwargs_for_langgraph`` docstring), so this
-# ``recursion_limit`` is the ONLY hard bound on how many tool cycles the
-# gather can run. When the limit is reached LangGraph raises
-# ``GraphRecursionError``, which :meth:`invoke` wraps into
-# ``LangGraphHarnessError``; the orchestrator's gather catches it and
-# degrades to B-min (a verdict still emerges within budget — AC-2). A runaway
-# gather thus trips this ceiling within a few cycles instead of eating the
-# whole task budget and overflowing the 98 K window (run-22 TP05).
+# The build reviewer's read-only pass no longer sets one (the build reviewer
+# design of 29 October 2026): a step ceiling threw away everything the pass had
+# found when it tripped. Its bound is ``ToolLoopGuardMiddleware`` instead
+# (``tool_loop``), which ends with an answer. A caller may still pass a
+# ceiling; reaching it raises ``GraphRecursionError``, which :meth:`invoke`
+# wraps into ``LangGraphHarnessError``.
 _RECURSION_LIMIT_DEFAULT: int | None = None
 
 __all__ = ["LangGraphHarness", "LangGraphHarnessError", "PlayerLaunchRefused"]
@@ -815,16 +801,18 @@ class LangGraphHarness(HarnessAdapter):
         self.player_config = player_config
         # 29 October 2026: the task's ``toolchain.language_servers`` entries,
         # pinned by GuardKit before the builder's first turn, for the Player's
-        # ``code_references``. ``None`` offers no ``code_references``.
+        # and the read-only reviewer's ``code_references``. ``None`` offers no
+        # ``code_references``.
         self.language_servers = language_servers
-        # The code tools the Player graph being built bound; ``invoke`` takes
-        # them and stops their language servers in its ``finally``.
+        # The code tools the graph being built bound (the Player's, or the
+        # Coach's); ``invoke`` takes them and stops their language servers in
+        # its ``finally``.
         self._code_tools: list[Any] = []
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # leaves the graph's own limit (10007 by LangGraph's default in
-        # langgraph 1.2.11; 9,999 bound by DeepAgents). The Coach gather passes a small
-        # value to bound its tool-using loop; see module-level constant.
+        # langgraph 1.2.11; 9,999 bound by DeepAgents); see the module-level
+        # constant.
         self.recursion_limit = recursion_limit
         # TASK-FIX-CTOUT01: handle to the in-flight ``agent.ainvoke``
         # asyncio Task, exposed for cooperative cancellation by
@@ -873,9 +861,17 @@ class LangGraphHarness(HarnessAdapter):
             if role == "coach" and wants_code_search:
                 from guardkitfactory.harness.code_search_tools import code_search_tools
 
-                extra_tools, unavailable = code_search_tools(Path(cwd))
+                # The build reviewer design of 29 October 2026: with the
+                # task's pinned declaration passed, the reviewer gets
+                # code_references too, exactly as the builder does.
+                extra_tools, unavailable = code_search_tools(
+                    Path(cwd), language_servers=self.language_servers
+                )
                 if unavailable:
                     logger.info("Coach code search unavailable: %s", unavailable)
+                # ``invoke`` takes them and stops their language servers in
+                # its ``finally``, as it does for the Player's.
+                self._code_tools = list(extra_tools)
             if allowed_tools is not None:
                 # Name only the tools the model will really see: code search is
                 # absent when its pinned programs are not installed.
@@ -888,7 +884,15 @@ class LangGraphHarness(HarnessAdapter):
                 return create_deep_agent(
                     model=resolved_model,
                     tools=extra_tools,
-                    middleware=[_AllowedToolsMiddleware(allowed=allowed_tools)],
+                    # The allowlist first (outermost), so the tool limit sees
+                    # only the tools offered. The limit (the build reviewer
+                    # design of 29 October 2026): 40 tool-using model turns or
+                    # a repeated identical call, then the tools are withdrawn
+                    # and the answer asked for (``tool_loop``).
+                    middleware=[
+                        _AllowedToolsMiddleware(allowed=allowed_tools),
+                        ToolLoopGuardMiddleware(),
+                    ],
                     backend=self.backend,
                     permissions=self.permissions,
                     system_prompt=_read_only_system_prompt_for_role(role, offered),
@@ -1221,10 +1225,10 @@ class LangGraphHarness(HarnessAdapter):
         # ONLY when one is set. A ``None`` limit calls ``ainvoke`` with the
         # historical single-arg shape so the graph's own limit applies
         # (LangGraph's default is 10007 in langgraph 1.2.11; the DeepAgents
-        # graph binds 9,999) — unchanged Player/synthesis behaviour. A small limit (Coach
-        # gather) caps the tool-using loop; exceeding it raises
+        # graph binds 9,999) — unchanged Player/synthesis behaviour. A limit a
+        # caller sets caps the tool-using loop; exceeding it raises
         # ``GraphRecursionError`` which the wrap-and-reraise below turns into
-        # ``LangGraphHarnessError`` → orchestrator degrades to B-min (AC-2).
+        # ``LangGraphHarnessError``.
         # TASK-FIX-SPECINVOKE01: ``_build_invoke_config`` folds the
         # ``recursion_limit`` super-step ceiling together with the optional
         # model-activity callbacks. When BOTH are unset it returns ``None`` so

@@ -248,7 +248,11 @@ def test_coach_retains_shared_deep_agents_graph(tmp_path: Path) -> None:
         return_value=sentinel,
     ) as create:
         assert harness._create_agent(role="coach", cwd=repo, resolved_model=object()) is sentinel
-    assert "Review the implementation independently" in create.call_args.kwargs["system_prompt"]
+    # The build reviewer design of 29 October 2026: the reviewer's own
+    # instructions are GuardKit's prompt; the graph keeps only the generic ones.
+    assert "Review the implementation independently" not in create.call_args.kwargs[
+        "system_prompt"
+    ]
 
 
 def test_player_revalidates_sources_and_backend_worktree(tmp_path: Path) -> None:

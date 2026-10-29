@@ -194,6 +194,35 @@ def test_the_read_only_coach_is_not_given_code_references_without_a_declaration(
     assert not pid_file.exists(), "a language server was started for a worktree"
 
 
+def test_the_read_only_coach_gets_code_references_from_the_passed_declaration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The build reviewer design of 29 October 2026: with the task's pinned
+    declaration passed (GuardKit passes the one it kept in memory for the
+    builder), the reviewer's read-only pass is offered code_references, it
+    answers, and the server stops when the review ends."""
+    _fake_server(tmp_path, monkeypatch)
+    repo = _scaffold(tmp_path)
+    _git_init(repo)
+    pid_file = tmp_path / "server.pid"
+    exchange = Exchange(
+        [("code_references", {"name": "add", "path": "valid.py", "line": 1})],
+        final_text="findings: add has no callers outside valid.py",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo),
+                               language_servers=[_fake_entry(pid_file)])
+    try:
+        events = asyncio.run(_review(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+    assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
+    assert not {"write_file", "edit_file", "execute"} & set(exchange.requests[0]["offered"])
+    (answer,) = _answers(events)[:1]
+    assert answer["status"] == "ok", answer
+    assert _gone(int(pid_file.read_text())), "the server outlived the review"
+
+
 async def _review(harness: LangGraphHarness, repo: Path) -> list[Any]:
     return [
         event
