@@ -1706,8 +1706,7 @@ def _explain_empty_pattern(call: _Call, pattern: str, language: str, facts: _Fac
 # Over a worktree (the builder's) it is never a file in
 # the worktree, which the builder can write: the caller passes the entries
 # GuardKit pinned in memory before the builder's first turn
-# (``language_servers=``; ai-transition
-# docs/designs/builder-tools-and-instructions-2026-10-29.md). Passed entries
+# (``language_servers=``; the builder tools design of 29 October 2026). Passed entries
 # are checked exactly as declared ones.
 #
 # This module keeps no table of languages or servers. ``files`` globs are

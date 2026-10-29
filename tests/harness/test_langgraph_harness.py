@@ -2294,7 +2294,7 @@ def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
 # ---------------------------------------------------------------------------
 # 29 October 2026: code_references for the builder, how it is told to use the
 # code tools, and its servers stopped when each invocation ends
-# (ai-transition docs/designs/builder-tools-and-instructions-2026-10-29.md).
+# (the builder tools design of 29 October 2026).
 # ---------------------------------------------------------------------------
 
 _PINNED = [{"command": ["gopls"], "files": ["**/*.go"]}]

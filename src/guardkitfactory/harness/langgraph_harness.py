@@ -115,8 +115,8 @@ def _system_prompt_for_role(role: str) -> str:
 
 def _builder_look_up(code_tools: Sequence[str]) -> str | None:
     """The builder's look-up order, naming only the code tools offered;
-    ``None`` when none is (ai-transition
-    docs/designs/builder-tools-and-instructions-2026-10-29.md, Part 2)."""
+    ``None`` when none is (the builder tools design of 29 October 2026,
+    Part 2)."""
     if "code_search" not in code_tools:
         return None
     if "code_references" in code_tools:

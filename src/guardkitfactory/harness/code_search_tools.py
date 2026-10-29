@@ -15,8 +15,8 @@ the start commit) the declaration is the project's own committed one. Over a
 worktree (the builder's) it is offered only when the
 caller passes the declaration's entries (``language_servers=``: GuardKit pins
 them in memory before the builder's first turn), and those entries are used,
-never a file in the worktree, which the builder can write (29 October 2026;
-ai-transition docs/designs/builder-tools-and-instructions-2026-10-29.md). Its
+never a file in the worktree, which the builder can write (the builder tools
+design, 29 October 2026). Its
 servers are kept for the binding and stopped by
 :func:`close_code_search_tools`, which the binding's owner calls when it ends
 (if it never does, they stop when the binding is collected or at exit).
