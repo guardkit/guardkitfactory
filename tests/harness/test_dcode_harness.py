@@ -211,9 +211,9 @@ def test_real_graph_skills_helper_repair_and_metadata(tmp_path: Path) -> None:
     assert "./qa/run-suite.sh --exact" in supplied_messages
     assert "product_tests" in supplied_messages
     assert "Complete the checked change." in supplied_messages
-    assert "Documents to read first" in supplied_messages
-    assert "[selected skill]" in supplied_messages
-    assert "[project-declared document]" not in supplied_messages
+    assert "Documents to read first" not in supplied_messages
+    assert "When your task touches what a skill describes" in supplied_messages
+    assert "read the parts that bear on your task" not in supplied_messages
     assert "compact_conversation" in exchange.requests[0]["offered"]
     assert all(
         b["model"] == "qwen36-workhorse"
@@ -1360,8 +1360,8 @@ def test_inventory_reports_no_replay_for_a_plain_model(monkeypatch: pytest.Monke
 # --- Project-declared supporting documents (Lane A) -------------------------
 
 
-def test_declared_documents_join_the_required_reads(tmp_path: Path) -> None:
-    """The declared document is named to the Player after the skill bodies."""
+def test_declared_documents_are_listed_to_read_where_they_bear(tmp_path: Path) -> None:
+    """The declared document is listed to the Player with its first heading."""
 
     repo = _scaffold(tmp_path)
     document = declare_document(repo)
@@ -1382,9 +1382,9 @@ def test_declared_documents_join_the_required_reads(tmp_path: Path) -> None:
         assert [item["kind"] for item in required] == ["skill", "skill", "declared_document"]
         assert required[-1]["relative_path"].endswith("references/project-conventions.md")
         supplied = str(exchange.bodies[0]["messages"])
-        assert "Documents to read first" in supplied
-        assert "[project-declared document]" in supplied
-        assert "project-conventions.md" in supplied
+        assert "Documents to read first" not in supplied
+        assert "read the parts that bear on your task" in supplied
+        assert f"- {document}: Project conventions" in supplied
     finally:
         _close_clients(sync, async_)
 
@@ -1402,3 +1402,52 @@ def test_skill_only_declaration_is_unchanged(tmp_path: Path) -> None:
     required = required_skill_reads(selected)
     assert [item["kind"] for item in required] == ["skill", "skill"]
     assert [Path(item["path"]).name for item in required] == ["SKILL.md", "SKILL.md"]
+
+
+# --- The 29 October 2026 builder skills change ------------------------------
+
+_BUILT_IN_SKILLS = ("remember", "skill-creator", "deepagents-thread-inspector")
+
+
+def test_system_prompt_lists_only_the_projects_skills(tmp_path: Path) -> None:
+    """The built Player's instructions list the project's skills and none of
+    dcode's built-in ones; a declared skill folder dcode would not look in is
+    listed too."""
+
+    repo = _scaffold(tmp_path)
+    declared = repo / "team-skills" / "release-notes"
+    declared.mkdir(parents=True)
+    (declared / "SKILL.md").write_text(
+        "---\nname: release-notes\ndescription: Write the release notes.\n---\nbody\n"
+    )
+    selected = build_player_config(
+        cwd=repo,
+        dcode_home=os.environ["DEEPAGENTS_HOME"],
+        skills=["skills", "team-skills"],
+        memory=["AGENTS.md"],
+        repository_instructions=["AGENTS.md"],
+    )
+    exchange = Exchange([], final_text="skills listed")
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=selected)
+    try:
+        graph = harness._create_agent(role="player", cwd=repo, resolved_model=model)
+        events = asyncio.run(_collect(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+    assert any(isinstance(event, ResultMessageEvent) for event in events)
+    system = exchange.requests[0]["system"]
+    assert "**Available Skills:**" in system
+    for name in ("planning", "code-review", "release-notes"):
+        assert f"- **{name}**:" in system
+    for name in _BUILT_IN_SKILLS:
+        assert f"- **{name}**" not in system
+    assert "built_in_skills" not in system
+    sources = graph.guardkit_dcode_evidence["skill_sources"]
+    assert sources and all(Path(path).resolve().is_relative_to(repo.resolve()) for path in sources)
+    assert str((repo / "team-skills").resolve()) in sources
+
+    import deepagents_code.agent as dcode_agent
+
+    # The substitution lasts only while the graph is built.
+    assert dcode_agent.get_skill_sources.__module__ == "deepagents_code.agent"

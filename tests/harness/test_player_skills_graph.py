@@ -289,47 +289,65 @@ def test_required_dcode_dependency_failure_has_no_native_fallback(tmp_path: Path
     native.assert_not_called()
 
 
-def test_player_context_prompt_lists_both_required_kinds(tmp_path: Path) -> None:
-    """The user turn names skill bodies and declared documents, with hashes."""
+def test_player_context_prompt_lists_documents_to_read_where_they_bear(
+    tmp_path: Path,
+) -> None:
+    """The 29 October 2026 builder skills change: one rule for skills and
+    documents. The prompt no longer says to read everything first; each
+    declared document is listed with its first heading, and the skills are
+    left to the instructions' own list."""
 
     from guardkitfactory.harness.langgraph_harness import _player_context_prompt
 
     repo = _scaffold(tmp_path)
     document = (repo / "skills" / "planning" / "references").resolve()
     document.mkdir(parents=True, exist_ok=True)
-    (document / "project-conventions.md").write_text("# Conventions\n")
+    (document / "project-conventions.md").write_text("intro\n\n## Conventions\nbody\n")
+    (repo / "notes.md").write_text("no heading here\n")
     profile = repo.parent / "prompt-profile"
     profile.mkdir(exist_ok=True)
     selected = build_player_config(
         cwd=repo,
         dcode_home=profile,
         skills=["skills"],
-        required_documents=["skills/planning/references/project-conventions.md"],
+        required_documents=[
+            "skills/planning/references/project-conventions.md",
+            "notes.md",
+        ],
     )
+    conventions = document / "project-conventions.md"
     required = (
         {
-            "path": "/repo/skills/planning/SKILL.md",
+            "path": str(repo / "skills/planning/SKILL.md"),
             "relative_path": "skills/planning/SKILL.md",
             "kind": "skill",
         },
         {
-            "path": "/repo/skills/planning/references/project-conventions.md",
+            "path": str(conventions),
             "relative_path": "skills/planning/references/project-conventions.md",
+            "kind": "declared_document",
+        },
+        {
+            "path": str(repo.resolve() / "notes.md"),
+            "relative_path": "notes.md",
             "kind": "declared_document",
         },
     )
 
     prompt = _player_context_prompt(selected, required)
 
-    assert "Documents to read first" in prompt
-    assert "[selected skill] /repo/skills/planning/SKILL.md" in prompt
-    assert (
-        "[project-declared document] "
-        "/repo/skills/planning/references/project-conventions.md" in prompt
-    )
+    assert "Documents to read first" not in prompt
+    assert "read every document" not in prompt
+    assert "### Skills and project documents" in prompt
+    assert "When your task touches what a skill describes, read its SKILL.md" in prompt
+    assert "read the parts that bear on your task" in prompt
+    assert f"- {conventions}: Conventions" in prompt
+    assert f"- {repo.resolve() / 'notes.md'}\n" in prompt + "\n"
+    # The skill bodies are not in the document list; dcode lists the skills.
+    assert "skills/planning/SKILL.md" not in prompt
 
 
-def test_player_context_prompt_without_declarations_is_skill_only(
+def test_player_context_prompt_without_declarations_names_only_skills(
     tmp_path: Path,
 ) -> None:
     from guardkitfactory.harness.langgraph_harness import _player_context_prompt
@@ -341,12 +359,11 @@ def test_player_context_prompt_without_declarations_is_skill_only(
             {
                 "path": "/repo/skills/planning/SKILL.md",
                 "relative_path": "skills/planning/SKILL.md",
-                "sha256": "cc" * 32,
-                "line_count": 7,
                 "kind": "skill",
             },
         ),
     )
 
-    assert "[selected skill]" in prompt
-    assert "[project-declared document]" not in prompt
+    assert "When your task touches what a skill describes" in prompt
+    assert "read the parts that bear on your task" not in prompt
+    assert "/repo/skills/planning/SKILL.md" not in prompt

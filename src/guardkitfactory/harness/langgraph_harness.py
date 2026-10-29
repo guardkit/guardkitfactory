@@ -269,10 +269,28 @@ class _AllowedToolsMiddleware(AgentMiddleware):
         return await handler(request)
 
 
-_READ_KINDS = {
-    "skill": "selected skill",
-    "declared_document": "project-declared document",
-}
+_TITLE_SCAN_BYTES = 4096
+_TITLE_MAX_CHARS = 100
+
+
+def _document_title(path: Path) -> str | None:
+    """The first Markdown heading near the top of a document, if any.
+
+    Only the first few kilobytes are read; nothing is said when there is no
+    heading or the file cannot be read.
+    """
+    try:
+        with path.open("r", encoding="utf-8", errors="replace") as handle:
+            head = handle.read(_TITLE_SCAN_BYTES)
+    except OSError:
+        return None
+    for line in head.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            title = stripped.lstrip("#").strip()
+            if title:
+                return title[:_TITLE_MAX_CHARS]
+    return None
 
 
 def _player_context_prompt(
@@ -293,17 +311,33 @@ def _player_context_prompt(
         for path in config.repository_instructions:
             relative = path.relative_to(config.cwd)
             sections.append(f"#### {relative}\n{path.read_text(encoding='utf-8')}")
-    if required_skill_documents:
-        sections.append(
-            "### Documents to read first\n"
-            "Use read_file to read every document below before you start: the "
-            "selected skill bodies and the documents this project declared."
-        )
-        sections.extend(
-            f"- [{_READ_KINDS.get(str(item.get('kind', 'skill')), 'required document')}] "
-            f"{item['path']}"
-            for item in required_skill_documents
-        )
+    # The 29 October 2026 builder skills change: one rule for skills and
+    # documents. dcode lists the project's skills (name and description) in
+    # the instructions; the declared documents are listed here. Before, this
+    # section told the builder to read every skill body and document first,
+    # 130,000-170,000 characters on every turn, against dcode's own advice.
+    documents = [
+        item for item in required_skill_documents if item.get("kind") == "declared_document"
+    ]
+    if config.skills or documents:
+        lines = ["### Skills and project documents"]
+        if config.skills:
+            lines.append(
+                "Your instructions list this project's skills by name and description. "
+                "When your task touches what a skill describes, read its SKILL.md with "
+                "read_file, and only the parts of it you need."
+            )
+        if documents:
+            lines.append(
+                "The project's documents are listed below. Do not read them all before "
+                "you start: read the parts that bear on your task (read_file with offset "
+                "and limit for a long one)."
+            )
+            for item in documents:
+                title = _document_title(Path(str(item["path"])))
+                suffix = f": {title}" if title else ""
+                lines.append(f"- {item['path']}{suffix}")
+        sections.append("\n".join(lines))
     if config.declared_commands:
         sections.append("### Project-declared commands (use unchanged)")
         sections.extend(f"- {name}: `{command}`" for name, command in config.declared_commands)

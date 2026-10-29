@@ -15,7 +15,8 @@ import os
 import sys
 import threading
 import time
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from pathlib import Path
 from types import FrameType
 from typing import Any, NoReturn, cast
@@ -37,12 +38,14 @@ def _refuse(message: str) -> NoReturn:
 
 
 def required_skill_reads(config: PlayerConfig) -> tuple[dict[str, Any], ...]:
-    """Every document the Player is asked to read: skills, then declarations.
+    """The project's declared skill files and documents: skills, then documents.
 
     The selected ``SKILL.md`` bodies come first and carry ``kind="skill"``; the
     project-declared supporting documents follow and carry
-    ``kind="declared_document"``. They are named in the Player's prompt; since
-    27 October 2026 nothing checks that they were read.
+    ``kind="declared_document"``. Since the 29 October 2026 builder skills
+    change the Player is no longer told to read them all first: the skills are
+    listed in its instructions by dcode, and the documents are listed in its
+    prompt to read where they bear on the task. Nothing checks what it read.
     """
 
     reads: list[dict[str, Any]] = []
@@ -58,6 +61,79 @@ def required_skill_reads(config: PlayerConfig) -> tuple[dict[str, Any], ...]:
 def _read_entry(path: Path, *, config: PlayerConfig, kind: str) -> dict[str, Any]:
     relative = path.relative_to(config.cwd) if path.is_relative_to(config.cwd) else path
     return {"path": str(path), "relative_path": str(relative), "kind": kind}
+
+
+_SKILL_SOURCES_LOCK = threading.Lock()
+
+
+def project_skill_sources(
+    sources: Sequence[tuple[Any, ...]], config: PlayerConfig
+) -> list[tuple[Any, ...]]:
+    """The project's own skill folders, out of the sources dcode assembled.
+
+    The 29 October 2026 builder skills change (Rich: "please action all 4").
+    dcode also lists its built-in skills (``remember``, which would have the
+    builder write ``AGENTS.md``, ``skill-creator`` and
+    ``deepagents-thread-inspector``), any plugin skills and the launch user's
+    own skill folders. Only folders inside the task worktree are kept, once
+    each, in dcode's order; then each folder the project declares in
+    ``autobuild.player.skills`` that dcode did not find (dcode looks only in
+    ``.deepagents/skills``, ``.agents/skills`` and ``.claude/skills``) is
+    added, so every declared skill is still listed.
+    """
+    kept: list[tuple[Any, ...]] = []
+    seen: set[Path] = set()
+    for source in sources:
+        try:
+            resolved = Path(str(source[0])).resolve()
+        except (OSError, RuntimeError, IndexError):
+            continue
+        if resolved.is_relative_to(config.cwd) and resolved not in seen:
+            seen.add(resolved)
+            kept.append(tuple(source))
+    for declared in config.skills:
+        if declared not in seen:
+            seen.add(declared)
+            kept.append((str(declared), "Project"))
+    return kept
+
+
+@contextmanager
+def _only_project_skills(config: PlayerConfig) -> Iterator[list[tuple[Any, ...]]]:
+    """Give dcode only the project's skill folders while the graph is built.
+
+    The pinned deepagents-code (0.1.69) has no setting for leaving out its
+    built-in skills: ``create_cli_agent`` asks its public
+    ``deepagents_code.agent.get_skill_sources`` for the folders and passes
+    them to the skills middleware. For the length of that one call (under a
+    lock, restored afterwards) the function is wrapped so its answer is
+    filtered by :func:`project_skill_sources`. The folders used are yielded
+    for the launch evidence; ``tests/harness/test_dcode_harness.py`` pins
+    that the built-in skills are absent from the system prompt.
+    """
+    import deepagents_code.agent as dcode_agent
+
+    used: list[tuple[Any, ...]] = []
+    try:
+        original = dcode_agent.get_skill_sources
+    except AttributeError:
+        logger.error(
+            "dcode Player: deepagents_code.agent.get_skill_sources is gone; the "
+            "builder may also be shown dcode's built-in skills"
+        )
+        yield used
+        return
+
+    def project_only(*args: Any, **kwargs: Any) -> list[tuple[Any, ...]]:
+        used[:] = project_skill_sources(original(*args, **kwargs), config)
+        return list(used)
+
+    with _SKILL_SOURCES_LOCK:
+        dcode_agent.get_skill_sources = project_only
+        try:
+            yield used
+        finally:
+            dcode_agent.get_skill_sources = original
 
 
 def _refuse_launch(message: str, profile: Path | None) -> NoReturn:
@@ -373,31 +449,34 @@ def create_dcode_player(
     search_tools, search_unavailable = code_search_tools(
         cwd, language_servers=language_servers
     )
-    graph, effective = create_cli_agent(
-        model=model,
-        tools=search_tools,
-        assistant_id=_AGENT,
-        sandbox=adapted,
-        interactive=False,
-        auto_approve=True,
-        auto_mode_enabled=False,
-        enable_ask_user=False,
-        enable_memory=bool(config.memory),
-        memory_auto_save=False,
-        enable_skills=bool(config.skills),
-        enable_shell=True,
-        enable_interpreter=False,
-        cwd=cwd,
-        project_context=context,
-        recursion_limit=recursion_limit,
-        model_retries=0,
-        cli_max_retries=0,
-        environ=dcode_environment,
-    )
+    with _only_project_skills(config) as skill_sources:
+        graph, effective = create_cli_agent(
+            model=model,
+            tools=search_tools,
+            assistant_id=_AGENT,
+            sandbox=adapted,
+            interactive=False,
+            auto_approve=True,
+            auto_mode_enabled=False,
+            enable_ask_user=False,
+            enable_memory=bool(config.memory),
+            memory_auto_save=False,
+            enable_skills=bool(config.skills),
+            enable_shell=True,
+            enable_interpreter=False,
+            cwd=cwd,
+            project_context=context,
+            recursion_limit=recursion_limit,
+            model_retries=0,
+            cli_max_retries=0,
+            environ=dcode_environment,
+        )
     tools = sorted(cast(Any, graph.nodes["tools"].bound).tools_by_name)
     evidence = {
         "model": settings,
         "tools": tools,
+        # The project's skill folders the builder's instructions list.
+        "skill_sources": [str(source[0]) for source in skill_sources],
         "code_search": {
             "tools": [tool.name for tool in search_tools],
             "unavailable": search_unavailable,
