@@ -1926,13 +1926,13 @@ _REFUSED_PATH = Path("/tmp/count-check/build.mjs")
 
 
 def _available_code_search_tools() -> set[str]:
-    """The code tools a worktree binding offers (code_references is bound
-    only over a commit snapshot, so the Coach never gets it)."""
+    """The code tools a worktree binding offers with no language server
+    declaration passed (code_references needs one)."""
     from guardkitfactory import code_search
-    from guardkitfactory.harness.code_search_tools import SNAPSHOT_ONLY_TOOL_NAMES, TOOL_NAMES
+    from guardkitfactory.harness.code_search_tools import DECLARATION_TOOL_NAMES, TOOL_NAMES
 
     ready, _why = code_search.available()
-    return set(TOOL_NAMES) - set(SNAPSHOT_ONLY_TOOL_NAMES) if ready else set()
+    return set(TOOL_NAMES) - set(DECLARATION_TOOL_NAMES) if ready else set()
 
 
 def _review_worktree(tmp_path: Path) -> Path:
@@ -2289,3 +2289,91 @@ def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
     assert create.call_args.kwargs["tools"] == []
     search.assert_not_called()
     assert "code_search" not in create.call_args.kwargs["system_prompt"]
+
+
+# ---------------------------------------------------------------------------
+# 29 October 2026: code_references for the builder, how it is told to use the
+# code tools, and its servers stopped when each invocation ends
+# (ai-transition docs/designs/builder-tools-and-instructions-2026-10-29.md).
+# ---------------------------------------------------------------------------
+
+_PINNED = [{"command": ["gopls"], "files": ["**/*.go"]}]
+
+
+def test_player_context_names_the_look_up_order_only_when_tools_are_offered(
+    tmp_path: Path,
+) -> None:
+    profile = tmp_path / "dcode-profile"
+    profile.mkdir()
+    config = build_player_config(cwd=tmp_path, dcode_home=profile)
+
+    assert "Code look-up tools" not in _player_context_prompt(config)
+    every = _player_context_prompt(
+        config, (), ["code_search", "code_outline", "code_pattern", "code_references"]
+    )
+    assert "### Code look-up tools" in every
+    assert "You have code_search, code_outline, code_pattern, code_references." in every
+    assert "1. Before changing a function, type, field, setting or route" in every
+    assert "code_references with the name and a file that defines it" in every
+    assert "Change the callers and tests it finds in this task" in every
+    assert "2. Before creating a file, check it does not exist" in every
+    assert "3. After a rename, a move or a signature change" in every
+    assert "declared test command" in every
+    assert "4. code_pattern finding nothing is not evidence of no uses" in every
+    assert "Do not repeat a look-up unless you have changed files since" in every
+    without = _player_context_prompt(config, (), ["code_search", "code_outline", "code_pattern"])
+    assert "### Code look-up tools" in without
+    assert "code_references" not in without
+    assert "code_search in literal mode with the name" in without
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_the_players_code_tools_get_the_declaration_and_close_when_invoke_ends(
+    tmp_path: Path, fails: bool
+) -> None:
+    from types import SimpleNamespace
+
+    from langchain_core.tools import StructuredTool
+
+    tools = [
+        StructuredTool.from_function(func=lambda: "{}", name=name, description=name)
+        for name in ("code_search", "code_outline", "code_pattern", "code_references")
+    ]
+    graph = _make_fake_agent()
+    graph.guardkit_code_search_tools = tools
+    if fails:
+        graph.ainvoke = AsyncMock(side_effect=RuntimeError("model went away"))
+    profile = tmp_path / "dcode-profile"
+    profile.mkdir()
+    worktree = tmp_path / "worktree"
+    worktree.mkdir()
+    harness = LangGraphHarness(
+        model="ignored",
+        backend=SimpleNamespace(cwd=worktree),
+        player_config=build_player_config(cwd=worktree, dcode_home=profile),
+        language_servers=_PINNED,
+    )
+
+    async def _collect() -> None:
+        async for _event in harness.invoke(
+            prompt="Do the task.", role="player", tools=[], cwd=worktree, timeout_seconds=30
+        ):
+            pass
+
+    with patch(
+        "guardkitfactory.harness.dcode_harness.create_dcode_player", return_value=graph
+    ) as create, patch(
+        "guardkitfactory.harness.langgraph_harness.close_code_search_tools"
+    ) as close, patch.object(
+        LangGraphHarness, "_resolve_model_for_invoke", return_value="ignored"
+    ):
+        if fails:
+            with pytest.raises(LangGraphHarnessError):
+                asyncio.run(_collect())
+        else:
+            asyncio.run(_collect())
+    assert create.call_args.kwargs["language_servers"] is _PINNED
+    sent = graph.ainvoke.call_args.args[0]["messages"][0]["content"]
+    assert "### Code look-up tools" in sent and "code_references" in sent
+    assert sent.endswith("## Assigned task\n\nDo the task.")
+    close.assert_called_once_with(tools)

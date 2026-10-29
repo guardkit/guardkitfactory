@@ -15,6 +15,7 @@ import os
 import sys
 import threading
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from types import FrameType
 from typing import Any, NoReturn, cast
@@ -330,8 +331,14 @@ def create_dcode_player(
     cwd: Path,
     config: PlayerConfig,
     recursion_limit: int | None,
+    language_servers: Sequence[Mapping[str, Any]] | None = None,
 ) -> Any:
-    """Construct dcode lazily after the harness's launch settings are checked."""
+    """Construct dcode lazily after the harness's launch settings are checked.
+
+    ``language_servers`` (the task's pinned declaration entries) adds
+    ``code_references`` to the code tools; the bound tools are left on the
+    graph as ``guardkit_code_search_tools`` so the caller can stop their
+    language servers when the invocation ends."""
     profile = _validate_launch(config)
     settings = _validate_model(model, config)
     from deepagents_code._env_vars import EXPERIMENTAL
@@ -363,7 +370,9 @@ def create_dcode_player(
     dcode_environment[EXPERIMENTAL] = "1"
     # Read-only code search over this worktree; none when the pinned programs
     # are not installed, and the reason goes into the launch evidence.
-    search_tools, search_unavailable = code_search_tools(cwd)
+    search_tools, search_unavailable = code_search_tools(
+        cwd, language_servers=language_servers
+    )
     graph, effective = create_cli_agent(
         model=model,
         tools=search_tools,
@@ -401,6 +410,7 @@ def create_dcode_player(
     # Diagnostics stay on the graph; the factory retains its shared invoke and
     # cancellation ownership, with no wrapper graph or additional task.
     cast(Any, graph).guardkit_dcode_evidence = evidence
+    cast(Any, graph).guardkit_code_search_tools = list(search_tools)
     cast(Any, graph).guardkit_dcode_backend = effective
     logger.info("dcode Player construction inventory: %s", evidence)
     return graph

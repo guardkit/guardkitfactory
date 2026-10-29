@@ -15,6 +15,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -23,7 +24,7 @@ from guardkit.orchestrator.harness import ToolResultEvent
 
 from guardkitfactory import code_search
 from guardkitfactory.harness.code_search_tools import (
-    SNAPSHOT_ONLY_TOOL_NAMES,
+    DECLARATION_TOOL_NAMES,
     TOOL_NAMES,
     code_search_tools,
 )
@@ -33,8 +34,9 @@ from .test_dcode_harness import Exchange, config, isolate, selected_skill_calls 
 from .test_player_skills_graph import _backend, _close_clients, _collect, _model, _scaffold
 
 _READY, _WHY = code_search.available()
-#: What a worktree binding (the Player's and the Coach's) offers.
-WORKTREE_TOOL_NAMES = tuple(n for n in TOOL_NAMES if n not in SNAPSHOT_ONLY_TOOL_NAMES)
+#: What a worktree binding (the Player's and the Coach's) offers without a
+#: passed language server declaration.
+WORKTREE_TOOL_NAMES = tuple(n for n in TOOL_NAMES if n not in DECLARATION_TOOL_NAMES)
 pytestmark = [
     pytest.mark.skipif(not _READY, reason=f"pinned programs not installed: {_WHY}"),
     pytest.mark.skipif(
@@ -89,7 +91,7 @@ def test_player_graph_offers_and_runs_the_tools_on_its_worktree(tmp_path: Path) 
     assert set(WORKTREE_TOOL_NAMES) <= set(inventory["tools"])
     assert inventory["code_search"] == {"tools": list(WORKTREE_TOOL_NAMES), "unavailable": ""}
     assert set(WORKTREE_TOOL_NAMES) <= set(exchange.requests[0]["offered"])
-    assert not set(SNAPSHOT_ONLY_TOOL_NAMES) & set(exchange.requests[0]["offered"])
+    assert not set(DECLARATION_TOOL_NAMES) & set(exchange.requests[0]["offered"])
     search, outline, pattern = _answers(events)[:3]
     # Run before any skill was read: the read gate lets read-only tools through.
     assert search["status"] == "ok"
@@ -134,26 +136,45 @@ def test_coach_gather_graph_has_the_tools_and_synthesis_has_none(tmp_path: Path)
         _close_clients(sync, async_)
 
 
-def test_the_read_only_coach_is_not_given_code_references(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """The build reviewer's read-only request (Read, Search, Grep) keeps the
-    shared allowlist (code_search_tools.TOOL_NAMES), but its worktree binding
-    has no code_references: a builder could commit a declaration whose server
-    runs its own code. It is not offered, and nothing is started, even with a
-    server declared and installed."""
+def _fake_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     servers = tmp_path / "servers"
     servers.mkdir()
     shutil.copy(Path(__file__).parent.parent / "fake_lsp_server.py", servers / "fake-lsp")
     (servers / "fake-lsp").chmod(0o755)
     monkeypatch.setattr(code_search, "LANGUAGE_SERVER_DIRS", ())
     monkeypatch.setenv(code_search.LANGUAGE_SERVER_DIR_ENV, str(servers))
+
+
+def _fake_entry(pid_file: Path) -> dict[str, Any]:
+    return {"command": ["fake-lsp"], "files": ["*.py"], "env": {"FAKE_LSP_PID": str(pid_file)}}
+
+
+def _gone(pid: int, seconds: float = 5.0) -> bool:
+    stop = time.monotonic() + seconds
+    while time.monotonic() < stop:
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
+        except (OSError, IndexError):
+            return True
+        if state in ("Z", "X"):
+            return True
+        time.sleep(0.05)
+    return False
+
+
+def test_the_read_only_coach_is_not_given_code_references_without_a_declaration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The build reviewer's read-only request (Read, Search, Grep) keeps the
+    shared allowlist (code_search_tools.TOOL_NAMES). With no declaration
+    passed its worktree binding has no code_references, and the worktree's
+    own declaration, which the builder can write, starts nothing."""
+    _fake_server(tmp_path, monkeypatch)
     repo = _scaffold(tmp_path)
     pid_file = tmp_path / "server.pid"
     (repo / ".guardkit").mkdir()
     (repo / ".guardkit" / "config.yaml").write_text(json.dumps({"toolchain": {
-        "language_servers": [{"command": ["fake-lsp"], "files": ["*.py"],
-                              "env": {"FAKE_LSP_PID": str(pid_file)}}]}}))
+        "language_servers": [_fake_entry(pid_file)]}}))
     _git_init(repo)
     exchange = Exchange(
         [("code_search", {"query": "add", "mode": "literal"})],
@@ -245,3 +266,34 @@ async def _synthesis(harness: LangGraphHarness, repo: Path) -> list[Any]:
             timeout_seconds=60,
         )
     ]
+
+
+def test_the_player_gets_code_references_and_the_look_up_order(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The builder's turn with the task's declaration passed: code_references
+    is offered and answers, the context names the look-up order and the
+    tools offered, and the server stops when the turn ends."""
+    _fake_server(tmp_path, monkeypatch)
+    repo = _scaffold(tmp_path)
+    _git_init(repo)
+    pid_file = tmp_path / "server.pid"
+    exchange = Exchange(
+        [("code_references", {"name": "add", "path": "valid.py", "line": 1}),
+         *selected_skill_calls(repo)],
+        final_text="looked up the callers",
+    )
+    model, sync, async_ = _model(exchange)
+    harness = LangGraphHarness(model, backend=_backend(repo), player_config=config(repo),
+                               language_servers=[_fake_entry(pid_file)])
+    try:
+        events = asyncio.run(_collect(harness, repo))
+    finally:
+        _close_clients(sync, async_)
+    assert set(TOOL_NAMES) <= set(exchange.requests[0]["offered"])
+    user = json.dumps([m for m in exchange.bodies[0]["messages"] if m["role"] == "user"])
+    assert "### Code look-up tools" in user
+    assert "You have code_search, code_outline, code_pattern, code_references." in user
+    (answer,) = _answers(events)[:1]
+    assert answer["status"] == "ok", answer
+    assert _gone(int(pid_file.read_text())), "the server outlived the turn"

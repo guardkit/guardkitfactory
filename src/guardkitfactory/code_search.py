@@ -15,9 +15,11 @@ coding Player and Coach run it over their own worktree. Nothing here keeps an
 index, downloads anything or writes inside the searched root.
 
 A fourth operation, ``references`` (28 October 2026), asks the language server
-the project declares in ``.guardkit/config.yaml`` who refers to a symbol, and
-adds ripgrep's whole-word matches the server did not return, marked
-``text_only``. Its servers run in their own process groups, kept for one tool
+the project declares who refers to a symbol, and adds ripgrep's whole-word
+matches the server did not return, marked ``text_only``. The declaration is
+the one in ``.guardkit/config.yaml`` (a commit snapshot), or the entries the
+caller passes (a worktree: the task's declaration, pinned by GuardKit before
+the builder's first turn). Its servers run in their own process groups, kept for one tool
 binding (:class:`ReferenceServers`) or started and stopped within one call.
 
 The module itself uses only the standard library and its own LSP client
@@ -1699,13 +1701,14 @@ def _explain_empty_pattern(call: _Call, pattern: str, language: str, facts: _Fac
 #         initialization_options: {}     # optional, passed through unchanged
 #         language_id: "go"              # optional; default the file's extension
 #
-# Scope (Codex review, 28 October 2026): offered only over a commit
-# snapshot, the planner's plain copy of the start commit, where the
-# declaration is the project's own committed one. Not over a worktree (the
-# Player's and the build reviewer's): there a builder could commit a
-# declaration whose server or environment runs its own code outside the
-# build's isolation. Worktree use waits until servers run inside that
-# isolation, with the declaration taken from state the controller owns.
+# Where the declaration comes from: over a commit snapshot (the planner's
+# plain copy of the start commit) it is the project's own committed file.
+# Over a worktree (the builder's) it is never a file in
+# the worktree, which the builder can write: the caller passes the entries
+# GuardKit pinned in memory before the builder's first turn
+# (``language_servers=``; ai-transition
+# docs/designs/builder-tools-and-instructions-2026-10-29.md). Passed entries
+# are checked exactly as declared ones.
 #
 # This module keeps no table of languages or servers. ``files`` globs are
 # matched against the path relative to the project root (``**/`` is any
@@ -1854,15 +1857,25 @@ def _parse_declaration(text: str) -> list[ServerEntry] | str | None:
         return f"{CONFIG_FILE} is not readable YAML ({type(exc).__name__})"
     toolchain = data.get("toolchain") if isinstance(data, dict) else None
     raw = toolchain.get("language_servers") if isinstance(toolchain, dict) else None
+    return checked_servers(raw, CONFIG_FILE)
+
+
+#: Where passed entries came from, as answers name it.
+PASSED_DECLARATION = "the declaration pinned for this task"
+
+
+def checked_servers(raw: Any, where: str = PASSED_DECLARATION) -> list[ServerEntry] | str | None:
+    """``toolchain.language_servers`` entries, each checked; ``None`` for
+    none declared, else a sentence saying why they cannot be used."""
     if raw is None:
         return None
-    if not isinstance(raw, list) or not raw:
+    if not isinstance(raw, (list, tuple)) or not raw:
         return "toolchain.language_servers must be a non-empty list"
     entries: list[ServerEntry] = []
     for number, item in enumerate(raw, 1):
-        entry = _server_entry(item)
+        entry = _server_entry(dict(item) if isinstance(item, Mapping) else item)
         if isinstance(entry, str):
-            return f"language server {number} in {CONFIG_FILE} cannot be used: {entry}"
+            return f"language server {number} in {where} cannot be used: {entry}"
         entries.append(entry)
     return entries
 
@@ -2235,11 +2248,11 @@ def _line_text(root: Path, rel: str, number: int, cache: dict[str, list[str]]) -
 
 def _references(
     call: _Call, name: str, line: int | None, servers: ReferenceServers,
-    install_state: str, facts: _Facts,
+    install_state: str, facts: _Facts, passed: Sequence[Any] | None = None,
 ) -> None:
     facts.coverage["install_state"] = install_state
     literal = "; use code_search in literal mode"
-    declared = declared_servers(call.root)
+    declared = declared_servers(call.root) if passed is None else checked_servers(passed)
     if declared is None:
         facts.unsupported = (f"the project declares no language server (toolchain."
                              f"language_servers in {CONFIG_FILE}){literal}")
@@ -2382,6 +2395,7 @@ def run(
     line: int | None = None,
     install_state: str | None = None,
     servers: ReferenceServers | None = None,
+    language_servers: Sequence[Any] | None = None,
 ) -> dict[str, Any]:
     """One bounded, read-only operation over ``root``.
 
@@ -2396,7 +2410,9 @@ def run(
     and optional ``line``. ``servers`` keeps its language servers for the
     caller's binding; without it the server is started and stopped within
     this call. ``install_state`` says whether the project's install step ran
-    here (see :func:`_install_state`).
+    here (see :func:`_install_state`). ``language_servers`` are the
+    declaration's entries (``toolchain.language_servers``) to use instead of
+    ``root``'s ``.guardkit/config.yaml``, which is then never read.
     """
 
     limit = _limit(max_results, DEFAULT_MAX_RESULTS, MAX_RESULTS_LIMIT)
@@ -2518,7 +2534,8 @@ def run(
             _outline(call, items, facts)
         elif operation == "references":
             _references(call, name, line, servers,
-                        _install_state(install_state, not described_here, respect_ignore), facts)
+                        _install_state(install_state, not described_here, respect_ignore), facts,
+                        language_servers)
         else:
             _pattern(call, pattern, language, facts)
     except OSError as exc:

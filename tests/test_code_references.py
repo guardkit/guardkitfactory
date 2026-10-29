@@ -260,6 +260,18 @@ def test_no_declaration_and_good_and_bad_declarations(tmp_path: Path) -> None:
     assert "YAML" in str(code_search.declared_servers(root))
 
 
+def test_passed_entries_are_checked_as_declared_ones() -> None:
+    (entry,) = code_search.checked_servers(  # type: ignore[misc]
+        [{"command": ["gopls"], "files": ["**/*.go"], "env": {"GOFLAGS": "-tags=live"}}])
+    assert entry.command == ("gopls",) and entry.env == (("GOFLAGS", "-tags=live"),)
+    assert code_search.checked_servers(None) is None
+    assert "non-empty" in str(code_search.checked_servers([]))
+    problem = code_search.checked_servers(
+        [{"command": ["gopls"], "files": ["*.go"], "env": {"PATH": "/tmp"}}])
+    assert isinstance(problem, str) and "PATH" in problem
+    assert code_search.PASSED_DECLARATION in problem
+
+
 def test_globs_match_paths_from_the_project_root() -> None:
     match = code_search._glob_matches
     assert match("**/*.go", "main.go") and match("**/*.go", "a/b/c.go")
@@ -634,22 +646,44 @@ def test_a_snapshot_binding_offers_references_and_closes_its_servers(
 
 
 @needs_ripgrep
-def test_a_worktree_binding_does_not_offer_references(
+def test_a_worktree_binding_offers_references_only_with_a_passed_declaration(
     fake_dir: Path, project: Path, tmp_path: Path
 ) -> None:
-    """The Player's and the build reviewer's binding: a builder could commit
-    a declaration whose server or environment runs its own code."""
+    """The Player's binding (29 October 2026): the
+    declaration is the one GuardKit pinned before the builder's first turn,
+    passed in; the worktree's own file, which the builder can write, is never
+    read."""
     if not code_search.available()[0]:
         pytest.skip("the tools are offered only with every pinned program installed")
-    from guardkitfactory.harness.code_search_tools import code_search_tools
+    from guardkitfactory.harness.code_search_tools import (
+        TOOL_NAMES,
+        close_code_search_tools,
+        code_search_tools,
+    )
 
-    pid_file = tmp_path / "server.pid"
-    _declare(project, [_fake_entry(env={"FAKE_LSP_PID": str(pid_file),
+    planted = tmp_path / "planted.pid"
+    _declare(project, [_fake_entry(env={"FAKE_LSP_PID": str(planted),
                                         "NODE_OPTIONS": "--require=./payload.js"})])
     tools, reason = code_search_tools(project)
     assert reason == ""
     assert [t.name for t in tools] == ["code_search", "code_outline", "code_pattern"]
-    assert not pid_file.exists()
+    assert code_search_tools(project, language_servers=[])[0][-1].name == "code_pattern"
+
+    pid_file = tmp_path / "server.pid"
+    pinned = [_fake_entry(env={"FAKE_LSP_PID": str(pid_file)})]
+    tools, reason = code_search_tools(project, language_servers=pinned)
+    assert reason == "" and [t.name for t in tools] == list(TOOL_NAMES)
+    pinned[0]["env"]["FAKE_LSP_PID"] = str(planted)  # the caller's list is copied
+    tool = tools[-1]
+    assert "worktree as it is now" in tool.description
+    answer = json.loads(tool.invoke({"name": "store_total", "path": "pkg/store.py", "line": 2}))
+    assert answer["status"] == "ok", answer
+    assert answer["coverage"]["install_state"] == "unknown"
+    assert answer["source"]["kind"] != "commit"
+    pid = int(pid_file.read_text())
+    assert not planted.exists(), "the worktree's own declaration was used"
+    close_code_search_tools(tools)
+    assert _wait_gone(pid)
 
 
 # -- real language servers (skipped unless installed) ---------------------------------
@@ -684,6 +718,7 @@ _REAL_PROJECTS: dict[str, dict[str, Any]] = {
                      ("mod/store/store_live_test.go", 7)},
         "added": ("mod/report/zz_added.go", "package report\n\nimport \"example.com/m/store\"\n"
                   "\nvar Added = store.Total(nil)\n", 5),
+        "again": "var Again = store.Total(nil)\n",
     },
     "pyright-langserver": {
         "entry": {"command": ["pyright-langserver", "--stdio"], "files": ["**/*.py"]},
@@ -701,6 +736,7 @@ _REAL_PROJECTS: dict[str, dict[str, Any]] = {
         "resolved": {("pkg/store.py", 1), ("pkg/report.py", 1), ("pkg/report.py", 5),
                      ("tests/test_store.py", 1), ("tests/test_store.py", 5)},
         "added": ("pkg/zz_added.py", "from pkg.store import total\n\nADDED = total([])\n", 3),
+        "again": "AGAIN = total([1])\n",
     },
     "typescript-language-server": {
         "entry": {"command": ["typescript-language-server", "--stdio"],
@@ -723,6 +759,7 @@ _REAL_PROJECTS: dict[str, dict[str, Any]] = {
                      ("tests/store.test.ts", 1), ("tests/store.test.ts", 3)},
         "added": ("src/zz_added.ts", "import { total } from './store.js';\n\n"
                   "export const added = total([]);\n", 3),
+        "again": "export const again = total([1]);\n",
     },
 }
 
@@ -759,3 +796,46 @@ def test_a_real_server_resolves_references(server: str, tmp_path: Path) -> None:
                                        if not r.get("text_only")}, again
     finally:
         servers.close()
+
+
+@pytest.mark.parametrize("server", sorted(_REAL_PROJECTS))
+def test_a_real_server_through_a_worktree_binding_sees_an_edited_file(
+    server: str, tmp_path: Path
+) -> None:
+    """The builder's binding: the declaration passed in (none in the
+    worktree), a file edited after the server started seen on the next
+    question, and the server stopped when the binding is closed."""
+    if _real(server) is None or not code_search.available()[0]:
+        pytest.skip(f"{server} or the pinned search programs are not installed")
+    from guardkitfactory.harness.code_search_tools import (
+        close_code_search_tools,
+        code_search_tools,
+    )
+
+    spec = _REAL_PROJECTS[server]
+    root = tmp_path / "worktree"
+    added, text, added_line = spec["added"]
+    for rel, content in {**spec["files"], added: text}.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(content)
+    _git_init(root)
+    tools, reason = code_search_tools(root, language_servers=[spec["entry"]])
+    assert reason == "", reason
+    tool = next(t for t in tools if t.name == "code_references")
+    name, path, line = spec["ask"]
+    try:
+        first = json.loads(tool.invoke({"name": name, "path": path, "line": line}))
+        assert first["status"] == "ok", first
+        resolved = {(r["path"], r["first_line"]) for r in first["results"]
+                    if not r.get("text_only")}
+        # The added file's import line is a reference too for some servers.
+        assert spec["resolved"] | {(added, added_line)} <= resolved, first
+        assert first["coverage"]["install_state"] == "unknown"
+        with (root / added).open("a") as edited:
+            edited.write(spec["again"])
+        again = json.loads(tool.invoke({"name": name, "path": path, "line": line}))
+        assert (added, added_line + 1) in {(r["path"], r["first_line"])
+                                           for r in again["results"]
+                                           if not r.get("text_only")}, again
+    finally:
+        close_code_search_tools(tools)

@@ -1,8 +1,8 @@
 """Read-only code search tools for the coding Player and the Coach's evidence pass.
 
-Three tools (four over a commit snapshot), each bound when the graph is built
-to one root, so two builds' worktrees never see each other's files. They run
-the pinned programs
+Three tools (four when a language server declaration is available), each
+bound when the graph is built to one root, so two builds' worktrees never see
+each other's files. They run the pinned programs
 through :mod:`guardkitfactory.code_search`; a ``path`` that leads outside the
 root is refused. They only read, like ``grep`` and ``glob``. When the
 pinned programs are not installed no tool
@@ -10,12 +10,13 @@ is offered and the reason is returned for the launch evidence; the built-in
 ``read_file``, ``grep`` and ``glob`` stay as the text fallback either way.
 
 ``code_references`` (28 October 2026) asks the language server the project
-declares. It is offered only over a commit snapshot (``snapshot=``: the
-planner's plain copy of the start commit, whose declaration is the project's
-own committed one), never over a worktree, where a builder could commit a
-declaration that runs its own code outside the build's isolation (Codex
-review, 28 October 2026). Worktree use waits until servers run inside that
-isolation, with the declaration taken from state the controller owns. Its
+declares. Over a commit snapshot (``snapshot=``: the planner's plain copy of
+the start commit) the declaration is the project's own committed one. Over a
+worktree (the builder's) it is offered only when the
+caller passes the declaration's entries (``language_servers=``: GuardKit pins
+them in memory before the builder's first turn), and those entries are used,
+never a file in the worktree, which the builder can write (29 October 2026;
+ai-transition docs/designs/builder-tools-and-instructions-2026-10-29.md). Its
 servers are kept for the binding and stopped by
 :func:`close_code_search_tools`, which the binding's owner calls when it ends
 (if it never does, they stop when the binding is collected or at exit).
@@ -23,8 +24,9 @@ servers are kept for the binding and stopped by
 
 from __future__ import annotations
 
+import copy
 import json
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Literal
 
@@ -34,8 +36,9 @@ from pydantic import BaseModel, Field, PrivateAttr
 from guardkitfactory import code_search
 
 TOOL_NAMES = ("code_search", "code_outline", "code_pattern", "code_references")
-#: Offered only over a commit snapshot; a worktree binding has the others.
-SNAPSHOT_ONLY_TOOL_NAMES = ("code_references",)
+#: Offered only with a declaration: over a commit snapshot, or over a
+#: worktree when the caller passes ``language_servers``.
+DECLARATION_TOOL_NAMES = ("code_references",)
 
 _STATUS_HELP = (
     "The answer is JSON. 'status' is ok, no_matches (the whole scope was searched), partial "
@@ -119,16 +122,21 @@ def _bad_arguments(error: Exception) -> str:
 def code_search_tools(
     root: Path, *, max_chars: int = code_search.DEFAULT_MAX_CHARS,
     snapshot: Mapping[str, Any] | None = None,
+    language_servers: Sequence[Mapping[str, Any]] | None = None,
 ) -> tuple[list[BaseTool], str]:
     """The tools bound to ``root``, or ``([], reason)`` when the pinned
     programs are not installed exactly.
 
     A worktree (the default) gets ``code_search``, ``code_outline`` and
-    ``code_pattern``. ``snapshot`` says ``root`` is a plain copy of a commit
+    ``code_pattern``, and ``code_references`` when ``language_servers`` (the
+    task's pinned ``toolchain.language_servers`` entries) is a non-empty list;
+    the tool then uses a copy of those entries and never reads the worktree's
+    own declaration. ``snapshot`` says ``root`` is a plain copy of a commit
     and describes it (``{"kind": "commit", ...}``, as the Forge helper's
     ``source``); every answer then carries it, ignore files are not applied
     (the copy holds exactly the tracked files), and ``code_references`` is
-    offered too, reporting ``install_state: not_installed``."""
+    offered too, reading the copy's own declaration and reporting
+    ``install_state: not_installed``."""
 
     ok, reason = code_search.available()
     if not ok:
@@ -213,19 +221,26 @@ def code_search_tools(
             handle_validation_error=_bad_arguments,
         ),
     ]
-    if snapshot is not None:
-        tools.append(_references_tool(bound, common))
+    if language_servers:
+        pinned = copy.deepcopy([dict(entry) for entry in language_servers])
+        tools.append(_references_tool(bound, {**common, "language_servers": pinned},
+                                      snapshot is not None))
+    elif snapshot is not None:
+        tools.append(_references_tool(bound, common, True))
     return tools, ""
 
 
-def _references_tool(bound: Path, common: dict[str, Any]) -> BaseTool:
-    """``code_references`` over a commit snapshot, with its own servers.
-
-    Not offered over a worktree: there a builder could commit a declaration
-    whose server or environment runs its own code outside the build's
-    isolation. Worktree use waits until servers run inside that isolation,
-    with the declaration taken from state the controller owns."""
+def _references_tool(bound: Path, common: dict[str, Any], plain_copy: bool) -> BaseTool:
+    """``code_references`` with its own servers: over a commit snapshot
+    (``plain_copy``) or over a worktree with the passed declaration."""
     servers = code_search.ReferenceServers()
+    where = (
+        "This is a plain copy of the start commit: the project's dependencies are not "
+        "installed (coverage.install_state), so confirm uses that pass through them with "
+        "code_search. "
+        if plain_copy else
+        "It reads your worktree as it is now, including changes not yet committed. "
+    )
 
     def references(name: str, path: str, line: int | None = None,
                    max_results: int = code_search.DEFAULT_MAX_RESULTS) -> str:
@@ -253,9 +268,7 @@ def _references_tool(bound: Path, common: dict[str, Any]) -> BaseTool:
             "tests that read source, other languages): check them by hand. 'unsupported' "
             "means the project declares no language server for that file: use code_search in "
             "literal mode. 'tool_error' means the server did not answer: it is not evidence "
-            "of no uses. This is a plain copy of the start commit: the project's dependencies "
-            "are not installed (coverage.install_state), so confirm uses that pass through "
-            "them with code_search. " + _STATUS_HELP
+            "of no uses. " + where + _STATUS_HELP
         ),
         args_schema=_ReferencesArgs,
         handle_validation_error=_bad_arguments,

@@ -43,7 +43,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, is_dataclass
 from pathlib import Path
@@ -66,6 +66,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from guardkitfactory.harness.code_search_tools import (
     TOOL_NAMES as _CODE_SEARCH_TOOL_NAMES,
 )
+from guardkitfactory.harness.code_search_tools import close_code_search_tools
 from guardkitfactory.harness.extractors import (
     extract_last_ai_message,
     extract_last_ai_reasoning,
@@ -112,6 +113,34 @@ def _system_prompt_for_role(role: str) -> str:
     return f"{_COMMON_AGENT_INSTRUCTIONS}\n{role_instructions}"
 
 
+def _builder_look_up(code_tools: Sequence[str]) -> str | None:
+    """The builder's look-up order, naming only the code tools offered;
+    ``None`` when none is (ai-transition
+    docs/designs/builder-tools-and-instructions-2026-10-29.md, Part 2)."""
+    if "code_search" not in code_tools:
+        return None
+    if "code_references" in code_tools:
+        look_up = "code_references (or code_search in literal mode)"
+        find = ("code_references with the name and a file that defines it; code_search in "
+                "literal mode when the answer is unsupported or tool_error")
+    else:
+        look_up = "code_search in literal mode"
+        find = "code_search in literal mode with the name"
+    return "\n".join([
+        "### Code look-up tools",
+        f"You have {', '.join(code_tools)}. They only read. Use them in this order:",
+        "1. Before changing a function, type, field, setting or route, find what uses it: "
+        f"{find}. Change the callers and tests it finds in this task, or say in your report "
+        "why not.",
+        "2. Before creating a file, check it does not exist, and put it where the project "
+        "already keeps that kind of code (code_search ranked mode, code_outline).",
+        f"3. After a rename, a move or a signature change, look up the old name again with "
+        f"{look_up}, then run the project's declared test command.",
+        "4. code_pattern finding nothing is not evidence of no uses. Read only the part of a "
+        "large file you need. Do not repeat a look-up unless you have changed files since.",
+    ])
+
+
 # 13 October 2026 (proof defect 5). A caller that asks only to read and search
 # (the code reviewer asks for ``["Read", "Search", "Grep"]``) gets exactly the
 # matching DeepAgents tools and nothing else. Any other request (empty, or one
@@ -126,8 +155,9 @@ _READ_ONLY_TOOL_TABLE: dict[str, tuple[str, ...]] = {
 _CODE_SEARCH_REQUESTS = frozenset({"Search", "Grep"})
 # The tool names come from ``code_search_tools.TOOL_NAMES`` (imported above),
 # with no second list to keep in step. A name is only offered when the tools
-# bound to the worktree include it: ``code_references`` is bound only over a
-# commit snapshot, so the Coach is never given it (28 October 2026).
+# bound to the worktree include it: ``code_references`` needs the task's
+# pinned ``language_servers``, which GuardKit passes for the Player only (29
+# October 2026), so the Coach is not given it.
 
 
 def read_only_allowlist(tools: Any, role: str) -> frozenset[str] | None:
@@ -248,6 +278,7 @@ _READ_KINDS = {
 def _player_context_prompt(
     config: PlayerConfig,
     required_skill_documents: tuple[dict[str, Any], ...] = (),
+    code_tools: Sequence[str] = (),
 ) -> str:
     """Render the validated project context supplied to the dcode user turn."""
 
@@ -279,6 +310,9 @@ def _player_context_prompt(
     if config.protected_paths:
         sections.append("### Project-declared protected paths (read-only)")
         sections.extend(f"- {path.relative_to(config.cwd)}" for path in config.protected_paths)
+    look_up = _builder_look_up(code_tools)
+    if look_up is not None:
+        sections.append(look_up)
     return "\n\n".join(sections)
 
 
@@ -730,6 +764,7 @@ class LangGraphHarness(HarnessAdapter):
         on_model_activity: Callable[[], None] | None = None,
         on_native_tool_event: Callable[[NativeToolEvent], None] | None = None,
         player_config: PlayerConfig | None = None,
+        language_servers: Sequence[Mapping[str, Any]] | None = None,
     ) -> None:
         self.model = model
         self.backend = backend
@@ -744,6 +779,13 @@ class LangGraphHarness(HarnessAdapter):
         self.on_model_activity = on_model_activity
         self.on_native_tool_event = on_native_tool_event
         self.player_config = player_config
+        # 29 October 2026: the task's ``toolchain.language_servers`` entries,
+        # pinned by GuardKit before the builder's first turn, for the Player's
+        # ``code_references``. ``None`` offers no ``code_references``.
+        self.language_servers = language_servers
+        # The code tools the Player graph being built bound; ``invoke`` takes
+        # them and stops their language servers in its ``finally``.
+        self._code_tools: list[Any] = []
         # TASK-PERF-COACHSYNTH: per-invoke super-step ceiling forwarded to
         # ``agent.ainvoke(..., config={"recursion_limit": N})``. ``None``
         # leaves the graph's own limit (10007 by LangGraph's default in
@@ -847,13 +889,17 @@ class LangGraphHarness(HarnessAdapter):
 
         from guardkitfactory.harness.dcode_harness import create_dcode_player
 
-        return create_dcode_player(
+        graph = create_dcode_player(
             model=resolved_model,
             backend=self.backend,
             cwd=invocation_root,
             config=config,
             recursion_limit=self.recursion_limit,
+            language_servers=self.language_servers,
         )
+        bound = getattr(graph, "guardkit_code_search_tools", None)
+        self._code_tools = list(bound) if isinstance(bound, list) else []
+        return graph
 
     @staticmethod
     def _player_terminal_message(result: Any) -> AIMessage | None:
@@ -1024,6 +1070,7 @@ class LangGraphHarness(HarnessAdapter):
         downstream consumers only need to dispatch on the terminal event.
         """
         required_skill_documents: tuple[dict[str, Any], ...] = ()
+        player_config: PlayerConfig | None = None
         if role == "player" and self.player_config is not None:
             try:
                 player_config = revalidate_player_config(self.player_config, cwd=cwd)
@@ -1034,12 +1081,6 @@ class LangGraphHarness(HarnessAdapter):
             from guardkitfactory.harness.dcode_harness import required_skill_reads
 
             required_skill_documents = required_skill_reads(player_config)
-            prompt = (
-                f"{_player_context_prompt(player_config, required_skill_documents)}"
-                "\n\n## Assigned task\n\n"
-                f"{prompt}"
-            )
-        input_data = self._build_input(prompt)
 
         # TASK-FIX-LGTOOLS (2026-06-03): drop the caller's ``tools`` list on
         # the Wave-2 path. The orchestrator passes SDK tool-name strings
@@ -1100,6 +1141,7 @@ class LangGraphHarness(HarnessAdapter):
         # produce empty Coach turns (§9.13 of AUTOBUILD-ON-LLAMA-SWAP findings).
         resolved_model = self._resolve_model_for_invoke(role=role)
 
+        self._code_tools = []
         try:
             if allowed_tools is not None:
                 agent = self._create_agent(
@@ -1119,6 +1161,14 @@ class LangGraphHarness(HarnessAdapter):
                 f"LangGraphHarness: failed to construct DeepAgent for "
                 f"role={role!r} model={self.model!r}: {exc}"
             ) from exc
+        code_tools, self._code_tools = self._code_tools, []
+        if player_config is not None:
+            # Built after the graph, so it names only the code tools bound.
+            context = _player_context_prompt(
+                player_config, required_skill_documents, [tool.name for tool in code_tools]
+            )
+            prompt = f"{context}\n\n## Assigned task\n\n{prompt}"
+        input_data = self._build_input(prompt)
 
         # TASK-FIX-CTOUT01: wrap ``ainvoke`` in an explicit asyncio.Task
         # so :meth:`cancel` (called from
@@ -1264,6 +1314,10 @@ class LangGraphHarness(HarnessAdapter):
                 task.cancel()
                 with suppress(asyncio.CancelledError, Exception):
                     await task
+            # 29 October 2026: the language servers this invocation's
+            # code_references started (only ever inside ``ainvoke``) stop
+            # with it, on every exit path.
+            close_code_search_tools(code_tools)
 
     def _synthesis_max_tokens(self) -> int:
         """Resolve the toolless-synthesis generation budget (env-overridable)."""
