@@ -362,6 +362,33 @@ def test_thinking_setting_preserves_unrelated_extra_body_with_copy_isolation(mon
     assert original_template_kwargs == {"add_generation_prompt": True}
 
 
+@pytest.mark.parametrize(
+    ("setting", "expected"),
+    [
+        ({**LIMITS, "thinking_token_budget": 4096}, {"thinking_token_budget": 4096}),
+        ({**THINKING_OFF_LIMITS, "thinking_token_budget": 4096},
+         {"chat_template_kwargs": {"enable_thinking": False}}),
+        ({**LIMITS, "thinking_token_budget": 0}, None),
+        ({**LIMITS, "thinking_token_budget": "4096"}, None),
+        ({**LIMITS, "thinking_token_budget": True}, None),
+    ],
+)
+def test_a_thinking_budget_reaches_the_request_only_when_thinking_is_on(
+    monkeypatch, setting, expected
+):
+    """29 October 2026: the builder can be given a thinking budget to measure
+    against unlimited thinking; thinking off wins, and an unusable value is
+    ignored like the setting's other values."""
+    monkeypatch.setenv(ENV, json.dumps(setting))
+    model = ChatOpenAI(
+        model="workhorse", base_url="http://localhost:4000/v1", use_responses_api=False
+    )
+    with patch.object(model_config, "_resolve_model_for_transport", return_value=model):
+        result = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("player")
+    assert result.extra_body == expected
+    assert result.max_tokens == 8192
+
+
 def test_the_models_own_profile_is_kept(monkeypatch):
     monkeypatch.setenv(ENV, json.dumps(LIMITS))
     model = ChatOpenAI(

@@ -486,7 +486,10 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
     fence; nothing falls back). The setting itself is read as far as it can
     be: what is missing or unreadable takes the standard 131,072-token context
     and 8,192-token output, and ``"enable_thinking": false`` switches the
-    model's thinking off.
+    model's thinking off. ``"thinking_token_budget": <whole number>`` (29
+    October 2026, Rich: thinking on, with budgets to test) caps each step's
+    thinking at that many tokens (vLLM's ``thinking_token_budget``); without it
+    thinking is limited only by the output size, as before. Thinking off wins.
     """
     def reject(message: str) -> NoReturn:
         raise ValueError(f"GUARDKIT_PLAYER_MODEL_LIMITS: {message}")
@@ -509,6 +512,8 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
         sizes[key] = value if type(value) is int and value > 0 else standard
     context_tokens, output_tokens = sizes["context_tokens"], sizes["output_tokens"]
     disable_thinking = limits.get("enable_thinking", True) is False
+    budget = limits.get("thinking_token_budget")
+    thinking_budget = budget if type(budget) is int and budget > 0 else None
 
     from guardkit.orchestrator.m0_fence import is_local_seat_host
     from langchain_openai.chat_models.base import ChatOpenAI
@@ -556,5 +561,9 @@ def resolve_player_model_limits(model: Any, raw: str) -> BaseChatModel:
         template_kwargs = dict(extra_body.get("chat_template_kwargs") or {})
         template_kwargs["enable_thinking"] = False
         extra_body["chat_template_kwargs"] = template_kwargs
+        resolved.extra_body = extra_body
+    elif thinking_budget is not None:
+        extra_body = dict(resolved.extra_body or {})
+        extra_body["thinking_token_budget"] = thinking_budget
         resolved.extra_body = extra_body
     return resolved
