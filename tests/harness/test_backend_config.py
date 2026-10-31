@@ -47,6 +47,7 @@ from guardkitfactory.harness.backend_config import (
     PathConfinedBackend,
     shell_home,
     shell_tmpdir,
+    short_shell_tmpdir_path,
 )
 
 
@@ -215,8 +216,10 @@ def test_execute_python_imports_do_not_write_bytecode_or_inherit_ambient_env(
 
 
 def _toolchain_tmpdir(worktree: Path) -> Path:
-    """Where the shell's TMPDIR lives for a plain git checkout (19 October 2026)."""
-    return worktree / ".git" / "guardkit-scratch" / "toolchain" / "SHELL-TMPDIR"
+    """Where the shell's TMPDIR lives for a plain git checkout: the short
+    private folder of the worktree (31 October 2026; it was in the scratch
+    folder from 19 October 2026)."""
+    return short_shell_tmpdir_path(worktree)
 
 
 def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
@@ -228,7 +231,7 @@ def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
 
     backend = build_autobuild_backend(worktree)
 
-    assert backend.default._env["TMPDIR"] == str(temp_directory.resolve())
+    assert backend.default._env["TMPDIR"] == str(temp_directory)
     assert temp_directory.is_dir()
     assert temp_directory.stat().st_mode & 0o077 == 0
     assert not (worktree / ".tmp").exists()
@@ -236,7 +239,7 @@ def test_build_autobuild_backend_creates_private_tmpdir_and_mktemp_works(
     assert result.exit_code == 0
     created = Path(result.output.strip())
     assert created.is_dir()
-    assert created.parent == temp_directory.resolve()
+    assert created.parent == temp_directory
 
 
 def test_build_autobuild_backend_reuses_existing_tmpdir_made_owner_only(
@@ -251,7 +254,7 @@ def test_build_autobuild_backend_reuses_existing_tmpdir_made_owner_only(
 
     backend = build_autobuild_backend(worktree)
 
-    assert backend.default._env["TMPDIR"] == str(temp_directory.resolve())
+    assert backend.default._env["TMPDIR"] == str(temp_directory)
     assert marker.read_text() == "keep\n"
     # 19 October 2026: reused, but made owner-only.
     assert (temp_directory.stat().st_mode & 0o777) == 0o700

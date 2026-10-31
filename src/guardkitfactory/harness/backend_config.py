@@ -156,10 +156,12 @@ from __future__ import annotations
 
 import atexit
 import dataclasses
+import hashlib
 import logging
 import os
 import re
 import shutil
+import stat
 import tempfile
 import threading
 from collections.abc import Mapping, Sequence
@@ -185,8 +187,10 @@ __all__ = [
     "build_autobuild_backend",
     "model_artifacts_root",
     "SHELL_ROLES",
+    "remove_shell_tmpdirs",
     "shell_home",
     "shell_tmpdir",
+    "short_shell_tmpdir_path",
     "PathConfinedBackend",
     "TruncatingBackend",
 ]
@@ -1098,7 +1102,7 @@ def _shell_toolchain_folder(worktree: Path, name: str, description: str) -> Path
     worktree's own git directory: git never stages it and ``git worktree
     remove`` deletes it with the worktree. ``name`` is never one of the
     folders GuardKit's own project commands use (``toolchain/HOME`` and
-    ``toolchain/TMPDIR``, ``guardkit.orchestrator.project_command_env``):
+    its ``TMPDIR``, ``guardkit.orchestrator.project_command_env``):
     those commands run the checks the build is judged by, and a file the
     builder's shell leaves in its home folder (a ``.pth`` file under
     ``~/.local``, a ``~/.npmrc``, a ``~/.gitconfig``) must not change what
@@ -1166,19 +1170,109 @@ def shell_home(worktree: Path, role: str | None = None) -> Path:
     )
 
 
+#: Where the shells' short ``TMPDIR`` folders live (31 October 2026). Fixed
+#: and short on purpose: ``TMPDIR`` + "/" + a 32-character socket name must
+#: stay within .NET's 103-byte limit wherever the repository lives.
+SHORT_TMP_ROOT = "/tmp"
+
+
+def short_shell_tmpdir_path(worktree: Path, role: str | None = None) -> Path:
+    """The short private ``TMPDIR`` of ``role``'s shell for ``worktree``:
+    ``/tmp/gkf-<first 8 hex of the SHA-256 of the worktree's real path and
+    the role's folder name>``.
+
+    One per worktree and role, and the same on every call, so it is found
+    again to be removed (:func:`remove_shell_tmpdirs`). It is never the
+    folder GuardKit's project commands use (``/tmp/gk-<8 hex>``).
+    """
+    name = _shell_folder_name("SHELL-TMPDIR", role)
+    key = f"{os.path.realpath(worktree)}\0{name}"
+    digest = hashlib.sha256(key.encode("utf-8", "surrogateescape")).hexdigest()
+    return Path(SHORT_TMP_ROOT) / f"gkf-{digest[:8]}"
+
+
+def _short_private_tmpdir(directory: Path) -> Path:
+    """Create ``directory`` (mode 0700) or reuse it, only when it is a real
+    folder this user owns; then make it 0700. It sits in a folder every user
+    can write to, so a name someone else made first (or a symbolic link) is
+    refused, never followed. The same rules as GuardKit's own short
+    ``TMPDIR`` (``guardkit.orchestrator.project_command_env``)."""
+    try:
+        try:
+            directory.mkdir(mode=0o700)
+        except FileExistsError:
+            pass
+        info = directory.lstat()
+        if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+            raise RuntimeError(
+                f"The shell's private temporary folder {directory} is not a "
+                "folder this user owns; the shell is not built."
+            )
+        if stat.S_IMODE(info.st_mode) != 0o700:
+            directory.chmod(0o700)
+    except OSError as exc:
+        raise RuntimeError(
+            f"The shell's private temporary folder could not be made at "
+            f"{directory} ({exc}); the shell is not built."
+        ) from exc
+    return directory
+
+
+def remove_shell_tmpdirs(worktree: Path) -> None:
+    """Remove the short ``TMPDIR`` folders of every shell built for
+    ``worktree`` (each role's and the shared one), as ``git worktree remove``
+    removes the worktree's scratch folder. Call it before the worktree is
+    removed. Only a real folder this user owns is removed. Never raises."""
+    for role in (None, *SHELL_ROLES):
+        target = short_shell_tmpdir_path(worktree, role)
+        try:
+            info = target.lstat()
+        except OSError:
+            continue
+        if stat.S_ISDIR(info.st_mode) and info.st_uid == os.getuid():
+            shutil.rmtree(target, ignore_errors=True)
+
+
 def shell_tmpdir(worktree: Path, role: str | None = None) -> Path:
     """Return the private ``TMPDIR`` for a shell built for ``worktree``.
 
     19 October 2026. ``TMPDIR`` was ``<worktree>/.tmp``, so every temporary
     file a tool made (Node's compile cache among them) landed in the project,
-    kept out of commits only by GuardKit's ``.tmp/`` filters. It is now
-    ``<scratch>/toolchain/<role>-SHELL-TMPDIR`` (``SHELL-TMPDIR`` when no
-    role is named), one per role and apart from the project commands'
-    ``TMPDIR``.
+    kept out of commits only by GuardKit's ``.tmp/`` filters. It moved to
+    ``<scratch>/toolchain/<role>-SHELL-TMPDIR``, one per role and apart from
+    the project commands' ``TMPDIR``.
+
+    31 October 2026. That path is too long for a Unix socket: ``dotnet
+    test`` (Microsoft.Testing.Platform) opens a named pipe in ``TMPDIR`` with
+    a name of about 32 characters and refuses a socket path over 103 bytes,
+    so every .NET test project aborted ("Zero tests ran", exit 134); Node,
+    Python and Go tools that open sockets there meet Linux's 108-byte limit
+    the same way. It is now the short folder from
+    :func:`short_shell_tmpdir_path`, still one per worktree and role, made
+    0700 and refused when the name is a link or a folder another user owns
+    (:func:`_short_private_tmpdir`). It is outside the worktree's git
+    directory, so whoever removes the worktree removes it first with
+    :func:`remove_shell_tmpdirs`.
+
+    When GuardKit has no scratch folder for the worktree (it is not a git
+    checkout), a private temporary folder is used instead, as for ``HOME``.
     """
-    return _shell_toolchain_folder(
-        worktree, _shell_folder_name("SHELL-TMPDIR", role), "temporary folder"
-    )
+    try:
+        from guardkit.orchestrator.paths import prepare_builder_scratch_dir
+    except ImportError as exc:  # pragma: no cover - GuardKit is a run-time need
+        raise RuntimeError(
+            "The AutoBuild shell needs GuardKit's builder scratch folder for "
+            f"its temporary folder and GuardKit cannot be imported ({exc}); "
+            "the shell is not built."
+        ) from exc
+
+    worktree = Path(worktree)
+    if prepare_builder_scratch_dir(worktree) is None:
+        name = _shell_folder_name("SHELL-TMPDIR", role)
+        return _temporary_private_folder(
+            name.lower(), worktree.resolve(), "the shell's temporary folder"
+        ).resolve()
+    return _short_private_tmpdir(short_shell_tmpdir_path(worktree, role))
 
 
 def _finish_shell_environment(
@@ -1188,8 +1282,8 @@ def _finish_shell_environment(
 
     13 October 2026 (design ``factory-project-commands-without-factory-
     credentials``, section 1b): the shell keeps its own base (``PATH``,
-    ``HOME`` and ``TMPDIR`` in the scratch folder (:func:`shell_home`,
-    :func:`shell_tmpdir`), the Python flags, the declared
+    ``HOME`` in the scratch folder and a short private ``TMPDIR``
+    (:func:`shell_home`, :func:`shell_tmpdir`), the Python flags, the declared
     settings and scratch folders), then GuardKit's
     ``finish_project_environment`` checks every proxy setting for a user
     name or password (a declared ``HTTPS_PROXY`` or ``https_proxy`` that

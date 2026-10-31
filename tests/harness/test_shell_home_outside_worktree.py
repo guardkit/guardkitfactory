@@ -37,7 +37,11 @@ import pytest
 
 from guardkitfactory import build_autobuild_backend
 from guardkitfactory.harness import backend_config
-from guardkitfactory.harness.backend_config import shell_tmpdir
+from guardkitfactory.harness.backend_config import (
+    remove_shell_tmpdirs,
+    shell_tmpdir,
+    short_shell_tmpdir_path,
+)
 
 _GIT_ENV = {
     "PATH": "/usr/bin:/bin",
@@ -328,7 +332,8 @@ def test_builder_and_checker_shells_have_tmpdir_outside_the_worktree(
     tmp_path: Path,
 ) -> None:
     worktree = _factory_worktree(tmp_path)
-    expected = (_scratch(worktree) / "toolchain" / "SHELL-TMPDIR").resolve()
+    _scratch(worktree)
+    expected = short_shell_tmpdir_path(worktree)
 
     for backend in (_builder_shell(worktree), _checker_shell(worktree)):
         result = backend.execute('printf "%s" "$TMPDIR"')
@@ -387,16 +392,20 @@ def test_an_existing_open_shell_folder_is_made_owner_only(tmp_path: Path) -> Non
     worktree = _factory_worktree(tmp_path)
     toolchain = _scratch(worktree) / "toolchain"
     toolchain.mkdir(mode=0o700)
-    for name in ("SHELL-HOME", "SHELL-TMPDIR", "TOOL_CACHE"):
+    for name in ("SHELL-HOME", "TOOL_CACHE"):
         (toolchain / name).mkdir()
         (toolchain / name).chmod(0o777)
     toolchain.chmod(0o777)
+    short_tmpdir = short_shell_tmpdir_path(worktree)
+    short_tmpdir.mkdir()
+    short_tmpdir.chmod(0o777)
 
     backend = _builder_shell(worktree, {"settings": [], "scratch": ["TOOL_CACHE"]})
 
     assert Path(backend.default._env["HOME"]) == (toolchain / "SHELL-HOME").resolve()
-    names = ("SHELL-HOME", "SHELL-TMPDIR", "TOOL_CACHE")
-    for folder in (toolchain, *(toolchain / name for name in names)):
+    assert backend.default._env["TMPDIR"] == str(short_tmpdir)
+    names = ("SHELL-HOME", "TOOL_CACHE")
+    for folder in (toolchain, short_tmpdir, *(toolchain / name for name in names)):
         assert (folder.stat().st_mode & 0o777) == 0o700, folder
 
 
@@ -421,7 +430,7 @@ def test_each_role_gets_its_own_home_and_tmpdir(tmp_path: Path) -> None:
     for role in ("builder", "checker", "specialist"):
         env = _role_shell(worktree, role, builder=role == "builder").default._env
         assert env["HOME"] == str(toolchain / f"{role}-SHELL-HOME")
-        assert env["TMPDIR"] == str(toolchain / f"{role}-SHELL-TMPDIR")
+        assert env["TMPDIR"] == str(short_shell_tmpdir_path(worktree, role))
         for name in ("HOME", "TMPDIR"):
             folder = Path(env[name])
             assert folder.is_dir()
@@ -483,3 +492,81 @@ def test_an_unknown_shell_role_uses_the_shared_folders(tmp_path: Path) -> None:
     env = build_autobuild_backend(worktree, shell_role="reviewer").default._env
     assert env["HOME"] == str((toolchain / "SHELL-HOME").resolve())
     assert sorted(p.name for p in worktree.iterdir()) == [".git", "README.md"]
+
+
+# ---------------------------------------------------------------------------
+# 31 October 2026: a short TMPDIR. The shells' TMPDIR was
+# <scratch>/toolchain/<role>-SHELL-TMPDIR. `dotnet test`
+# (Microsoft.Testing.Platform) opens a named pipe there with a name of about
+# 32 characters, and .NET refuses a socket path over 103 bytes, so every test
+# project of a .NET copy aborted ("Zero tests ran", exit 134).
+
+DOTNET_SOCKET_LIMIT = 103
+PIPE_NAME = "0123456789abcdef0123456789abcdef"  # 32 characters
+
+
+@pytest.mark.real_short_tmp
+def test_a_socket_in_each_shells_tmpdir_fits_with_a_deep_worktree(
+    tmp_path: Path,
+) -> None:
+    deep = tmp_path / ("very-long-folder-name-" * 4) / "Projects" / "repositories"
+    deep.mkdir(parents=True)
+    worktree = _factory_worktree(deep)
+    seen = set()
+    try:
+        for role in (None, "builder", "checker", "specialist"):
+            env = build_autobuild_backend(
+                worktree,
+                scratch_root=_scratch(worktree) if role == "builder" else None,
+                shell_role=role,
+            ).default._env
+            tmpdir = env["TMPDIR"]
+            socket = f"{tmpdir}/{PIPE_NAME}"
+            assert len(socket.encode()) <= DOTNET_SOCKET_LIMIT, socket
+            assert tmpdir.startswith("/tmp/gkf-")
+            assert (Path(tmpdir).stat().st_mode & 0o777) == 0o700
+            seen.add(tmpdir)
+            name = f"{role}-SHELL-TMPDIR" if role else "SHELL-TMPDIR"
+            old_place = _scratch(worktree) / "toolchain" / name
+            assert len(f"{old_place}/{PIPE_NAME}".encode()) > DOTNET_SOCKET_LIMIT
+        assert len(seen) == 4
+    finally:
+        remove_shell_tmpdirs(worktree)
+    assert not any(Path(tmpdir).exists() for tmpdir in seen)
+
+
+def test_each_worktree_has_its_own_short_tmpdir(tmp_path: Path) -> None:
+    (tmp_path / "a").mkdir()
+    (tmp_path / "b").mkdir()
+    first = _factory_worktree(tmp_path / "a")
+    second = _factory_worktree(tmp_path / "b")
+    one = shell_tmpdir(first, "builder")
+    assert one != shell_tmpdir(second, "builder")
+    assert shell_tmpdir(first, "builder") == one
+
+
+def test_a_short_tmpdir_name_taken_by_a_link_is_refused(tmp_path: Path) -> None:
+    worktree = _factory_worktree(tmp_path)
+    target = short_shell_tmpdir_path(worktree, "checker")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    target.symlink_to(elsewhere)
+
+    with pytest.raises(RuntimeError, match="not a folder this user owns"):
+        _role_shell(worktree, "checker")
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_removing_the_short_tmpdirs_never_follows_a_link(tmp_path: Path) -> None:
+    worktree = _factory_worktree(tmp_path)
+    builder = shell_tmpdir(worktree, "builder")
+    (builder / "left").write_text("x\n")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (elsewhere / "kept").write_text("kept\n")
+    short_shell_tmpdir_path(worktree, "checker").symlink_to(elsewhere)
+
+    remove_shell_tmpdirs(worktree)
+
+    assert not builder.exists()
+    assert (elsewhere / "kept").read_text() == "kept\n"

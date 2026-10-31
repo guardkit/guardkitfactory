@@ -109,11 +109,14 @@ def test_the_shell_has_no_factory_credentials(factory, role: str) -> None:
     assert Path(seen["STANDIN_CACHE"]).is_dir()
     assert seen.get("GUARDKIT_RUN_OWNER") == "build-x"
     # 19 October 2026 (build FEAT-B874): HOME and TMPDIR are the shells' own
-    # private folders in the scratch folder: never the worktree, and never
-    # the project commands' HOME and TMPDIR.
+    # private folders: never the worktree, and never the project commands'
+    # HOME and TMPDIR. HOME is in the scratch folder; TMPDIR is the short
+    # folder of the worktree (31 October 2026).
+    from guardkitfactory.harness.backend_config import short_shell_tmpdir_path
+
     toolchain = (factory.scratch / "toolchain").resolve()
     assert seen["HOME"] == str(toolchain / "SHELL-HOME")
-    assert seen["TMPDIR"] == str(toolchain / "SHELL-TMPDIR")
+    assert seen["TMPDIR"] == str(short_shell_tmpdir_path(factory.worktree))
 
 
 @pytest.mark.parametrize("name", ["HTTPS_PROXY", "https_proxy"])
