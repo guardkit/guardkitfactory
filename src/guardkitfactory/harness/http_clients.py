@@ -93,7 +93,8 @@ def create_chat_openai(*, replay_reasoning: bool = False, **kwargs: Any) -> Any:
     ``replay_reasoning=True`` builds
     :class:`~guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI`,
     which keeps each reply's thinking and sends it back on later requests.
-    Only the Player asks for it; every other caller keeps plain ``ChatOpenAI``.
+    The Player and the coach ask for it; every other caller keeps plain
+    ``ChatOpenAI``.
 
     Use the resolved langchain-openai provider's *uncached* builders. They
     select the HTTP implementation appropriate for the OpenAI SDK and retain

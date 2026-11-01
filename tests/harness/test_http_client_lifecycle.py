@@ -363,6 +363,7 @@ def test_model_construction_error_cannot_fallback(
         raise ValueError("owned model construction failed")
 
     monkeypatch.setattr("langchain_openai.ChatOpenAI", fail)
+    monkeypatch.setattr("guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI", fail)
     with pytest.raises(
         (LangGraphHarnessError, ValueError), match="owned model construction failed"
     ):

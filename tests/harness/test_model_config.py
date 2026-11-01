@@ -227,16 +227,25 @@ def test_openai_string_uses_chat_completions_and_preserves_alias(
 ) -> None:
     """Local aliases must keep the factory's Chat Completions HTTP contract.
 
-    Every role except the Player still builds plain ``ChatOpenAI``.
+    The coach builds the thinking-back class (as the Player does); every other
+    role still builds plain ``ChatOpenAI``. Both get the same arguments.
     """
     fake = FakeListChatModel(responses=["ok"])
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
 
-    with patch("langchain_openai.ChatOpenAI", return_value=fake) as constructor:
+    with (
+        patch("langchain_openai.ChatOpenAI", return_value=fake) as plain,
+        patch(
+            "guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI",
+            return_value=fake,
+        ) as replay,
+    ):
         resolved = resolve_autobuild_model("openai:flash-next-t06", role=role)
 
     assert resolved is fake
+    constructor, unused = (replay, plain) if role == "coach" else (plain, replay)
+    unused.assert_not_called()
     constructor.assert_called_once_with(
         model="flash-next-t06",
         use_responses_api=False,
@@ -337,20 +346,24 @@ def _close(sync_client: httpx.Client, async_client: httpx.AsyncClient) -> None:
     sync_client.close()
 
 
-def test_player_string_builds_reasoning_replay_model_and_others_do_not(
+def test_player_and_coach_strings_build_reasoning_replay_models_and_others_do_not(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """The coach hands its earlier thinking back too (31 October 2026: with it, and
+    its answer kept at the time limit, the build reviewer caught 19 of 27 faulty
+    turns in the replay, against 1)."""
     from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
 
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
 
-    player = resolve_autobuild_model("openai:flash-next-t06", role="player")
-    assert isinstance(player, ReasoningReplayChatOpenAI)
-    assert player.model_name == "flash-next-t06"
-    assert player.use_responses_api is False
-    assert player.openai_api_base == "http://model.test/v1"
-    for role in ("coach", "specialist", None):
+    for role in ("player", "coach"):
+        model = resolve_autobuild_model("openai:flash-next-t06", role=role)
+        assert isinstance(model, ReasoningReplayChatOpenAI)
+        assert model.model_name == "flash-next-t06"
+        assert model.use_responses_api is False
+        assert model.openai_api_base == "http://model.test/v1"
+    for role in ("specialist", None):
         other = resolve_autobuild_model("openai:flash-next-t06", role=role)
         assert type(other) is ChatOpenAI
 

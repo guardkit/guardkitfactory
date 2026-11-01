@@ -43,6 +43,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import asdict, dataclass, is_dataclass
@@ -841,6 +842,7 @@ class LangGraphHarness(HarnessAdapter):
         cwd: Path,
         resolved_model: Any,
         allowed_tools: frozenset[str] | None = None,
+        deadline: float | None = None,
     ) -> Any:
         """Construct the shared Coach graph or the required dcode Player.
 
@@ -891,7 +893,7 @@ class LangGraphHarness(HarnessAdapter):
                     # and the answer asked for (``tool_loop``).
                     middleware=[
                         _AllowedToolsMiddleware(allowed=allowed_tools),
-                        ToolLoopGuardMiddleware(),
+                        ToolLoopGuardMiddleware(deadline=deadline),
                     ],
                     backend=self.backend,
                     permissions=self.permissions,
@@ -1182,11 +1184,16 @@ class LangGraphHarness(HarnessAdapter):
         self._code_tools = []
         try:
             if allowed_tools is not None:
+                # Tool use ends before the invocation's time runs out, leaving
+                # a quarter of it (at most five minutes) for the answer from
+                # what was read: a pass that runs out of time is not lost.
+                reserve = min(300.0, timeout_seconds * 0.25)
                 agent = self._create_agent(
                     role=role,
                     cwd=cwd,
                     resolved_model=resolved_model,
                     allowed_tools=allowed_tools,
+                    deadline=time.monotonic() + timeout_seconds - reserve,
                 )
             else:
                 agent = self._create_agent(

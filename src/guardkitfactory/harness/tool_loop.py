@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import Any, cast
 
 from langchain.agents.middleware.types import AgentMiddleware, ModelRequest
@@ -347,7 +348,23 @@ def _checked_final(response: Any, reason: str) -> Any:
 
 
 class ToolLoopGuardMiddleware(AgentMiddleware):
-    """Bound a model's tool use per invocation; see the module docstring."""
+    """Bound a model's tool use per invocation; see the module docstring.
+
+    ``deadline`` (a ``time.monotonic()`` value) ends tool use the same way
+    when it has passed, so a pass that runs short of time answers from what
+    it has read instead of being cut off with nothing.
+    """
+
+    def __init__(self, deadline: float | None = None) -> None:
+        super().__init__()
+        self.deadline = deadline
+
+    def _stop_reason(self, request: ModelRequest) -> str | None:
+        reason = stop_reason(request.state, list(request.tools))
+        if reason is None and self.deadline is not None and request.tools:
+            if time.monotonic() >= self.deadline:
+                reason = "the time for looking things up is over"
+        return reason
 
     # --- tool calls ---------------------------------------------------------
 
@@ -405,13 +422,13 @@ class ToolLoopGuardMiddleware(AgentMiddleware):
         )
 
     def wrap_model_call(self, request: ModelRequest, handler: Any) -> Any:
-        reason = stop_reason(request.state, list(request.tools))
+        reason = self._stop_reason(request)
         if reason is None:
             return handler(request)
         return _checked_final(handler(self._final_request(request, reason)), reason)
 
     async def awrap_model_call(self, request: ModelRequest, handler: Any) -> Any:
-        reason = stop_reason(request.state, list(request.tools))
+        reason = self._stop_reason(request)
         if reason is None:
             return await handler(request)
         return _checked_final(

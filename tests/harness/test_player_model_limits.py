@@ -625,4 +625,6 @@ def test_player_limits_path_builds_reasoning_replay_model(monkeypatch):
     assert player.max_tokens == 8192
     assert player.profile["max_input_tokens"] == 131072
     coach = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("coach")
-    assert type(coach) is ChatOpenAI
+    assert isinstance(coach, ReasoningReplayChatOpenAI)
+    specialist = LangGraphHarness("openai:workhorse")._resolve_model_for_invoke("specialist")
+    assert type(specialist) is ChatOpenAI

@@ -279,10 +279,11 @@ def _resolve_model_for_transport(model: str, *, role: str | None = None) -> Base
 
     Other providers still use Deep Agents' resolver unchanged.
 
-    For ``role == "player"`` the local model also keeps each reply's thinking
-    and sends it back on later steps (see
-    :mod:`guardkitfactory.harness.reasoning_replay`). Other roles, including
-    the coach, keep plain ``ChatOpenAI``.
+    For the player and the coach the local model also keeps each reply's
+    thinking and sends it back on later steps (see
+    :mod:`guardkitfactory.harness.reasoning_replay`), so a tool-using pass does
+    not think the whole problem through again at each step. Other roles keep
+    plain ``ChatOpenAI``.
     """
     provider, separator, bare = model.partition(":")
     if provider != "openai" or not separator or not bare:
@@ -300,7 +301,7 @@ def _resolve_model_for_transport(model: str, *, role: str | None = None) -> Base
     configured_key = os.environ.get("OPENAI_API_KEY")
     if configured_key:
         kwargs["api_key"] = configured_key
-    return create_chat_openai(replay_reasoning=role == "player", **kwargs)
+    return create_chat_openai(replay_reasoning=role in ("player", "coach"), **kwargs)
 
 
 def _normalize_prebuilt_openai_transport(model: BaseChatModel) -> BaseChatModel:

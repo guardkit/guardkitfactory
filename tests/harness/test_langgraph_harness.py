@@ -362,6 +362,10 @@ class TestModelProfileInjection:
                 side_effect=_fake_resolve_model,
             ),
             patch(
+                "guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI",
+                side_effect=_fake_resolve_model,
+            ),
+            patch(
                 "guardkitfactory.harness.langgraph_harness.create_deep_agent",
                 return_value=fake_agent,
             ) as create_mock,
@@ -408,6 +412,10 @@ class TestModelProfileInjection:
         with (
             patch(
                 "langchain_openai.ChatOpenAI",
+                side_effect=_fake_resolve_model,
+            ),
+            patch(
+                "guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI",
                 side_effect=_fake_resolve_model,
             ),
             patch(
@@ -1572,18 +1580,21 @@ def test_real_graph_uses_chat_completions_prompt_and_runtime_tools(
         )
 
     transport = httpx.MockTransport(_handler)
-    real_constructor = langchain_openai.ChatOpenAI
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
 
-    def _chat_model(**kwargs: Any) -> Any:
-        for key in ("http_client", "http_async_client", "http_socket_options"):
-            kwargs.pop(key, None)
-        return real_constructor(
-            **kwargs,
-            http_client=httpx.Client(transport=transport),
-            http_async_client=httpx.AsyncClient(transport=transport),
-            http_socket_options=(),
-            max_retries=0,
-        )
+    def _over_transport(real_constructor: Any) -> Any:
+        def _chat_model(**kwargs: Any) -> Any:
+            for key in ("http_client", "http_async_client", "http_socket_options"):
+                kwargs.pop(key, None)
+            return real_constructor(
+                **kwargs,
+                http_client=httpx.Client(transport=transport),
+                http_async_client=httpx.AsyncClient(transport=transport),
+                http_socket_options=(),
+                max_retries=0,
+            )
+
+        return _chat_model
 
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
@@ -1595,7 +1606,12 @@ def test_real_graph_uses_chat_completions_prompt_and_runtime_tools(
 
     async def _collect() -> list[Any]:
         events: list[Any] = []
-        with patch("langchain_openai.ChatOpenAI", side_effect=_chat_model):
+        with (
+            patch("langchain_openai.ChatOpenAI",
+                  side_effect=_over_transport(langchain_openai.ChatOpenAI)),
+            patch("guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI",
+                  side_effect=_over_transport(ReasoningReplayChatOpenAI)),
+        ):
             async for event in harness.invoke(
                 prompt="Exercise each runtime tool, then return the coach verdict JSON.",
                 role="coach",
@@ -2017,18 +2033,21 @@ def _run_scripted_graph(
         )
 
     transport = httpx.MockTransport(_handler)
-    real_constructor = langchain_openai.ChatOpenAI
+    from guardkitfactory.harness.reasoning_replay import ReasoningReplayChatOpenAI
 
-    def _chat_model(**kwargs: Any) -> Any:
-        for key in ("http_client", "http_async_client", "http_socket_options"):
-            kwargs.pop(key, None)
-        return real_constructor(
-            **kwargs,
-            http_client=httpx.Client(transport=transport),
-            http_async_client=httpx.AsyncClient(transport=transport),
-            http_socket_options=(),
-            max_retries=0,
-        )
+    def _over_transport(real_constructor: Any) -> Any:
+        def _chat_model(**kwargs: Any) -> Any:
+            for key in ("http_client", "http_async_client", "http_socket_options"):
+                kwargs.pop(key, None)
+            return real_constructor(
+                **kwargs,
+                http_client=httpx.Client(transport=transport),
+                http_async_client=httpx.AsyncClient(transport=transport),
+                http_socket_options=(),
+                max_retries=0,
+            )
+
+        return _chat_model
 
     monkeypatch.setenv("OPENAI_BASE_URL", "http://model.test/v1")
     monkeypatch.setenv("OPENAI_API_KEY", "local-test-key")
@@ -2041,7 +2060,12 @@ def _run_scripted_graph(
 
     async def _collect() -> list[Any]:
         events: list[Any] = []
-        with patch("langchain_openai.ChatOpenAI", side_effect=_chat_model):
+        with (
+            patch("langchain_openai.ChatOpenAI",
+                  side_effect=_over_transport(langchain_openai.ChatOpenAI)),
+            patch("guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI",
+                  side_effect=_over_transport(ReasoningReplayChatOpenAI)),
+        ):
             async for event in harness.invoke(
                 prompt="Review the change and return the verdict JSON.",
                 role=role,

@@ -63,9 +63,12 @@ class TestGemma31bProfile:
             profile = None
 
         fake = _FakeModel()
-        with patch(
-            "langchain_openai.ChatOpenAI",
-            return_value=fake,
+        with (
+            patch("langchain_openai.ChatOpenAI", return_value=fake),
+            patch(
+                "guardkitfactory.harness.reasoning_replay.ReasoningReplayChatOpenAI",
+                return_value=fake,
+            ),
         ):
             resolved = resolve_autobuild_model("openai:gemma4:31b", role="coach")
         assert resolved.profile == {"max_input_tokens": 98_304}

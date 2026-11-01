@@ -10,6 +10,7 @@ specialist-agent tests that need its own tools and failure cap stay there.
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, ClassVar
 
 import pytest
@@ -62,14 +63,14 @@ def other(query: str) -> str:
     return f"other {query}"
 
 
-def _agent(script: list[AIMessage], tools: list[Any]) -> Any:
+def _agent(script: list[AIMessage], tools: list[Any], deadline: float | None = None) -> Any:
     _Recorder.offered = []
     _Recorder.sent = []
     return create_agent(
         _Recorder(messages=iter(script)),
         tools=tools,
         system_prompt="a prompt",
-        middleware=[ToolLoopGuardMiddleware()],
+        middleware=[ToolLoopGuardMiddleware(deadline=deadline)],
     )
 
 
@@ -160,6 +161,38 @@ class TestToolTurns:
     def test_the_limit_is_forty_turns(self) -> None:
         assert MAX_TOOL_TURNS_PER_RUN == 40
         assert MAX_IDENTICAL_CALLS_PER_RUN == 2
+
+
+class TestDeadline:
+    """A pass that runs short of time answers from what it has read (31 October
+    2026: in reviewer experiment 1 the code-reading step ran out of time in 14 of
+    19 reviews and everything it had found was thrown away)."""
+
+    def test_a_passed_deadline_ends_tool_use_with_an_answer(self) -> None:
+        script = [AIMessage("answer from what I have")]
+        result = _go(_agent(script, [lookup], deadline=time.monotonic() - 1))
+        assert _Recorder.offered == [[]]
+        assert _tool_messages(result) == []
+        assert result["messages"][-1].content == "answer from what I have"
+
+    def test_tools_are_kept_before_the_deadline(self) -> None:
+        script = [_call("lookup", {"query": "x"}, "c0"), AIMessage("done")]
+        result = _go(_agent(script, [lookup], deadline=time.monotonic() + 3600))
+        assert [m.status for m in _tool_messages(result)] == ["success"]
+        assert all(o == ["lookup"] for o in _Recorder.offered)
+
+    def test_the_deadline_is_checked_at_each_step(self) -> None:
+        @tool
+        def slow(query: str) -> str:
+            """Takes longer than the time left."""
+            time.sleep(0.5)
+            return f"slow facts about {query}"
+
+        script = [_call("slow", {"query": "x"}, "c0"), AIMessage("answer")]
+        result = _go(_agent(script, [slow], deadline=time.monotonic() + 0.25))
+        assert [m.status for m in _tool_messages(result)] == ["success"]
+        assert _Recorder.offered == [["slow"], []]
+        assert result["messages"][-1].content == "answer"
 
 
 class TestEveryToolFailing:
