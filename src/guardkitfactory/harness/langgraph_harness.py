@@ -51,6 +51,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from deepagents import create_deep_agent
+from deepagents.middleware.subagents import GENERAL_PURPOSE_SUBAGENT
 from guardkit.orchestrator.harness import (
     AssistantMessageEvent,
     HarnessAdapter,
@@ -899,10 +900,37 @@ class LangGraphHarness(HarnessAdapter):
                     permissions=self.permissions,
                     system_prompt=_read_only_system_prompt_for_role(role, offered),
                 )
+            if deadline is None:
+                return create_deep_agent(
+                    model=resolved_model,
+                    tools=extra_tools,
+                    middleware=[TodoListMiddleware()],
+                    backend=self.backend,
+                    permissions=self.permissions,
+                    system_prompt=_system_prompt_for_role(role),
+                )
+            # 15 November 2026: the time cut-off only (``limits=False``), see
+            # ``invoke``. deepagents builds its general-purpose helper (the
+            # ``task`` tool) with its own middleware, not the caller's, so the
+            # helper is declared here with the same cut-off; otherwise one
+            # started before the cut-off keeps using tools until the hard time
+            # limit and the review is lost.
+            middleware: list[AgentMiddleware[Any, Any, Any]] = [
+                TodoListMiddleware(),
+                ToolLoopGuardMiddleware(deadline=deadline, limits=False),
+            ]
             return create_deep_agent(
                 model=resolved_model,
                 tools=extra_tools,
-                middleware=[TodoListMiddleware()],
+                middleware=middleware,
+                subagents=[
+                    {
+                        **GENERAL_PURPOSE_SUBAGENT,
+                        "middleware": [
+                            ToolLoopGuardMiddleware(deadline=deadline, limits=False)
+                        ],
+                    }
+                ],
                 backend=self.backend,
                 permissions=self.permissions,
                 system_prompt=_system_prompt_for_role(role),
@@ -1193,6 +1221,18 @@ class LangGraphHarness(HarnessAdapter):
                     cwd=cwd,
                     resolved_model=resolved_model,
                     allowed_tools=allowed_tools,
+                    deadline=time.monotonic() + timeout_seconds - reserve,
+                )
+            elif tools and role != "player":
+                # 15 November 2026: a review pass with write tools (GuardKit's
+                # end review) gets the same time cut-off, because one that runs
+                # out of time otherwise loses all it found. Only the cut-off:
+                # the read-only turn and repeat limits stay off (``limits=False``).
+                reserve = min(300.0, timeout_seconds * 0.25)
+                agent = self._create_agent(
+                    role=role,
+                    cwd=cwd,
+                    resolved_model=resolved_model,
                     deadline=time.monotonic() + timeout_seconds - reserve,
                 )
             else:

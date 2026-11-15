@@ -355,12 +355,17 @@ class ToolLoopGuardMiddleware(AgentMiddleware):
     it has read instead of being cut off with nothing.
     """
 
-    def __init__(self, deadline: float | None = None) -> None:
+    def __init__(self, deadline: float | None = None, *, limits: bool = True) -> None:
         super().__init__()
         self.deadline = deadline
+        # 15 November 2026: ``limits=False`` keeps only the time cut-off, for a
+        # review pass with write tools (GuardKit's end review), which otherwise
+        # loses all it found when it runs out of time; the turn and repeat
+        # limits were never measured for that pass, so they stay off.
+        self.limits = limits
 
     def _stop_reason(self, request: ModelRequest) -> str | None:
-        reason = stop_reason(request.state, list(request.tools))
+        reason = stop_reason(request.state, list(request.tools)) if self.limits else None
         if reason is None and self.deadline is not None and request.tools:
             if time.monotonic() >= self.deadline:
                 reason = "the time for looking things up is over"
@@ -369,6 +374,8 @@ class ToolLoopGuardMiddleware(AgentMiddleware):
     # --- tool calls ---------------------------------------------------------
 
     def _repeat_refused(self, request: Any) -> ToolMessage | None:
+        if not self.limits:
+            return None
         call = request.tool_call
         name = str(call.get("name") or "tool")
         if name in _withdrawn(request.state):

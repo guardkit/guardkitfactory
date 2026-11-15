@@ -20,7 +20,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import time
 import warnings
+from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
 from typing import Any
@@ -1976,11 +1978,13 @@ def _run_scripted_graph(
     backend: Any = None,
     recursion_limit: int | None = 80,
     language_servers: list[dict[str, Any]] | None = None,
+    on_request: Callable[[int, dict[str, Any]], None] | None = None,
 ) -> tuple[list[dict[str, Any]], list[Any]]:
     """Run one real graph turn; return (request bodies, harness events).
 
     A request that offers no tools (the tool limit's final call) is answered
-    with the verdict text, whatever calls are left.
+    with the verdict text, whatever calls are left. ``on_request`` sees each
+    request body, with its index, before it is answered.
     """
 
     bodies: list[dict[str, Any]] = []
@@ -2008,6 +2012,8 @@ def _run_scripted_graph(
         body = json.loads(request.content)
         bodies.append(body)
         index = len(bodies) - 1
+        if on_request is not None:
+            on_request(index, body)
         if index < len(calls) and body.get("tools"):
             name, arguments = calls[index]
             return _response(
@@ -2390,6 +2396,10 @@ def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
     middleware, limit = kwargs["middleware"]
     assert isinstance(middleware, _AllowedToolsMiddleware)
     assert isinstance(limit, ToolLoopGuardMiddleware)
+    # The read-only reviewers keep the turn and repeat limits (15 November
+    # 2026: only the review pass with write tools turns them off).
+    assert limit.limits is True
+    assert "subagents" not in kwargs
     assert not any(isinstance(m, TodoListMiddleware) for m in kwargs["middleware"])
     assert middleware.allowed == allowed
     assert "code_search" in kwargs["system_prompt"]
@@ -2411,6 +2421,149 @@ def test_read_only_coach_graph_gets_code_search_but_no_todo_list(
     assert create.call_args.kwargs["tools"] == []
     search.assert_not_called()
     assert "code_search" not in create.call_args.kwargs["system_prompt"]
+
+
+# ---------------------------------------------------------------------------
+# 15 November 2026: a review pass with write tools (GuardKit's end review) gets
+# the read-only reviewers' time cut-off, because one that runs out of time
+# otherwise loses all it found (end-review replay, 10 recorded rounds x 3 runs:
+# answered 24/30 -> 29/30). Only the cut-off: the turn and repeat limits stay
+# off for it. The builder (Player) is unchanged.
+# ---------------------------------------------------------------------------
+
+_WRITE_TOOLS = ["Read", "Write", "Edit", "Bash", "Grep", "Glob"]
+
+
+def _create_kwargs_for(role: str, tools: list[Any], timeout_seconds: float, cwd: Path) -> Any:
+    """Run ``invoke`` with ``_create_agent`` patched; return its call's kwargs
+    and the monotonic clock just before and just after."""
+    harness = LangGraphHarness(model="ignored")
+    with patch.object(
+        LangGraphHarness, "_create_agent", return_value=_make_fake_agent()
+    ) as create, patch.object(
+        LangGraphHarness, "_resolve_model_for_invoke", return_value="ignored"
+    ):
+
+        async def _collect() -> None:
+            async for _event in harness.invoke(
+                prompt="hi", role=role, tools=tools, cwd=cwd, timeout_seconds=timeout_seconds
+            ):
+                pass
+
+        before = time.monotonic()
+        asyncio.run(_collect())
+        after = time.monotonic()
+    return create.call_args.kwargs, before, after
+
+
+@pytest.mark.parametrize(
+    ("timeout_seconds", "reserve"), [(600.0, 150.0), (3900.0, 300.0)]
+)
+def test_a_tool_using_review_pass_gets_the_time_cut_off(
+    tmp_path: Path, timeout_seconds: float, reserve: float
+) -> None:
+    """Tool use ends a quarter of the time limit, at most five minutes, before
+    it, as for the read-only reviewers."""
+    kwargs, before, after = _create_kwargs_for("coach", _WRITE_TOOLS, timeout_seconds, tmp_path)
+    assert "allowed_tools" not in kwargs
+    assert before + timeout_seconds - reserve <= kwargs["deadline"]
+    assert kwargs["deadline"] <= after + timeout_seconds - reserve
+
+    # The read-only reviewers' pass is unchanged: its allowlist and the same
+    # cut-off.
+    kwargs, before, after = _create_kwargs_for(
+        "coach", ["Read", "Search", "Grep", "Glob"], timeout_seconds, tmp_path
+    )
+    assert kwargs["allowed_tools"]
+    assert before + timeout_seconds - reserve <= kwargs["deadline"]
+    assert kwargs["deadline"] <= after + timeout_seconds - reserve
+
+
+def test_a_review_pass_with_no_tools_and_the_player_get_no_cut_off(tmp_path: Path) -> None:
+    for role, tools in (("coach", []), ("player", _WRITE_TOOLS), ("player", ["Read", "Grep"])):
+        kwargs, _before, _after = _create_kwargs_for(role, tools, 600, tmp_path)
+        assert "deadline" not in kwargs, (role, tools)
+
+
+def test_the_tool_using_graph_has_the_cut_off_only_and_so_does_its_helper(
+    tmp_path: Path,
+) -> None:
+    from langchain.agents.middleware import TodoListMiddleware
+
+    from guardkitfactory.harness.tool_loop import ToolLoopGuardMiddleware
+
+    harness = LangGraphHarness(model="ignored", backend=object())
+    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
+        harness._create_agent(role="coach", cwd=tmp_path, resolved_model="m", deadline=123.0)
+    kwargs = create.call_args.kwargs
+    todo, guard = kwargs["middleware"]
+    assert isinstance(todo, TodoListMiddleware)
+    assert isinstance(guard, ToolLoopGuardMiddleware)
+    assert guard.deadline == 123.0
+    assert guard.limits is False
+    # deepagents' general-purpose helper (the ``task`` tool) gets the same
+    # cut-off: deepagents does not pass the caller's middleware on to it.
+    (helper,) = kwargs["subagents"]
+    assert helper["name"] == "general-purpose"
+    (helper_guard,) = helper["middleware"]
+    assert isinstance(helper_guard, ToolLoopGuardMiddleware)
+    assert helper_guard.deadline == 123.0
+    assert helper_guard.limits is False
+
+    # With no cut-off the graph is built as before.
+    with patch("guardkitfactory.harness.langgraph_harness.create_deep_agent") as create:
+        harness._create_agent(role="coach", cwd=tmp_path, resolved_model="m")
+    (todo,) = create.call_args.kwargs["middleware"]
+    assert isinstance(todo, TodoListMiddleware)
+    assert "subagents" not in create.call_args.kwargs
+
+
+def test_the_general_purpose_helper_stops_using_tools_at_the_cut_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """In an end-review replay (13 November 2026) a helper started through the
+    ``task`` tool before the cut-off was still using tools after it, until the
+    hard time limit lost the whole review. Real graph: the review starts the
+    helper, the cut-off passes during the helper's first call, and from then
+    on no request offers tools; the helper answers, then the review does."""
+    from guardkitfactory.harness import tool_loop
+
+    worktree = _review_worktree(tmp_path)
+    late = {"seconds": 0.0}
+
+    class _Clock:
+        @staticmethod
+        def monotonic() -> float:
+            return time.monotonic() + late["seconds"]
+
+    def _cut_off_passes_during_the_helpers_first_call(index: int, body: dict[str, Any]) -> None:
+        if index == 1:
+            late["seconds"] = 3600.0
+
+    monkeypatch.setattr(tool_loop, "time", _Clock)
+    look = "Read counter.mjs and say what it counts."
+    file_path = str(worktree / "counter.mjs")
+    bodies, events = _run_scripted_graph(
+        monkeypatch,
+        worktree,
+        tools=_WRITE_TOOLS,
+        calls=[
+            ("task", {"description": look, "subagent_type": "general-purpose"}),
+            ("read_file", {"file_path": file_path}),
+            ("read_file", {"file_path": file_path, "offset": 1}),
+            ("read_file", {"file_path": file_path, "offset": 2}),
+        ],
+        on_request=_cut_off_passes_during_the_helpers_first_call,
+    )
+
+    assert "task" in _bound(bodies[0])
+    assert "read_file" in _bound(bodies[1])
+    assert look in json.dumps(bodies[1]["messages"])
+    assert [bool(body.get("tools")) for body in bodies] == [True, True, False, False]
+    for final in bodies[2:]:
+        assert "Tool use has ended for this answer" in json.dumps(final["messages"][-1])
+    answers = [e.text for e in events if isinstance(e, AssistantMessageEvent)]
+    assert answers[-1] == '{"verdict":"approve","findings":[]}'
 
 
 # ---------------------------------------------------------------------------

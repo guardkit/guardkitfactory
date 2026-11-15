@@ -63,14 +63,20 @@ def other(query: str) -> str:
     return f"other {query}"
 
 
-def _agent(script: list[AIMessage], tools: list[Any], deadline: float | None = None) -> Any:
+def _agent(
+    script: list[AIMessage],
+    tools: list[Any],
+    deadline: float | None = None,
+    *,
+    limits: bool = True,
+) -> Any:
     _Recorder.offered = []
     _Recorder.sent = []
     return create_agent(
         _Recorder(messages=iter(script)),
         tools=tools,
         system_prompt="a prompt",
-        middleware=[ToolLoopGuardMiddleware(deadline=deadline)],
+        middleware=[ToolLoopGuardMiddleware(deadline=deadline, limits=limits)],
     )
 
 
@@ -193,6 +199,52 @@ class TestDeadline:
         assert [m.status for m in _tool_messages(result)] == ["success"]
         assert _Recorder.offered == [["slow"], []]
         assert result["messages"][-1].content == "answer"
+
+
+class TestTimeCutOffOnly:
+    """15 November 2026: ``limits=False`` (the review pass with write tools,
+    GuardKit's end review) keeps the time cut-off and nothing else."""
+
+    def test_the_turn_limit_does_not_apply(self) -> None:
+        turns = MAX_TOOL_TURNS_PER_RUN + 5
+        script = [_call("lookup", {"query": f"q{i}"}, f"c{i}") for i in range(turns)]
+        script.append(AIMessage("done"))
+        result = _go(_agent(script, [lookup], deadline=time.monotonic() + 3600, limits=False))
+        assert [m.status for m in _tool_messages(result)] == ["success"] * turns
+        assert _Recorder.offered == [["lookup"]] * (turns + 1)
+        assert result["messages"][-1].content == "done"
+
+    def test_identical_calls_are_all_run(self) -> None:
+        repeats = MAX_IDENTICAL_CALLS_PER_RUN + 3
+        script = [_call("lookup", {"query": "x"}, f"c{i}") for i in range(repeats)]
+        script.append(AIMessage("done"))
+        result = _go(_agent(script, [lookup], limits=False))
+        assert [m.status for m in _tool_messages(result)] == ["success"] * repeats
+        assert all(o == ["lookup"] for o in _Recorder.offered)
+
+    def test_the_deadline_still_ends_tool_use_with_an_answer(self) -> None:
+        script = [AIMessage("answer from what I have")]
+        result = _go(_agent(script, [lookup], deadline=time.monotonic() - 1, limits=False))
+        assert _Recorder.offered == [[]]
+        assert _tool_messages(result) == []
+        assert result["messages"][-1].content == "answer from what I have"
+
+    def test_the_deadline_is_checked_at_each_step(self) -> None:
+        @tool
+        def slow(query: str) -> str:
+            """Takes longer than the time left."""
+            time.sleep(0.5)
+            return f"slow facts about {query}"
+
+        script = [_call("slow", {"query": "x"}, "c0"), AIMessage("answer")]
+        result = _go(_agent(script, [slow], deadline=time.monotonic() + 0.25, limits=False))
+        assert [m.status for m in _tool_messages(result)] == ["success"]
+        assert _Recorder.offered == [["slow"], []]
+        assert result["messages"][-1].content == "answer"
+
+    def test_limits_are_on_unless_turned_off(self) -> None:
+        assert ToolLoopGuardMiddleware().limits is True
+        assert ToolLoopGuardMiddleware(deadline=1.0).limits is True
 
 
 class TestEveryToolFailing:
